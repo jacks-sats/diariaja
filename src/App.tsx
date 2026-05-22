@@ -4454,7 +4454,23 @@ export default function App() {
             </div>
 
             <div style={{ padding:"0 20px 24px", display:"flex", flexDirection:"column", gap:10 }}>
-              <button style={{ ...S.btnSecondary, color:negocio.cor, borderColor:negocio.cor, marginTop:12 }}
+              {/* Botão trocar para diarista — sempre visível */}
+              <button
+                style={{ ...S.btnSecondary, color:"#8338EC", borderColor:"#8338EC", marginTop:12, fontWeight:800 }}
+                onClick={() => {
+                  setMenuTrocarPerfil(false);
+                  setAuthError("");
+                  if (tipo === "ambos" && profile?.funcao && profile?.valor_diaria) {
+                    setModoAtual("diarista");
+                    setTela("home-diarista");
+                  } else {
+                    setForm({ ...form, funcao: profile?.funcao || "", valor: String(profile?.valor_diaria || "") });
+                    setTela("setup-diarista");
+                  }
+                }}>
+                👷 {tipo === "ambos" ? "Mudar para modo Diarista" : "Também sou diarista"}
+              </button>
+              <button style={{ ...S.btnSecondary, color:negocio.cor, borderColor:negocio.cor }}
                 onClick={() => setTela("escolha-negocio")}>
                 🔄 Trocar tipo de negócio
               </button>
@@ -5901,7 +5917,25 @@ export default function App() {
             </div>
 
             <div style={{ padding:"0 20px 24px", display:"flex", flexDirection:"column", gap:10 }}>
-              <button style={{ ...S.btnSecondary, color:"#3A86FF", borderColor:"#3A86FF", marginTop:12 }} onClick={() => setTela("suporte")}>
+              {/* Botão trocar para empregador — sempre visível */}
+              <button
+                style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35", marginTop:12, fontWeight:800 }}
+                onClick={() => {
+                  setMenuTrocarPerfil(false);
+                  setAuthError("");
+                  if (tipo === "ambos" && profile?.segmento) {
+                    setNegocio(profile.segmento);
+                    setModoAtual("empregador");
+                    setTela("home-empregador");
+                  } else {
+                    setForm({ ...form, nomeNegocio: profile?.nome_negocio || "" });
+                    setNegocio(null);
+                    setTela("setup-empregador");
+                  }
+                }}>
+                🏢 {tipo === "ambos" ? "Mudar para modo Empregador" : "Também sou empregador"}
+              </button>
+              <button style={{ ...S.btnSecondary, color:"#3A86FF", borderColor:"#3A86FF" }} onClick={() => setTela("suporte")}>
                 🎧 Suporte / Ajuda
               </button>
               <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
