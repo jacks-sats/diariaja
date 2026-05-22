@@ -700,6 +700,7 @@ export default function App() {
   }, [tela, session?.user?.id]);
 
   // Carrega avaliações do diarista real ao abrir o perfil dele
+  // E também recarrega os convites enviados para garantir status atualizado
   useEffect(() => {
     if (tela !== "perfil-diarista-real" || !diaristaSelecionadaReal) return;
     setAvaliacoesDiaristaReal([]);
@@ -711,6 +712,8 @@ export default function App() {
         .order("created_at", { ascending: false });
       if (data) setAvaliacoesDiaristaReal(data);
     })();
+    // Recarrega convites para exibir status atualizado no botão
+    if (session?.user) carregarConvites(session.user.id, "empregador");
   }, [tela, diaristaSelecionadaReal?.id]);
 
   // Carrega média de avaliação do próprio empregador logado (para mostrar no perfil)
@@ -6866,11 +6869,100 @@ export default function App() {
           </button>
         </div>
 
-        <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
-          <button style={{ ...S.btnPrimary, background:cor }} onClick={() => { setModalConvite(true); setContratadoReal(false); }}>
-            📨 Convidar para diária
-          </button>
-        </div>
+        {/* ── Área de ação — muda conforme status do convite ── */}
+        {(() => {
+          // Busca o convite mais recente enviado para este diarista
+          const conviteAtivo = convitesEnviados
+            .filter(c => c.diarista_id === d.id)
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+
+          const statusConvite = conviteAtivo?.status;
+
+          if (statusConvite === "pendente") {
+            // ── Estado: aguardando resposta ──
+            return (
+              <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
+                <div style={{ background:"#fef3c7", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 }}>
+                  <span style={{ fontSize:28 }}>⏳</span>
+                  <div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"#92400e" }}>Aguardando confirmação</div>
+                    <div style={{ fontSize:12, color:"#a16207", marginTop:2 }}>
+                      {d.nome.split(" ")[0]} ainda não respondeu ao convite.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  style={{ ...S.btnSecondary, color:"#d97706", borderColor:"#f59e0b", opacity:0.7, cursor:"not-allowed" }}
+                  disabled>
+                  ⏳ Convite enviado — aguardando
+                </button>
+                <button
+                  style={{ ...S.btnSecondary, color:"#94a3b8", borderColor:"#e2e8f0", fontSize:12 }}
+                  onClick={() => { setModalConvite(true); }}>
+                  🔄 Reenviar / alterar convite
+                </button>
+              </div>
+            );
+          }
+
+          if (statusConvite === "aceito") {
+            // ── Estado: aceito — libera pagamento e contato ──
+            return (
+              <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
+                <div style={{ background:"#dcfce7", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 }}>
+                  <span style={{ fontSize:28 }}>🎉</span>
+                  <div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"#166534" }}>Convite aceito!</div>
+                    <div style={{ fontSize:12, color:"#15803d", marginTop:2 }}>
+                      {d.nome.split(" ")[0]} vai na sua diária. Combine os detalhes abaixo.
+                    </div>
+                  </div>
+                </div>
+                {/* Contato liberado */}
+                {d.telefone ? (
+                  <a
+                    href={`https://wa.me/55${d.telefone.replace(/\D/g,"")}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ ...S.btnPrimary, background:"#22c55e", textDecoration:"none", textAlign:"center" as const }}>
+                    📱 WhatsApp: {d.telefone}
+                  </a>
+                ) : (
+                  <div style={{ background:"#f1f5f9", borderRadius:12, padding:"12px 16px", fontSize:13, color:"#64748b", textAlign:"center" as const }}>
+                    📞 Contato não cadastrado pelo profissional
+                  </div>
+                )}
+                {/* Liberar pagamento */}
+                {conviteAtivo?.valor && (
+                  <button
+                    style={{ ...S.btnPrimary, background:cor }}
+                    onClick={() => setModalPix(conviteAtivo as any)}>
+                    💳 Liberar pagamento — R$ {conviteAtivo.valor}
+                  </button>
+                )}
+                <button
+                  style={{ ...S.btnSecondary, color:cor, borderColor:cor, fontSize:12 }}
+                  onClick={() => { setModalConvite(true); }}>
+                  📨 Enviar novo convite
+                </button>
+              </div>
+            );
+          }
+
+          // ── Estado padrão: sem convite ativo (ou recusado) ──
+          return (
+            <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
+              {statusConvite === "recusado" && (
+                <div style={{ background:"#fee2e2", borderRadius:12, padding:"10px 14px", fontSize:13, color:"#991b1b", fontWeight:700, textAlign:"center" as const }}>
+                  😔 {d.nome.split(" ")[0]} não pôde nesta data. Tente outra data ou horário.
+                </div>
+              )}
+              <button style={{ ...S.btnPrimary, background:cor }} onClick={() => { setModalConvite(true); setContratadoReal(false); }}>
+                📨 Convidar para diária
+              </button>
+            </div>
+          );
+        })()}
 
         {/* Modal de convite com local/data/horário */}
         {modalConvite && (
