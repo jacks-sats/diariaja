@@ -512,14 +512,31 @@ export default function App() {
   useEffect(() => { tipoRef.current = tipo; }, [tipo]);
   // Persiste o modo atual para sobreviver ao reload da página
   useEffect(() => { localStorage.setItem("diariaja_modo", modoAtual); }, [modoAtual]);
-  // Persiste e aplica dark mode
+  // Persiste e aplica dark mode via CSS custom properties + atributo no body
   useEffect(() => {
     localStorage.setItem("diariaja_dark", darkMode ? "1" : "0");
-    document.documentElement.style.setProperty("--bg-app", darkMode ? "#0f172a" : "#f0f2f5");
-    document.documentElement.style.setProperty("--bg-card", darkMode ? "#1e293b" : "#ffffff");
-    document.documentElement.style.setProperty("--text-primary", darkMode ? "#f1f5f9" : "#0f172a");
-    document.documentElement.style.setProperty("--text-secondary", darkMode ? "#94a3b8" : "#64748b");
-    document.documentElement.style.setProperty("--border-color", darkMode ? "#334155" : "#e2e8f0");
+    const r = document.documentElement;
+    r.style.setProperty("--bg-app",      darkMode ? "#0f172a" : "#f0f2f5");
+    r.style.setProperty("--bg-card",     darkMode ? "#1e293b" : "#ffffff");
+    r.style.setProperty("--bg-surface",  darkMode ? "#111827" : "#f8fafc");
+    r.style.setProperty("--bg-subtle",   darkMode ? "#1e293b" : "#f1f5f9");
+    r.style.setProperty("--text-1",      darkMode ? "#f1f5f9" : "#0f172a");
+    r.style.setProperty("--text-2",      darkMode ? "#94a3b8" : "#64748b");
+    r.style.setProperty("--text-3",      darkMode ? "#64748b" : "#94a3b8");
+    r.style.setProperty("--text-label",  darkMode ? "#94a3b8" : "#475569");
+    r.style.setProperty("--border",      darkMode ? "#334155" : "#e2e8f0");
+    r.style.setProperty("--border-sub",  darkMode ? "#1e293b" : "#f1f5f9");
+    r.style.setProperty("--input-bg",    darkMode ? "#0f172a" : "#ffffff");
+    r.style.setProperty("--btn-edit-bg", darkMode ? "#1e293b" : "#f1f5f9");
+    r.style.setProperty("--btn-edit-cl", darkMode ? "#94a3b8" : "#475569");
+    // Alias legados (componentes que ainda usam os nomes antigos)
+    r.style.setProperty("--bg-app",      darkMode ? "#0f172a" : "#f0f2f5");
+    r.style.setProperty("--text-primary",   darkMode ? "#f1f5f9" : "#0f172a");
+    r.style.setProperty("--text-secondary", darkMode ? "#94a3b8" : "#64748b");
+    r.style.setProperty("--border-color",   darkMode ? "#334155" : "#e2e8f0");
+    // Aplica no body para que o CSS global do index.html também reaja
+    document.body.setAttribute("data-dark", darkMode ? "1" : "0");
+    document.body.style.background = darkMode ? "#0f172a" : "#f0f2f5";
   }, [darkMode]);
 
   // Detecta retorno do OAuth do Mercado Pago e parâmetros de pagamento na URL
@@ -8111,96 +8128,95 @@ const S: Record<string, React.CSSProperties> = {
   logoIcon:         { fontSize:40 },
   logoText:         { fontSize:42, fontWeight:900, color:"#FF6B35", letterSpacing:-1 },
   splashSub:        { color:"#94a3b8", fontSize:20, textAlign:"center", lineHeight:1.5, margin:"8px 0 24px" },
-  page:             { minHeight:"100vh", background:"#f8fafc", padding:"24px 20px", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" },
-  pageTitle:        { fontSize:26, fontWeight:900, color:"#0f172a", margin:"16px 0 8px" },
-  subTexto:         { color:"#64748b", fontSize:14, marginBottom:20 },
+  page:             { minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", padding:"24px 20px", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" },
+  pageTitle:        { fontSize:26, fontWeight:900, color:"var(--text-1,#0f172a)", margin:"16px 0 8px" },
+  subTexto:         { color:"var(--text-2,#64748b)", fontSize:14, marginBottom:20 },
   back:             { background:"none", border:"none", color:"#FF6B35", fontSize:16, cursor:"pointer", padding:0, marginBottom:8, fontFamily:"system-ui,sans-serif" },
-  label:            { fontSize:12, fontWeight:700, color:"#475569", marginBottom:4, marginTop:12, textTransform:"uppercase", letterSpacing:0.5 },
-  input:            { width:"100%", padding:"13px 16px", border:"2px solid #e2e8f0", borderRadius:12, fontSize:16, background:"#fff", fontFamily:"system-ui,sans-serif", boxSizing:"border-box", marginBottom:4, outline:"none" },
+  label:            { fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", marginBottom:4, marginTop:12, textTransform:"uppercase", letterSpacing:0.5 },
+  input:            { width:"100%", padding:"13px 16px", border:"2px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:16, background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)", fontFamily:"system-ui,sans-serif", boxSizing:"border-box", marginBottom:4, outline:"none" },
   btnPrimary:       { width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:8 },
   btnSecondary:     { width:"100%", padding:"13px", background:"transparent", color:"#FF6B35", border:"2px solid #FF6B35", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" },
-  btnGoogle:        { width:"100%", padding:"13px", background:"#fff", color:"#0f172a", border:"2px solid #e2e8f0", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginTop:4 },
-  // FIX 5: divisor com linhas horizontais
+  btnGoogle:        { width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"2px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginTop:4 },
   divider:          { display:"flex", alignItems:"center", gap:10, margin:"16px 0 8px" },
-  dividerLine:      { flex:1, height:1, background:"#e2e8f0" },
-  dividerText:      { color:"#94a3b8", fontSize:13, whiteSpace:"nowrap" },
+  dividerLine:      { flex:1, height:1, background:"var(--border,#e2e8f0)" },
+  dividerText:      { color:"var(--text-3,#94a3b8)", fontSize:13, whiteSpace:"nowrap" },
   errorText:        { color:"#ef4444", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" },
   link:             { color:"#FF6B35", textAlign:"center", cursor:"pointer", fontSize:15 },
   tipoGrid:         { display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, margin:"8px 0 24px" },
-  tipoCard:         { background:"#fff", border:"2px solid #e2e8f0", borderRadius:16, padding:"24px 12px", display:"flex", flexDirection:"column", alignItems:"center", gap:8, cursor:"pointer" },
-  tipoCardAtivo:    { border:"2px solid #FF6B35", background:"#fff7f4" },
+  tipoCard:         { background:"var(--bg-card,#fff)", border:"2px solid var(--border,#e2e8f0)", borderRadius:16, padding:"24px 12px", display:"flex", flexDirection:"column", alignItems:"center", gap:8, cursor:"pointer" },
+  tipoCardAtivo:    { border:"2px solid #FF6B35", background:"#FF6B3518" },
   tipoIcon:         { fontSize:36 },
-  tipoLabel:        { fontWeight:800, fontSize:15, color:"#0f172a" },
-  tipoDesc:         { fontSize:11, color:"#94a3b8", textAlign:"center" },
+  tipoLabel:        { fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" },
+  tipoDesc:         { fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center" },
   negocioGrid:      { display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, margin:"8px 0 20px" },
-  negocioCard:      { background:"#fff", border:"2px solid #e2e8f0", borderRadius:16, padding:"18px 12px", display:"flex", flexDirection:"column", alignItems:"center", gap:6, cursor:"pointer" },
+  negocioCard:      { background:"var(--bg-card,#fff)", border:"2px solid var(--border,#e2e8f0)", borderRadius:16, padding:"18px 12px", display:"flex", flexDirection:"column", alignItems:"center", gap:6, cursor:"pointer" },
   negocioIcone:     { fontSize:32 },
-  negocioLabel:     { fontWeight:800, fontSize:15 },
-  negocioFuncoes:   { fontSize:10, color:"#94a3b8", textAlign:"center", lineHeight:1.4 },
+  negocioLabel:     { fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" },
+  negocioFuncoes:   { fontSize:10, color:"var(--text-3,#94a3b8)", textAlign:"center", lineHeight:1.4 },
   diasRow:          { display:"flex", gap:8, flexWrap:"wrap", margin:"8px 0" },
-  diaBtn:           { padding:"8px 11px", borderRadius:8, border:"2px solid #e2e8f0", background:"#fff", fontSize:12, fontWeight:700, cursor:"pointer", color:"#475569", fontFamily:"system-ui,sans-serif" },
+  diaBtn:           { padding:"8px 11px", borderRadius:8, border:"2px solid var(--border,#e2e8f0)", background:"var(--bg-card,#fff)", fontSize:12, fontWeight:700, cursor:"pointer", color:"var(--text-label,#475569)", fontFamily:"system-ui,sans-serif" },
   diaBtnAtivo:      { background:"#FF6B35", color:"#fff", border:"2px solid #FF6B35" },
   switchRow:        { display:"flex", alignItems:"center", justifyContent:"space-between", margin:"12px 0" },
-  toggle:           { width:48, height:28, borderRadius:14, background:"#e2e8f0", cursor:"pointer", position:"relative", transition:"background .2s" },
+  toggle:           { width:48, height:28, borderRadius:14, background:"var(--border,#e2e8f0)", cursor:"pointer", position:"relative", transition:"background .2s" },
   toggleAtivo:      { background:"#FF6B35" },
   toggleThumb:      { width:22, height:22, borderRadius:11, background:"#fff", position:"absolute", top:3, left:3, transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" },
   toggleThumbAtivo: { left:23 },
-  appShell:         { minHeight:"100vh", background:"#f8fafc", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:32 },
+  appShell:         { minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:32 },
   header:           { padding:"20px 20px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" },
   headerSub:        { color:"rgba(255,255,255,0.75)", fontSize:11, textTransform:"uppercase", letterSpacing:1 },
   headerTitle:      { color:"#fff", fontSize:20, fontWeight:900 },
   headerBack:       { background:"rgba(255,255,255,0.2)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", width:36, height:36, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"system-ui,sans-serif" },
   logoutBtn:        { background:"rgba(255,255,255,0.15)", border:"none", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", padding:"6px 14px", borderRadius:8, fontFamily:"system-ui,sans-serif" },
   avatar:           { width:40, height:40, borderRadius:20, background:"rgba(255,255,255,0.2)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:900, fontSize:14 },
-  tabs:             { display:"flex", background:"#fff", borderBottom:"2px solid #e2e8f0" },
-  tab:              { flex:1, padding:"13px", borderTopWidth:0, borderLeftWidth:0, borderRightWidth:0, borderBottomWidth:3, borderBottomStyle:"solid", borderBottomColor:"transparent", background:"none", fontSize:14, fontWeight:700, color:"#94a3b8", cursor:"pointer", fontFamily:"system-ui,sans-serif" },
+  tabs:             { display:"flex", background:"var(--bg-card,#fff)", borderBottom:"2px solid var(--border,#e2e8f0)" },
+  tab:              { flex:1, padding:"13px", borderTopWidth:0, borderLeftWidth:0, borderRightWidth:0, borderBottomWidth:3, borderBottomStyle:"solid", borderBottomColor:"transparent", background:"none", fontSize:14, fontWeight:700, color:"var(--text-3,#94a3b8)", cursor:"pointer", fontFamily:"system-ui,sans-serif" },
   tabAtivo:         { borderBottomWidth:3, borderBottomStyle:"solid", borderBottomColor:"#FF6B35", color:"#FF6B35" },
-  filtrosRow:       { display:"flex", gap:8, padding:"10px 16px", overflowX:"auto", background:"#fff" },
-  filtroBtn:        { whiteSpace:"nowrap", padding:"6px 13px", borderRadius:20, border:"2px solid #e2e8f0", background:"#f8fafc", fontSize:12, fontWeight:700, cursor:"pointer", color:"#475569", fontFamily:"system-ui,sans-serif" },
-  filtroBtnAtivo:   { background:"#0f172a", color:"#fff", border:"2px solid #0f172a" },
+  filtrosRow:       { display:"flex", gap:8, padding:"10px 16px", overflowX:"auto", background:"var(--bg-card,#fff)" },
+  filtroBtn:        { whiteSpace:"nowrap", padding:"6px 13px", borderRadius:20, border:"2px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)", fontSize:12, fontWeight:700, cursor:"pointer", color:"var(--text-label,#475569)", fontFamily:"system-ui,sans-serif" },
+  filtroBtnAtivo:   { background:"var(--text-1,#0f172a)", color:"#fff", border:"2px solid var(--text-1,#0f172a)" },
   lista:            { padding:"12px 16px", display:"flex", flexDirection:"column", gap:12 },
-  vazio:            { textAlign:"center", color:"#94a3b8", padding:"32px 0", fontSize:15 },
-  card:             { background:"#fff", borderRadius:16, padding:14, display:"flex", gap:12, alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" },
+  vazio:            { textAlign:"center", color:"var(--text-3,#94a3b8)", padding:"32px 0", fontSize:15 },
+  card:             { background:"var(--bg-card,#fff)", borderRadius:16, padding:14, display:"flex", gap:12, alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" },
   cardAvatar:       { width:50, height:50, borderRadius:25, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:15, flexShrink:0 },
   cardInfo:         { flex:1 },
-  cardNome:         { fontWeight:800, fontSize:14, color:"#0f172a" },
-  cardRamo:         { color:"#64748b", fontSize:12, margin:"2px 0" },
-  cardMeta:         { color:"#94a3b8", fontSize:11, display:"flex", gap:4, alignItems:"center" },
+  cardNome:         { fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" },
+  cardRamo:         { color:"var(--text-2,#64748b)", fontSize:12, margin:"2px 0" },
+  cardMeta:         { color:"var(--text-3,#94a3b8)", fontSize:11, display:"flex", gap:4, alignItems:"center" },
   cardRight:        { display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 },
-  cardValor:        { fontWeight:900, fontSize:16, color:"#0f172a" },
-  cardDia:          { fontSize:10, color:"#94a3b8" },
+  cardValor:        { fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" },
+  cardDia:          { fontSize:10, color:"var(--text-3,#94a3b8)" },
   star:             { color:"#f59e0b" },
-  dot:              { color:"#cbd5e1" },
+  dot:              { color:"var(--border,#e2e8f0)" },
   badge:            { padding:"3px 8px", borderRadius:20, fontSize:10, fontWeight:700 },
   badgeVerde:       { background:"#dcfce7", color:"#16a34a" },
-  badgeCinza:       { background:"#f1f5f9", color:"#94a3b8" },
+  badgeCinza:       { background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-3,#94a3b8)" },
   mapaContainer:    { margin:16, height:400, borderRadius:20, overflow:"hidden", boxShadow:"0 2px 12px rgba(0,0,0,.1)" },
-  perfilHeader:     { display:"flex", flexDirection:"column", alignItems:"center", padding:"20px 20px 14px", background:"#fff", borderBottom:"1px solid #f1f5f9" },
+  perfilHeader:     { display:"flex", flexDirection:"column", alignItems:"center", padding:"20px 20px 14px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" },
   perfilAvatar:     { width:76, height:76, borderRadius:38, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:24, marginBottom:10 },
-  perfilNome:       { fontSize:22, fontWeight:900, color:"#0f172a", margin:0 },
-  perfilRamo:       { color:"#64748b", fontSize:14, margin:"3px 0" },
-  perfilMeta:       { color:"#94a3b8", fontSize:12, display:"flex", gap:6, alignItems:"center" },
-  section:          { padding:"14px 20px", borderBottom:"1px solid #f1f5f9", background:"#fff", marginTop:8 },
-  sectionTitle:     { fontWeight:800, fontSize:11, color:"#94a3b8", textTransform:"uppercase", letterSpacing:1, marginBottom:10 },
-  valorGrande:      { fontSize:30, fontWeight:900, color:"#0f172a" },
-  avaliacaoItem:    { display:"flex", alignItems:"center", padding:"7px 0", borderBottom:"1px solid #f8fafc" },
-  modalOverlay:     { position:"fixed", inset:0, background:"rgba(15,23,42,0.6)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:100 },
-  modal:            { background:"#fff", borderRadius:"20px 20px 0 0", padding:"24px 22px 36px", width:"100%", maxWidth:480 },
-  modalTitle:       { fontSize:19, fontWeight:900, color:"#0f172a", marginBottom:10 },
-  modalText:        { color:"#475569", fontSize:14, marginBottom:18 },
-  modalRow:         { display:"flex", justifyContent:"space-between", padding:"7px 0", color:"#475569", fontSize:14 },
+  perfilNome:       { fontSize:22, fontWeight:900, color:"var(--text-1,#0f172a)", margin:0 },
+  perfilRamo:       { color:"var(--text-2,#64748b)", fontSize:14, margin:"3px 0" },
+  perfilMeta:       { color:"var(--text-3,#94a3b8)", fontSize:12, display:"flex", gap:6, alignItems:"center" },
+  section:          { padding:"14px 20px", borderBottom:"1px solid var(--border-sub,#f1f5f9)", background:"var(--bg-card,#fff)", marginTop:8 },
+  sectionTitle:     { fontWeight:800, fontSize:11, color:"var(--text-3,#94a3b8)", textTransform:"uppercase", letterSpacing:1, marginBottom:10 },
+  valorGrande:      { fontSize:30, fontWeight:900, color:"var(--text-1,#0f172a)" },
+  avaliacaoItem:    { display:"flex", alignItems:"center", padding:"7px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" },
+  modalOverlay:     { position:"fixed", inset:0, background:"rgba(15,23,42,0.7)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:100 },
+  modal:            { background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 36px", width:"100%", maxWidth:480 },
+  modalTitle:       { fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:10 },
+  modalText:        { color:"var(--text-label,#475569)", fontSize:14, marginBottom:18 },
+  modalRow:         { display:"flex", justifyContent:"space-between", padding:"7px 0", color:"var(--text-label,#475569)", fontSize:14 },
   sucesso:          { display:"flex", flexDirection:"column", alignItems:"center", gap:10 },
-  diaristaDash:     { display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, padding:"14px", background:"#fff", borderBottom:"1px solid #f1f5f9" },
-  dashCard:         { background:"#f8fafc", borderRadius:12, padding:"12px 6px", textAlign:"center" },
-  dashNum:          { fontWeight:900, fontSize:16, color:"#0f172a" },
-  dashLabel:        { fontSize:10, color:"#94a3b8", marginTop:3 },
-  propostaCard:     { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 0", borderBottom:"1px solid #f1f5f9" },
+  diaristaDash:     { display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, padding:"14px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" },
+  dashCard:         { background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 6px", textAlign:"center" },
+  dashNum:          { fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" },
+  dashLabel:        { fontSize:10, color:"var(--text-3,#94a3b8)", marginTop:3 },
+  propostaCard:     { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" },
   btnAceitar:       { background:"#dcfce7", color:"#16a34a", border:"none", borderRadius:8, padding:"6px 12px", fontWeight:700, fontSize:12, cursor:"pointer" },
-  btnEditarPerfil:  { background:"#f1f5f9", border:"none", borderRadius:10, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", color:"#475569", fontFamily:"system-ui,sans-serif" },
-  perfilInfoRow:    { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid #f1f5f9" },
-  perfilInfoLabel:  { fontSize:12, color:"#94a3b8", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 },
-  perfilInfoVal:    { fontSize:14, color:"#0f172a", fontWeight:600 },
-  bottomNav:        { position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"#fff", borderTop:"1px solid #e2e8f0", display:"flex", zIndex:50 },
-  bottomNavBtn:     { flex:1, padding:"10px 0", border:"none", background:"none", display:"flex", flexDirection:"column" as const, alignItems:"center", gap:2, fontSize:11, fontWeight:700, color:"#94a3b8", cursor:"pointer", fontFamily:"system-ui,sans-serif" },
+  btnEditarPerfil:  { background:"var(--btn-edit-bg,#f1f5f9)", border:"none", borderRadius:10, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", color:"var(--btn-edit-cl,#475569)", fontFamily:"system-ui,sans-serif" },
+  perfilInfoRow:    { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" },
+  perfilInfoLabel:  { fontSize:12, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 },
+  perfilInfoVal:    { fontSize:14, color:"var(--text-1,#0f172a)", fontWeight:600 },
+  bottomNav:        { position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderTop:"1px solid var(--border,#e2e8f0)", display:"flex", zIndex:50 },
+  bottomNavBtn:     { flex:1, padding:"10px 0", border:"none", background:"none", display:"flex", flexDirection:"column" as const, alignItems:"center", gap:2, fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", cursor:"pointer", fontFamily:"system-ui,sans-serif" },
   bottomNavAtivo:   { color:"#FF6B35" },
 };

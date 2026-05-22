@@ -3,15 +3,82 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>DiáriaJá</title>
+    <title>Trampojá</title>
+    <meta name="description" content="Marketplace de diárias — conecte empregadores e diaristas" />
+    <meta name="theme-color" content="#FF6B35" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Trampojá" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: system-ui, sans-serif; background: #f8fafc; }
+      body { font-family: system-ui, sans-serif; background: var(--bg-app, #f0f2f5); transition: background .3s; }
+
+      /* ── Variáveis padrão (light mode) ── */
+      :root {
+        --bg-app:      #f0f2f5;
+        --bg-card:     #ffffff;
+        --bg-surface:  #f8fafc;
+        --bg-subtle:   #f1f5f9;
+        --text-1:      #0f172a;
+        --text-2:      #64748b;
+        --text-3:      #94a3b8;
+        --text-label:  #475569;
+        --border:      #e2e8f0;
+        --border-sub:  #f1f5f9;
+        --input-bg:    #ffffff;
+        --btn-edit-bg: #f1f5f9;
+        --btn-edit-cl: #475569;
+        /* aliases legados */
+        --text-primary:   #0f172a;
+        --text-secondary: #64748b;
+        --border-color:   #e2e8f0;
+      }
+
+      /* ── Dark mode — ativado pelo JS via data-dark="1" no body ── */
+      body[data-dark="1"] {
+        --bg-app:      #0f172a;
+        --bg-card:     #1e293b;
+        --bg-surface:  #111827;
+        --bg-subtle:   #1e293b;
+        --text-1:      #f1f5f9;
+        --text-2:      #94a3b8;
+        --text-3:      #64748b;
+        --text-label:  #94a3b8;
+        --border:      #334155;
+        --border-sub:  #1e293b;
+        --input-bg:    #0f172a;
+        --btn-edit-bg: #334155;
+        --btn-edit-cl: #94a3b8;
+        /* aliases legados */
+        --text-primary:   #f1f5f9;
+        --text-secondary: #94a3b8;
+        --border-color:   #334155;
+      }
+
+      /* Transição suave ao alternar */
+      #root { transition: background .25s; }
+
+      /* Textarea e select também pegam o tema */
+      textarea, select {
+        background: var(--input-bg, #fff);
+        color: var(--text-1, #0f172a);
+        border-color: var(--border, #e2e8f0);
+      }
     </style>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>
