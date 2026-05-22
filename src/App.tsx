@@ -1016,9 +1016,9 @@ export default function App() {
 
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
-        setSession(session);
-        if (session) checkProfile(session.user.id);
-        else setLoading(false);
+        // Não chamamos checkProfile aqui — o onAuthStateChange (INITIAL_SESSION)
+        // já dispara logo abaixo e evita race condition de dois checkProfile simultâneos.
+        if (!session) { setLoading(false); }
       })
       .catch(() => {
         // Erro de rede ou outro problema — vai para splash para não travar
@@ -2626,7 +2626,7 @@ export default function App() {
 
   // HOME EMPREGADOR
   if (tela === "home-empregador") {
-    if (!negocio) return null;
+    if (!negocio) { setTimeout(() => setTela("escolha-negocio"), 0); return null; }
     const funcoes = ["Todos", ...funcoesDoNegocio];
     const iniciaisEmp = profile?.nome?.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase() || "?";
     const hora = new Date().getHours();
@@ -7279,7 +7279,21 @@ export default function App() {
     );
   }
 
-  return null;
+  // Fallback de segurança: se nenhuma tela encaixar, mostra splash em vez de tela branca
+  return (
+    <div style={{ minHeight:"100vh", background:"#0f172a", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16, padding:32 }}>
+        <div style={{ fontSize:48 }}>⚡</div>
+        <div style={{ fontSize:28, fontWeight:900, color:"#fff" }}>Diária<span style={{ color:"#FF6B35" }}>Já</span></div>
+        <p style={{ color:"#64748b", fontSize:14 }}>Algo deu errado. Toque para voltar ao início.</p>
+        <button
+          style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"12px 28px", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+          onClick={() => { setProfile(null); setTela("splash"); setLoading(false); }}>
+          Voltar ao início
+        </button>
+      </div>
+    </div>
+  );
 }
 
 const S: Record<string, React.CSSProperties> = {
