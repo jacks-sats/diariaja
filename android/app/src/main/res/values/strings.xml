@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">DiáriaJá</string>
+    <string name="title_activity_main">DiáriaJá</string>
+    <string name="package_name">com.diariaja.app</string>
+    <string name="custom_url_scheme">com.diariaja.app</string>
+</resources>
