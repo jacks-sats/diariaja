@@ -4373,8 +4373,8 @@ export default function App() {
                 onClick={() => setTela("escolha-negocio")}>
                 🔄 Trocar tipo de negócio
               </button>
-              <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => setTela("suporte")}>
-                🎧 Suporte / Ajuda
+              <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
+                🏘️ Suporte / Comunidade
               </button>
               <button style={{ ...S.btnSecondary, color:"#64748b", borderColor:"#e2e8f0" }} onClick={handleLogout}>
                 Sair da conta
@@ -4444,16 +4444,12 @@ export default function App() {
         {/* ── Bottom nav — 5 abas ── */}
         <div style={S.bottomNav}>
           <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="inicio"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>setTabEmpregador("inicio")}>
-            <span style={{ fontSize:20 }}>🏠</span>
+            <span style={{ fontSize:22 }}>🏠</span>
             <span>Home</span>
           </button>
           <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="diarias"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>setTabEmpregador("diarias")}>
-            <span style={{ fontSize:20 }}>📋</span>
+            <span style={{ fontSize:22 }}>📋</span>
             <span>Diárias</span>
-          </button>
-          <button style={{ ...S.bottomNavBtn }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
-            <span style={{ fontSize:20 }}>🏘️</span>
-            <span>Comunidade</span>
           </button>
           <button style={{ ...S.bottomNavBtn, position:"relative" }}>
             <div style={{ width:52, height:52, borderRadius:26, background:negocio.cor, display:"flex", alignItems:"center", justifyContent:"center", marginTop:-20, boxShadow:`0 4px 14px ${negocio.cor}66`, border:"3px solid #f0f2f5" }}
@@ -5806,8 +5802,8 @@ export default function App() {
             </div>
 
             <div style={{ padding:"0 20px 24px", display:"flex", flexDirection:"column", gap:10 }}>
-              <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35", marginTop:12 }} onClick={() => setTela("suporte")}>
-                🎧 Suporte / Ajuda
+              <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35", marginTop:12 }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
+                🏘️ Suporte / Comunidade
               </button>
               <button style={{ ...S.btnSecondary, color:"#64748b", borderColor:"#e2e8f0" }} onClick={handleLogout}>
                 Sair da conta
@@ -6254,19 +6250,15 @@ export default function App() {
         {/* ── Bottom nav — 5 abas ── */}
         <div style={S.bottomNav}>
           <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="inicio"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>setTabDiarista("inicio")}>
-            <span style={{ fontSize:20 }}>🏠</span>
+            <span style={{ fontSize:22 }}>🏠</span>
             <span>Home</span>
           </button>
           <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="vagas"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>setTabDiarista("vagas")}>
-            <span style={{ fontSize:20 }}>📋</span>
+            <span style={{ fontSize:22 }}>📋</span>
             <span>Diárias</span>
           </button>
-          <button style={{ ...S.bottomNavBtn }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
-            <span style={{ fontSize:20 }}>🏘️</span>
-            <span>Comunidade</span>
-          </button>
           <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="agenda"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>setTabDiarista("agenda")}>
-            <span style={{ fontSize:20 }}>📅</span>
+            <span style={{ fontSize:22 }}>📅</span>
             <span>Agenda</span>
           </button>
           <button style={{ ...S.bottomNavBtn, position:"relative", ...(tabDiarista==="chat"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>{ setTabDiarista("chat"); setMsgNaoLidas(0); }}>
