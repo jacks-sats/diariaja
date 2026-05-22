@@ -343,7 +343,7 @@ export default function App() {
   const [convitesEnviados, setConvitesEnviados]   = useState<Convite[]>([]);
   const [modalConvite, setModalConvite]           = useState(false);
   const [enviandoConvite, setEnviandoConvite]     = useState(false);
-  const [formConvite, setFormConvite]             = useState({ local: "", data: "", horario: "", observacoes: "" });
+  const [formConvite, setFormConvite]             = useState({ endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "" });
   // Comunidade
   const [topicos, setTopicos]                     = useState<Topico[]>([]);
   const [topicoAtivo, setTopicoAtivo]             = useState<Topico | null>(null);
@@ -1555,29 +1555,34 @@ export default function App() {
 
   const enviarConvite = async () => {
     if (!session?.user || !diaristaSelecionadaReal) return;
-    if (!formConvite.local.trim() || !formConvite.data || !formConvite.horario) {
-      setToastError("Preencha local, data e horário.");
+    if (!formConvite.endereco.trim() || !formConvite.data || !formConvite.horario || !formConvite.cargaHoraria) {
+      setToastError("Preencha endereço, data, horário e carga horária.");
       return;
     }
     setEnviandoConvite(true);
+    const horarioCompleto = `${formConvite.horario} (${formConvite.cargaHoraria}h de trabalho)`;
     const { error } = await supabase.from("convites").insert({
       contratante_id:   session.user.id,
       diarista_id:      diaristaSelecionadaReal.id,
       contratante_nome: profile?.nome || "Contratante",
       diarista_nome:    diaristaSelecionadaReal.nome,
       funcao:           diaristaSelecionadaReal.funcao,
-      local_servico:    formConvite.local.trim(),
+      local_servico:    formConvite.endereco.trim(),
       data_servico:     formConvite.data,
-      horario_servico:  formConvite.horario,
+      horario_servico:  horarioCompleto,
       observacoes:      formConvite.observacoes.trim() || null,
       valor:            diaristaSelecionadaReal.valor_diaria || null,
       status:           "pendente",
     });
     setEnviandoConvite(false);
-    if (error) { setToastError("Erro ao enviar convite. Tente novamente."); return; }
+    if (error) {
+      console.error("Erro convite:", error);
+      setToastError(`Erro ao enviar convite: ${error.message}`);
+      return;
+    }
     setModalConvite(false);
-    setFormConvite({ local: "", data: "", horario: "", observacoes: "" });
-    setContratadoReal(true); // reutiliza estado para mostrar tela de sucesso
+    setFormConvite({ endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "" });
+    setContratadoReal(true);
   };
 
   const responderConvite = async (conviteId: string, resposta: "aceito" | "recusado") => {
@@ -3076,9 +3081,16 @@ export default function App() {
                             </div>
 
                             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
-                              <span style={{ ...S.badge, ...(d.disponivel ? S.badgeVerde : S.badgeCinza), fontSize:11 }}>
-                                {d.disponivel ? "● Disponível hoje" : "● Ocupado"}
-                              </span>
+                              <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
+                                <span style={{ ...S.badge, ...(d.disponivel ? S.badgeVerde : S.badgeCinza), fontSize:11 }}>
+                                  {d.disponivel ? "● Disponível hoje" : "● Ocupado"}
+                                </span>
+                                {profile?.lat && profile?.lng && d.lat && d.lng && (
+                                  <span style={{ fontSize:11, color:"#64748b", fontWeight:600 }}>
+                                    📍 {haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!).toFixed(1)} km
+                                  </span>
+                                )}
+                              </div>
                               <button
                                 style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"9px 18px", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:`0 4px 10px ${negocio.cor}44` }}
                                 onClick={e => { e.stopPropagation(); setDiaristaSelecionadaReal(d); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }}>
@@ -6800,11 +6812,11 @@ export default function App() {
 
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:12 }}>
                     <div>
-                      <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>📍 Local do serviço *</label>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>📍 Endereço completo *</label>
                       <input
-                        value={formConvite.local}
-                        onChange={e => setFormConvite(p => ({ ...p, local: e.target.value }))}
-                        placeholder="Endereço completo (rua, bairro, cidade)"
+                        value={formConvite.endereco}
+                        onChange={e => setFormConvite(p => ({ ...p, endereco: e.target.value }))}
+                        placeholder="Rua, número, bairro, cidade"
                         style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
                       />
                     </div>
@@ -6820,7 +6832,7 @@ export default function App() {
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>🕐 Horário *</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>🕐 Horário de início *</label>
                         <input
                           type="time"
                           value={formConvite.horario}
@@ -6830,11 +6842,30 @@ export default function App() {
                       </div>
                     </div>
                     <div>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>⏱️ Carga horária *</label>
+                      <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
+                        {["4", "6", "8", "10", "12"].map(h => (
+                          <button key={h}
+                            style={{ background: formConvite.cargaHoraria === h ? cor : "#f1f5f9", color: formConvite.cargaHoraria === h ? "#fff" : "#475569", border:"none", borderRadius:10, padding:"8px 16px", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                            onClick={() => setFormConvite(p => ({ ...p, cargaHoraria: h }))}>
+                            {h}h
+                          </button>
+                        ))}
+                        <input
+                          type="number" min="1" max="24"
+                          value={!["4","6","8","10","12"].includes(formConvite.cargaHoraria) ? formConvite.cargaHoraria : ""}
+                          onChange={e => setFormConvite(p => ({ ...p, cargaHoraria: e.target.value }))}
+                          placeholder="Outro"
+                          style={{ width:70, padding:"8px 10px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                        />
+                      </div>
+                    </div>
+                    <div>
                       <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>📝 Observações (opcional)</label>
                       <textarea
                         value={formConvite.observacoes}
                         onChange={e => setFormConvite(p => ({ ...p, observacoes: e.target.value }))}
-                        placeholder="Descreva o serviço, materiais necessários, etc."
+                        placeholder="Materiais necessários, tarefas específicas, etc."
                         rows={3}
                         style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const }}
                       />
