@@ -418,6 +418,7 @@ export default function App() {
   const [listaNotif, setListaNotif] = useState<{tipo:"ok"|"erro", msg:string, ts:number}[]>([]);
   const [modalNotif, setModalNotif] = useState(false);
   const [notifNaoLidas, setNotifNaoLidas] = useState(0);
+  const [suporteNaoLidos, setSuporteNaoLidos] = useState(0); // badge admin para tópicos de suporte
 
   // Filtro/sort de vagas (diarista)
   const [modalFiltro, setModalFiltro] = useState(false);
@@ -1049,6 +1050,31 @@ export default function App() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id, modoAtual]);
+
+  // 10) Realtime: admin recebe notificação quando alguém posta tópico de suporte
+  useEffect(() => {
+    if (!session?.user || !(profile as any)?.is_admin) return;
+    const channel = supabase
+      .channel(`suporte-admin-${session.user.id}`)
+      .on("postgres_changes" as any,
+        { event: "INSERT", schema: "public", table: "topicos" },
+        (payload: any) => {
+          const t: Topico = payload.new;
+          if (t.categoria === "suporte") {
+            setSuporteNaoLidos(prev => prev + 1);
+            setToastSuccess(`🔧 Novo pedido de suporte de ${t.autor_nome}!`);
+            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+              new Notification("🔧 Novo pedido de suporte!", {
+                body: `${t.autor_nome}: "${t.titulo}"`,
+                icon: "/vite.svg",
+              });
+            }
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user?.id, (profile as any)?.is_admin]);
 
   // Carrega perfis dos diaristas que aceitaram as diárias do empregador
   useEffect(() => {
@@ -2935,7 +2961,7 @@ export default function App() {
               <div style={{ position:"relative", background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
                 onClick={() => { setModalNotif(true); setNotifNaoLidas(0); }}>
                 🔔
-                {notifNaoLidas > 0 && <div style={{ position:"absolute", top:-4, right:-4, background:"#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{notifNaoLidas > 9 ? "9+" : notifNaoLidas}</div>}
+                {(notifNaoLidas + suporteNaoLidos) > 0 && <div style={{ position:"absolute", top:-4, right:-4, background: suporteNaoLidos > 0 ? "#f59e0b" : "#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</div>}
               </div>
             </div>
           </div>
@@ -4373,8 +4399,11 @@ export default function App() {
                 onClick={() => setTela("escolha-negocio")}>
                 🔄 Trocar tipo de negócio
               </button>
+              <button style={{ ...S.btnSecondary, color:"#3A86FF", borderColor:"#3A86FF" }} onClick={() => setTela("suporte")}>
+                🎧 Suporte / Ajuda
+              </button>
               <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
-                🏘️ Suporte / Comunidade
+                🏘️ Comunidade
               </button>
               <button style={{ ...S.btnSecondary, color:"#64748b", borderColor:"#e2e8f0" }} onClick={handleLogout}>
                 Sair da conta
@@ -4481,7 +4510,18 @@ export default function App() {
             <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"#fff", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", marginBottom:16 }}>🔔 Notificações</div>
-              {listaNotif.length === 0 ? (
+              {/* Banner de suporte para admin */}
+              {(profile as any)?.is_admin && suporteNaoLidos > 0 && (
+                <div style={{ background:"#fef3c7", border:"1.5px solid #f59e0b", borderRadius:14, padding:"12px 14px", marginBottom:14, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}
+                  onClick={() => { setModalNotif(false); setSuporteNaoLidos(0); setFiltroComunidade("suporte"); carregarTopicos("suporte"); setTopicoAtivo(null); setTela("comunidade"); }}>
+                  <span style={{ fontSize:24 }}>🔧</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:13, color:"#92400e" }}>{suporteNaoLidos} novo{suporteNaoLidos > 1 ? "s" : ""} pedido{suporteNaoLidos > 1 ? "s" : ""} de suporte</div>
+                    <div style={{ fontSize:12, color:"#b45309", marginTop:2 }}>Toque para ver na Comunidade →</div>
+                  </div>
+                </div>
+              )}
+              {listaNotif.length === 0 && !((profile as any)?.is_admin && suporteNaoLidos > 0) ? (
                 <div style={{ textAlign:"center", color:"#94a3b8", padding:"32px 0", fontSize:14 }}>
                   <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
                   Nenhuma notificação ainda
@@ -4784,7 +4824,7 @@ export default function App() {
               <div style={{ position:"relative", background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
                 onClick={() => { setModalNotif(true); setNotifNaoLidas(0); }}>
                 🔔
-                {notifNaoLidas > 0 && <div style={{ position:"absolute", top:-4, right:-4, background:"#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{notifNaoLidas > 9 ? "9+" : notifNaoLidas}</div>}
+                {(notifNaoLidas + suporteNaoLidos) > 0 && <div style={{ position:"absolute", top:-4, right:-4, background: suporteNaoLidos > 0 ? "#f59e0b" : "#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</div>}
               </div>
             </div>
           </div>
@@ -5802,8 +5842,11 @@ export default function App() {
             </div>
 
             <div style={{ padding:"0 20px 24px", display:"flex", flexDirection:"column", gap:10 }}>
-              <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35", marginTop:12 }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
-                🏘️ Suporte / Comunidade
+              <button style={{ ...S.btnSecondary, color:"#3A86FF", borderColor:"#3A86FF", marginTop:12 }} onClick={() => setTela("suporte")}>
+                🎧 Suporte / Ajuda
+              </button>
+              <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
+                🏘️ Comunidade
               </button>
               <button style={{ ...S.btnSecondary, color:"#64748b", borderColor:"#e2e8f0" }} onClick={handleLogout}>
                 Sair da conta
@@ -6335,7 +6378,18 @@ export default function App() {
             <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"#fff", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", marginBottom:16 }}>🔔 Notificações</div>
-              {listaNotif.length === 0 ? (
+              {/* Banner de suporte para admin */}
+              {(profile as any)?.is_admin && suporteNaoLidos > 0 && (
+                <div style={{ background:"#fef3c7", border:"1.5px solid #f59e0b", borderRadius:14, padding:"12px 14px", marginBottom:14, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}
+                  onClick={() => { setModalNotif(false); setSuporteNaoLidos(0); setFiltroComunidade("suporte"); carregarTopicos("suporte"); setTopicoAtivo(null); setTela("comunidade"); }}>
+                  <span style={{ fontSize:24 }}>🔧</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:13, color:"#92400e" }}>{suporteNaoLidos} novo{suporteNaoLidos > 1 ? "s" : ""} pedido{suporteNaoLidos > 1 ? "s" : ""} de suporte</div>
+                    <div style={{ fontSize:12, color:"#b45309", marginTop:2 }}>Toque para ver na Comunidade →</div>
+                  </div>
+                </div>
+              )}
+              {listaNotif.length === 0 && !((profile as any)?.is_admin && suporteNaoLidos > 0) ? (
                 <div style={{ textAlign:"center", color:"#94a3b8", padding:"32px 0", fontSize:14 }}>
                   <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
                   Nenhuma notificação ainda
