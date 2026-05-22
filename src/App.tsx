@@ -220,6 +220,31 @@ interface UserProfile {
   plano_ativo?: string;  // 'gratis' | 'destaque' — sincronizado via webhook
 }
 
+interface Topico {
+  id: string;
+  autor_id?: string;
+  autor_nome: string;
+  autor_tipo?: string;
+  titulo: string;
+  conteudo: string;
+  categoria: string; // 'geral' | 'dicas' | 'duvidas' | 'conquistas' | 'suporte'
+  likes: number;
+  total_comentarios: number;
+  pinned: boolean;
+  created_at: string;
+}
+
+interface ComentarioComunidade {
+  id: string;
+  topico_id: string;
+  autor_id?: string;
+  autor_nome: string;
+  autor_tipo?: string;
+  conteudo: string;
+  likes: number;
+  created_at: string;
+}
+
 interface Convite {
   id: string;
   contratante_id: string;
@@ -319,6 +344,16 @@ export default function App() {
   const [modalConvite, setModalConvite]           = useState(false);
   const [enviandoConvite, setEnviandoConvite]     = useState(false);
   const [formConvite, setFormConvite]             = useState({ local: "", data: "", horario: "", observacoes: "" });
+  // Comunidade
+  const [topicos, setTopicos]                     = useState<Topico[]>([]);
+  const [topicoAtivo, setTopicoAtivo]             = useState<Topico | null>(null);
+  const [comentariosTopico, setComentariosTopico] = useState<ComentarioComunidade[]>([]);
+  const [filtroComunidade, setFiltroComunidade]   = useState("todos");
+  const [modalNovoTopico, setModalNovoTopico]     = useState(false);
+  const [formTopico, setFormTopico]               = useState({ titulo: "", conteudo: "", categoria: "geral" });
+  const [novoComentario, setNovoComentario]       = useState("");
+  const [enviandoTopico, setEnviandoTopico]       = useState(false);
+  const [enviandoComentario, setEnviandoComentario] = useState(false);
   const diaristasReaisRef = useRef<UserProfile[]>([]);
   const [tab, setTab]                     = useState("lista");
   const [tabDiarista, setTabDiarista]     = useState("inicio");
@@ -1526,6 +1561,84 @@ export default function App() {
     if (error) { setToastError("Erro ao responder convite."); return; }
     setConvitesRecebidos(prev => prev.map(c => c.id === conviteId ? { ...c, status: resposta } : c));
     setToastSuccess(resposta === "aceito" ? "✅ Convite aceito! O contratante será notificado." : "❌ Convite recusado.");
+  };
+
+  // ── COMUNIDADE ───────────────────────────────────────────────────────────
+
+  const carregarTopicos = async (categoria = "todos") => {
+    let q = supabase.from("topicos").select("*").order("pinned", { ascending: false }).order("created_at", { ascending: false });
+    if (categoria !== "todos") q = q.eq("categoria", categoria);
+    const { data } = await q;
+    setTopicos(data || []);
+  };
+
+  const carregarComentarios = async (topicoId: string) => {
+    const { data } = await supabase.from("comentarios_comunidade").select("*").eq("topico_id", topicoId).order("created_at", { ascending: true });
+    setComentariosTopico(data || []);
+  };
+
+  const criarTopico = async () => {
+    if (!session?.user || !formTopico.titulo.trim() || !formTopico.conteudo.trim()) {
+      setToastError("Preencha título e conteúdo."); return;
+    }
+    setEnviandoTopico(true);
+    const { data, error } = await supabase.from("topicos").insert({
+      autor_id:  session.user.id,
+      autor_nome: profile?.nome || "Usuário",
+      autor_tipo: tipo || "empregador",
+      titulo:    formTopico.titulo.trim(),
+      conteudo:  formTopico.conteudo.trim(),
+      categoria: formTopico.categoria,
+    }).select().single();
+    setEnviandoTopico(false);
+    if (error) { setToastError("Erro ao criar tópico."); return; }
+    setTopicos(prev => [data, ...prev]);
+    setModalNovoTopico(false);
+    setFormTopico({ titulo: "", conteudo: "", categoria: "geral" });
+    setToastSuccess("✅ Tópico publicado na comunidade!");
+  };
+
+  const criarComentario = async () => {
+    if (!session?.user || !topicoAtivo || !novoComentario.trim()) return;
+    setEnviandoComentario(true);
+    const { data, error } = await supabase.from("comentarios_comunidade").insert({
+      topico_id:  topicoAtivo.id,
+      autor_id:   session.user.id,
+      autor_nome: profile?.nome || "Usuário",
+      autor_tipo: tipo || "empregador",
+      conteudo:   novoComentario.trim(),
+    }).select().single();
+    setEnviandoComentario(false);
+    if (error) { setToastError("Erro ao comentar."); return; }
+    setComentariosTopico(prev => [...prev, data]);
+    setNovoComentario("");
+    // Atualiza contador do tópico
+    await supabase.from("topicos").update({ total_comentarios: (topicoAtivo.total_comentarios || 0) + 1 }).eq("id", topicoAtivo.id);
+    setTopicoAtivo(prev => prev ? { ...prev, total_comentarios: (prev.total_comentarios || 0) + 1 } : prev);
+  };
+
+  const deletarTopico = async (topicoId: string) => {
+    if (!window.confirm("Excluir este tópico e todos os comentários?")) return;
+    await supabase.from("topicos").delete().eq("id", topicoId);
+    setTopicos(prev => prev.filter(t => t.id !== topicoId));
+    if (topicoAtivo?.id === topicoId) setTopicoAtivo(null);
+    setToastSuccess("Tópico excluído.");
+  };
+
+  const deletarComentario = async (comentId: string) => {
+    await supabase.from("comentarios_comunidade").delete().eq("id", comentId);
+    setComentariosTopico(prev => prev.filter(c => c.id !== comentId));
+  };
+
+  const fixarTopico = async (topico: Topico) => {
+    await supabase.from("topicos").update({ pinned: !topico.pinned }).eq("id", topico.id);
+    setTopicos(prev => prev.map(t => t.id === topico.id ? { ...t, pinned: !t.pinned } : t));
+  };
+
+  const curtirTopico = async (topicoId: string) => {
+    await supabase.from("topicos").update({ likes: (topicos.find(t => t.id === topicoId)?.likes || 0) + 1 }).eq("id", topicoId);
+    setTopicos(prev => prev.map(t => t.id === topicoId ? { ...t, likes: t.likes + 1 } : t));
+    if (topicoAtivo?.id === topicoId) setTopicoAtivo(prev => prev ? { ...prev, likes: prev.likes + 1 } : prev);
   };
 
   // Empregador exclui a diária — notifica o diarista aceito E todos os candidatos com interesse
@@ -4331,12 +4444,16 @@ export default function App() {
         {/* ── Bottom nav — 5 abas ── */}
         <div style={S.bottomNav}>
           <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="inicio"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>setTabEmpregador("inicio")}>
-            <span style={{ fontSize:22 }}>🏠</span>
+            <span style={{ fontSize:20 }}>🏠</span>
             <span>Home</span>
           </button>
           <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="diarias"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>setTabEmpregador("diarias")}>
-            <span style={{ fontSize:22 }}>📋</span>
+            <span style={{ fontSize:20 }}>📋</span>
             <span>Diárias</span>
+          </button>
+          <button style={{ ...S.bottomNavBtn }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
+            <span style={{ fontSize:20 }}>🏘️</span>
+            <span>Comunidade</span>
           </button>
           <button style={{ ...S.bottomNavBtn, position:"relative" }}>
             <div style={{ width:52, height:52, borderRadius:26, background:negocio.cor, display:"flex", alignItems:"center", justifyContent:"center", marginTop:-20, boxShadow:`0 4px 14px ${negocio.cor}66`, border:"3px solid #f0f2f5" }}
@@ -6137,15 +6254,19 @@ export default function App() {
         {/* ── Bottom nav — 5 abas ── */}
         <div style={S.bottomNav}>
           <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="inicio"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>setTabDiarista("inicio")}>
-            <span style={{ fontSize:22 }}>🏠</span>
+            <span style={{ fontSize:20 }}>🏠</span>
             <span>Home</span>
           </button>
           <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="vagas"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>setTabDiarista("vagas")}>
-            <span style={{ fontSize:22 }}>📋</span>
+            <span style={{ fontSize:20 }}>📋</span>
             <span>Diárias</span>
           </button>
+          <button style={{ ...S.bottomNavBtn }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
+            <span style={{ fontSize:20 }}>🏘️</span>
+            <span>Comunidade</span>
+          </button>
           <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="agenda"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>setTabDiarista("agenda")}>
-            <span style={{ fontSize:22 }}>📅</span>
+            <span style={{ fontSize:20 }}>📅</span>
             <span>Agenda</span>
           </button>
           <button style={{ ...S.bottomNavBtn, position:"relative", ...(tabDiarista==="chat"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>{ setTabDiarista("chat"); setMsgNaoLidas(0); }}>
@@ -7381,6 +7502,229 @@ export default function App() {
             Enviar
           </button>
         </div>
+      </div>
+    );
+  }
+
+  // ── COMUNIDADE ──────────────────────────────────────────────────────────────
+  if (tela === "comunidade") {
+    const isAdmin = !!(profile as any)?.is_admin;
+    const corAcento = modoAtual === "empregador" ? (negocio?.cor || "#FF6B35") : "#5D5FEF";
+    const CATS = [
+      { key:"todos",      label:"Todos",      icone:"🌐" },
+      { key:"geral",      label:"Geral",       icone:"💬" },
+      { key:"dicas",      label:"Dicas",       icone:"💡" },
+      { key:"duvidas",    label:"Dúvidas",     icone:"❓" },
+      { key:"conquistas", label:"Conquistas",  icone:"🎉" },
+      { key:"suporte",    label:"Suporte",     icone:"🔧" },
+    ];
+    const catLabel: Record<string,string> = { geral:"💬 Geral", dicas:"💡 Dica", duvidas:"❓ Dúvida", conquistas:"🎉 Conquista", suporte:"🔧 Suporte" };
+    const agoraStr = (iso: string) => {
+      const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+      if (diff < 60) return "agora";
+      if (diff < 3600) return `${Math.floor(diff/60)}min`;
+      if (diff < 86400) return `${Math.floor(diff/3600)}h`;
+      return `${Math.floor(diff/86400)}d`;
+    };
+
+    // Tela de detalhe do tópico
+    if (topicoAtivo) {
+      return (
+        <div style={{ ...S.appShell, paddingBottom:80, background:"#f0f2f5" }}>
+          <div style={{ background:corAcento, padding:"16px 20px", display:"flex", alignItems:"center", gap:12 }}>
+            <button style={{ background:"none", border:"none", color:"#fff", fontSize:22, cursor:"pointer", padding:0 }} onClick={() => setTopicoAtivo(null)}>←</button>
+            <div style={{ flex:1 }}>
+              <div style={{ color:"rgba(255,255,255,.8)", fontSize:11, fontWeight:700 }}>{catLabel[topicoAtivo.categoria] || "💬 Geral"}</div>
+              <div style={{ color:"#fff", fontSize:15, fontWeight:800, lineHeight:1.3, marginTop:2 }}>{topicoAtivo.titulo}</div>
+            </div>
+          </div>
+
+          <div style={{ background:"#fff", margin:"12px 16px", borderRadius:16, padding:"16px" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+              <div>
+                <span style={{ fontWeight:800, fontSize:13, color:"#0f172a" }}>{topicoAtivo.autor_nome}</span>
+                <span style={{ fontSize:11, color:"#94a3b8", marginLeft:6 }}>• {agoraStr(topicoAtivo.created_at)}</span>
+                {topicoAtivo.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#5D5FEF15", color:"#5D5FEF", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Diarista</span>}
+                {topicoAtivo.autor_tipo === "empregador" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Contratante</span>}
+              </div>
+              {isAdmin && (
+                <div style={{ display:"flex", gap:6 }}>
+                  <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer" }} onClick={() => fixarTopico(topicoAtivo)} title="Fixar">
+                    {topicoAtivo.pinned ? "📌" : "📍"}
+                  </button>
+                  <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer" }} onClick={() => deletarTopico(topicoAtivo.id)} title="Excluir">🗑️</button>
+                </div>
+              )}
+            </div>
+            <p style={{ color:"#334155", fontSize:14, lineHeight:1.7, margin:0, whiteSpace:"pre-wrap" as const }}>{topicoAtivo.conteudo}</p>
+            <div style={{ display:"flex", alignItems:"center", gap:16, marginTop:14, paddingTop:10, borderTop:"1px solid #f1f5f9" }}>
+              <button style={{ background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", gap:4, color:"#64748b", fontSize:13, fontWeight:700, fontFamily:"system-ui,sans-serif" }}
+                onClick={() => curtirTopico(topicoAtivo.id)}>
+                ❤️ {topicoAtivo.likes}
+              </button>
+              <span style={{ color:"#94a3b8", fontSize:13 }}>💬 {comentariosTopico.length} comentários</span>
+            </div>
+          </div>
+
+          {/* Comentários */}
+          <div style={{ margin:"0 16px" }}>
+            <div style={{ fontWeight:800, fontSize:13, color:"#0f172a", marginBottom:10 }}>Comentários</div>
+            {comentariosTopico.length === 0 && (
+              <div style={{ textAlign:"center" as const, color:"#94a3b8", fontSize:14, padding:"24px 0" }}>Seja o primeiro a comentar! 👇</div>
+            )}
+            {comentariosTopico.map(c => (
+              <div key={c.id} style={{ background:"#fff", borderRadius:14, padding:"12px 14px", marginBottom:8 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                  <div>
+                    <span style={{ fontWeight:800, fontSize:13, color:"#0f172a" }}>{c.autor_nome}</span>
+                    {c.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#5D5FEF15", color:"#5D5FEF", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Diarista</span>}
+                    {c.autor_tipo === "empregador" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Contratante</span>}
+                    {isAdmin && <span style={{ marginLeft:6, background:"#fef3c715", color:"#d97706", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>👑 Admin</span>}
+                    <span style={{ fontSize:11, color:"#94a3b8", marginLeft:6 }}>• {agoraStr(c.created_at)}</span>
+                  </div>
+                  {(isAdmin || c.autor_id === session?.user?.id) && (
+                    <button style={{ background:"none", border:"none", fontSize:14, cursor:"pointer", color:"#94a3b8" }} onClick={() => deletarComentario(c.id)}>🗑️</button>
+                  )}
+                </div>
+                <p style={{ color:"#475569", fontSize:13, lineHeight:1.6, margin:0 }}>{c.conteudo}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Input de novo comentário */}
+          <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"#fff", borderTop:"1px solid #e2e8f0", padding:"12px 16px", display:"flex", gap:10, boxSizing:"border-box" as const }}>
+            <input
+              value={novoComentario}
+              onChange={e => setNovoComentario(e.target.value)}
+              placeholder="Escreva um comentário..."
+              style={{ flex:1, padding:"10px 14px", borderRadius:24, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none" }}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); criarComentario(); } }}
+            />
+            <button
+              style={{ background:corAcento, color:"#fff", border:"none", borderRadius:24, padding:"10px 18px", fontWeight:800, fontSize:14, cursor:"pointer", opacity: enviandoComentario ? 0.7 : 1, fontFamily:"system-ui,sans-serif" }}
+              onClick={criarComentario} disabled={enviandoComentario}>
+              {enviandoComentario ? "..." : "→"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Lista de tópicos
+    return (
+      <div style={{ ...S.appShell, paddingBottom:76, background:"#f0f2f5" }}>
+        {/* Header */}
+        <div style={{ background:corAcento, padding:"20px 20px 16px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+            <button style={{ background:"none", border:"none", color:"#fff", fontSize:22, cursor:"pointer", padding:0 }}
+              onClick={() => setTela(modoAtual === "empregador" ? "home-empregador" : "home-diarista")}>←</button>
+            <div>
+              <div style={{ color:"rgba(255,255,255,.8)", fontSize:12, fontWeight:700 }}>🏘️ TRAMPOJÁ</div>
+              <div style={{ color:"#fff", fontSize:20, fontWeight:900 }}>Comunidade</div>
+            </div>
+          </div>
+          {/* Filtros de categoria */}
+          <div style={{ display:"flex", gap:8, overflowX:"auto" as const, paddingBottom:4 }}>
+            {CATS.map(c => (
+              <button key={c.key}
+                style={{ background: filtroComunidade === c.key ? "#fff" : "rgba(255,255,255,.2)", color: filtroComunidade === c.key ? corAcento : "#fff", border:"none", borderRadius:20, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" as const, fontFamily:"system-ui,sans-serif", flexShrink:0 }}
+                onClick={async () => { setFiltroComunidade(c.key); await carregarTopicos(c.key); }}>
+                {c.icone} {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Toasts */}
+        {toastSuccess && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, whiteSpace:"nowrap" }}>{toastSuccess}</div>}
+        {toastError   && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999 }}>{toastError}</div>}
+
+        {/* Lista */}
+        <div style={{ padding:"12px 16px", display:"flex", flexDirection:"column" as const, gap:10 }}>
+          {topicos.length === 0 && (
+            <div style={{ textAlign:"center" as const, color:"#94a3b8", padding:"48px 0" }}>
+              <div style={{ fontSize:48, marginBottom:12 }}>🏘️</div>
+              <div style={{ fontWeight:700, color:"#475569" }}>Nenhum tópico ainda</div>
+              <div style={{ fontSize:13, marginTop:6 }}>Seja o primeiro a publicar!</div>
+            </div>
+          )}
+          {topicos.map(t => (
+            <div key={t.id}
+              style={{ background:"#fff", borderRadius:16, padding:"14px 16px", cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)", border: t.pinned ? `2px solid ${corAcento}` : "none" }}
+              onClick={async () => { setTopicoAtivo(t); await carregarComentarios(t.id); }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+                <div style={{ flex:1 }}>
+                  {t.pinned && <span style={{ fontSize:11, fontWeight:700, color:corAcento, display:"block", marginBottom:4 }}>📌 FIXADO</span>}
+                  <div style={{ fontWeight:800, fontSize:14, color:"#0f172a", lineHeight:1.4 }}>{t.titulo}</div>
+                </div>
+                <span style={{ background:corAcento+"15", color:corAcento, fontSize:10, fontWeight:700, padding:"3px 8px", borderRadius:20, flexShrink:0, marginLeft:8 }}>
+                  {catLabel[t.categoria] || "💬 Geral"}
+                </span>
+              </div>
+              <p style={{ color:"#64748b", fontSize:13, margin:"0 0 10px", lineHeight:1.5, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" as const }}>{t.conteudo}</p>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                  <span style={{ fontSize:11, fontWeight:700, color:"#94a3b8" }}>{t.autor_nome}</span>
+                  <span style={{ fontSize:10, color:"#cbd5e1" }}>•</span>
+                  <span style={{ fontSize:11, color:"#94a3b8" }}>{agoraStr(t.created_at)}</span>
+                </div>
+                <div style={{ display:"flex", gap:12 }}>
+                  <span style={{ fontSize:12, color:"#94a3b8" }}>❤️ {t.likes}</span>
+                  <span style={{ fontSize:12, color:"#94a3b8" }}>💬 {t.total_comentarios}</span>
+                  {isAdmin && (
+                    <button style={{ background:"none", border:"none", fontSize:14, cursor:"pointer" }} onClick={e => { e.stopPropagation(); deletarTopico(t.id); }}>🗑️</button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* FAB: novo tópico */}
+        <button
+          style={{ position:"fixed", bottom:84, right:"calc(50% - 228px)", background:corAcento, color:"#fff", border:"none", borderRadius:28, padding:"14px 20px", fontSize:14, fontWeight:800, cursor:"pointer", boxShadow:`0 4px 20px ${corAcento}66`, display:"flex", alignItems:"center", gap:8, fontFamily:"system-ui,sans-serif", zIndex:40 }}
+          onClick={() => { setModalNovoTopico(true); setFormTopico({ titulo:"", conteudo:"", categoria:"geral" }); }}>
+          ✏️ Novo tópico
+        </button>
+
+        {/* Modal: novo tópico */}
+        {modalNovoTopico && (
+          <div style={S.modalOverlay}>
+            <div style={{ ...S.modal, maxHeight:"90vh", overflowY:"auto" as const }}>
+              <h3 style={S.modalTitle}>📝 Novo tópico</h3>
+              <div style={{ display:"flex", flexDirection:"column" as const, gap:12 }}>
+                <div>
+                  <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Categoria</label>
+                  <div style={{ display:"flex", flexWrap:"wrap" as const, gap:6 }}>
+                    {CATS.filter(c => c.key !== "todos").map(c => (
+                      <button key={c.key}
+                        style={{ background: formTopico.categoria === c.key ? corAcento : "#f1f5f9", color: formTopico.categoria === c.key ? "#fff" : "#475569", border:"none", borderRadius:20, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        onClick={() => setFormTopico(p => ({ ...p, categoria: c.key }))}>
+                        {c.icone} {c.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Título *</label>
+                  <input value={formTopico.titulo} onChange={e => setFormTopico(p => ({ ...p, titulo: e.target.value }))}
+                    placeholder="Sobre o que é este tópico?" maxLength={120}
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                </div>
+                <div>
+                  <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Conteúdo *</label>
+                  <textarea value={formTopico.conteudo} onChange={e => setFormTopico(p => ({ ...p, conteudo: e.target.value }))}
+                    placeholder="Escreva com detalhes. Quanto mais claro, melhor!" rows={5}
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const }} />
+                </div>
+              </div>
+              <button style={{ ...S.btnPrimary, background:corAcento, marginTop:16, opacity: enviandoTopico ? 0.7 : 1 }} onClick={criarTopico} disabled={enviandoTopico}>
+                {enviandoTopico ? "Publicando..." : "📢 Publicar tópico"}
+              </button>
+              <button style={{ ...S.btnSecondary, marginTop:8 }} onClick={() => setModalNovoTopico(false)}>Cancelar</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
