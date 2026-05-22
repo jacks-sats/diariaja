@@ -1582,7 +1582,11 @@ export default function App() {
     }
     setModalConvite(false);
     setFormConvite({ endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "" });
-    setContratadoReal(true);
+    setContratadoReal(false);
+    // Recarrega convites enviados e vai direto para aba Diárias
+    if (session?.user) carregarConvites(session.user.id, "empregador");
+    setTabEmpregador("diarias");
+    setToastSuccess(`📨 Convite enviado para ${diaristaSelecionadaReal?.nome}! Aguardando resposta.`);
   };
 
   const responderConvite = async (conviteId: string, resposta: "aceito" | "recusado") => {
@@ -3139,6 +3143,49 @@ export default function App() {
               {scanMsg && (
                 <div style={{ background: scanMsg.ok ? "#dcfce7" : "#fee2e2", color: scanMsg.ok ? "#16a34a" : "#dc2626", borderRadius:12, padding:"12px 16px", fontSize:13, fontWeight:700, marginBottom:14, textAlign:"center" }}>
                   {scanMsg.txt}
+                </div>
+              )}
+
+              {/* ── Convites enviados ── */}
+              {convitesEnviados.length > 0 && (
+                <div style={{ marginBottom:20 }}>
+                  <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", marginBottom:10 }}>📨 Convites enviados</div>
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+                    {convitesEnviados.map(c => {
+                      const statusConv: Record<string,{bg:string,color:string,txt:string}> = {
+                        pendente:  { bg:"#fef3c7", color:"#d97706",  txt:"⏳ Aguardando resposta" },
+                        aceito:    { bg:"#dcfce7", color:"#16a34a",  txt:"✅ Aceito" },
+                        recusado:  { bg:"#fee2e2", color:"#dc2626",  txt:"✗ Recusado" },
+                      };
+                      const sc = statusConv[c.status] ?? statusConv.pendente;
+                      const bordaConv = c.status === "aceito" ? "#22c55e" : c.status === "recusado" ? "#ef4444" : "#f59e0b";
+                      const dataFmt = c.data_servico ? new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR", { day:"2-digit", month:"short" }) : "";
+                      return (
+                        <div key={c.id} style={{ background:"#fff", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:`4px solid ${bordaConv}` }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+                            <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>{c.diarista_nome}</div>
+                            <span style={{ background:sc.bg, color:sc.color, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800, whiteSpace:"nowrap" as const }}>{sc.txt}</span>
+                          </div>
+                          {c.funcao && <div style={{ fontSize:12, color:"#64748b", marginBottom:4 }}>🛠 {c.funcao}</div>}
+                          <div style={{ fontSize:12, color:"#475569", display:"flex", flexWrap:"wrap" as const, gap:8 }}>
+                            <span>📅 {dataFmt}</span>
+                            <span>🕐 {c.horario_servico}</span>
+                          </div>
+                          <div style={{ fontSize:12, color:"#475569", marginTop:4 }}>📍 {c.local_servico}</div>
+                          {c.status === "aceito" && (
+                            <div style={{ marginTop:10, background:"#f0fdf4", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#166534", fontWeight:700 }}>
+                              🎉 {c.diarista_nome} aceitou! Combine os detalhes pelo chat.
+                            </div>
+                          )}
+                          {c.status === "recusado" && (
+                            <div style={{ marginTop:10, background:"#fef2f2", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#991b1b", fontWeight:700 }}>
+                              😔 {c.diarista_nome} não pode neste dia. Tente outro profissional.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -6795,7 +6842,7 @@ export default function App() {
         {modalConvite && (
           <div style={S.modalOverlay}>
             <div style={{ ...S.modal, maxHeight:"90vh", overflowY:"auto" as const }}>
-              {!contratadoReal ? (
+              {true && (
                 <>
                   <h3 style={S.modalTitle}>Convidar {d.nome}</h3>
                   <p style={S.modalText}>Informe onde e quando você precisa do serviço. O profissional vai confirmar se pode ir.</p>
@@ -6881,16 +6928,6 @@ export default function App() {
                   </button>
                   <button style={{ ...S.btnSecondary, marginTop:8, color:cor, borderColor:cor }} onClick={() => setModalConvite(false)}>Cancelar</button>
                 </>
-              ) : (
-                <div style={{ ...S.sucesso, textAlign:"center" as const, padding:"8px 0" }}>
-                  <div style={{ fontSize:52 }}>📨</div>
-                  <h3 style={S.modalTitle}>Convite enviado!</h3>
-                  <p style={S.modalText}>{d.nome} receberá uma notificação e poderá aceitar ou recusar. Você será avisado da resposta!</p>
-                  <button style={{ ...S.btnPrimary, background:cor }}
-                    onClick={() => { setModalConvite(false); setContratadoReal(false); setTela("home-empregador"); }}>
-                    Voltar ao início
-                  </button>
-                </div>
               )}
             </div>
           </div>
