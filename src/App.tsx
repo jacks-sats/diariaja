@@ -220,6 +220,22 @@ interface UserProfile {
   plano_ativo?: string;  // 'gratis' | 'destaque' — sincronizado via webhook
 }
 
+interface Convite {
+  id: string;
+  contratante_id: string;
+  diarista_id: string;
+  contratante_nome?: string;
+  diarista_nome?: string;
+  funcao?: string;
+  local_servico: string;
+  data_servico: string;
+  horario_servico: string;
+  observacoes?: string;
+  valor?: number;
+  status: string; // 'pendente' | 'aceito' | 'recusado'
+  created_at: string;
+}
+
 // BUG-C2 fix: QRScanner definido fora do App para não ser recriado a cada render
 function QRScannerComponent({ onResult, onError, onClose }: {
   onResult: (diariaId: string) => void;
@@ -298,6 +314,11 @@ export default function App() {
   const [diaristaSelecionadaReal, setDiaristaSelecionadaReal] = useState<UserProfile | null>(null);
   const [modalContratoReal, setModalContratoReal] = useState(false);
   const [contratadoReal, setContratadoReal]       = useState(false);
+  const [convitesRecebidos, setConvitesRecebidos] = useState<Convite[]>([]);
+  const [convitesEnviados, setConvitesEnviados]   = useState<Convite[]>([]);
+  const [modalConvite, setModalConvite]           = useState(false);
+  const [enviandoConvite, setEnviandoConvite]     = useState(false);
+  const [formConvite, setFormConvite]             = useState({ local: "", data: "", horario: "", observacoes: "" });
   const diaristasReaisRef = useRef<UserProfile[]>([]);
   const [tab, setTab]                     = useState("lista");
   const [tabDiarista, setTabDiarista]     = useState("inicio");
@@ -938,6 +959,62 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id, modoAtual]);
 
+  // 8) Realtime: diarista recebe novo convite direto (notificação ao vivo)
+  useEffect(() => {
+    if (!session?.user || modoAtual !== "diarista") return;
+    const userId = session.user.id;
+    // Carrega convites já existentes
+    carregarConvites(userId, "diarista");
+    const channel = supabase
+      .channel(`convites-diar-${userId}`)
+      .on("postgres_changes" as any,
+        { event: "INSERT", schema: "public", table: "convites", filter: `diarista_id=eq.${userId}` },
+        (payload: any) => {
+          const novoConvite: Convite = payload.new;
+          setConvitesRecebidos(prev => [novoConvite, ...prev]);
+          setToastSuccess(`📨 ${novoConvite.contratante_nome || "Um contratante"} te convidou para uma diária!`);
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            new Notification("📨 Novo convite de diária!", {
+              body: `${novoConvite.contratante_nome} quer te contratar para ${novoConvite.funcao} em ${new Date(novoConvite.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}`,
+              icon: "/vite.svg",
+            });
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user?.id, modoAtual]);
+
+  // 9) Realtime: contratante é notificado quando diarista responde ao convite
+  useEffect(() => {
+    if (!session?.user || modoAtual !== "empregador") return;
+    const userId = session.user.id;
+    // Carrega convites enviados
+    carregarConvites(userId, "empregador");
+    const channel = supabase
+      .channel(`convites-emp-${userId}`)
+      .on("postgres_changes" as any,
+        { event: "UPDATE", schema: "public", table: "convites", filter: `contratante_id=eq.${userId}` },
+        (payload: any) => {
+          const updated: Convite = payload.new;
+          setConvitesEnviados(prev => prev.map(c => c.id === updated.id ? updated : c));
+          if (updated.status === "aceito") {
+            setToastSuccess(`✅ ${updated.diarista_nome} aceitou seu convite para ${new Date(updated.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}!`);
+            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+              new Notification("✅ Convite aceito!", {
+                body: `${updated.diarista_nome} confirmou presença para ${new Date(updated.data_servico + "T00:00:00").toLocaleDateString("pt-BR")} às ${updated.horario_servico}`,
+                icon: "/vite.svg",
+              });
+            }
+          } else if (updated.status === "recusado") {
+            setToastError(`❌ ${updated.diarista_nome} não pôde ir para ${new Date(updated.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}.`);
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user?.id, modoAtual]);
+
   // Carrega perfis dos diaristas que aceitaram as diárias do empregador
   useEffect(() => {
     if (!diarias.length) return;
@@ -1398,6 +1475,57 @@ export default function App() {
     setModalDenunciar(null);
     setMotivoDenuncia("");
     setToastSuccess("⚑ Denúncia enviada. Vamos analisar em breve.");
+  };
+
+  // ── CONVITES DIRETOS ──────────────────────────────────────────────────────
+
+  const carregarConvites = async (userId: string, userType: string) => {
+    if (userType === "diarista" || userType === "ambos") {
+      const { data } = await supabase.from("convites").select("*")
+        .eq("diarista_id", userId).order("created_at", { ascending: false });
+      setConvitesRecebidos(data || []);
+    }
+    if (userType === "empregador" || userType === "ambos") {
+      const { data } = await supabase.from("convites").select("*")
+        .eq("contratante_id", userId).order("created_at", { ascending: false });
+      setConvitesEnviados(data || []);
+    }
+  };
+
+  const enviarConvite = async () => {
+    if (!session?.user || !diaristaSelecionadaReal) return;
+    if (!formConvite.local.trim() || !formConvite.data || !formConvite.horario) {
+      setToastError("Preencha local, data e horário.");
+      return;
+    }
+    setEnviandoConvite(true);
+    const { error } = await supabase.from("convites").insert({
+      contratante_id:   session.user.id,
+      diarista_id:      diaristaSelecionadaReal.id,
+      contratante_nome: profile?.nome || "Contratante",
+      diarista_nome:    diaristaSelecionadaReal.nome,
+      funcao:           diaristaSelecionadaReal.funcao,
+      local_servico:    formConvite.local.trim(),
+      data_servico:     formConvite.data,
+      horario_servico:  formConvite.horario,
+      observacoes:      formConvite.observacoes.trim() || null,
+      valor:            diaristaSelecionadaReal.valor_diaria || null,
+      status:           "pendente",
+    });
+    setEnviandoConvite(false);
+    if (error) { setToastError("Erro ao enviar convite. Tente novamente."); return; }
+    setModalConvite(false);
+    setFormConvite({ local: "", data: "", horario: "", observacoes: "" });
+    setContratadoReal(true); // reutiliza estado para mostrar tela de sucesso
+  };
+
+  const responderConvite = async (conviteId: string, resposta: "aceito" | "recusado") => {
+    const { error } = await supabase.from("convites")
+      .update({ status: resposta })
+      .eq("id", conviteId);
+    if (error) { setToastError("Erro ao responder convite."); return; }
+    setConvitesRecebidos(prev => prev.map(c => c.id === conviteId ? { ...c, status: resposta } : c));
+    setToastSuccess(resposta === "aceito" ? "✅ Convite aceito! O contratante será notificado." : "❌ Convite recusado.");
   };
 
   // Empregador exclui a diária — notifica o diarista aceito E todos os candidatos com interesse
@@ -4601,6 +4729,45 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Convites diretos pendentes ── */}
+        {convitesRecebidos.filter(c => c.status === "pendente").length > 0 && (
+          <div style={{ margin:"12px 16px 0" }}>
+            <div style={{ fontWeight:800, fontSize:13, color:"#0f172a", marginBottom:8 }}>
+              📨 Convites diretos ({convitesRecebidos.filter(c => c.status === "pendente").length})
+            </div>
+            {convitesRecebidos.filter(c => c.status === "pendente").map(c => (
+              <div key={c.id} style={{ background:"#fff", borderRadius:16, padding:"14px 16px", marginBottom:10, boxShadow:"0 2px 10px rgba(0,0,0,.07)", border:"1.5px solid #FF6B3530" }}>
+                <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:8 }}>
+                  <div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>{c.contratante_nome || "Contratante"}</div>
+                    <div style={{ fontSize:12, color:"#64748b" }}>quer contratar você para <strong>{c.funcao}</strong></div>
+                  </div>
+                  <span style={{ background:"#fff7ed", color:"#FF6B35", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, flexShrink:0 }}>Pendente</span>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column" as const, gap:4, fontSize:13, color:"#475569", marginBottom:12 }}>
+                  <span>📍 {c.local_servico}</span>
+                  <span>📅 {new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR", { weekday:"long", day:"numeric", month:"long" })}</span>
+                  <span>🕐 {c.horario_servico}</span>
+                  {c.valor && <span>💰 R$ {c.valor}/dia</span>}
+                  {c.observacoes && <span>📝 {c.observacoes}</span>}
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button
+                    style={{ flex:1, background:"#dcfce7", color:"#16a34a", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    onClick={() => responderConvite(c.id, "aceito")}>
+                    ✅ Aceitar
+                  </button>
+                  <button
+                    style={{ flex:1, background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    onClick={() => responderConvite(c.id, "recusado")}>
+                    ❌ Recusar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* ── ABA INÍCIO ── */}
         {tabDiarista === "inicio" && (
           <>
@@ -6431,41 +6598,98 @@ export default function App() {
           </div>
         )}
 
-        <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
-          <button style={{ ...S.btnPrimary, background:cor }} onClick={() => setModalContratoReal(true)}>
-            📋 Chamar para diária
+        {/* Botão denunciar */}
+        <div style={{ padding:"0 20px 4px" }}>
+          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:12, cursor:"pointer", textDecoration:"underline" }}
+            onClick={() => setModalDenunciar({ tipo:"usuario", id:d.id, nome:d.nome })}>
+            ⚑ Denunciar perfil
           </button>
         </div>
 
-        {modalContratoReal && (
+        <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
+          <button style={{ ...S.btnPrimary, background:cor }} onClick={() => { setModalConvite(true); setContratadoReal(false); }}>
+            📨 Convidar para diária
+          </button>
+        </div>
+
+        {/* Modal de convite com local/data/horário */}
+        {modalConvite && (
           <div style={S.modalOverlay}>
-            <div style={S.modal}>
+            <div style={{ ...S.modal, maxHeight:"90vh", overflowY:"auto" as const }}>
               {!contratadoReal ? (
                 <>
-                  <h3 style={S.modalTitle}>Chamar para diária</h3>
-                  <p style={S.modalText}>Ao confirmar, você concorda com o <strong>valor cobrado por {d.nome}</strong>.</p>
-                  <div style={S.modalRow}><span>Especialidade</span><strong>{d.funcao}</strong></div>
-                  <div style={S.modalRow}><span>Valor do profissional</span><strong>R$ {d.valor_diaria}/dia</strong></div>
-                  <div style={{ ...S.modalRow, borderTop:"2px solid #0f172a", paddingTop:8 }}>
-                    <strong>Total acordado</strong>
-                    <strong style={{ color:cor, fontSize:17 }}>R$ {(d.valor_diaria * 1.05).toFixed(2)}</strong>
+                  <h3 style={S.modalTitle}>Convidar {d.nome}</h3>
+                  <p style={S.modalText}>Informe onde e quando você precisa do serviço. O profissional vai confirmar se pode ir.</p>
+
+                  <div style={S.modalRow}>
+                    <span>Especialidade</span><strong>{d.funcao}</strong>
                   </div>
-                  {authError && <p style={S.errorText}>{authError}</p>}
-                  {/* BUG-H7 fix: redireciona para criar-diaria com funcao pré-preenchida ao invés de usar tabela legada contratacoes */}
-                  <button style={{ ...S.btnPrimary, background:cor, marginTop:16 }} onClick={() => {
-                    setModalContratoReal(false);
-                    setFormDiaria(prev => ({ ...prev, funcao: d.funcao, valor: String(d.valor_diaria) }));
-                    setTela("criar-diaria");
-                  }}>Criar diária para este profissional →</button>
-                  <button style={{ ...S.btnSecondary, marginTop:8, color:cor, borderColor:cor }} onClick={() => setModalContratoReal(false)}>Cancelar</button>
+                  {d.valor_diaria && (
+                    <div style={{ ...S.modalRow, marginBottom:16 }}>
+                      <span>Valor combinado</span>
+                      <strong style={{ color:"#16a34a" }}>R$ {d.valor_diaria}/dia</strong>
+                    </div>
+                  )}
+
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:12 }}>
+                    <div>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>📍 Local do serviço *</label>
+                      <input
+                        value={formConvite.local}
+                        onChange={e => setFormConvite(p => ({ ...p, local: e.target.value }))}
+                        placeholder="Endereço completo (rua, bairro, cidade)"
+                        style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                      />
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                      <div>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>📅 Data *</label>
+                        <input
+                          type="date"
+                          value={formConvite.data}
+                          min={new Date().toISOString().split("T")[0]}
+                          onChange={e => setFormConvite(p => ({ ...p, data: e.target.value }))}
+                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>🕐 Horário *</label>
+                        <input
+                          type="time"
+                          value={formConvite.horario}
+                          onChange={e => setFormConvite(p => ({ ...p, horario: e.target.value }))}
+                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>📝 Observações (opcional)</label>
+                      <textarea
+                        value={formConvite.observacoes}
+                        onChange={e => setFormConvite(p => ({ ...p, observacoes: e.target.value }))}
+                        placeholder="Descreva o serviço, materiais necessários, etc."
+                        rows={3}
+                        style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const }}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    style={{ ...S.btnPrimary, background:cor, marginTop:18, opacity: enviandoConvite ? 0.7 : 1 }}
+                    onClick={enviarConvite}
+                    disabled={enviandoConvite}
+                  >
+                    {enviandoConvite ? "Enviando..." : "📨 Enviar convite"}
+                  </button>
+                  <button style={{ ...S.btnSecondary, marginTop:8, color:cor, borderColor:cor }} onClick={() => setModalConvite(false)}>Cancelar</button>
                 </>
               ) : (
-                <div style={{ ...S.sucesso, textAlign:"center" }}>
-                  <div style={{ fontSize:52 }}>✅</div>
-                  <h3 style={S.modalTitle}>Solicitação enviada!</h3>
-                  <p style={S.modalText}>{d.nome} foi notificado e pode aceitar a diária.</p>
+                <div style={{ ...S.sucesso, textAlign:"center" as const, padding:"8px 0" }}>
+                  <div style={{ fontSize:52 }}>📨</div>
+                  <h3 style={S.modalTitle}>Convite enviado!</h3>
+                  <p style={S.modalText}>{d.nome} receberá uma notificação e poderá aceitar ou recusar. Você será avisado da resposta!</p>
                   <button style={{ ...S.btnPrimary, background:cor }}
-                    onClick={() => { setModalContratoReal(false); setContratadoReal(false); setAuthError(""); setTela("home-empregador"); }}>
+                    onClick={() => { setModalConvite(false); setContratadoReal(false); setTela("home-empregador"); }}>
                     Voltar ao início
                   </button>
                 </div>
