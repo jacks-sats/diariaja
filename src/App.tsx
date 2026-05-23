@@ -2214,11 +2214,13 @@ export default function App() {
     setSuporteDigitando(true);
     try {
       const { data: { session: sess } } = await supabase.auth.getSession();
+      // JWT anon key para autenticar a Edge Function (formato eyJ...)
+      const jwtAnon = import.meta.env.VITE_SUPABASE_JWT_ANON as string;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
-        "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+        "apikey": jwtAnon,
+        "Authorization": `Bearer ${sess?.access_token ?? jwtAnon}`,
       };
-      if (sess?.access_token) headers["Authorization"] = `Bearer ${sess.access_token}`;
 
       const res = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-support`,
