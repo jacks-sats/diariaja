@@ -17,9 +17,16 @@ self.addEventListener("install", e => {
 self.addEventListener("activate", e => {
   // Remove todos os caches antigos (versões anteriores)
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ includeUncontrolled: true, type: "window" }))
+      .then(clients => {
+        // Força reload de todas as abas abertas para sair da tela branca
+        clients.forEach(client => {
+          try { client.navigate(client.url); } catch {}
+        });
+      })
   );
 });
 

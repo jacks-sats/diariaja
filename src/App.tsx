@@ -571,21 +571,7 @@ export default function App() {
     })();
   }, [tela, session?.user?.id]);
 
-  // Carrega avaliações reais quando entra no perfil de um diarista
-  useEffect(() => {
-    if (tela !== "perfil-diarista" || !diaristaSel) return;
-    setAvaliacoes([]);
-    setNotaForm(0);
-    setComentarioForm("");
-    (async () => {
-      const { data } = await supabase
-        .from("avaliacoes")
-        .select("id, empregador_id, nota, comentario, created_at")
-        .eq("diarista_id", diaristaSel.id)
-        .order("created_at", { ascending: false });
-      if (data) setAvaliacoes(data);
-    })();
-  }, [tela, diaristaSel?.id]);
+  // perfil-diarista (mock) removido — useEffect de avaliações do mock também removido
 
   // ── Notificações ──────────────────────────────────────────────────────────
 
@@ -2981,7 +2967,7 @@ export default function App() {
         corpo: "Esta política pode ser atualizada periodicamente. Notificaremos usuários sobre mudanças relevantes pelo app. A data da última atualização está no rodapé desta página.",
       },
     ];
-    const [secaoAberta, setSecaoAberta] = React.useState<number | null>(null);
+    const [secaoAberta, setSecaoAberta] = useState<number | null>(null);
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:60 }}>
         {/* Header */}
@@ -3664,7 +3650,7 @@ export default function App() {
                   diaristasReaisVisiveis.map((d, i) => {
                     const [bg, fg] = avatarColors[i % avatarColors.length];
                     const iniciais = d.nome.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
-                    const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => info.funcoes.includes(d.funcao));
+                    const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(d.funcao));
                     const funcCor = funcCatEntry ? funcCatEntry[1].cor : bg;
 
                     return (
@@ -4476,7 +4462,7 @@ export default function App() {
                           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>💼 Especialidades</div>
                           <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8 }}>
                             {(dp.categorias||[]).map(f => {
-                              const ce = Object.entries(CATEGORIAS_NEGOCIO).find(([,info])=>info.funcoes.includes(f));
+                              const ce = Object.entries(CATEGORIAS_NEGOCIO).find(([,info])=>(info.funcoes as readonly string[]).includes(f));
                               const c = ce ? ce[1].cor : "#5D5FEF";
                               return <span key={f} style={{ background:c+"20", color:c, padding:"5px 12px", borderRadius:20, fontSize:12, fontWeight:700 }}>{f}</span>;
                             })}
@@ -5452,144 +5438,6 @@ export default function App() {
     return null;
   }
 
-  if (false) { return (
-      <div style={S.appShell}>
-        <div style={S.perfilHeader}>
-          <div style={S.perfilAvatar}/>
-          <h2 style={S.perfilNome}/>
-          <div style={S.perfilRamo}/>
-          <div style={S.perfilMeta}>
-          </div>
-        </div>
-        <div style={S.section}>
-          <div style={S.sectionTitle}>Disponibilidade semanal</div>
-          <div style={S.diasRow}>
-            {DIAS.map(dia=>(
-              <div key={dia} style={{ ...S.diaBtn, ...(d.agenda.includes(dia)?{ ...S.diaBtnAtivo, background:cor, border:`2px solid ${cor}` }:{}), cursor:"default" }}>{DIAS_LABEL[dia]}</div>
-            ))}
-          </div>
-        </div>
-        <div style={S.section}>
-          <div style={S.sectionTitle}>Valor por diária</div>
-          <div style={S.valorGrande}>R$ {d.valor}<span style={{ fontSize:16, color:"var(--text-2,#64748b)" }}> /dia</span></div>
-        </div>
-        <div style={S.section}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-            <div style={S.sectionTitle}>Avaliações</div>
-            {avaliacoes.length > 0 && (
-              <span style={{ fontSize:12, color:"#f59e0b", fontWeight:800 }}>
-                ★ {(avaliacoes.reduce((s,a)=>s+a.nota,0)/avaliacoes.length).toFixed(1)} · {avaliacoes.length} {avaliacoes.length===1?"avaliação":"avaliações"}
-              </span>
-            )}
-          </div>
-
-          {/* Formulário — visível somente após contratar e se ainda não avaliou */}
-          {contratadoIds.includes(d.id) && !avaliacoes.some(a => a.empregador_id === session?.user?.id) && (
-            <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px", marginBottom:14, border:"1px solid var(--border,#e2e8f0)" }}>
-              <p style={{ fontSize:13, color:"var(--text-label,#475569)", fontWeight:700, margin:"0 0 8px" }}>
-                Avalie sua experiência com {d.nome.split(" ")[0]}:
-              </p>
-              <div style={{ display:"flex", gap:4, marginBottom:10 }}>
-                {[1,2,3,4,5].map(n => (
-                  <span key={n}
-                    style={{ fontSize:32, cursor:"pointer", color: n<=notaForm ? "#f59e0b" : "#e2e8f0", lineHeight:1, userSelect:"none" }}
-                    onClick={() => setNotaForm(n)}>★</span>
-                ))}
-              </div>
-              <textarea
-                style={{ ...S.input, height:68, resize:"none", fontSize:13, marginBottom:8 }}
-                placeholder="Deixe um comentário (opcional)..."
-                value={comentarioForm}
-                onChange={e => setComentarioForm(e.target.value)}
-              />
-              <button
-                style={{ ...S.btnPrimary, background: notaForm>0 ? cor : "#94a3b8", padding:"10px", fontSize:13, marginTop:0, opacity: enviandoAvaliacao ? 0.6 : 1 }}
-                disabled={notaForm===0 || enviandoAvaliacao}
-                onClick={() => enviarAvaliacao(d.id)}>
-                {enviandoAvaliacao ? "Enviando..." : "Publicar avaliação"}
-              </button>
-            </div>
-          )}
-
-          {/* Lista de avaliações reais */}
-          {avaliacoes.length === 0 ? (
-            <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13, textAlign:"center", padding:"14px 0" }}>
-              Nenhuma avaliação ainda.
-            </div>
-          ) : (
-            avaliacoes.map(av => (
-              <div key={av.id} style={{ ...S.avaliacaoItem, flexDirection:"column", alignItems:"flex-start", gap:4 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <span>
-                    {[1,2,3,4,5].map(n => (
-                      <span key={n} style={{ color: n<=av.nota ? "#f59e0b" : "#e2e8f0", fontSize:14 }}>★</span>
-                    ))}
-                  </span>
-                  <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>
-                    {new Date(av.created_at).toLocaleDateString("pt-BR")}
-                  </span>
-                </div>
-                {av.comentario && (
-                  <span style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.5 }}>{av.comentario}</span>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-        <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
-          <button style={{ ...S.btnPrimary, background:cor }} onClick={()=>setModalContrato(true)}>
-            📋 Chamar para diária
-          </button>
-          {/* Botão de chat só aparece após o profissional aceitar (contratação confirmada) */}
-          {contratadoIds.includes(d.id) && (
-            <button style={{ ...S.btnSecondary, color:cor, borderColor:cor }} onClick={()=>{ carregarMensagens(d.id); setTela("chat"); }}>
-              💬 Conversar com {d.nome.split(" ")[0]}
-            </button>
-          )}
-        </div>
-        {modalContrato && (
-          <div style={S.modalOverlay}>
-            <div style={S.modal}>
-              {!contratado ? (
-                <>
-                  <h3 style={S.modalTitle}>Chamar para diária</h3>
-                  <p style={S.modalText}>
-                    Ao confirmar, você concorda com o <strong>valor cobrado por {d.nome}</strong>.
-                  </p>
-                  <div style={S.modalRow}><span>Especialidade</span><strong>{d.funcao}</strong></div>
-                  <div style={S.modalRow}><span>Valor do profissional</span><strong>R$ {d.valor}/dia</strong></div>
-                  <div style={S.modalRow}><span>Taxa do app (5%)</span><strong>R$ {(d.valor*0.05).toFixed(2)}</strong></div>
-                  <div style={{ ...S.modalRow, borderTop:"2px solid #0f172a", paddingTop:8 }}>
-                    <strong>Total acordado</strong><strong style={{ color:cor, fontSize:17 }}>R$ {(d.valor*1.05).toFixed(2)}</strong>
-                  </div>
-                  <button style={{ ...S.btnPrimary, background:cor, marginTop:16 }} onClick={()=>{
-                    setContratado(true);
-                    // Registra que esse profissional foi contratado → libera o chat
-                    setContratadoIds(prev => prev.includes(d.id) ? prev : [...prev, d.id]);
-                  }}>Confirmar e Pagar</button>
-                  <button style={{ ...S.btnSecondary, marginTop:8, color:cor, borderColor:cor }} onClick={()=>setModalContrato(false)}>Cancelar</button>
-                </>
-              ) : (
-                <div style={{ ...S.sucesso, textAlign:"center" }}>
-                  <div style={{ fontSize:52 }}>✅</div>
-                  <h3 style={S.modalTitle}>Solicitação enviada!</h3>
-                  <p style={S.modalText}>{d.nome} foi notificado e pode aceitar a diária.</p>
-                  <button style={{ ...S.btnPrimary, background:cor }} onClick={()=>{ carregarMensagens(d.id); setModalContrato(false); setContratado(false); setTela("chat"); }}>
-                    💬 Conversar com {d.nome.split(" ")[0]}
-                  </button>
-                  <button style={{ ...S.btnSecondary, marginTop:8, color:cor, borderColor:cor }}
-                    onClick={()=>{ setModalContrato(false); setContratado(false); setTela("home-empregador"); }}>
-                    Voltar ao início
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
   // HOME DIARISTA
   if (tela === "home-diarista") {
     const hora = new Date().getHours();
@@ -5669,7 +5517,7 @@ export default function App() {
           <div style={{ position:"relative", marginTop:14 }}>
           <div style={{ display:"flex", gap:8, overflowX:"auto", paddingBottom:2, paddingRight:32 }}>
             {categoriasSelecionadas.map(func => {
-              const catEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => info.funcoes.includes(func));
+              const catEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(func));
               const cor = catEntry ? catEntry[1].cor : "#FF6B35";
               const icone = catEntry ? catEntry[1].icone : "⚡";
               return (
@@ -5852,7 +5700,7 @@ export default function App() {
                   const [h2, m2] = dia.horario_fim.split(":");
                   const minTotal = (parseInt(h2)*60+parseInt(m2)) - (parseInt(h1)*60+parseInt(m1));
                   const duracao = minTotal > 0 ? ` · ${Math.floor(minTotal/60)}h${minTotal%60>0?String(minTotal%60).padStart(2,"0")+"min":""}` : "";
-                  const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => info.funcoes.includes(dia.funcao));
+                  const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(dia.funcao));
                   const funcCor = funcCatEntry ? funcCatEntry[1].cor : "#64748b";
 
                   return (
@@ -7685,7 +7533,7 @@ export default function App() {
           <div style={S.sectionTitle}>Especialidades</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginTop:4 }}>
             {(d.categorias || []).map(f => {
-              const ce = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => info.funcoes.includes(f));
+              const ce = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(f));
               const c = ce ? ce[1].cor : "#FF6B35";
               return <span key={f} style={{ background:c+"22", color:c, padding:"4px 12px", borderRadius:20, fontSize:12, fontWeight:700 }}>{f}</span>;
             })}
