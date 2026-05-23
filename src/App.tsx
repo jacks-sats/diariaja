@@ -710,7 +710,7 @@ export default function App() {
         .from("diarias")
         .select("*")
         .eq("diarista_aceite_id", session.user!.id)
-        .in("status", ["selecionado", "pendente", "aceita", "em_andamento", "concluida", "cancelada"])
+        .in("status", ["pendente", "aceita", "em_andamento", "concluida", "cancelada"])
         .order("data", { ascending: false });
       if (data) {
         setMinhasDiarias(data);
@@ -874,10 +874,10 @@ export default function App() {
           const oldStatus = payload.old?.status;
           const vaga = updated.funcao || updated.segmento;
           const motivo = updated.motivo_cancelamento ? ` Motivo: ${updated.motivo_cancelamento}` : "";
-          // Dispara alertaAceite quando diarista confirma (pendente = confirmou, aguarda QR)
-          if (updated.status === "pendente" && oldStatus === "selecionado") setAlertaAceite(updated);
+          // Dispara alertaAceite quando diarista confirma (aceita = confirmou, aguarda QR)
+          if (updated.status === "aceita" && oldStatus === "pendente") setAlertaAceite(updated);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            if (updated.status === "pendente" && oldStatus === "selecionado") {
+            if (updated.status === "aceita" && oldStatus === "pendente") {
               new Notification("✅ Diarista confirmou presença!", {
                 body: `O profissional confirmou presença na vaga de ${vaga}. Escaneie o QR Code dele!`,
                 icon: "/vite.svg",
@@ -924,10 +924,10 @@ export default function App() {
           if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
           const local = updated.nome_negocio || updated.segmento;
           const oldSt = payload.old?.status;
-          if (updated.status === "selecionado" && oldSt !== "selecionado") {
-            // Diarista foi escolhido pelo empregador
+          if (updated.status === "pendente" && oldSt !== "pendente" && updated.diarista_aceite_id === session?.user?.id) {
+            // Diarista foi escolhido pelo empregador (status pendente = aguardando confirmação do diarista)
             setMinhasDiarias(prev => prev.some(d => d.id === updated.id) ? prev.map(d => d.id === updated.id ? updated : d) : [...prev, updated]);
-            setMeuInteresse(prev => ({ ...prev, [updated.id]: "selecionado" }));
+            setMeuInteresse(prev => ({ ...prev, [updated.id]: "pendente" }));
             new Notification("🎯 Você foi selecionado!", {
               body: `${local} escolheu você para a vaga! Abra o app e confirme sua presença.`,
               icon: "/vite.svg",
@@ -1836,7 +1836,7 @@ export default function App() {
 
     // Verifica conflito com diárias já aceitas no mesmo dia
     const diariasNoDia = minhasDiarias.filter(d =>
-      d.data === diaria.data && (d.status === "aceita" || d.status === "em_andamento" || d.status === "selecionado")
+      d.data === diaria.data && (d.status === "aceita" || d.status === "em_andamento" || d.status === "pendente")
     );
     // Máximo 2 diárias por dia
     if (diariasNoDia.length >= 2) {
@@ -1892,7 +1892,7 @@ export default function App() {
     // 1. Tenta atualizar a diária (sem .select() para evitar falha de RLS no SELECT pós-update)
     const { error: e1 } = await supabase
       .from("diarias")
-      .update({ status: "selecionado", diarista_aceite_id: diaristaId })
+      .update({ status: "pendente", diarista_aceite_id: diaristaId })
       .eq("id", diaria.id)
       .eq("empregador_id", session.user.id);  // garante que só o dono pode alterar
 
@@ -1907,7 +1907,7 @@ export default function App() {
     await supabase.from("candidaturas").update({ status: "rejeitado"  }).eq("diaria_id", diaria.id).neq("diarista_id", diaristaId);
 
     // 3. Atualiza estado local
-    setDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "selecionado", diarista_aceite_id: diaristaId } : d));
+    setDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "pendente", diarista_aceite_id: diaristaId } : d));
     setCandidaturas(prev => prev.map(c => c.diaria_id === diaria.id ? { ...c, status: c.diarista_id === diaristaId ? "selecionado" : "rejeitado" } : c));
 
     setModalCandidatos(null);
@@ -1919,10 +1919,10 @@ export default function App() {
   const confirmarPresenca = async (diaria: Diaria) => {
     if (!session?.user) return;
     setConfirmando(true);
-    const { error } = await supabase.from("diarias").update({ status: "pendente" }).eq("id", diaria.id);
+    const { error } = await supabase.from("diarias").update({ status: "aceita" }).eq("id", diaria.id);
     if (error) { setAuthError(error.message); setConfirmando(false); return; }
     await supabase.from("candidaturas").update({ status: "confirmado" }).eq("diaria_id", diaria.id).eq("diarista_id", session.user.id);
-    setMinhasDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "pendente" } : d));
+    setMinhasDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "aceita" } : d));
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "confirmado" }));
     setConfirmando(false);
   };
@@ -3371,9 +3371,8 @@ export default function App() {
         {tabEmpregador === "diarias" && (() => {
           const statusLabel: Record<string,{bg:string,color:string,txt:string}> = {
             aberta:       { bg:"#f1f5f9", color:"var(--text-label,#475569)",  txt:"Aberta" },
-            selecionado:  { bg:"#fef3c7", color:"#d97706",  txt:"⏳ Aguardando confirmação" },
-            pendente:     { bg:"#ede9fe", color:"#7c3aed",  txt:"✅ Confirmado — escaneie o QR" },
-            aceita:       { bg:"#dbeafe", color:"#1d4ed8",  txt:"⏳ Aguardando início" },
+            pendente:     { bg:"#fef3c7", color:"#d97706",  txt:"⏳ Aguardando confirmação" },
+            aceita:       { bg:"#ede9fe", color:"#7c3aed",  txt:"✅ Confirmado — escaneie o QR" },
             em_andamento: { bg:"#fef3c7", color:"#d97706",  txt:"🔄 Em andamento" },
             concluida:    { bg:"#dcfce7", color:"#16a34a",  txt:"✅ Concluída" },
             cancelada:    { bg:"#fee2e2", color:"#dc2626",  txt:"✗ Cancelada" },
@@ -3484,8 +3483,8 @@ export default function App() {
                             )}
                           </div>
                           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                            {/* Botão editar — só para diárias abertas ou selecionadas */}
-                            {(dia.status === "aberta" || dia.status === "selecionado") && (
+                            {/* Botão editar — só para diárias abertas ou pendentes (aguardando confirmação) */}
+                            {(dia.status === "aberta" || dia.status === "pendente") && (
                               <button
                                 style={{ background:"#eff6ff", color:"#3A86FF", border:"none", borderRadius:8, padding:"4px 9px", fontSize:14, cursor:"pointer", lineHeight:1 }}
                                 title="Editar diária"
@@ -3541,8 +3540,8 @@ export default function App() {
                                 💬 Chat
                               </button>
                             )}
-                            {/* Pagar — quando há diarista selecionado/aceito e pagamento pendente */}
-                            {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && (dia.status === "selecionado" || dia.status === "aceita") && (
+                            {/* Pagar — quando há diarista pendente/aceito e pagamento pendente */}
+                            {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && (dia.status === "pendente" || dia.status === "aceita") && (
                               <button
                                 style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f0fdf4", color:"#15803d", border:"1.5px solid #bbf7d0", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                 onClick={() => setModalPix(dia)}>
@@ -3561,7 +3560,7 @@ export default function App() {
                               ) : null;
                             })()}
                             {/* Editar */}
-                            {(dia.status === "aberta" || dia.status === "selecionado") && (
+                            {(dia.status === "aberta" || dia.status === "pendente") && (
                               <button
                                 style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#fef3c7", color:"#92400e", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                 onClick={() => { setModalEditarDiaria(dia); setFormEditarDiaria({ descricao:dia.descricao, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); }}>
@@ -3594,8 +3593,8 @@ export default function App() {
                             {dia.ganho_estimado_dia && <span style={{ fontSize:11, color:"#92400e" }}>💰 Estimativa: <strong>R$ {dia.ganho_estimado_dia}</strong></span>}
                           </div>
                         )}
-                        {/* Botão pagar via MP — aparece quando há diarista selecionado e pagamento pendente */}
-                        {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && (dia.status === "selecionado" || dia.status === "aceita") && (
+                        {/* Botão pagar via MP — aparece quando há diarista aguardando/confirmado e pagamento pendente */}
+                        {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && (dia.status === "pendente" || dia.status === "aceita") && (
                           <button
                             style={{ width:"100%", padding:"13px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:10, boxShadow:"0 4px 16px rgba(0,158,227,.4)", opacity: criandoPagamento ? 0.7 : 1 }}
                             disabled={criandoPagamento}
@@ -3605,8 +3604,8 @@ export default function App() {
                           </button>
                         )}
 
-                        {/* Diarista confirmado (pendente = aguardando QR scan, aceita = QR escaneado) */}
-                        {(dia.status === "aceita" || dia.status === "pendente") && dia.diarista_aceite_id && (() => {
+                        {/* Diarista confirmou presença (aceita = confirmou, aguardando QR scan) */}
+                        {dia.status === "aceita" && dia.diarista_aceite_id && (() => {
                           const dp = diaristasAceites[dia.diarista_aceite_id];
                           const iniciais = dp?.nome?.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() || "?";
                           const qtdDiarias = diaristasContagemDiarias[dia.diarista_aceite_id] ?? null;
@@ -3650,15 +3649,9 @@ export default function App() {
                                   💬 Chat
                                 </button>
                               </div>
-                              {dia.status === "pendente" ? (
-                                <div style={{ background:"#ede9fe", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#7c3aed", fontWeight:700 }}>
-                                  🟣 Diarista confirmou presença! <strong>Escaneie o QR Code</strong> dele acima quando ele chegar.
-                                </div>
-                              ) : (
-                                <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", fontWeight:600 }}>
-                                  📲 Peça ao diarista o QR Code e toque em <strong>"Escanear"</strong> acima para confirmar a chegada.
-                                </div>
-                              )}
+                              <div style={{ background:"#ede9fe", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#7c3aed", fontWeight:700 }}>
+                                🟣 Diarista confirmou presença! <strong>Escaneie o QR Code</strong> dele acima quando ele chegar.
+                              </div>
                               <button
                                 style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
                                 onClick={e => { e.stopPropagation(); setModalCancelar(dia); setMotivoCancelamento(""); }}>
@@ -3667,8 +3660,8 @@ export default function App() {
                             </div>
                           );
                         })()}
-                        {/* Diarista selecionado mas ainda não confirmou */}
-                        {dia.status === "selecionado" && dia.diarista_aceite_id && (() => {
+                        {/* Diarista selecionado mas ainda não confirmou (status pendente + diarista_aceite_id) */}
+                        {dia.status === "pendente" && dia.diarista_aceite_id && (() => {
                           const dp = diaristasAceites[dia.diarista_aceite_id];
                           const iniciais = dp?.nome?.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() || "?";
                           const qtdDiarias = diaristasContagemDiarias[dia.diarista_aceite_id] ?? null;
@@ -5254,7 +5247,7 @@ export default function App() {
         )}
 
         {/* ── Banner: selecionado aguardando confirmação ── */}
-        {minhasDiarias.filter(d => d.status === "selecionado").length > 0 && (
+        {minhasDiarias.filter(d => d.status === "pendente").length > 0 && (
           <div
             style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", margin:"12px 16px 0", borderRadius:18, padding:"16px 18px", display:"flex", alignItems:"center", gap:14, cursor:"pointer", boxShadow:"0 4px 20px rgba(255,107,53,.4)" }}
             onClick={() => setTabDiarista("vagas")}>
@@ -5264,7 +5257,7 @@ export default function App() {
                 Você foi selecionado!
               </div>
               <div style={{ fontSize:12, color:"rgba(255,255,255,.9)", marginTop:3 }}>
-                {minhasDiarias.find(d => d.status === "selecionado")?.nome_negocio || "Um contratante"} escolheu você — confirme sua presença agora.
+                {minhasDiarias.find(d => d.status === "pendente")?.nome_negocio || "Um contratante"} escolheu você — confirme sua presença agora.
               </div>
             </div>
             <div style={{ background:"var(--bg-card,#fff)", color:"#FF6B35", fontWeight:900, fontSize:13, borderRadius:12, padding:"8px 14px", whiteSpace:"nowrap" as const, flexShrink:0 }}>
@@ -5560,8 +5553,8 @@ export default function App() {
 
         {/* ── ABA MINHAS DIÁRIAS ── */}
         {tabDiarista === "vagas" && (() => {
-          const paraConfirmar = minhasDiarias.filter(d => d.status === "selecionado");
-          const pendentes    = minhasDiarias.filter(d => d.status === "pendente" || d.status === "aceita");
+          const paraConfirmar = minhasDiarias.filter(d => d.status === "pendente");
+          const pendentes    = minhasDiarias.filter(d => d.status === "aceita");
           const emAndamento  = minhasDiarias.filter(d => d.status === "em_andamento");
           const concluidas   = minhasDiarias.filter(d => d.status === "concluida");
           // Canceladas: só mostra se o cancelamento ocorreu nas últimas 24h (via localStorage)
@@ -5588,9 +5581,8 @@ export default function App() {
           };
 
           const stMap: Record<string,{bg:string,color:string,txt:string,borda:string}> = {
-            selecionado:  { bg:"#fef3c7", color:"#d97706", txt:"🎯 Confirme sua presença",       borda:"#f59e0b" },
-            pendente:     { bg:"#ede9fe", color:"#7c3aed", txt:"✅ Confirmado — aguardando QR",   borda:"#8b5cf6" },
-            aceita:       { bg:"#dbeafe", color:"#1d4ed8", txt:"⏳ Aguardando início",            borda:"#3A86FF" },
+            pendente:     { bg:"#fef3c7", color:"#d97706", txt:"🎯 Confirme sua presença",       borda:"#f59e0b" },
+            aceita:       { bg:"#ede9fe", color:"#7c3aed", txt:"✅ Confirmado — aguardando QR",   borda:"#8b5cf6" },
             em_andamento: { bg:"#fef3c7", color:"#d97706", txt:"🔄 Em andamento",                borda:"#f59e0b" },
             concluida:    { bg:"#dcfce7", color:"#16a34a", txt:"✅ Concluída",                    borda:"#22c55e" },
             cancelada:    { bg:"#fee2e2", color:"#dc2626", txt:"✗ Cancelada",                    borda:"#ef4444" },
