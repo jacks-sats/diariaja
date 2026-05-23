@@ -706,10 +706,23 @@ export default function App() {
             // Diarista foi escolhido pelo empregador (status pendente = aguardando confirmação do diarista)
             setMinhasDiarias(prev => prev.some(d => d.id === updated.id) ? prev.map(d => d.id === updated.id ? updated : d) : [...prev, updated]);
             setMeuInteresse(prev => ({ ...prev, [updated.id]: "pendente" }));
-            new Notification("🎯 Você foi selecionado!", {
-              body: `${local} escolheu você para a vaga! Abra o app e confirme sua presença.`,
-              icon: "/vite.svg",
-            });
+            // BUG-3 fix: toast in-app garantido independente de permissão de push
+            setToastSuccess(`🎯 ${local} escolheu você! Vá em "Vagas" e confirme sua presença.`);
+            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+              new Notification("🎯 Você foi selecionado!", {
+                body: `${local} escolheu você para a vaga! Abra o app e confirme sua presença.`,
+                icon: "/vite.svg",
+              });
+            }
+          } else if (updated.status === "em_andamento") {
+            // BUG-5 fix: toast in-app quando empregador confirma chegada via QR
+            setToastSuccess(`🔄 Sua chegada foi confirmada em ${local}. Bom trabalho!`);
+            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+              new Notification("🔄 Chegada confirmada!", {
+                body: `Sua presença em ${local} foi confirmada. Bom trabalho!`,
+                icon: "/vite.svg",
+              });
+            }
           } else if (updated.status === "cancelada" && oldSt !== "cancelada") {
             // Salva timestamp de cancelamento para auto-sumir após 24h
             try {
@@ -724,18 +737,16 @@ export default function App() {
               });
             }
             setToastError(`❌ Diária em ${local} foi cancelada pelo empregador.${updated.motivo_cancelamento ? " Motivo: " + updated.motivo_cancelamento : ""}`);
-          } else if (updated.status === "em_andamento") {
-            new Notification("🔄 Chegada confirmada!", {
-              body: `Sua presença em ${local} foi confirmada. Bom trabalho!`,
-              icon: "/vite.svg",
-            });
           } else if (updated.status === "concluida") {
             // Auto-abre recibo do diarista após conclusão
+            setToastSuccess(`🎉 Diária concluída em ${local}! Gere seu recibo e avalie o contratante.`);
             setTimeout(() => setModalReciboDiarista(updated), 500);
-            new Notification("🎉 Diária concluída!", {
-              body: `Sua diária em ${local} foi encerrada. Avalie o empregador!`,
-              icon: "/vite.svg",
-            });
+            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+              new Notification("🎉 Diária concluída!", {
+                body: `Sua diária em ${local} foi encerrada. Avalie o empregador!`,
+                icon: "/vite.svg",
+              });
+            }
           }
         }
       )
@@ -760,10 +771,13 @@ export default function App() {
           // Carrega perfil do candidato
           const { data } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
           if (data) setCandidatosProfiles(prev => ({ ...prev, [c.diarista_id]: data }));
+          // BUG-2 fix: toast in-app independente da permissão de push
+          const vaga = diariasRef.current.find(d => d.id === c.diaria_id);
+          const nomeVaga = vaga?.funcao || vaga?.segmento || "sua vaga";
+          setToastSuccess(`👋 Novo candidato na vaga de ${nomeVaga}! Toque em "Diárias" para ver.`);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            const vaga = diariasRef.current.find(d => d.id === c.diaria_id);
             new Notification("👋 Novo candidato!", {
-              body: `Um diarista demonstrou interesse na sua vaga de ${vaga?.funcao || vaga?.segmento || ""}!`,
+              body: `Um diarista demonstrou interesse na sua vaga de ${nomeVaga}!`,
               icon: "/vite.svg",
             });
           }
@@ -1769,6 +1783,8 @@ export default function App() {
     setConfirmando(false);
     setModalTermoDiarista(null);
     setTermoDiaristaCheck(false);
+    // BUG-4 fix: feedback de sucesso para o diarista após confirmação
+    setToastSuccess("✅ Presença confirmada! O contratante foi notificado. Gere o QR Code no dia da diária.");
   };
 
   const excluirChat = async (diaId: string) => {
@@ -2006,8 +2022,8 @@ export default function App() {
     setLatDiaria(null); setLngDiaria(null);
     setAuthError("");
     setSalvandoDiaria(false);
-    setTabEmpregador("perfil");
-    setToastSuccess(dirariaRepetir !== "nao" ? `✅ ${novasDiarias.length} diárias criadas com sucesso!` : "✅ Diária publicada!");
+    setTabEmpregador("diarias"); // BUG-1 fix: empregador vê a vaga que acabou de criar
+    setToastSuccess(dirariaRepetir !== "nao" ? `✅ ${novasDiarias.length} diárias criadas com sucesso!` : "✅ Diária publicada! Aguardando candidatos.");
     setTela("home-empregador");
   };
 
