@@ -302,7 +302,9 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [tela, setTela]                   = useState("splash");
+  const [tela, setTela]                   = useState<string>(() => {
+    try { return localStorage.getItem("diariaja_tela") || "splash"; } catch { return "splash"; }
+  });
   const [tipo, setTipo]                   = useState<string | null>(null);
   const [modoAtual, setModoAtual]         = useState<"empregador"|"diarista">(() => {
     return (localStorage.getItem("diariaja_modo") as "empregador"|"diarista") || "empregador";
@@ -512,6 +514,8 @@ export default function App() {
   useEffect(() => { tipoRef.current = tipo; }, [tipo]);
   // Persiste o modo atual para sobreviver ao reload da página
   useEffect(() => { localStorage.setItem("diariaja_modo", modoAtual); }, [modoAtual]);
+  // Persiste a tela atual para não sair da página ao recarregar
+  useEffect(() => { localStorage.setItem("diariaja_tela", tela); }, [tela]);
   // Persiste e aplica dark mode via CSS custom properties + atributo no body
   useEffect(() => {
     localStorage.setItem("diariaja_dark", darkMode ? "1" : "0");
@@ -1317,7 +1321,9 @@ export default function App() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setProfile(null); setTipo(null); setNegocio(null); setTela("splash");
+    setProfile(null); setTipo(null); setNegocio(null);
+    localStorage.removeItem("diariaja_tela"); // volta pro splash ao fazer logout
+    setTela("splash");
   };
 
   const negocio = negocioSelecionado ? CATEGORIAS_NEGOCIO[negocioSelecionado as keyof typeof CATEGORIAS_NEGOCIO] : null;
@@ -4482,22 +4488,6 @@ export default function App() {
             </div>
 
             <div style={{ padding:"0 20px 24px", display:"flex", flexDirection:"column", gap:10 }}>
-              {/* Botão trocar para diarista — sempre visível */}
-              <button
-                style={{ ...S.btnSecondary, color:"#8338EC", borderColor:"#8338EC", marginTop:12, fontWeight:800 }}
-                onClick={() => {
-                  setMenuTrocarPerfil(false);
-                  setAuthError("");
-                  if (tipo === "ambos" && profile?.funcao && profile?.valor_diaria) {
-                    setModoAtual("diarista");
-                    setTela("home-diarista");
-                  } else {
-                    setForm({ ...form, funcao: profile?.funcao || "", valor: String(profile?.valor_diaria || "") });
-                    setTela("setup-diarista");
-                  }
-                }}>
-                👷 {tipo === "ambos" ? "Mudar para modo Diarista" : "Também sou diarista"}
-              </button>
               <button style={{ ...S.btnSecondary, color:negocio.cor, borderColor:negocio.cor }}
                 onClick={() => setTela("escolha-negocio")}>
                 🔄 Trocar tipo de negócio
