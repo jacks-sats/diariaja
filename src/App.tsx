@@ -3585,6 +3585,150 @@ export default function App() {
     );
   }
 
+  // ── MODAL: Termo de Ciência (Empregador seleciona candidato) ──────────────
+  if (modalTermoCiencia) {
+    const { diaria, diaristaId } = modalTermoCiencia;
+    const dp = candidatosProfiles[diaristaId];
+    return (
+      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
+          <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
+          <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>📋 Antes de confirmar...</h3>
+          <p style={{ fontSize:14, color:"var(--text-label,#475569)", lineHeight:1.6, marginBottom:16 }}>
+            Você está prestes a contratar <strong>{dp?.nome || "este profissional"}</strong> para <strong>{diaria.funcao}</strong>. Combinamos que:
+          </p>
+          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+            {[
+              { icon:"✅", txt:"O DiáriaJá conecta profissionais e contratantes com facilidade" },
+              { icon:"⚠️", txt:"Não verificamos ativamente as qualificações de cada profissional" },
+              { icon:"💡", txt:"Recomendamos verificar referências pessoalmente quando possível" },
+              { icon:"🤝", txt:"A negociação final é entre você e o profissional" },
+            ].map(it => (
+              <div key={it.icon} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>{it.icon}</span>
+                <span style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.5 }}>{it.txt}</span>
+              </div>
+            ))}
+          </div>
+          <label style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoCienciaCheck?"#FF6B35":"#e2e8f0"}`, marginBottom:16 }}>
+            <input type="checkbox" checked={termoCienciaCheck} onChange={e => setTermoCienciaCheck(e.target.checked)} style={{ width:18, height:18, accentColor:"#FF6B35", flexShrink:0, marginTop:1 }} />
+            <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Entendi e quero selecionar este profissional</span>
+          </label>
+          <button
+            style={{ width:"100%", padding:"15px", background:termoCienciaCheck?"#FF6B35":"#e2e8f0", color:termoCienciaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoCienciaCheck?"pointer":"default", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+            disabled={!termoCienciaCheck}
+            onClick={() => { if (termoCienciaCheck) executarSelecaoCandidato(diaria, diaristaId); }}>
+            Confirmar seleção
+          </button>
+          <button
+            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+            onClick={() => { setModalTermoCiencia(null); setTermoCienciaCheck(false); }}>
+            Cancelar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── MODAL: Termo do Diarista (Diarista confirma presença) ─────────────────
+  if (modalTermoDiarista) {
+    const d = modalTermoDiarista;
+    return (
+      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
+          <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
+          <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>🤝 Confirmar presença</h3>
+          <div style={{ background:"#f8fafc", borderRadius:14, padding:"14px 16px", marginBottom:16 }}>
+            <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>{d.nome_negocio || d.segmento}</div>
+            <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:4 }}>👷 {d.funcao}</div>
+            <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:4 }}>📅 {new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {d.horario_inicio.slice(0,5)}–{d.horario_fim.slice(0,5)}</div>
+            <div style={{ fontSize:15, fontWeight:900, color:"#FF6B35", marginTop:6 }}>R$ {d.valor}/dia</div>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+            {[
+              { icon:"📍", txt:"Você se compromete a comparecer no local e horário combinados" },
+              { icon:"⏰", txt:"Em caso de imprevisto, avise o contratante com antecedência" },
+              { icon:"💼", txt:"Cumpra o serviço acordado com profissionalismo" },
+              { icon:"💬", txt:"O contratante será notificado da sua confirmação" },
+            ].map(it => (
+              <div key={it.icon} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>{it.icon}</span>
+                <span style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.5 }}>{it.txt}</span>
+              </div>
+            ))}
+          </div>
+          <label style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoDiaristaCheck?"#22c55e":"#e2e8f0"}`, marginBottom:16 }}>
+            <input type="checkbox" checked={termoDiaristaCheck} onChange={e => setTermoDiaristaCheck(e.target.checked)} style={{ width:18, height:18, accentColor:"#22c55e", flexShrink:0, marginTop:1 }} />
+            <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Entendi e confirmo que compareço nessa diária</span>
+          </label>
+          <button
+            style={{ width:"100%", padding:"15px", background:termoDiaristaCheck?"#22c55e":"#e2e8f0", color:termoDiaristaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoDiaristaCheck?"pointer":"default", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+            disabled={!termoDiaristaCheck || confirmando}
+            onClick={() => { if (termoDiaristaCheck) executarConfirmarPresenca(d); }}>
+            {confirmando ? "Confirmando..." : "✅ Confirmar minha presença"}
+          </button>
+          <button
+            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+            onClick={() => { setModalTermoDiarista(null); setTermoDiaristaCheck(false); }}>
+            Cancelar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── MODAL: Recibo do Diarista ─────────────────────────────────────────────
+  if (modalReciboDiarista) {
+    const d = modalReciboDiarista;
+    const [h1r, m1r] = d.horario_inicio.split(":").map(Number);
+    const [h2r, m2r] = d.horario_fim.split(":").map(Number);
+    const totalMinR = (h2r * 60 + m2r) - (h1r * 60 + m1r);
+    const horasR = totalMinR > 0 ? `${Math.floor(totalMinR/60)}h${totalMinR%60>0?String(totalMinR%60).padStart(2,"0")+"min":""}` : "";
+    return (
+      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.85)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"system-ui,sans-serif" }}>
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px 32px", width:"100%", maxWidth:420 }}>
+          <div style={{ textAlign:"center", marginBottom:20 }}>
+            <div style={{ fontSize:48, marginBottom:8 }}>🧾</div>
+            <h3 style={{ fontSize:20, fontWeight:900, color:"var(--text-1,#0f172a)", margin:0 }}>Recibo do Serviço</h3>
+            <p style={{ fontSize:13, color:"var(--text-2,#64748b)", margin:"4px 0 0" }}>Guarde como comprovante</p>
+          </div>
+          <div style={{ background:"#f8fafc", borderRadius:16, padding:"16px 18px", marginBottom:20, display:"flex", flexDirection:"column", gap:10 }}>
+            {([
+              ["Serviço", d.funcao || d.descricao],
+              ["Local", d.nome_negocio || d.segmento],
+              ["Data", new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")],
+              ["Horário", `${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}${horasR ? ` (${horasR})` : ""}`],
+            ] as [string, string][]).map(([k, v]) => (
+              <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <span style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>{k}</span>
+                <span style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", textAlign:"right", maxWidth:220 }}>{v}</span>
+              </div>
+            ))}
+            <div style={{ height:1, background:"#e2e8f0", margin:"4px 0" }} />
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span style={{ fontSize:14, fontWeight:700, color:"var(--text-1,#0f172a)" }}>Total recebido</span>
+              <span style={{ fontSize:20, fontWeight:900, color:"#22c55e" }}>R$ {d.valor_diarista ?? d.valor}</span>
+            </div>
+          </div>
+          <button
+            style={{ width:"100%", padding:"13px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+            onClick={() => {
+              const texto = `🧾 RECIBO DE SERVIÇO - DiáriaJá\n\nServiço: ${d.funcao||d.descricao}\nLocal: ${d.nome_negocio||d.segmento}\nData: ${new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")}\nHorário: ${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}\nTotal: R$ ${d.valor_diarista ?? d.valor}\n\nGerado em: ${new Date().toLocaleString("pt-BR")}`;
+              if (navigator.share) { navigator.share({ title:"Recibo DiáriaJá", text:texto }).catch(()=>{}); }
+              else { navigator.clipboard.writeText(texto).then(() => setToastSuccess("✅ Recibo copiado!")); }
+            }}>
+            📤 Compartilhar recibo
+          </button>
+          <button
+            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+            onClick={() => setModalReciboDiarista(null)}>
+            Fechar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // HOME EMPREGADOR
   if (tela === "home-empregador") {
     if (!negocio) { setTimeout(() => setTela("escolha-negocio"), 0); return null; }
@@ -8926,145 +9070,6 @@ export default function App() {
         <p style={{ textAlign:"center", color:"#334155", fontSize:11, margin:"20px 24px 0", lineHeight:1.6 }}>
           Os planos são gerenciados pelo Mercado Pago. O DiáriaJá não armazena dados de cartão.
         </p>
-      </div>
-    );
-  }
-
-  // ── MODAL: Termo de Ciência (Empregador seleciona candidato) ──────────────
-  if (modalTermoCiencia) {
-    const { diaria, diaristaId } = modalTermoCiencia;
-    const dp = candidatosProfiles[diaristaId];
-    return (
-      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
-        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
-          <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
-          <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>📋 Antes de confirmar...</h3>
-          <p style={{ fontSize:14, color:"var(--text-label,#475569)", lineHeight:1.6, marginBottom:16 }}>
-            Você está prestes a contratar <strong>{dp?.nome || "este profissional"}</strong> para <strong>{diaria.funcao}</strong>. Combinamos que:
-          </p>
-          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
-            {[
-              { icon:"✅", txt:"O DiáriaJá conecta profissionais e contratantes com facilidade" },
-              { icon:"⚠️", txt:"Não verificamos ativamente as qualificações de cada profissional" },
-              { icon:"💡", txt:"Recomendamos verificar referências pessoalmente quando possível" },
-              { icon:"🤝", txt:"A negociação final é entre você e o profissional" },
-            ].map(it => (
-              <div key={it.icon} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-                <span style={{ fontSize:18, flexShrink:0 }}>{it.icon}</span>
-                <span style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.5 }}>{it.txt}</span>
-              </div>
-            ))}
-          </div>
-          <label style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoCienciaCheck?"#FF6B35":"#e2e8f0"}`, marginBottom:16 }}>
-            <input type="checkbox" checked={termoCienciaCheck} onChange={e => setTermoCienciaCheck(e.target.checked)} style={{ width:18, height:18, accentColor:"#FF6B35", flexShrink:0, marginTop:1 }} />
-            <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Entendi e quero selecionar este profissional</span>
-          </label>
-          <button
-            style={{ width:"100%", padding:"15px", background:termoCienciaCheck?"#FF6B35":"#e2e8f0", color:termoCienciaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoCienciaCheck?"pointer":"default", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
-            disabled={!termoCienciaCheck}
-            onClick={() => { if (termoCienciaCheck) executarSelecaoCandidato(diaria, diaristaId); }}>
-            Confirmar seleção
-          </button>
-          <button
-            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
-            onClick={() => { setModalTermoCiencia(null); setTermoCienciaCheck(false); }}>
-            Cancelar
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── MODAL: Termo do Diarista (confirma presença) ─────────────────────────
-  if (modalTermoDiarista) {
-    const d = modalTermoDiarista;
-    return (
-      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
-        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
-          <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
-          <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>✅ Confirmar compromisso</h3>
-          <p style={{ fontSize:14, color:"var(--text-label,#475569)", lineHeight:1.6, marginBottom:16 }}>
-            Ao confirmar, você declara que:
-          </p>
-          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
-            {[
-              { icon:"📅", txt:`Irá comparecer em ${new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")} às ${d.horario_inicio.slice(0,5)}` },
-              { icon:"🤝", txt:`Prestará o serviço de ${d.funcao} com dedicação` },
-              { icon:"📱", txt:"Manterá contato pelo chat caso algo mude" },
-              { icon:"⚠️", txt:"Cancelamentos tardios afetam sua reputação" },
-            ].map(it => (
-              <div key={it.icon} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-                <span style={{ fontSize:18, flexShrink:0 }}>{it.icon}</span>
-                <span style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.5 }}>{it.txt}</span>
-              </div>
-            ))}
-          </div>
-          <label style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoDiaristaCheck?"#22c55e":"#e2e8f0"}`, marginBottom:16 }}>
-            <input type="checkbox" checked={termoDiaristaCheck} onChange={e => setTermoDiaristaCheck(e.target.checked)} style={{ width:18, height:18, accentColor:"#22c55e", flexShrink:0, marginTop:1 }} />
-            <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Sim, confirmo que irei comparecer!</span>
-          </label>
-          <button
-            style={{ width:"100%", padding:"15px", background:termoDiaristaCheck?"#22c55e":"#e2e8f0", color:termoDiaristaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoDiaristaCheck?"pointer":"default", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
-            disabled={!termoDiaristaCheck || confirmando}
-            onClick={() => { if (termoDiaristaCheck) executarConfirmarPresenca(d); }}>
-            {confirmando ? "Confirmando..." : "Confirmar presença ✅"}
-          </button>
-          <button
-            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
-            onClick={() => { setModalTermoDiarista(null); setTermoDiaristaCheck(false); }}>
-            Voltar
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── MODAL: Recibo do Diarista ─────────────────────────────────────────────
-  if (modalReciboDiarista) {
-    const d = modalReciboDiarista;
-    const recibo = `RECIBO DE SERVIÇO PRESTADO — DiáriaJá\n\nPrestador: ${profile?.nome || ""}\nFunção: ${d.funcao}\nContratante: ${d.nome_negocio || d.segmento}\nData: ${new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")}\nHorário: ${d.horario_inicio.slice(0,5)} às ${d.horario_fim.slice(0,5)}\nValor: R$ ${d.valor}\n\nServiço prestado e registrado na plataforma DiáriaJá.`;
-    return (
-      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
-        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
-          <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
-          <div style={{ textAlign:"center", marginBottom:16 }}>
-            <div style={{ fontSize:36, marginBottom:8 }}>🧾</div>
-            <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)" }}>RECIBO DE SERVIÇO PRESTADO</div>
-            <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:2 }}>DiáriaJá</div>
-          </div>
-          <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"14px 16px", display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
-            {[
-              { k:"Prestador", v:profile?.nome || "—" },
-              { k:"Função",    v:d.funcao },
-              { k:"Contratante", v:d.nome_negocio || d.segmento },
-              { k:"Data",      v:new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR") },
-              { k:"Horário",   v:`${d.horario_inicio.slice(0,5)} às ${d.horario_fim.slice(0,5)}` },
-              { k:"Valor",     v:`R$ ${d.valor}` },
-            ].map(r => (
-              <div key={r.k} style={{ display:"flex", justifyContent:"space-between", fontSize:13 }}>
-                <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:600 }}>{r.k}</span>
-                <strong style={{ color:"var(--text-1,#0f172a)" }}>{r.v}</strong>
-              </div>
-            ))}
-          </div>
-          <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"10px 14px", fontSize:12, color:"#166534", marginBottom:16, textAlign:"center" }}>
-            Serviço prestado e registrado na plataforma DiáriaJá.
-          </div>
-          {typeof navigator !== "undefined" && (navigator as Navigator & {share?: (data: object) => Promise<void>}).share && (
-            <button
-              style={{ width:"100%", padding:"13px", background:"#22c55e", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
-              onClick={() => {
-                (navigator as Navigator & {share?: (data: object) => Promise<void>}).share?.({ title:"Recibo DiáriaJá", text:recibo });
-              }}>
-              📤 Compartilhar recibo
-            </button>
-          )}
-          <button
-            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
-            onClick={() => setModalReciboDiarista(null)}>
-            Fechar
-          </button>
-        </div>
       </div>
     );
   }
