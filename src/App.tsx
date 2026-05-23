@@ -362,7 +362,8 @@ export default function App() {
   const [convitesEnviados, setConvitesEnviados]   = useState<Convite[]>([]);
   const [modalConvite, setModalConvite]           = useState(false);
   const [enviandoConvite, setEnviandoConvite]     = useState(false);
-  const [formConvite, setFormConvite]             = useState({ endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "" });
+  const [formConvite, setFormConvite]             = useState({ cep: "", rua: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "", endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "" });
+  const [buscandoCEPConvite, setBuscandoCEPConvite] = useState(false);
   // Comunidade
   const [topicos, setTopicos]                     = useState<Topico[]>([]);
   const [topicoAtivo, setTopicoAtivo]             = useState<Topico | null>(null);
@@ -1614,8 +1615,12 @@ export default function App() {
 
   const enviarConvite = async () => {
     if (!session?.user || !diaristaSelecionadaReal) return;
-    if (!formConvite.endereco.trim() || !formConvite.data || !formConvite.horario || !formConvite.cargaHoraria) {
-      setToastError("Preencha endereço, data, horário e carga horária.");
+    // Valida campos obrigatórios — aceita CEP ou endereço livre
+    const enderecoFinal = formConvite.rua.trim()
+      ? `${formConvite.rua}, ${formConvite.numero}${formConvite.complemento.trim() ? ` — ${formConvite.complemento.trim()}` : ""}, ${formConvite.bairro}, ${formConvite.cidade}/${formConvite.estado}${formConvite.cep ? ` — CEP ${formConvite.cep}` : ""}`
+      : formConvite.endereco.trim();
+    if (!enderecoFinal || !formConvite.data || !formConvite.horario || !formConvite.cargaHoraria) {
+      setToastError("Preencha CEP/endereço, data, horário e carga horária.");
       return;
     }
     setEnviandoConvite(true);
@@ -1626,7 +1631,7 @@ export default function App() {
       contratante_nome: profile?.nome || "Contratante",
       diarista_nome:    diaristaSelecionadaReal.nome,
       funcao:           diaristaSelecionadaReal.funcao,
-      local_servico:    formConvite.endereco.trim(),
+      local_servico:    enderecoFinal,
       data_servico:     formConvite.data,
       horario_servico:  horarioCompleto,
       observacoes:      formConvite.observacoes.trim() || null,
@@ -1640,7 +1645,7 @@ export default function App() {
       return;
     }
     setModalConvite(false);
-    setFormConvite({ endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "" });
+    setFormConvite({ cep: "", rua: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "", endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "" });
     setContratadoReal(false);
     // Recarrega convites enviados e vai direto para aba Diárias
     if (session?.user) carregarConvites(session.user.id, "empregador");
@@ -2191,6 +2196,20 @@ export default function App() {
       setForm(prev => ({ ...prev, ruaEmp: json.logradouro||prev.ruaEmp, bairroEmp: json.bairro||prev.bairroEmp, cidadeEmp: json.localidade||prev.cidadeEmp, estadoEmp: json.uf||prev.estadoEmp }));
     } catch { setAuthError("Erro ao buscar CEP. Verifique sua conexão."); }
     setBuscandoCEPEmp(false);
+  };
+
+  // Busca endereço pelo CEP para o formulário de convite direto
+  const buscarCEPConvite = async (cepRaw: string) => {
+    const cep = cepRaw.replace(/\D/g, "");
+    if (cep.length !== 8) return;
+    setBuscandoCEPConvite(true);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const json = await res.json();
+      if (json.erro) { setBuscandoCEPConvite(false); return; }
+      setFormConvite(prev => ({ ...prev, rua: json.logradouro || prev.rua, bairro: json.bairro || prev.bairro, cidade: json.localidade || prev.cidade, estado: json.uf || prev.estado }));
+    } catch {}
+    setBuscandoCEPConvite(false);
   };
 
   // Envia avaliação de um diarista
@@ -3418,11 +3437,49 @@ export default function App() {
                             <span>🕐 {c.horario_servico}</span>
                           </div>
                           <div style={{ fontSize:12, color:"var(--text-label,#475569)", marginTop:4 }}>📍 {c.local_servico}</div>
-                          {c.status === "aceito" && (
-                            <div style={{ marginTop:10, background:"#f0fdf4", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#166534", fontWeight:700 }}>
-                              🎉 {c.diarista_nome} aceitou! Combine os detalhes pelo chat.
-                            </div>
-                          )}
+
+                          {/* ── CONVITE ACEITO: botões de ação ── */}
+                          {c.status === "aceito" && (() => {
+                            const jaLiberado = contatosLiberados.has(c.id);
+                            return (
+                              <div style={{ marginTop:12, display:"flex", flexDirection:"column", gap:8 }}>
+                                <div style={{ background:"#f0fdf4", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#166534", fontWeight:700 }}>
+                                  🎉 {c.diarista_nome?.split(" ")[0]} aceitou! Pague para liberar o contato.
+                                </div>
+                                {jaLiberado ? (
+                                  /* Contato liberado */
+                                  <button
+                                    style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
+                                    onClick={async () => {
+                                      /* Navega para perfil do diarista */
+                                      const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
+                                      if (dp) { setDiaristaSelecionadaReal(dp); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
+                                    }}>
+                                    📱 Ver contato de {c.diarista_nome?.split(" ")[0]}
+                                  </button>
+                                ) : (
+                                  /* Botão pagar e desbloquear */
+                                  <button
+                                    style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
+                                    onClick={() => {
+                                      setModalPix(c as any);
+                                      setContatosLiberados(prev => new Set([...prev, c.id]));
+                                    }}>
+                                    💳 Pagar{c.valor ? ` R$ ${c.valor}` : ""} e liberar contato
+                                  </button>
+                                )}
+                                <button
+                                  style={{ width:"100%", padding:"9px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                                  onClick={async () => {
+                                    const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
+                                    if (dp) { setDiaristaSelecionadaReal(dp); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
+                                  }}>
+                                  👤 Ver perfil completo
+                                </button>
+                              </div>
+                            );
+                          })()}
+
                           {c.status === "recusado" && (
                             <div style={{ marginTop:10, background:"#fef2f2", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#991b1b", fontWeight:700 }}>
                               😔 {c.diarista_nome} não pode neste dia. Tente outro profissional.
@@ -7338,15 +7395,64 @@ export default function App() {
                   )}
 
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:12 }}>
+                    {/* ── CEP com busca automática ── */}
                     <div>
-                      <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>📍 Endereço completo *</label>
-                      <input
-                        value={formConvite.endereco}
-                        onChange={e => setFormConvite(p => ({ ...p, endereco: e.target.value }))}
-                        placeholder="Rua, número, bairro, cidade"
-                        style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
-                      />
+                      <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>📮 CEP *</label>
+                      <div style={{ position:"relative" }}>
+                        <input
+                          value={formConvite.cep}
+                          onChange={e => {
+                            const v = e.target.value.replace(/\D/g,"").slice(0,8);
+                            const fmt = v.length > 5 ? v.slice(0,5)+"-"+v.slice(5) : v;
+                            setFormConvite(p => ({ ...p, cep: fmt }));
+                            if (v.length === 8) buscarCEPConvite(v);
+                          }}
+                          placeholder="00000-000"
+                          inputMode="numeric"
+                          maxLength={9}
+                          style={{ width:"100%", padding:"10px 12px", paddingRight: buscandoCEPConvite ? 110 : 12, borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                        />
+                        {buscandoCEPConvite && (
+                          <span style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"#FF6B35", fontWeight:700 }}>Buscando...</span>
+                        )}
+                      </div>
                     </div>
+                    {/* Campos preenchidos automaticamente pelo CEP */}
+                    {formConvite.rua ? (
+                      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                        <div style={{ display:"grid", gridTemplateColumns:"3fr 1fr", gap:8 }}>
+                          <div>
+                            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:3 }}>Rua</label>
+                            <input value={formConvite.rua} onChange={e => setFormConvite(p => ({ ...p, rua: e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:3 }}>Nº *</label>
+                            <input value={formConvite.numero} onChange={e => setFormConvite(p => ({ ...p, numero: e.target.value }))} placeholder="Ex: 42" style={{ width:"100%", padding:"9px 10px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                          </div>
+                        </div>
+                        <input value={formConvite.complemento} onChange={e => setFormConvite(p => ({ ...p, complemento: e.target.value }))} placeholder="Complemento (apto, bloco...)" style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                          <div>
+                            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:3 }}>Bairro</label>
+                            <input value={formConvite.bairro} onChange={e => setFormConvite(p => ({ ...p, bairro: e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:3 }}>Cidade</label>
+                            <input value={formConvite.cidade} onChange={e => setFormConvite(p => ({ ...p, cidade: e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>📍 Endereço completo *</label>
+                        <input
+                          value={formConvite.endereco}
+                          onChange={e => setFormConvite(p => ({ ...p, endereco: e.target.value }))}
+                          placeholder="Ou digite o endereço completo"
+                          style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                        />
+                      </div>
+                    )}
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                       <div>
                         <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>📅 Data *</label>
