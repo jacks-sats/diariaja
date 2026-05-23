@@ -1618,6 +1618,14 @@ export default function App() {
     setToastSuccess(resposta === "aceito" ? "✅ Convite aceito! O contratante será notificado." : "❌ Convite recusado.");
   };
 
+  const cancelarConvite = async (conviteId: string) => {
+    if (!confirm("Tem certeza que deseja cancelar este convite?")) return;
+    const { error } = await supabase.from("convites").delete().eq("id", conviteId);
+    if (error) { setToastError("Erro ao cancelar convite."); return; }
+    setConvitesEnviados(prev => prev.filter(c => c.id !== conviteId));
+    setToastSuccess("🗑️ Convite cancelado.");
+  };
+
   // ── COMUNIDADE ───────────────────────────────────────────────────────────
 
   const carregarTopicos = async (categoria = "todos") => {
@@ -6911,13 +6919,15 @@ export default function App() {
                 <button
                   style={{ ...S.btnSecondary, color:"#d97706", borderColor:"#f59e0b", opacity:0.7, cursor:"not-allowed" }}
                   disabled>
-                  ⏳ Convite enviado — aguardando
+                  ⏳ Convite enviado — aguardando resposta
                 </button>
-                <button
-                  style={{ ...S.btnSecondary, color:"#94a3b8", borderColor:"#e2e8f0", fontSize:12 }}
-                  onClick={() => { setModalConvite(true); }}>
-                  🔄 Reenviar / alterar convite
-                </button>
+                {conviteAtivo && (
+                  <button
+                    style={{ ...S.btnSecondary, color:"#dc2626", borderColor:"#fca5a5", fontSize:12 }}
+                    onClick={() => cancelarConvite(conviteAtivo.id)}>
+                    🗑️ Cancelar convite
+                  </button>
+                )}
               </div>
             );
           }
