@@ -3498,6 +3498,65 @@ export default function App() {
     </div>
   );
 
+  // ── Chat Suporte DiáriaJá (deve vir antes dos home-* para não ser bloqueado) ─
+  if (chatSuporte) {
+    const msgSupportEndRef = { current: null } as React.MutableRefObject<HTMLDivElement | null>;
+    return (
+      <div style={{ position:"fixed", inset:0, background:"var(--bg-app,#f0f2f5)", zIndex:300, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", fontFamily:"system-ui,sans-serif" }}>
+        {/* Header */}
+        <div style={{ background:"linear-gradient(135deg,#8338EC,#5D5FEF)", padding:"20px 16px 14px", display:"flex", alignItems:"center", gap:12 }}>
+          <button style={{ background:"rgba(255,255,255,.2)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", width:36, height:36, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={() => setChatSuporte(false)}>←</button>
+          <div style={{ width:40, height:40, borderRadius:20, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>💬</div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Suporte DiáriaJá</div>
+            <div style={{ fontSize:11, color:"rgba(255,255,255,.8)" }}>Assistente automático</div>
+          </div>
+          <span style={{ background:"#22c55e", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>Online</span>
+        </div>
+        {/* Mensagens */}
+        <div style={{ flex:1, overflowY:"auto", padding:"16px", display:"flex", flexDirection:"column", gap:10 }}>
+          {msgsSuporte.map((m, i) => (
+            <div key={i} style={{ display:"flex", justifyContent:m.de==="user"?"flex-end":"flex-start" }}>
+              <div style={{ background:m.de==="user"?"#8338EC":"var(--bg-card,#fff)", color:m.de==="user"?"#fff":"var(--text-1,#0f172a)", borderRadius:m.de==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px", padding:"10px 14px", maxWidth:"78%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
+                {m.texto}
+              </div>
+            </div>
+          ))}
+          <div ref={msgSupportEndRef} />
+        </div>
+        {/* Input */}
+        <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)" }}>
+          <input
+            style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none", background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
+            placeholder="Digite sua dúvida..."
+            value={inputSuporte}
+            onChange={e => setInputSuporte(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && inputSuporte.trim()) {
+                const txt = inputSuporte.trim();
+                setMsgsSuporte(prev => [...prev, { de:"user", texto:txt }]);
+                setInputSuporte("");
+                responderSuporte(txt);
+              }
+            }}
+          />
+          <button
+            style={{ width:44, height:44, borderRadius:22, background:inputSuporte.trim()?"#8338EC":"#e2e8f0", border:"none", color:"#fff", fontSize:20, cursor:inputSuporte.trim()?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
+            disabled={!inputSuporte.trim()}
+            onClick={() => {
+              if (!inputSuporte.trim()) return;
+              const txt = inputSuporte.trim();
+              setMsgsSuporte(prev => [...prev, { de:"user", texto:txt }]);
+              setInputSuporte("");
+              responderSuporte(txt);
+            }}>
+            ➤
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // HOME EMPREGADOR
   if (tela === "home-empregador") {
     if (!negocio) { setTimeout(() => setTela("escolha-negocio"), 0); return null; }
@@ -8941,65 +9000,6 @@ export default function App() {
             style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
             onClick={() => { setModalTermoDiarista(null); setTermoDiaristaCheck(false); }}>
             Voltar
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── MODAL: Chat Suporte DiáriaJá ─────────────────────────────────────────
-  if (chatSuporte) {
-    const msgSupportEndRef = { current: null } as React.MutableRefObject<HTMLDivElement | null>;
-    return (
-      <div style={{ position:"fixed", inset:0, background:"var(--bg-app,#f0f2f5)", zIndex:300, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", fontFamily:"system-ui,sans-serif" }}>
-        {/* Header */}
-        <div style={{ background:"linear-gradient(135deg,#8338EC,#5D5FEF)", padding:"20px 16px 14px", display:"flex", alignItems:"center", gap:12 }}>
-          <button style={{ background:"rgba(255,255,255,.2)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", width:36, height:36, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={() => setChatSuporte(false)}>←</button>
-          <div style={{ width:40, height:40, borderRadius:20, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>💬</div>
-          <div style={{ flex:1 }}>
-            <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Suporte DiáriaJá</div>
-            <div style={{ fontSize:11, color:"rgba(255,255,255,.8)" }}>Assistente automático</div>
-          </div>
-          <span style={{ background:"#22c55e", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>Online</span>
-        </div>
-        {/* Mensagens */}
-        <div style={{ flex:1, overflowY:"auto", padding:"16px", display:"flex", flexDirection:"column", gap:10 }}>
-          {msgsSuporte.map((m, i) => (
-            <div key={i} style={{ display:"flex", justifyContent:m.de==="user"?"flex-end":"flex-start" }}>
-              <div style={{ background:m.de==="user"?"#8338EC":"var(--bg-card,#fff)", color:m.de==="user"?"#fff":"var(--text-1,#0f172a)", borderRadius:m.de==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px", padding:"10px 14px", maxWidth:"78%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
-                {m.texto}
-              </div>
-            </div>
-          ))}
-          <div ref={msgSupportEndRef} />
-        </div>
-        {/* Input */}
-        <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)" }}>
-          <input
-            style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none", background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
-            placeholder="Digite sua dúvida..."
-            value={inputSuporte}
-            onChange={e => setInputSuporte(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && inputSuporte.trim()) {
-                const txt = inputSuporte.trim();
-                setMsgsSuporte(prev => [...prev, { de:"user", texto:txt }]);
-                setInputSuporte("");
-                responderSuporte(txt);
-              }
-            }}
-          />
-          <button
-            style={{ width:44, height:44, borderRadius:22, background:inputSuporte.trim()?"#8338EC":"#e2e8f0", border:"none", color:"#fff", fontSize:20, cursor:inputSuporte.trim()?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
-            disabled={!inputSuporte.trim()}
-            onClick={() => {
-              if (!inputSuporte.trim()) return;
-              const txt = inputSuporte.trim();
-              setMsgsSuporte(prev => [...prev, { de:"user", texto:txt }]);
-              setInputSuporte("");
-              responderSuporte(txt);
-            }}>
-            ➤
           </button>
         </div>
       </div>
