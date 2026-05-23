@@ -253,6 +253,16 @@ export default function App() {
   const [motivoDenuncia, setMotivoDenuncia] = useState("");
   const [enviandoDenuncia, setEnviandoDenuncia] = useState(false);
 
+  // Não tenho interesse — IDs de vagas ocultas pelo diarista
+  const [vagasIgnoradas, setVagasIgnoradas] = useState<Set<string>>(() => {
+    try {
+      const salvo = localStorage.getItem("diariaja_nao_interesse");
+      return salvo ? new Set(JSON.parse(salvo) as string[]) : new Set<string>();
+    } catch { return new Set<string>(); }
+  });
+  // Contagem de dislikes por diária (para o empregador)
+  const [dislikesPorVaga, setDislikesPorVaga] = useState<Record<string, number>>({});
+
   // Contato liberado após pagamento (Set de convite IDs cujo contato foi desbloqueado)
   const [contatosLiberados, setContatosLiberados] = useState<Set<string>>(new Set());
 
@@ -455,6 +465,8 @@ export default function App() {
             const { data: profs } = await supabase.from("user_profiles").select("*").in("id", dids);
             if (profs) { const m: Record<string,UserProfile> = {}; profs.forEach((p:any) => { m[p.id] = p; }); setCandidatosProfiles(m); }
           }
+          // Carrega contagem de dislikes por vaga
+          carregarDislikesPorVaga(ids);
         }
       }
     })();
@@ -1439,6 +1451,40 @@ export default function App() {
     setModalDenunciar(null);
     setMotivoDenuncia("");
     setToastSuccess("⚑ Denúncia enviada. Vamos analisar em breve.");
+  };
+
+  // ── NÃO TENHO INTERESSE ───────────────────────────────────────────────────
+  const marcarNaoInteresse = async (diariaId: string) => {
+    const novas = new Set(vagasIgnoradas);
+    novas.add(diariaId);
+    setVagasIgnoradas(novas);
+    localStorage.setItem("diariaja_nao_interesse", JSON.stringify([...novas]));
+    setToastSuccess("👎 Vaga ocultada. Não aparecerá mais.");
+    // Salva no Supabase para o contador do empregador (fail silencioso)
+    if (session?.user) {
+      try {
+        await supabase.from("nao_interesse").insert({
+          diarista_id: session.user.id,
+          diaria_id:   diariaId,
+        });
+      } catch { /* tabela pode não existir ainda — ok */ }
+    }
+  };
+
+  // Carrega contagem de dislikes para as diárias do empregador
+  const carregarDislikesPorVaga = async (diariaIds: string[]) => {
+    if (!diariaIds.length) return;
+    try {
+      const { data } = await supabase
+        .from("diarias_dislikes")
+        .select("diaria_id, total")
+        .in("diaria_id", diariaIds);
+      if (data) {
+        const mapa: Record<string, number> = {};
+        data.forEach((row: { diaria_id: string; total: number }) => { mapa[row.diaria_id] = row.total; });
+        setDislikesPorVaga(mapa);
+      }
+    } catch { /* view pode não existir ainda */ }
   };
 
   // ── CONVITES DIRETOS ──────────────────────────────────────────────────────
@@ -4129,6 +4175,12 @@ export default function App() {
                             {(dia.pagamento_status === "aguardando" || !dia.pagamento_status) && dia.diarista_aceite_id && (dia.status === "aceita" || dia.status === "em_andamento") && (
                               <span style={{ background:"#fef3c7", color:"#d97706", padding:"3px 9px", borderRadius:20, fontSize:10, fontWeight:800 }}>⏳ Pg. pendente</span>
                             )}
+                            {/* Badge de dislikes */}
+                            {dia.status === "aberta" && (dislikesPorVaga[dia.id] ?? 0) > 0 && (
+                              <span style={{ background:"#fef2f2", color:"#dc2626", padding:"3px 9px", borderRadius:20, fontSize:10, fontWeight:800 }} title="Profissionais que não têm interesse nesta vaga">
+                                👎 {dislikesPorVaga[dia.id]}
+                              </span>
+                            )}
                           </div>
                           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                             {/* Botão editar — só para diárias abertas ou pendentes (aguardando confirmação) */}
@@ -4207,6 +4259,13 @@ export default function App() {
                                 </button>
                               ) : null;
                             })()}
+                            {/* Dislikes — diaristas que não têm interesse */}
+                            {dia.status === "aberta" && (dislikesPorVaga[dia.id] ?? 0) > 0 && (
+                              <div style={{ padding:"9px 12px", background:"#fef2f2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:13, fontWeight:700, display:"flex", alignItems:"center", gap:5, flexShrink:0 }}
+                                title="Profissionais que não têm interesse nesta vaga">
+                                👎 {dislikesPorVaga[dia.id]} não {dislikesPorVaga[dia.id]===1?"tem":"têm"} interesse
+                              </div>
+                            )}
                             {/* Editar */}
                             {(dia.status === "aberta" || dia.status === "pendente") && (
                               <button
@@ -5697,6 +5756,7 @@ export default function App() {
     const hojeFmtV = new Date().toISOString().split("T")[0];
     const amanhaFmtV = (() => { const d = new Date(); d.setDate(d.getDate()+1); return d.toISOString().split("T")[0]; })();
     const vagasFiltradas = vagasReais
+      .filter(d => !vagasIgnoradas.has(d.id))   // oculta vagas marcadas como sem interesse
       .filter(d => !d.funcao || categoriasSelecionadas.length === 0 || categoriasSelecionadas.includes(d.funcao))
       .filter(d => filtroDataVaga === "hoje" ? d.data === hojeFmtV : filtroDataVaga === "amanha" ? d.data === amanhaFmtV : true)
       .filter(d => {
@@ -5992,13 +6052,6 @@ export default function App() {
                             <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4, flexShrink:0 }}>
                               <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>R$ {dia.valor}</div>
                               <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/dia</div>
-                              {/* Botão denunciar vaga */}
-                              <button
-                                style={{ background:"none", border:"none", padding:"2px 4px", cursor:"pointer", fontSize:14, color:"#cbd5e1", lineHeight:1 }}
-                                title="Denunciar vaga"
-                                onClick={e => { e.stopPropagation(); setModalDenunciar({ tipo:"vaga", id:dia.id, nome: dia.nome_negocio || dia.segmento }); setMotivoDenuncia(""); }}>
-                                ⚑
-                              </button>
                             </div>
                           </div>
 
@@ -6046,12 +6099,12 @@ export default function App() {
                             </div>
                           )}
 
-                          <div style={{ display:"flex", justifyContent:"flex-end", marginTop:12 }}>
+                          <div style={{ marginTop:12 }}>
                             {(() => {
                               const st = meuInteresse[dia.id];
                               if (st === "pendente") return (
                                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                                  <div style={{ background:"#dcfce7", color:"#15803d", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:13 }}>
+                                  <div style={{ background:"#dcfce7", color:"#15803d", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:13, flex:1, textAlign:"center" as const }}>
                                     ✅ Interesse enviado
                                   </div>
                                   <button
@@ -6064,27 +6117,42 @@ export default function App() {
                               );
                               if (st === "selecionado") return (
                                 <button
-                                  style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", color:"#fff", border:"none", borderRadius:12, padding:"10px 18px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
+                                  style={{ width:"100%", background:"linear-gradient(135deg,#FF6B35,#f59e0b)", color:"#fff", border:"none", borderRadius:12, padding:"12px 18px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
                                   onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); }}>
                                   🎯 Confirmar presença!
                                 </button>
                               );
                               if (st === "rejeitado") return (
-                                <div style={{ background:"#fee2e2", color:"#dc2626", borderRadius:12, padding:"10px 18px", fontWeight:700, fontSize:12 }}>
+                                <div style={{ background:"#fee2e2", color:"#dc2626", borderRadius:12, padding:"10px 18px", fontWeight:700, fontSize:12, textAlign:"center" as const }}>
                                   Não selecionado desta vez
                                 </div>
                               );
                               if (st === "confirmado") return (
-                                <div style={{ background:"#dcfce7", color:"#16a34a", borderRadius:12, padding:"10px 18px", fontWeight:700, fontSize:13 }}>
+                                <div style={{ background:"#dcfce7", color:"#16a34a", borderRadius:12, padding:"10px 18px", fontWeight:700, fontSize:13, textAlign:"center" as const }}>
                                   ✅ Presença confirmada
                                 </div>
                               );
+                              // Sem ação ainda: botão principal + ações secundárias
                               return (
-                                <button
-                                  style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"10px 22px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
-                                  onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); }}>
-                                  ✋ Tenho interesse
-                                </button>
+                                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                                  <button
+                                    style={{ width:"100%", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"12px 22px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
+                                    onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); }}>
+                                    ✋ Tenho interesse
+                                  </button>
+                                  <div style={{ display:"flex", gap:8 }}>
+                                    <button
+                                      style={{ flex:1, background:"#f1f5f9", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"9px 10px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}
+                                      onClick={e => { e.stopPropagation(); marcarNaoInteresse(dia.id); }}>
+                                      👎 Não tenho interesse
+                                    </button>
+                                    <button
+                                      style={{ background:"#fef2f2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, padding:"9px 12px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", gap:4, flexShrink:0 }}
+                                      onClick={e => { e.stopPropagation(); setModalDenunciar({ tipo:"vaga", id:dia.id, nome: dia.nome_negocio || dia.segmento }); setMotivoDenuncia(""); }}>
+                                      ⚑ Denunciar
+                                    </button>
+                                  </div>
+                                </div>
                               );
                             })()}
                           </div>
