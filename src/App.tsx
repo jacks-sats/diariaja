@@ -97,7 +97,7 @@ export default function App() {
     return (localStorage.getItem("diariaja_modo") as "empregador"|"diarista") || "empregador";
   });
   const [negocioSelecionado, setNegocio]  = useState<string | null>(null);
-  const [form, setForm]                   = useState({ nome:"", telefone:"", funcao:"", valor:"", nomeNegocio:"", email:"", senha:"", bio:"", cpf:"", cnpj:"", pessoaTipo:"fisica", sexo:"", dataNasc:"", cepEmp:"", ruaEmp:"", numeroEmp:"", complementoEmp:"", bairroEmp:"", cidadeEmp:"", estadoEmp:"" });
+  const [form, setForm]                   = useState({ nome:"", telefone:"", funcao:"", valor:"", nomeNegocio:"", email:"", senha:"", bio:"", cpf:"", cnpj:"", pessoaTipo:"fisica", sexo:"", dataNasc:"", cepEmp:"", ruaEmp:"", numeroEmp:"", complementoEmp:"", bairroEmp:"", cidadeEmp:"", estadoEmp:"", cep:"", bairro:"", cidade:"" });
   const [buscandoCEPEmp, setBuscandoCEPEmp] = useState(false);
   const [fotoUrl, setFotoUrl]             = useState<string | null>(null);
   const [uploadingFoto, setUploadingFoto] = useState(false);
@@ -113,6 +113,9 @@ export default function App() {
   const [diarias, setDiarias]                     = useState<Diaria[]>([]);
   const [formDiaria, setFormDiaria]               = useState({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"" });
   const [buscandoCEP, setBuscandoCEP]             = useState(false);
+  const [buscandoCEPPerfil, setBuscandoCEPPerfil] = useState(false);  // diarista profile CEP
+  const [latPerfilCEP, setLatPerfilCEP]           = useState<number | null>(null); // geocoded from profile CEP
+  const [lngPerfilCEP, setLngPerfilCEP]           = useState<number | null>(null);
   const [localizandoDiaria, setLocalizandoDiaria] = useState(false);
   const [latDiaria, setLatDiaria]                 = useState<number | null>(null);
   const [lngDiaria, setLngDiaria]                 = useState<number | null>(null);
@@ -2086,6 +2089,30 @@ export default function App() {
   };
 
   // Busca endereço pelo CEP via ViaCEP
+  // ── Geocodifica um CEP via Nominatim (OpenStreetMap) → retorna {lat, lng} ──
+  // Usada para calcular distâncias sem depender de GPS do dispositivo
+  const geocodificarCEP = async (cep: string, cidade?: string, uf?: string): Promise<{lat:number, lng:number}|null> => {
+    try {
+      // Tenta CEP + cidade para maior precisão
+      const query = encodeURIComponent(`${cep}${cidade ? ", " + cidade : ""}${uf ? ", " + uf : ""}, Brasil`);
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1&addressdetails=0`,
+        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Trampojakapp/1.0" } }
+      );
+      const data = await res.json();
+      if (data?.length > 0) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      // Fallback: só o CEP
+      const res2 = await fetch(
+        `https://nominatim.openstreetmap.org/search?postalcode=${cep}&country=Brazil&format=json&limit=1`,
+        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Trampojakapp/1.0" } }
+      );
+      const data2 = await res2.json();
+      if (data2?.length > 0) return { lat: parseFloat(data2[0].lat), lng: parseFloat(data2[0].lon) };
+    } catch { /* sem internet ou erro — ok, continua sem coordenadas */ }
+    return null;
+  };
+
+  // Busca endereço pelo CEP (formulário de diária) + geocodifica automaticamente
   const buscarCEP = async (cepRaw: string) => {
     const cep = cepRaw.replace(/\D/g, "");
     if (cep.length !== 8) return;
@@ -2102,11 +2129,14 @@ export default function App() {
         cidade: json.localidade || prev.cidade,
         estado: json.uf || prev.estado,
       }));
+      // Geocodifica o CEP → lat/lng automático (sem precisar de GPS do dispositivo)
+      const coords = await geocodificarCEP(cep, json.localidade, json.uf);
+      if (coords) { setLatDiaria(coords.lat); setLngDiaria(coords.lng); }
     } catch { setAuthError("Erro ao buscar CEP. Verifique sua conexão."); }
     setBuscandoCEP(false);
   };
 
-  // Busca endereço pelo CEP para o cadastro do empregador
+  // Busca endereço pelo CEP para o cadastro do empregador + geocodifica
   const buscarCEPEmp = async (cepRaw: string) => {
     const cep = cepRaw.replace(/\D/g,"");
     if (cep.length !== 8) return;
@@ -2117,8 +2147,29 @@ export default function App() {
       const json = await res.json();
       if (json.erro) { setAuthError("CEP não encontrado."); setBuscandoCEPEmp(false); return; }
       setForm(prev => ({ ...prev, ruaEmp: json.logradouro||prev.ruaEmp, bairroEmp: json.bairro||prev.bairroEmp, cidadeEmp: json.localidade||prev.cidadeEmp, estadoEmp: json.uf||prev.estadoEmp }));
+      // Geocodifica o CEP do empregador automaticamente
+      const coords = await geocodificarCEP(cep, json.localidade, json.uf);
+      if (coords) { setLatPerfilCEP(coords.lat); setLngPerfilCEP(coords.lng); }
     } catch { setAuthError("Erro ao buscar CEP. Verifique sua conexão."); }
     setBuscandoCEPEmp(false);
+  };
+
+  // Busca CEP do perfil do diarista → preenche bairro/cidade e geocodifica
+  const buscarCEPPerfil = async (cepRaw: string) => {
+    const cep = cepRaw.replace(/\D/g, "");
+    if (cep.length !== 8) return;
+    setBuscandoCEPPerfil(true);
+    setAuthError("");
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const json = await res.json();
+      if (json.erro) { setAuthError("CEP não encontrado. Verifique o CEP digitado."); setBuscandoCEPPerfil(false); return; }
+      setForm(prev => ({ ...prev, bairro: json.bairro || prev.bairro, cidade: json.localidade || prev.cidade }));
+      const coords = await geocodificarCEP(cep, json.localidade, json.uf);
+      if (coords) { setLatPerfilCEP(coords.lat); setLngPerfilCEP(coords.lng); }
+      else setAuthError("CEP encontrado, mas não foi possível obter as coordenadas. Tente novamente.");
+    } catch { setAuthError("Erro ao buscar CEP. Verifique sua conexão."); }
+    setBuscandoCEPPerfil(false);
   };
 
   // Busca endereço pelo CEP para o formulário de convite direto
@@ -3377,6 +3428,8 @@ export default function App() {
           cnpj: form.cnpj,
           pessoa_tipo: form.pessoaTipo,
           endereco_empregador: endEmp,
+          // Inclui lat/lng geocodificados do CEP se disponíveis
+          ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
         });
         if (ok) setTela("escolha-negocio");
       }}>Continuar →</button>
@@ -7673,11 +7726,39 @@ export default function App() {
         onChange={e=>setForm({...form,bio:e.target.value})}
       />
 
-      <label style={S.label}>Localização</label>
-      <button style={{ ...S.btnSecondary, marginTop:4 }} onClick={handleAtualizarLocalizacao}>
-        📍 {profile?.lat ? "Atualizar minha localização" : "Permitir localização"}
-      </button>
-      {profile?.lat && <p style={{ color:"#16a34a", fontSize:12, marginTop:4 }}>✅ Localização salva</p>}
+      <label style={S.label}>Seu CEP (para cálculo de distância)</label>
+      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-2px 0 6px", lineHeight:1.5 }}>
+        Usamos seu CEP para mostrar vagas próximas a você. Não compartilhamos seu endereço exato.
+      </p>
+      <div style={{ display:"flex", gap:8, marginBottom:4 }}>
+        <input
+          style={{ ...S.input, flex:1, marginBottom:0 }}
+          placeholder="00000-000"
+          maxLength={9}
+          value={form.cep}
+          onChange={e => {
+            const raw = e.target.value.replace(/\D/g,"");
+            const masked = raw.length > 5 ? raw.slice(0,5)+"-"+raw.slice(5,8) : raw;
+            setForm({ ...form, cep: masked });
+            if (raw.length === 8) buscarCEPPerfil(raw);
+          }}
+        />
+        <button
+          style={{ padding:"0 18px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0, opacity: buscandoCEPPerfil ? 0.6 : 1 }}
+          disabled={buscandoCEPPerfil}
+          onClick={() => buscarCEPPerfil(form.cep)}>
+          {buscandoCEPPerfil ? "…" : "Buscar"}
+        </button>
+      </div>
+      {form.bairro && form.cidade && (
+        <p style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:4 }}>📍 {form.bairro}, {form.cidade}</p>
+      )}
+      {latPerfilCEP && (
+        <p style={{ fontSize:12, color:"#16a34a", marginBottom:8, fontWeight:700 }}>✅ Localização definida pelo CEP</p>
+      )}
+      {!latPerfilCEP && profile?.lat && (
+        <p style={{ fontSize:12, color:"#16a34a", marginBottom:8 }}>✅ Localização já salva no perfil</p>
+      )}
 
       {/* Portfólio de trabalhos */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", margin:"20px 0 8px", textTransform:"uppercase" as const, letterSpacing:0.5 }}>📸 Portfólio (até 3 fotos)</div>
@@ -7717,8 +7798,11 @@ export default function App() {
           cpf: form.cpf,
           sexo: form.sexo,
           data_nascimento: form.dataNasc,
+          // Inclui lat/lng do CEP se o usuário geocodificou
+          ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
         });
         if (ok) {
+          setLatPerfilCEP(null); setLngPerfilCEP(null); // limpa estado temporário
           trackEvento("cadastro_concluido", session?.user?.id, "diarista");
           setTela("home-diarista");
         }
@@ -7743,36 +7827,75 @@ export default function App() {
       setTela(telaDestino);
     };
 
-    const handlePermitir = () => {
-      if (!navigator.geolocation) { irParaDestino(); return; }
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          await saveProfile({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          irParaDestino();
-        },
-        () => irParaDestino(), // negou permissão → vai para home mesmo assim
-        { timeout: 15000, enableHighAccuracy: true }
-      );
+    // Estado local para o CEP de localização (nesta tela)
+    const [cepLoc, setCepLoc] = [form.cep, (v: string) => setForm(p => ({ ...p, cep: v }))];
+    const [geocodOk, setGeocodOk] = [!!latPerfilCEP, (_: boolean) => {}];
+
+    const handleSalvarCEP = async () => {
+      const cep = form.cep.replace(/\D/g, "");
+      if (cep.length !== 8) return;
+      await buscarCEPPerfil(cep);
+    };
+
+    const handleContinuar = async () => {
+      if (latPerfilCEP) {
+        await saveProfile({ lat: latPerfilCEP, lng: lngPerfilCEP });
+        setLatPerfilCEP(null); setLngPerfilCEP(null);
+      }
+      irParaDestino();
     };
 
     return (
       <div style={S.splash}>
-        <div style={S.splashInner}>
-          <div style={{ fontSize:72 }}>📍</div>
+        <div style={{ ...S.splashInner, maxWidth: 360, width:"100%" }}>
+          <div style={{ fontSize:64 }}>📍</div>
           <h2 style={{ color:"#fff", fontSize:22, fontWeight:900, textAlign:"center", margin:"8px 0" }}>
-            Permitir localização?
+            Informe seu CEP
           </h2>
-          <p style={{ color:"var(--text-3,#94a3b8)", textAlign:"center", fontSize:15, lineHeight:1.6, maxWidth:300 }}>
-            Usamos sua localização para mostrar profissionais próximos a você no mapa e ajudar empregadores a te encontrar.
+          <p style={{ color:"var(--text-3,#94a3b8)", textAlign:"center", fontSize:14, lineHeight:1.6, marginBottom:20 }}>
+            Usamos seu CEP para mostrar vagas e profissionais próximos a você. Não compartilhamos seu endereço exato.
           </p>
-          <button style={{ ...S.btnPrimary, background:corTela, marginTop:16 }} onClick={handlePermitir}>
-            📍 Permitir localização
-          </button>
+
+          {/* CEP input */}
+          <div style={{ display:"flex", gap:8, width:"100%", marginBottom:8 }}>
+            <input
+              style={{ ...S.input, flex:1, marginBottom:0, background:"#1e293b", color:"#fff", borderColor:"#334155" }}
+              placeholder="00000-000"
+              maxLength={9}
+              value={cepLoc}
+              onChange={e => {
+                const raw = e.target.value.replace(/\D/g,"");
+                const masked = raw.length > 5 ? raw.slice(0,5)+"-"+raw.slice(5,8) : raw;
+                setCepLoc(masked);
+              }}
+            />
+            <button
+              style={{ padding:"0 18px", background: corTela, color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0, opacity: buscandoCEPPerfil ? 0.6 : 1 }}
+              disabled={buscandoCEPPerfil}
+              onClick={handleSalvarCEP}>
+              {buscandoCEPPerfil ? "..." : "Buscar"}
+            </button>
+          </div>
+
+          {/* Feedback */}
+          {geocodOk && (
+            <div style={{ display:"flex", alignItems:"center", gap:8, background:"#052e16", border:"1.5px solid #16a34a", borderRadius:12, padding:"10px 14px", width:"100%", marginBottom:8 }}>
+              <span>✅</span>
+              <div>
+                <p style={{ color:"#4ade80", fontSize:13, fontWeight:700, margin:0 }}>Localização definida!</p>
+                {form.bairro && form.cidade && <p style={{ color:"#86efac", fontSize:12, margin:"2px 0 0" }}>📍 {form.bairro}, {form.cidade}</p>}
+              </div>
+            </div>
+          )}
+
           <button
-            style={{ ...S.btnSecondary, color:"var(--text-3,#94a3b8)", borderColor:"#334155", marginTop:8 }}
-            onClick={irParaDestino}>
-            Agora não
+            style={{ ...S.btnPrimary, background: corTela, marginTop:8, width:"100%", opacity: (!geocodOk && !profile?.lat) ? 0.5 : 1 }}
+            onClick={handleContinuar}>
+            {geocodOk || profile?.lat ? "Entrar no app →" : "Pular por agora"}
           </button>
+          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, textAlign:"center", marginTop:8, lineHeight:1.5 }}>
+            Você pode atualizar o CEP a qualquer momento no seu perfil.
+          </p>
         </div>
       </div>
     );
@@ -8602,30 +8725,26 @@ export default function App() {
           </div>
         </div>
 
-        <button
-          type="button"
-          style={{ ...S.btnSecondary, marginTop:8, display:"flex", alignItems:"center", gap:8, justifyContent:"center",
-            background: latDiaria ? "#f0fdf4" : undefined,
-            borderColor: latDiaria ? "#86efac" : undefined,
-            color: latDiaria ? "#16a34a" : undefined,
-            opacity: localizandoDiaria ? 0.6 : 1 }}
-          disabled={localizandoDiaria}
-          onClick={() => {
-            if (!navigator.geolocation) { setAuthError("Geolocalização não suportada neste dispositivo."); return; }
-            setLocalizandoDiaria(true);
-            navigator.geolocation.getCurrentPosition(
-              pos => { setLatDiaria(pos.coords.latitude); setLngDiaria(pos.coords.longitude); setLocalizandoDiaria(false); },
-              () => { setAuthError("Permissão de localização negada. Verifique as configurações."); setLocalizandoDiaria(false); },
-              { timeout: 15000, enableHighAccuracy: true }
-            );
-          }}>
-          {localizandoDiaria ? "📡 Buscando localização..." : latDiaria ? "✅ Localização no mapa capturada" : "📍 Marcar localização no mapa (GPS)"}
-        </button>
-        {!latDiaria && (
-          <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:4, textAlign:"center" }}>
-            Recomendado — o diarista poderá abrir no Google Maps direto
-          </p>
-        )}
+        {/* Localização automática via CEP */}
+        {latDiaria ? (
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:8, padding:"10px 14px", background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12 }}>
+            <span style={{ fontSize:18 }}>✅</span>
+            <div>
+              <span style={{ fontSize:13, fontWeight:700, color:"#16a34a" }}>Localização obtida pelo CEP</span>
+              <p style={{ fontSize:11, color:"#15803d", margin:"2px 0 0" }}>O diarista poderá abrir o endereço no mapa</p>
+            </div>
+          </div>
+        ) : buscandoCEP ? (
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:8, padding:"10px 14px", background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12 }}>
+            <span style={{ fontSize:18 }}>📡</span>
+            <span style={{ fontSize:13, color:"var(--text-2,#64748b)", fontWeight:600 }}>Buscando coordenadas do CEP...</span>
+          </div>
+        ) : formDiaria.cep.replace(/\D/g,"").length === 8 ? (
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:8, padding:"10px 14px", background:"#fef3c7", border:"1.5px solid #fde68a", borderRadius:12 }}>
+            <span style={{ fontSize:18 }}>⚠️</span>
+            <span style={{ fontSize:12, color:"#92400e" }}>Coordenadas não obtidas. O endereço será salvo em texto.</span>
+          </div>
+        ) : null}
 
         {/* Resumo antes de publicar */}
         {(() => {
@@ -8768,11 +8887,15 @@ export default function App() {
         <input style={{ ...S.input, flex:"0 0 70px" }} placeholder="UF" value={form.estadoEmp} onChange={e=>setForm({...form,estadoEmp:e.target.value})} />
       </div>
 
-      <label style={S.label}>Localização GPS</label>
-      <button style={{ ...S.btnSecondary, marginTop:4 }} onClick={handleAtualizarLocalizacao}>
-        📍 {profile?.lat ? "Atualizar minha localização" : "Permitir localização"}
-      </button>
-      {profile?.lat && <p style={{ color:"#16a34a", fontSize:12, marginTop:4 }}>✅ Localização salva</p>}
+      {/* Feedback de geocodificação */}
+      {latPerfilCEP ? (
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4, padding:"10px 14px", background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, marginBottom:4 }}>
+          <span>✅</span>
+          <span style={{ fontSize:13, fontWeight:700, color:"#16a34a" }}>Localização obtida pelo CEP</span>
+        </div>
+      ) : profile?.lat ? (
+        <p style={{ color:"#16a34a", fontSize:12, marginTop:4 }}>✅ Localização já salva no perfil</p>
+      ) : null}
 
       {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
       <button style={{ ...S.btnPrimary, marginTop:16, opacity: salvandoPerfil ? 0.6 : 1 }} onClick={async () => {
@@ -8790,8 +8913,10 @@ export default function App() {
           cnpj: form.pessoaTipo === "juridica" ? form.cnpj : "",
           pessoa_tipo: form.pessoaTipo,
           ...(enderecoAtualizado ? { endereco_empregador: enderecoAtualizado } : {}),
+          // Inclui lat/lng do CEP se geocodificado
+          ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
         });
-        if (ok) { setTela("configuracoes"); }
+        if (ok) { setLatPerfilCEP(null); setLngPerfilCEP(null); setTela("configuracoes"); }
       }}
       disabled={salvandoPerfil}
     >{salvandoPerfil ? "Salvando..." : "Salvar alterações"}</button>
