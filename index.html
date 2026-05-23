@@ -65,24 +65,37 @@
         --border-color:   #334155;
       }
 
-      /* Regras globais para dark mode — forçam cores escuras em elementos comuns */
-      body[data-dark="1"] button:not([style*="background"]) {
-        background: var(--bg-card) !important;
-        color: var(--text-1) !important;
-      }
-      body[data-dark="1"] input, body[data-dark="1"] textarea, body[data-dark="1"] select {
+      /* ── Dark mode: regras globais abrangentes ── */
+
+      /* Inputs e formulários */
+      body[data-dark="1"] input,
+      body[data-dark="1"] textarea,
+      body[data-dark="1"] select {
         background: var(--input-bg) !important;
         color: var(--text-1) !important;
         border-color: var(--border) !important;
       }
-      body[data-dark="1"] .modal, body[data-dark="1"] [style*="borderRadius: \"20px 20px 0 0\""] {
-        background: var(--modal-bg) !important;
+
+      /* Botões sem cor de fundo inline */
+      body[data-dark="1"] button:not([style*="background:#"]):not([style*="background: #"]):not([style*="background:linear"]):not([style*="background: linear"]) {
+        background: var(--bg-card) !important;
+        color: var(--text-1) !important;
       }
 
-      /* Transição suave ao alternar */
-      #root { transition: background .25s; }
+      /* Placeholder de texto */
+      body[data-dark="1"] ::placeholder { color: var(--text-3) !important; opacity: 1; }
 
-      /* Textarea e select também pegam o tema */
+      /* Scrollbars discretas no escuro */
+      body[data-dark="1"] ::-webkit-scrollbar { width:6px; height:6px; }
+      body[data-dark="1"] ::-webkit-scrollbar-track { background: var(--bg-app); }
+      body[data-dark="1"] ::-webkit-scrollbar-thumb { background: var(--border); border-radius:3px; }
+
+      /* Transição suave ao alternar */
+      #root, #root * { transition: background-color .2s, color .15s, border-color .2s; }
+      /* Exceções: imagens, SVGs e elementos com transições próprias não devem transitar */
+      img, svg, video, [style*="transition"] { transition: none !important; }
+
+      /* Textarea e select também pegam o tema (light mode) */
       textarea, select {
         background: var(--input-bg, #fff);
         color: var(--text-1, #0f172a);

@@ -1255,19 +1255,25 @@ export default function App() {
       // Carrega assinatura ativa
       supabase.from("assinaturas").select("*").eq("user_id", userId).eq("status", "ativo").maybeSingle()
         .then(({ data: sub }) => setAssinatura(sub || null));
-      // Restaura o modo salvo em localStorage (sobrevive ao reload)
+      // Restaura o modo e a tela salvos em localStorage (sobrevive ao reload)
       const modoSalvo = localStorage.getItem("diariaja_modo") as "empregador"|"diarista" | null;
+      const telaSalva = (() => { try { return localStorage.getItem("diariaja_tela") || ""; } catch { return ""; } })();
+      // Telas que NÃO devem ser restauradas (requerem autenticação/fluxo limpo)
+      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao"]);
+      const podeRestaurar = (t: string) => t && !TELAS_AUTH.has(t);
+
       if (data.user_type === "diarista") {
         setModoAtual("diarista");
-        setTela("home-diarista");
+        // Restaura tela salva se for válida para diarista, senão vai para home
+        setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
       } else if (data.user_type === "ambos" && modoSalvo === "diarista" && data.funcao && data.valor_diaria) {
         // Usuário "ambos" que estava no modo diarista → volta para diarista
         setModoAtual("diarista");
-        setTela("home-diarista");
+        setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
       } else {
         // "empregador" ou "ambos" → home do empregador se tiver segmento
         setModoAtual("empregador");
-        if (data.segmento) setTela("home-empregador");
+        if (data.segmento) setTela(podeRestaurar(telaSalva) ? telaSalva : "home-empregador");
         else setTela("escolha-negocio");
       }
     } else {
@@ -1872,17 +1878,15 @@ export default function App() {
     if (!session?.user) return;
     setSelecionando(true);
 
-    // 1. Tenta atualizar a diária
-    const { error: e1, data: dUpdated } = await supabase
+    // 1. Tenta atualizar a diária (sem .select() para evitar falha de RLS no SELECT pós-update)
+    const { error: e1 } = await supabase
       .from("diarias")
       .update({ status: "selecionado", diarista_aceite_id: diaristaId })
       .eq("id", diaria.id)
-      .eq("empregador_id", session.user.id)   // garante que só o dono pode alterar
-      .select()
-      .single();
+      .eq("empregador_id", session.user.id);  // garante que só o dono pode alterar
 
-    if (e1 || !dUpdated) {
-      setToastError("❌ Erro ao selecionar candidato: " + (e1?.message || "sem permissão. Verifique as políticas RLS no Supabase."));
+    if (e1) {
+      setToastError("❌ Erro ao selecionar candidato: " + e1.message);
       setSelecionando(false);
       return;
     }
@@ -2230,10 +2234,10 @@ export default function App() {
         <div style={{ fontSize:36, fontWeight:900, color:"#fff", letterSpacing:-1 }}>
           Diária<span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"#64748b", fontSize:15, marginTop:8 }}>Carregando...</p>
-        <p style={{ color:"#475569", fontSize:12, marginTop:4 }}>Se demorar, verifique sua conexão</p>
+        <p style={{ color:"var(--text-2,#64748b)", fontSize:15, marginTop:8 }}>Carregando...</p>
+        <p style={{ color:"var(--text-label,#475569)", fontSize:12, marginTop:4 }}>Se demorar, verifique sua conexão</p>
         <button
-          style={{ marginTop:8, background:"none", border:"1px solid #334155", color:"#94a3b8", borderRadius:10, padding:"8px 20px", fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+          style={{ marginTop:8, background:"none", border:"1px solid #334155", color:"var(--text-3,#94a3b8)", borderRadius:10, padding:"8px 20px", fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
           onClick={() => { setLoading(false); setTela("splash"); }}>
           Ir para o início
         </button>
@@ -2311,7 +2315,7 @@ export default function App() {
               </div>
               <div style={{ textAlign:"center" }}>
                 <div style={{ color:"#f1f5f9", fontSize:12, fontWeight:800, lineHeight:1.3 }}>{f.title}</div>
-                <div style={{ color:"#64748b", fontSize:11, marginTop:2 }}>{f.sub}</div>
+                <div style={{ color:"var(--text-2,#64748b)", fontSize:11, marginTop:2 }}>{f.sub}</div>
               </div>
             </div>
           ))}
@@ -2325,7 +2329,7 @@ export default function App() {
           ].map(b => (
             <div key={b.txt} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"6px 14px", display:"flex", alignItems:"center", gap:5 }}>
               <span style={{ fontSize:12 }}>{b.dot}</span>
-              <span style={{ color:"#94a3b8", fontSize:11, fontWeight:600 }}>{b.txt}</span>
+              <span style={{ color:"var(--text-3,#94a3b8)", fontSize:11, fontWeight:600 }}>{b.txt}</span>
             </div>
           ))}
         </div>
@@ -2351,7 +2355,7 @@ export default function App() {
           Cadastrar agora
         </button>
 
-        <p style={{ textAlign:"center", color:"#475569", fontSize:11, margin:"6px 0 0", lineHeight:1.8 }}>
+        <p style={{ textAlign:"center", color:"var(--text-label,#475569)", fontSize:11, margin:"6px 0 0", lineHeight:1.8 }}>
           Ao entrar você concorda com nossos{" "}
           <span style={{ color:"#FF6B35", cursor:"pointer" }} onClick={() => setTela("suporte")}>Termos de uso</span>
           {"  ·  "}
@@ -2376,7 +2380,7 @@ export default function App() {
                 <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>
                   Diária<span style={{ color:"#FF6B35" }}>Já</span>
                 </div>
-                <div style={{ fontSize:12, color:"#94a3b8" }}>Plataforma de anúncios de serviços por diária</div>
+                <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>Plataforma de anúncios de serviços por diária</div>
               </div>
             </div>
 
@@ -2411,7 +2415,7 @@ export default function App() {
                     <span style={{ fontSize:18, flexShrink:0, marginTop:1 }}>{v.icon}</span>
                     <div>
                       <div style={{ fontSize:13, fontWeight:800, color:"#f1f5f9", marginBottom:2 }}>{v.titulo}</div>
-                      <div style={{ fontSize:12, color:"#94a3b8", lineHeight:1.6 }}>{v.desc}</div>
+                      <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", lineHeight:1.6 }}>{v.desc}</div>
                     </div>
                   </div>
                 ))}
@@ -2420,8 +2424,8 @@ export default function App() {
 
             {/* Nota legal */}
             <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:12, padding:"12px 14px", marginBottom:20 }}>
-              <div style={{ fontSize:11, color:"#64748b", lineHeight:1.6 }}>
-                ⚠️ <strong style={{ color:"#94a3b8" }}>Aviso legal:</strong> O DiáriaJá é uma plataforma de anúncios. Não somos empregador, agência de emprego nem parte em qualquer contrato de prestação de serviços firmado entre usuários. Cada usuário é responsável por suas relações e obrigações. Consulte nossos <span style={{ color:"#FF6B35", cursor:"pointer" }} onClick={() => { setModalQuemSomos(false); setTela("suporte"); }}>Termos de Uso</span>.
+              <div style={{ fontSize:11, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
+                ⚠️ <strong style={{ color:"var(--text-3,#94a3b8)" }}>Aviso legal:</strong> O DiáriaJá é uma plataforma de anúncios. Não somos empregador, agência de emprego nem parte em qualquer contrato de prestação de serviços firmado entre usuários. Cada usuário é responsável por suas relações e obrigações. Consulte nossos <span style={{ color:"#FF6B35", cursor:"pointer" }} onClick={() => { setModalQuemSomos(false); setTela("suporte"); }}>Termos de Uso</span>.
               </div>
             </div>
 
@@ -2440,7 +2444,7 @@ export default function App() {
   if (tela === "login") return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px" }}>
 
-      <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => setTela("splash")}>
+      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => setTela("splash")}>
         ← Voltar
       </button>
 
@@ -2450,26 +2454,26 @@ export default function App() {
         <div style={{ fontSize:30, fontWeight:900, letterSpacing:-1 }}>
           <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"#64748b", fontSize:13, marginTop:4 }}>Bem-vindo de volta</p>
+        <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginTop:4 }}>Bem-vindo de volta</p>
       </div>
 
       {/* Card de login */}
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
-        <button style={{ width:"100%", padding:"13px", background:"#fff", color:"#0f172a", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
+        <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
           {GoogleSVG} Entrar com Google
         </button>
 
         <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
           <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-          <span style={{ color:"#475569", fontSize:12 }}>ou com e-mail</span>
+          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou com e-mail</span>
           <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
         </div>
 
-        <label style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
+        <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
         <input style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
 
-        <label style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
+        <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
         <input style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:4 }}
           placeholder="Sua senha" type="password" value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
 
@@ -2481,7 +2485,7 @@ export default function App() {
         </button>
       </div>
 
-      <p style={{ textAlign:"center", color:"#64748b", fontSize:14, marginTop:20, cursor:"pointer" }} onClick={() => setTela("cadastro-tipo")}>
+      <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:14, marginTop:20, cursor:"pointer" }} onClick={() => setTela("cadastro-tipo")}>
         Não tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Cadastre-se grátis</span>
       </p>
     </div>
@@ -2491,7 +2495,7 @@ export default function App() {
   if (tela === "cadastro-tipo") return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
 
-      <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => setTela("splash")}>
+      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => setTela("splash")}>
         ← Voltar
       </button>
 
@@ -2500,7 +2504,7 @@ export default function App() {
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-0.5 }}>
           <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"#94a3b8", fontSize:14, marginTop:8 }}>Como você vai usar o app?</p>
+        <p style={{ color:"var(--text-3,#94a3b8)", fontSize:14, marginTop:8 }}>Como você vai usar o app?</p>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:24 }}>
@@ -2513,7 +2517,7 @@ export default function App() {
             onClick={() => setTipo(t.key)}>
             <span style={{ fontSize:36 }}>{t.icone}</span>
             <span style={{ fontWeight:800, fontSize:15, color:tipo===t.key?"#FF6B35":"#f1f5f9" }}>{t.label}</span>
-            <span style={{ fontSize:11, color:"#64748b", textAlign:"center" }}>{t.desc}</span>
+            <span style={{ fontSize:11, color:"var(--text-2,#64748b)", textAlign:"center" }}>{t.desc}</span>
           </div>
         ))}
       </div>
@@ -2533,7 +2537,7 @@ export default function App() {
   if (tela === "cadastro-auth") return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
 
-      <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => setTela("cadastro-tipo")}>
+      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => setTela("cadastro-tipo")}>
         ← Voltar
       </button>
 
@@ -2542,25 +2546,25 @@ export default function App() {
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-0.5 }}>
           <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"#94a3b8", fontSize:14, marginTop:6 }}>Crie sua conta grátis</p>
+        <p style={{ color:"var(--text-3,#94a3b8)", fontSize:14, marginTop:6 }}>Crie sua conta grátis</p>
       </div>
 
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
-        <button style={{ width:"100%", padding:"13px", background:"#fff", color:"#0f172a", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
+        <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
           {GoogleSVG} Cadastrar com Google
         </button>
 
         <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
           <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-          <span style={{ color:"#475569", fontSize:12 }}>ou com e-mail</span>
+          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou com e-mail</span>
           <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
         </div>
 
-        <label style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
+        <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
         <input style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
 
-        <label style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
+        <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
         <input style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:4 }}
           placeholder="Mínimo 6 caracteres" type="password" value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
 
@@ -2572,7 +2576,7 @@ export default function App() {
         </button>
       </div>
 
-      <p style={{ textAlign:"center", color:"#64748b", fontSize:14, marginTop:20, cursor:"pointer" }} onClick={() => setTela("login")}>
+      <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:14, marginTop:20, cursor:"pointer" }} onClick={() => setTela("login")}>
         Já tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Entrar</span>
       </p>
     </div>
@@ -2590,25 +2594,25 @@ export default function App() {
     ];
     // faqAberta já está no topo do componente (BUG-C1 fix)
     return (
-      <div style={{ minHeight:"100vh", background:"#f0f2f5", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
 
         {/* Header */}
         <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px", position:"relative" }}>
-          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
+          <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
             ← Voltar
           </button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🎧</div>
             <div>
               <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Suporte</div>
-              <div style={{ fontSize:13, color:"#64748b" }}>Estamos aqui para ajudar</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>Estamos aqui para ajudar</div>
             </div>
           </div>
         </div>
 
         {/* Canais de contato */}
         <div style={{ padding:"16px 16px 8px" }}>
-          <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Falar conosco</div>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Falar conosco</div>
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             {[
               { icon:"💬", label:"WhatsApp", sub:"Atendimento em até 1h", cor:"#22c55e", action:() => window.open("https://wa.me/5567999999999?text=Oi!%20Preciso%20de%20ajuda%20no%20DiáriaJá","_blank") },
@@ -2616,14 +2620,14 @@ export default function App() {
               { icon:"📱", label:"Instagram", sub:"@diariaja.oficial", cor:"#e11d48", action:() => window.open("https://instagram.com","_blank") },
             ].map(c => (
               <div key={c.label}
-                style={{ background:"#fff", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:14, cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
+                style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:14, cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
                 onClick={c.action}>
                 <div style={{ width:46, height:46, background:c.cor+"18", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>
                   {c.icon}
                 </div>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>{c.label}</div>
-                  <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>{c.sub}</div>
+                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.label}</div>
+                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{c.sub}</div>
                 </div>
                 <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>
               </div>
@@ -2633,18 +2637,18 @@ export default function App() {
 
         {/* FAQ */}
         <div style={{ padding:"16px 16px 8px" }}>
-          <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Perguntas frequentes</div>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Perguntas frequentes</div>
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
             {faqItems.map((item, i) => (
-              <div key={i} style={{ background:"#fff", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              <div key={i} style={{ background:"var(--bg-card,#fff)", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
                 <div
                   style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 16px", cursor:"pointer" }}
                   onClick={() => setFaqAberta(faqAberta === i ? null : i)}>
-                  <span style={{ fontWeight:700, fontSize:14, color:"#0f172a", flex:1, paddingRight:10 }}>{item.q}</span>
+                  <span style={{ fontWeight:700, fontSize:14, color:"var(--text-1,#0f172a)", flex:1, paddingRight:10 }}>{item.q}</span>
                   <span style={{ color:"#FF6B35", fontSize:18, fontWeight:900, flexShrink:0, transform: faqAberta===i ? "rotate(45deg)" : "none", transition:"transform .2s" }}>+</span>
                 </div>
                 {faqAberta === i && (
-                  <div style={{ padding:"0 16px 14px", fontSize:13, color:"#475569", lineHeight:1.6, borderTop:"1px solid #f1f5f9" }}>
+                  <div style={{ padding:"0 16px 14px", fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.6, borderTop:"1px solid var(--border-sub,#f1f5f9)" }}>
                     {item.r}
                   </div>
                 )}
@@ -2654,7 +2658,7 @@ export default function App() {
         </div>
 
         {/* Versão */}
-        <div style={{ textAlign:"center", color:"#94a3b8", fontSize:12, marginTop:24 }}>
+        <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:12, marginTop:24 }}>
           <div style={{ fontSize:20, marginBottom:4 }}>⚡</div>
           <strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0<br />
           Feito com ❤️ em Campo Grande, MS
@@ -2675,7 +2679,7 @@ export default function App() {
       </div>
 
       {/* Tipo de pessoa */}
-      <div style={{ fontWeight:800, fontSize:12, color:"#64748b", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>👤 Tipo de pessoa *</div>
+      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>👤 Tipo de pessoa *</div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
         {([["fisica","👤","Pessoa Física","CPF"],["juridica","🏢","Pessoa Jurídica","CNPJ"]] as const).map(([tp, ic, lb, doc]) => (
           <div key={tp}
@@ -2683,13 +2687,13 @@ export default function App() {
             onClick={() => setForm({...form, pessoaTipo:tp})}>
             <div style={{ fontSize:28 }}>{ic}</div>
             <div style={{ fontWeight:800, fontSize:14, color:form.pessoaTipo===tp?"#1d4ed8":"#0f172a", marginTop:4 }}>{lb}</div>
-            <div style={{ fontSize:11, color:"#94a3b8", marginTop:2 }}>Documento: {doc}</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Documento: {doc}</div>
           </div>
         ))}
       </div>
 
       {/* Identificação */}
-      <div style={{ fontWeight:800, fontSize:12, color:"#64748b", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📋 Identificação</div>
+      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📋 Identificação</div>
       <label style={S.label}>Nome completo *</label>
       <input style={S.input} placeholder="Ex: Maria Oliveira" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
       <label style={S.label}>Telefone (WhatsApp) *</label>
@@ -2701,7 +2705,7 @@ export default function App() {
           <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
             value={form.cpf} onChange={e=>setForm({...form,cpf:maskCPF(e.target.value)})} />
           <label style={S.label}>Nome do local / apelido *</label>
-          <p style={{ color:"#94a3b8", fontSize:12, margin:"-6px 0 8px" }}>Como será identificado nas vagas? Ex: Família Silva, Residência Oliveira…</p>
+          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Como será identificado nas vagas? Ex: Família Silva, Residência Oliveira…</p>
           <input style={S.input} placeholder="Ex: Família Silva, Casa da Maria..." value={form.nomeNegocio} onChange={e=>setForm({...form,nomeNegocio:e.target.value})} />
         </>
       ) : (
@@ -2710,13 +2714,13 @@ export default function App() {
           <input style={{ ...S.input, letterSpacing:1 }} placeholder="00.000.000/0000-00" inputMode="numeric" maxLength={18}
             value={form.cnpj} onChange={e=>setForm({...form,cnpj:maskCNPJ(e.target.value)})} />
           <label style={S.label}>Nome do estabelecimento *</label>
-          <p style={{ color:"#94a3b8", fontSize:12, margin:"-6px 0 8px" }}>Nome da empresa/estabelecimento, não o seu nome pessoal.</p>
+          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Nome da empresa/estabelecimento, não o seu nome pessoal.</p>
           <input style={S.input} placeholder="Ex: Restaurante do João, Bar Guinness, Mercado Silva..." value={form.nomeNegocio} onChange={e=>setForm({...form,nomeNegocio:e.target.value})} />
         </>
       )}
 
       {/* Endereço */}
-      <div style={{ fontWeight:800, fontSize:12, color:"#64748b", marginBottom:8, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📍 Endereço do local *</div>
+      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📍 Endereço do local *</div>
       <div style={{ background:"#f0f9ff", border:"1.5px solid #bae6fd", borderRadius:12, padding:"10px 14px", marginBottom:12, fontSize:12, color:"#0369a1" }}>
         Informe onde os serviços serão prestados (estabelecimento ou residência).
       </div>
@@ -2731,7 +2735,7 @@ export default function App() {
             setForm(prev => ({...prev, cepEmp: v}));
             if (v.replace(/\D/g,"").length === 8) buscarCEPEmp(v);
           }} />
-        {buscandoCEPEmp && <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#64748b", fontWeight:600 }}>Buscando...</span>}
+        {buscandoCEPEmp && <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"var(--text-2,#64748b)", fontWeight:600 }}>Buscando...</span>}
       </div>
 
       <label style={S.label}>Logradouro *</label>
@@ -2834,17 +2838,17 @@ export default function App() {
       </div>
 
       {/* Foto pessoal */}
-      <div style={{ fontWeight:800, fontSize:12, color:"#64748b", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto pessoal *</div>
-      <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20, padding:"14px 16px", background:"#f8fafc", borderRadius:16, border:"1.5px solid #e2e8f0" }}>
+      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto pessoal *</div>
+      <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20, padding:"14px 16px", background:"var(--bg-surface,#f8fafc)", borderRadius:16, border:"1.5px solid var(--border,#e2e8f0)" }}>
         {fotoUrl
           ? <img src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover" as const, flexShrink:0, border:"3px solid #FF6B35" }} alt="foto" />
           : <div style={{ width:72, height:72, borderRadius:36, background:"#e2e8f0", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, flexShrink:0 }}>👤</div>
         }
         <div style={{ flex:1 }}>
-          <div style={{ fontWeight:700, fontSize:13, color:"#0f172a", marginBottom:4 }}>
+          <div style={{ fontWeight:700, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:4 }}>
             {fotoUrl ? "✅ Foto adicionada!" : "Adicione sua foto"}
           </div>
-          <div style={{ fontSize:12, color:"#64748b", marginBottom:8, lineHeight:1.4 }}>
+          <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, lineHeight:1.4 }}>
             Perfis com foto recebem <strong>3× mais contratações</strong>
           </div>
           <label style={{ display:"inline-block", padding:"8px 16px", background:fotoUrl?"#f0fdf4":"#FF6B35", color:fotoUrl?"#16a34a":"#fff", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer" }}>
@@ -2855,7 +2859,7 @@ export default function App() {
       </div>
 
       {/* Dados pessoais */}
-      <div style={{ fontWeight:800, fontSize:12, color:"#64748b", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📋 Dados pessoais</div>
+      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📋 Dados pessoais</div>
 
       <label style={S.label}>Nome completo *</label>
       <input style={S.input} placeholder="Ex: João da Silva" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
@@ -2866,7 +2870,7 @@ export default function App() {
       <label style={S.label}>CPF *</label>
       <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
         value={form.cpf} onChange={e=>setForm({...form,cpf:maskCPF(e.target.value)})} />
-      <p style={{ color:"#64748b", fontSize:11, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
+      <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
         🔒 Usado apenas para verificação de identidade. Nunca compartilhado.
       </p>
 
@@ -2887,8 +2891,8 @@ export default function App() {
         value={form.dataNasc} onChange={e=>setForm({...form,dataNasc:e.target.value})} />
 
       {/* Especialidades */}
-      <div style={{ fontWeight:800, fontSize:12, color:"#64748b", marginBottom:6, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💼 Especialidades *</div>
-      <p style={{ color:"#94a3b8", fontSize:12, margin:"0 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira selecionada</strong> vira sua especialidade principal no perfil.</p>
+      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💼 Especialidades *</div>
+      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira selecionada</strong> vira sua especialidade principal no perfil.</p>
       {categoriasSelecionadas.length > 0 && (
         <p style={{ color:"#FF6B35", fontSize:12, margin:"0 0 8px", fontWeight:700 }}>
           {categoriasSelecionadas.length} selecionada{categoriasSelecionadas.length > 1 ? "s" : ""} · Principal: {categoriasSelecionadas[0]}
@@ -2914,8 +2918,8 @@ export default function App() {
 
       <label style={S.label}>Valor por diária (R$) *</label>
       <input style={S.input} placeholder="Ex: 150" type="number" value={form.valor} onChange={e=>setForm({...form,valor:e.target.value})} />
-      <p style={{ color:"#64748b", fontSize:12, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
-        📊 Média da região: <strong style={{ color:"#0f172a" }}>R$ 120 – R$ 250</strong> por diária
+      <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
+        📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>R$ 120 – R$ 250</strong> por diária
       </p>
 
       <label style={S.label}>Disponibilidade semanal</label>
@@ -2963,7 +2967,7 @@ export default function App() {
     const statusCor: Record<string,{bg:string,color:string}> = {
       aberta:    { bg:"#dcfce7", color:"#16a34a" },
       aceita:    { bg:"#dbeafe", color:"#1d4ed8" },
-      concluida: { bg:"#f1f5f9", color:"#64748b" },
+      concluida: { bg:"#f1f5f9", color:"var(--text-2,#64748b)" },
       cancelada: { bg:"#fee2e2", color:"#dc2626" },
     };
 
@@ -2990,10 +2994,10 @@ export default function App() {
       });
 
     return (
-      <div style={{ ...S.appShell, paddingBottom:76, background:"#f0f2f5" }}>
+      <div style={{ ...S.appShell, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
 
         {/* ── Header ── */}
-        <div style={{ background:"#fff", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
+        <div style={{ background:"var(--bg-card,#fff)", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
             {/* Avatar + Nome */}
             <div style={{ display:"flex", alignItems:"center", gap:14, flex:1 }}>
@@ -3001,8 +3005,8 @@ export default function App() {
                 {iniciaisEmp}
               </div>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, color:"#64748b", fontWeight:600 }}>{saudacao},</div>
-                <div style={{ fontSize:20, fontWeight:900, color:"#0f172a", lineHeight:1.2 }}>
+                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", fontWeight:600 }}>{saudacao},</div>
+                <div style={{ fontSize:20, fontWeight:900, color:"var(--text-1,#0f172a)", lineHeight:1.2 }}>
                   <span style={{ color:negocio.cor, cursor:"pointer" }} onClick={() => { setModalInfoPerfil(true); setBioDraft(profile?.bio || ""); }}>{primeiroNome}!</span> 👋
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
@@ -3013,10 +3017,10 @@ export default function App() {
             {/* Sino + botão trocar perfil */}
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               {tipo === "ambos" && (
-                <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
+                <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
                   onClick={() => setMenuTrocarPerfil(true)}>🔄</div>
               )}
-              <div style={{ position:"relative", background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
+              <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
                 onClick={() => { setModalNotif(true); setNotifNaoLidas(0); }}>
                 🔔
                 {(notifNaoLidas + suporteNaoLidos) > 0 && <div style={{ position:"absolute", top:-4, right:-4, background: suporteNaoLidos > 0 ? "#f59e0b" : "#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</div>}
@@ -3024,10 +3028,13 @@ export default function App() {
             </div>
           </div>
 
-          {/* Chip do segmento + switcher de modo */}
+          {/* Chip do segmento — clicável para trocar rapidamente */}
           <div style={{ display:"flex", gap:8, marginTop:14, alignItems:"center", flexWrap:"wrap" }}>
-            <span style={{ display:"flex", alignItems:"center", gap:5, background:negocio.cor+"15", color:negocio.cor, padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:700, border:`1.5px solid ${negocio.cor}35` }}>
-              {negocio.icone} {negocioSelecionado}
+            <span
+              style={{ display:"flex", alignItems:"center", gap:5, background:negocio.cor+"15", color:negocio.cor, padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:700, border:`1.5px solid ${negocio.cor}35`, cursor:"pointer" }}
+              onClick={() => setTela("escolha-negocio")}
+              title="Toque para trocar o tipo de serviço">
+              {negocio.icone} {negocioSelecionado} <span style={{ fontSize:10, opacity:0.7 }}>✏️</span>
             </span>
           </div>
         </div>
@@ -3050,13 +3057,13 @@ export default function App() {
         {tabEmpregador === "inicio" && (
           <>
             {/* Abas Lista / Mapa */}
-            <div style={{ display:"flex", background:"#fff", borderTop:"1px solid #e2e8f0", borderBottom:"1px solid #e2e8f0" }}>
+            <div style={{ display:"flex", background:"var(--bg-card,#fff)", borderTop:"1px solid var(--border,#e2e8f0)", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
               <button style={{ flex:1, padding:"12px", border:"none", borderBottom:`3px solid ${tab==="lista"?negocio.cor:"transparent"}`, background:"none", fontSize:14, fontWeight:700, color:tab==="lista"?negocio.cor:"#94a3b8", cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={()=>setTab("lista")}>Lista</button>
               <button style={{ flex:1, padding:"12px", border:"none", borderBottom:`3px solid ${tab==="mapa"?negocio.cor:"transparent"}`, background:"none", fontSize:14, fontWeight:700, color:tab==="mapa"?negocio.cor:"#94a3b8", cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={()=>setTab("mapa")}>Mapa</button>
             </div>
 
             {/* Filtros */}
-            <div style={{ display:"flex", gap:8, padding:"10px 16px", overflowX:"auto", background:"#fff", borderBottom:"1px solid #f1f5f9" }}>
+            <div style={{ display:"flex", gap:8, padding:"10px 16px", overflowX:"auto", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
               <button style={{ ...S.filtroBtn, ...(filtroDisp?{ background:negocio.cor, color:"#fff", borderColor:negocio.cor }:{}) }} onClick={()=>setFiltroDisp(!filtroDisp)}>
                 {filtroDisp?"✓ ":""}Disponíveis hoje
               </button>
@@ -3069,10 +3076,10 @@ export default function App() {
             {tab === "lista" ? (
               <div style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
                 {diaristasReaisVisiveis.length === 0 ? (
-                  <div style={{ background:"#fff", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                     <div style={{ fontSize:56, marginBottom:12 }}>🔍</div>
-                    <div style={{ fontWeight:900, fontSize:16, color:"#0f172a", marginBottom:8 }}>Nenhum profissional ainda</div>
-                    <div style={{ color:"#64748b", fontSize:13, lineHeight:1.6, marginBottom:16 }}>
+                    <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Nenhum profissional ainda</div>
+                    <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:16 }}>
                       Ainda não há diaristas cadastrados na sua região. Convide um amigo e ajude a plataforma a crescer!
                     </div>
                     <button
@@ -3097,7 +3104,7 @@ export default function App() {
 
                     return (
                       <div key={d.id}
-                        style={{ background:"#fff", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer" }}
+                        style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer" }}
                         onClick={() => { setDiaristaSelecionadaReal(d); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }}>
 
                         <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
@@ -3111,19 +3118,19 @@ export default function App() {
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                               <div style={{ flex:1, minWidth:0 }}>
-                                <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", lineHeight:1.3 }}>{d.nome}</div>
+                                <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>{d.nome}</div>
                                 <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5, flexWrap:"wrap" }}>
                                   <span style={{ background:funcCor+"18", color:funcCor, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, border:`1px solid ${funcCor}30` }}>
                                     {d.funcao}
                                   </span>
                                   {d.categorias?.slice(0,1).map(f => (
-                                    <span key={f} style={{ color:"#94a3b8", fontSize:12 }}>· {f}</span>
+                                    <span key={f} style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>· {f}</span>
                                   ))}
                                 </div>
                               </div>
                               <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:2, flexShrink:0 }}>
                                 <div style={{ fontWeight:900, fontSize:22, color:"#5D5FEF", lineHeight:1 }}>R$ {d.valor_diaria}</div>
-                                <div style={{ fontSize:11, color:"#94a3b8" }}>/dia</div>
+                                <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/dia</div>
                                 <button
                                   style={{ background:"none", border:"none", padding:"2px 0", cursor:"pointer", fontSize:13, color:"#cbd5e1", lineHeight:1 }}
                                   title="Denunciar usuário"
@@ -3139,7 +3146,7 @@ export default function App() {
                                   {d.disponivel ? "● Disponível hoje" : "● Ocupado"}
                                 </span>
                                 {profile?.lat && profile?.lng && d.lat && d.lng && (
-                                  <span style={{ fontSize:11, color:"#64748b", fontWeight:600 }}>
+                                  <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:600 }}>
                                     📍 {haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!).toFixed(1)} km
                                   </span>
                                 )}
@@ -3173,7 +3180,7 @@ export default function App() {
         {/* ── ABA DIÁRIAS ── */}
         {tabEmpregador === "diarias" && (() => {
           const statusLabel: Record<string,{bg:string,color:string,txt:string}> = {
-            aberta:       { bg:"#f1f5f9", color:"#475569",  txt:"Aberta" },
+            aberta:       { bg:"#f1f5f9", color:"var(--text-label,#475569)",  txt:"Aberta" },
             selecionado:  { bg:"#fef3c7", color:"#d97706",  txt:"⏳ Aguardando confirmação" },
             pendente:     { bg:"#ede9fe", color:"#7c3aed",  txt:"✅ Confirmado — escaneie o QR" },
             aceita:       { bg:"#dbeafe", color:"#1d4ed8",  txt:"⏳ Aguardando início" },
@@ -3199,7 +3206,7 @@ export default function App() {
               {/* ── Convites enviados ── */}
               {convitesEnviados.length > 0 && (
                 <div style={{ marginBottom:20 }}>
-                  <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", marginBottom:10 }}>📨 Convites enviados</div>
+                  <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:10 }}>📨 Convites enviados</div>
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
                     {convitesEnviados.map(c => {
                       const statusConv: Record<string,{bg:string,color:string,txt:string}> = {
@@ -3211,17 +3218,17 @@ export default function App() {
                       const bordaConv = c.status === "aceito" ? "#22c55e" : c.status === "recusado" ? "#ef4444" : "#f59e0b";
                       const dataFmt = c.data_servico ? new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR", { day:"2-digit", month:"short" }) : "";
                       return (
-                        <div key={c.id} style={{ background:"#fff", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:`4px solid ${bordaConv}` }}>
+                        <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:`4px solid ${bordaConv}` }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
-                            <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>{c.diarista_nome}</div>
+                            <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.diarista_nome}</div>
                             <span style={{ background:sc.bg, color:sc.color, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800, whiteSpace:"nowrap" as const }}>{sc.txt}</span>
                           </div>
-                          {c.funcao && <div style={{ fontSize:12, color:"#64748b", marginBottom:4 }}>🛠 {c.funcao}</div>}
-                          <div style={{ fontSize:12, color:"#475569", display:"flex", flexWrap:"wrap" as const, gap:8 }}>
+                          {c.funcao && <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:4 }}>🛠 {c.funcao}</div>}
+                          <div style={{ fontSize:12, color:"var(--text-label,#475569)", display:"flex", flexWrap:"wrap" as const, gap:8 }}>
                             <span>📅 {dataFmt}</span>
                             <span>🕐 {c.horario_servico}</span>
                           </div>
-                          <div style={{ fontSize:12, color:"#475569", marginTop:4 }}>📍 {c.local_servico}</div>
+                          <div style={{ fontSize:12, color:"var(--text-label,#475569)", marginTop:4 }}>📍 {c.local_servico}</div>
                           {c.status === "aceito" && (
                             <div style={{ marginTop:10, background:"#f0fdf4", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#166534", fontWeight:700 }}>
                               🎉 {c.diarista_nome} aceitou! Combine os detalhes pelo chat.
@@ -3239,10 +3246,10 @@ export default function App() {
                                 <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:10, padding:"8px 12px" }}>
                                   <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Cancelar este convite?</span>
                                   <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => cancelarConvite(c.id)}>Sim</button>
-                                  <button style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
+                                  <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
                                 </div>
                               ) : (
-                                <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:12, cursor:"pointer", textDecoration:"underline", padding:0 }} onClick={() => setConfirmCancelarConvite(c.id)}>
+                                <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, cursor:"pointer", textDecoration:"underline", padding:0 }} onClick={() => setConfirmCancelarConvite(c.id)}>
                                   🗑️ Cancelar convite
                                 </button>
                               )}
@@ -3255,10 +3262,10 @@ export default function App() {
                 </div>
               )}
 
-              <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", marginBottom:12 }}>📋 Minhas diárias</div>
+              <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:12 }}>📋 Minhas diárias</div>
 
               {diarias.filter(d => d.status !== "cancelada").length === 0 ? (
-                <div style={{ background:"#fff", borderRadius:16, padding:"20px 16px", textAlign:"center", color:"#94a3b8", fontSize:13 }}>
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"20px 16px", textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:13 }}>
                   Nenhuma diária publicada ainda.
                 </div>
               ) : (
@@ -3323,7 +3330,7 @@ export default function App() {
                             )}
                             <span style={{ fontWeight:900, fontSize:16, color:negocio.cor }}>R$ {dia.valor}</span>
                             {/* Indicador expand/collapse */}
-                            <span style={{ fontSize:12, color:"#94a3b8", transition:"transform .2s", display:"inline-block", transform: estaExpandida ? "rotate(180deg)" : "rotate(0deg)" }}>▼</span>
+                            <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)", transition:"transform .2s", display:"inline-block", transform: estaExpandida ? "rotate(180deg)" : "rotate(0deg)" }}>▼</span>
                           </div>
                         </div>
                         <div style={{ fontWeight:700, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:6 }}>{dia.descricao}</div>
@@ -3331,7 +3338,7 @@ export default function App() {
                           {dia.funcao && <span>👷 {dia.funcao} · </span>}
                           <span>📅 {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {dia.horario_inicio.slice(0,5)}–{dia.horario_fim.slice(0,5)}{dur ? ` · ${dur}` : ""}</span>
                         </div>
-                        {dia.endereco && <div style={{ fontSize:11, color:"#94a3b8", marginBottom:4 }}>📍 {dia.endereco.split(", ").slice(0,3).join(", ")}</div>}
+                        {dia.endereco && <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginBottom:4 }}>📍 {dia.endereco.split(", ").slice(0,3).join(", ")}</div>}
 
                         {/* ── Painel de ações rápidas (aparece ao expandir o card) ── */}
                         {estaExpandida && (
@@ -3423,7 +3430,7 @@ export default function App() {
                             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                               {/* Card do profissional — clicável para ver perfil */}
                               <div
-                                style={{ background:"#f8fafc", borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:12, border:"1.5px solid #e2e8f0", cursor:"pointer" }}
+                                style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:12, border:"1.5px solid var(--border,#e2e8f0)", cursor:"pointer" }}
                                 onClick={async () => {
                                   let perfil = dp;
                                   if (!perfil) {
@@ -3437,14 +3444,14 @@ export default function App() {
                                   <img src={dp?.foto_url || supabase.storage.from("avatars").getPublicUrl(`${dia.diarista_aceite_id}.jpg`).data.publicUrl} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }} style={{ position:"absolute", inset:0, width:52, height:52, borderRadius:26, objectFit:"cover" as const, border:"2px solid #FF6B3540" }} />
                                 </div>
                                 <div style={{ flex:1, minWidth:0 }}>
-                                  <div style={{ fontWeight:900, fontSize:14, color:"#0f172a" }}>{dp?.nome || "Carregando..."}</div>
-                                  <div style={{ fontSize:12, color:"#64748b", marginTop:2, display:"flex", alignItems:"center", gap:6 }}>
+                                  <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Carregando..."}</div>
+                                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, display:"flex", alignItems:"center", gap:6 }}>
                                     {dp?.funcao && <span style={{ color:"#FF6B35", fontWeight:700 }}>{dp.funcao}</span>}
                                     {qtdDiarias !== null && <span>· ✅ {qtdDiarias} diária{qtdDiarias !== 1 ? "s" : ""}</span>}
                                   </div>
                                   {distAceitoTxt
-                                    ? <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>📍 {distAceitoTxt}</div>
-                                    : <div style={{ fontSize:11, color:"#94a3b8", marginTop:2 }}>👆 Toque para ver perfil</div>
+                                    ? <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>📍 {distAceitoTxt}</div>
+                                    : <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:2 }}>👆 Toque para ver perfil</div>
                                   }
                                 </div>
                                 <button
@@ -3463,7 +3470,7 @@ export default function App() {
                                 </div>
                               )}
                               <button
-                                style={{ background:"none", border:"none", color:"#94a3b8", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
+                                style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
                                 onClick={e => { e.stopPropagation(); setModalCancelar(dia); setMotivoCancelamento(""); }}>
                                 Cancelar diária
                               </button>
@@ -3481,7 +3488,7 @@ export default function App() {
                                 ⏳ Aguardando confirmação do profissional…
                               </div>
                               <div
-                                style={{ background:"#f8fafc", borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:12, border:"1.5px solid #e2e8f0", cursor:"pointer" }}
+                                style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:12, border:"1.5px solid var(--border,#e2e8f0)", cursor:"pointer" }}
                                 onClick={async () => {
                                   let perfil = dp;
                                   if (!perfil) {
@@ -3495,12 +3502,12 @@ export default function App() {
                                   <img src={dp?.foto_url || supabase.storage.from("avatars").getPublicUrl(`${dia.diarista_aceite_id}.jpg`).data.publicUrl} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }} style={{ position:"absolute", inset:0, width:52, height:52, borderRadius:26, objectFit:"cover" as const, border:"2px solid #FF6B3540" }} />
                                 </div>
                                 <div style={{ flex:1, minWidth:0 }}>
-                                  <div style={{ fontWeight:900, fontSize:14, color:"#0f172a" }}>{dp?.nome || "Carregando..."}</div>
-                                  <div style={{ fontSize:12, color:"#64748b", marginTop:2, display:"flex", alignItems:"center", gap:6 }}>
+                                  <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Carregando..."}</div>
+                                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, display:"flex", alignItems:"center", gap:6 }}>
                                     {dp?.funcao && <span style={{ color:"#FF6B35", fontWeight:700 }}>{dp.funcao}</span>}
                                     {qtdDiarias !== null && <span>· ✅ {qtdDiarias} diária{qtdDiarias !== 1 ? "s" : ""}</span>}
                                   </div>
-                                  <div style={{ fontSize:11, color:"#94a3b8", marginTop:2 }}>👆 Toque para ver perfil</div>
+                                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:2 }}>👆 Toque para ver perfil</div>
                                 </div>
                               </div>
                             </div>
@@ -3519,12 +3526,12 @@ export default function App() {
                                   👥 Ver {cands.length} candidato{cands.length > 1 ? "s" : ""} interessado{cands.length > 1 ? "s" : ""}
                                 </button>
                               ) : (
-                                <div style={{ background:"#f8fafc", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#94a3b8", textAlign:"center" }}>
+                                <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:10, padding:"8px 12px", fontSize:12, color:"var(--text-3,#94a3b8)", textAlign:"center" }}>
                                   Aguardando candidatos…
                                 </div>
                               )}
                               <button
-                                style={{ background:"none", border:"none", color:"#94a3b8", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
+                                style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
                                 onClick={e => { e.stopPropagation(); setModalCancelar(dia); setMotivoCancelamento(""); }}>
                                 Cancelar publicação
                               </button>
@@ -3569,17 +3576,17 @@ export default function App() {
               {/* ── Diárias canceladas (empregador) ── */}
               {diarias.filter(d => d.status === "cancelada").length > 0 && (
                 <>
-                  <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, margin:"20px 0 10px" }}>✗ Canceladas</div>
+                  <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, margin:"20px 0 10px" }}>✗ Canceladas</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
                     {diarias.filter(d => d.status === "cancelada").map(dia => (
-                      <div key={dia.id} style={{ background:"#fff", borderRadius:18, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:"4px solid #ef4444", opacity:0.85 }}>
+                      <div key={dia.id} style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:"4px solid #ef4444", opacity:0.85 }}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
                           <span style={{ background:"#fee2e2", color:"#dc2626", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800 }}>✗ Cancelada</span>
                           {confirmExcluirDiariaCancelada === dia.id ? (
                             <div style={{ display:"flex", gap:6, alignItems:"center" }}>
                               <span style={{ fontSize:12, color:"#dc2626", fontWeight:700 }}>Excluir permanentemente?</span>
                               <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => excluirDiariaJaCancelada(dia.id)}>Sim</button>
-                              <button style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmExcluirDiariaCancelada(null)}>Não</button>
+                              <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmExcluirDiariaCancelada(null)}>Não</button>
                             </div>
                           ) : (
                             <button
@@ -3590,8 +3597,8 @@ export default function App() {
                             </button>
                           )}
                         </div>
-                        <div style={{ fontWeight:700, fontSize:14, color:"#0f172a", marginBottom:4 }}>{dia.descricao}</div>
-                        <div style={{ fontSize:12, color:"#94a3b8" }}>
+                        <div style={{ fontWeight:700, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:4 }}>{dia.descricao}</div>
+                        <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>
                           {dia.funcao && <span>👷 {dia.funcao} · </span>}
                           <span>📅 {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</span>
                         </div>
@@ -3618,9 +3625,9 @@ export default function App() {
         {/* ── Modal Avaliar Diarista Real ── */}
         {modalAvalDiaristaReal && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
-              <div style={{ fontWeight:900, fontSize:19, color:"#0f172a", marginBottom:4 }}>⭐ Avaliar diarista</div>
-              <div style={{ fontSize:13, color:"#64748b", marginBottom:20 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>⭐ Avaliar diarista</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20 }}>
                 Como foi a experiência com o profissional em <strong>{modalAvalDiaristaReal.nome_negocio || "sua diária"}</strong>?
               </div>
               <div style={{ display:"flex", justifyContent:"center", gap:12, marginBottom:20 }}>
@@ -3635,7 +3642,7 @@ export default function App() {
                 </div>
               )}
               <textarea
-                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none", boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:90 }}
+                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none", boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:90 }}
                 placeholder="Deixe um comentário (opcional)..."
                 value={comentarioDiaristaReal}
                 onChange={e => setComentarioDiaristaReal(e.target.value)}
@@ -3646,7 +3653,7 @@ export default function App() {
                 onClick={enviarAvaliacaoDiaristaReal}>
                 {enviandoAvalMutua ? "Enviando..." : "Enviar avaliação"}
               </button>
-              <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                 onClick={() => setModalAvalDiaristaReal(null)}>
                 Cancelar
               </button>
@@ -3657,13 +3664,13 @@ export default function App() {
         {/* ── Modal Cancelar Diária (empregador) ── */}
         {modalCancelar && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
-              <div style={{ fontWeight:900, fontSize:19, color:"#0f172a", marginBottom:4 }}>✕ Cancelar diária</div>
-              <div style={{ fontSize:13, color:"#64748b", marginBottom:20, lineHeight:1.6 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✕ Cancelar diária</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20, lineHeight:1.6 }}>
                 Informe o motivo do cancelamento. O diarista será notificado.
               </div>
               <textarea
-                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:120 }}
+                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:120 }}
                 placeholder="Ex: Não precisarei mais do serviço nesta data..."
                 value={motivoCancelamento}
                 onChange={e => setMotivoCancelamento(e.target.value)}
@@ -3675,7 +3682,7 @@ export default function App() {
                 {cancelando ? "Cancelando..." : "Confirmar cancelamento"}
               </button>
               <button
-                style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                 onClick={() => { setModalCancelar(null); setMotivoCancelamento(""); }}>
                 Voltar
               </button>
@@ -3686,11 +3693,11 @@ export default function App() {
         {/* ── Modal Candidatos (empregador escolhe 1 de até 5) ── */}
         {modalCandidatos && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"#f0f2f5", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:480, maxHeight:"82vh", overflow:"auto" }}>
+            <div style={{ background:"var(--bg-app,#f0f2f5)", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:480, maxHeight:"82vh", overflow:"auto" }}>
               {/* Header fixo */}
-              <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", padding:"22px 20px 16px", position:"sticky", top:0, zIndex:1 }}>
-                <div style={{ fontWeight:900, fontSize:19, color:"#0f172a" }}>👥 Candidatos interessados</div>
-                <div style={{ fontSize:13, color:"#64748b", marginTop:3 }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"22px 20px 16px", position:"sticky", top:0, zIndex:1 }}>
+                <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)" }}>👥 Candidatos interessados</div>
+                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:3 }}>
                   Toque em um perfil para ver detalhes · vaga: <strong>{modalCandidatos.funcao || modalCandidatos.segmento}</strong>
                 </div>
               </div>
@@ -3721,7 +3728,7 @@ export default function App() {
                     const fotoSrc = dp?.foto_url || info?.foto_url || fotoStorageUrl;
                     return (
                       <div key={c.id}
-                        style={{ background:"#fff", borderRadius:18, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", display:"flex", alignItems:"center", gap:14, cursor:"pointer", border:"1.5px solid transparent", transition:"border .15s" }}
+                        style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", display:"flex", alignItems:"center", gap:14, cursor:"pointer", border:"1.5px solid transparent", transition:"border .15s" }}
                         onClick={async () => {
                           let perfil = candidatosProfiles[c.diarista_id];
                           if (!perfil) {
@@ -3741,11 +3748,11 @@ export default function App() {
                           />
                         </div>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontWeight:900, fontSize:15, color:"#0f172a" }}>{primeiroNome}</div>
+                          <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{primeiroNome}</div>
                           {funcao && <div style={{ fontSize:12, color:"#FF6B35", fontWeight:700, marginTop:2 }}>{funcao}</div>}
                           {distCandTxt
-                            ? <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>📍 {distCandTxt}</div>
-                            : <div style={{ fontSize:11, color:"#94a3b8", marginTop:2 }}>Toque para ver perfil completo →</div>
+                            ? <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>📍 {distCandTxt}</div>
+                            : <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Toque para ver perfil completo →</div>
                           }
                         </div>
                         <button
@@ -3758,12 +3765,12 @@ export default function App() {
                     );
                   })}
                 {candidaturas.filter(c => c.diaria_id === modalCandidatos.id && c.status === "pendente").length === 0 && (
-                  <div style={{ textAlign:"center", color:"#94a3b8", fontSize:14, padding:"24px 0" }}>
+                  <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:14, padding:"24px 0" }}>
                     Nenhum candidato disponível no momento.
                   </div>
                 )}
                 <button
-                  style={{ width:"100%", padding:"13px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:4 }}
+                  style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:4 }}
                   onClick={() => setModalCandidatos(null)}>
                   Fechar
                 </button>
@@ -3791,7 +3798,7 @@ export default function App() {
               return (
                 <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.6)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:10 }}
                   onClick={() => setPerfilCandidato(null)}>
-                  <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:480, maxHeight:"90vh", overflow:"auto" }}
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:480, maxHeight:"90vh", overflow:"auto" }}
                     onClick={e => e.stopPropagation()}>
 
                     {/* Header do perfil */}
@@ -3849,10 +3856,10 @@ export default function App() {
                               { icone:"💬", val: avaliacoesCandidato.length, label:"Avaliações" },
                               { icone:"📅", val: tempoNoApp, label:"No DiáriaJá" },
                             ].map(s => (
-                              <div key={s.label} style={{ background:"#f8fafc", borderRadius:14, padding:"12px 8px", textAlign:"center" as const }}>
+                              <div key={s.label} style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"12px 8px", textAlign:"center" as const }}>
                                 <div style={{ fontSize:20, marginBottom:4 }}>{s.icone}</div>
-                                <div style={{ fontWeight:900, fontSize:16, color:"#0f172a", lineHeight:1 }}>{loadingPerfil ? "…" : s.val}</div>
-                                <div style={{ fontSize:10, color:"#94a3b8", marginTop:3, fontWeight:600 }}>{s.label}</div>
+                                <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", lineHeight:1 }}>{loadingPerfil ? "…" : s.val}</div>
+                                <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", marginTop:3, fontWeight:600 }}>{s.label}</div>
                               </div>
                             ))}
                           </div>
@@ -3861,16 +3868,16 @@ export default function App() {
 
                       {/* Bio */}
                       {dp.bio && (
-                        <div style={{ background:"#f8fafc", borderRadius:14, padding:"14px 16px" }}>
-                          <div style={{ fontSize:11, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>📝 Apresentação</div>
-                          <p style={{ fontSize:14, color:"#475569", lineHeight:1.6, margin:0 }}>{dp.bio}</p>
+                        <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"14px 16px" }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>📝 Apresentação</div>
+                          <p style={{ fontSize:14, color:"var(--text-label,#475569)", lineHeight:1.6, margin:0 }}>{dp.bio}</p>
                         </div>
                       )}
 
                       {/* Especialidades */}
                       {(dp.categorias || []).length > 0 && (
-                        <div style={{ background:"#f8fafc", borderRadius:14, padding:"14px 16px" }}>
-                          <div style={{ fontSize:11, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>💼 Especialidades</div>
+                        <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"14px 16px" }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>💼 Especialidades</div>
                           <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8 }}>
                             {(dp.categorias||[]).map(f => {
                               const ce = Object.entries(CATEGORIAS_NEGOCIO).find(([,info])=>info.funcoes.includes(f));
@@ -3883,8 +3890,8 @@ export default function App() {
 
                       {/* Disponibilidade semanal */}
                       {(dp.agenda||[]).length > 0 && (
-                        <div style={{ background:"#f8fafc", borderRadius:14, padding:"14px 16px" }}>
-                          <div style={{ fontSize:11, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📅 Disponibilidade semanal</div>
+                        <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"14px 16px" }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📅 Disponibilidade semanal</div>
                           <div style={{ display:"flex", gap:6, flexWrap:"wrap" as const }}>
                             {DIAS.map(dia => (
                               <div key={dia} style={{ padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, background: dp.agenda?.includes(dia) ? "#5D5FEF" : "#e2e8f0", color: dp.agenda?.includes(dia) ? "#fff" : "#94a3b8" }}>
@@ -3900,7 +3907,7 @@ export default function App() {
                         <div style={{ background:"#f0fdf4", borderRadius:14, padding:"14px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                           <div>
                             <div style={{ fontSize:11, fontWeight:800, color:"#16a34a", textTransform:"uppercase" as const, letterSpacing:0.5 }}>💰 Valor por diária</div>
-                            <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>Habitualmente cobrado</div>
+                            <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>Habitualmente cobrado</div>
                           </div>
                           <div style={{ fontWeight:900, fontSize:22, color:"#16a34a" }}>R$ {dp.valor_diaria}/dia</div>
                         </div>
@@ -3908,9 +3915,9 @@ export default function App() {
 
                       {/* Avaliações */}
                       {!loadingPerfil && avaliacoesCandidato.length > 0 && (
-                        <div style={{ background:"#f8fafc", borderRadius:14, padding:"14px 16px" }}>
+                        <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"14px 16px" }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-                            <div style={{ fontSize:11, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5 }}>⭐ Avaliações de empregadores</div>
+                            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>⭐ Avaliações de empregadores</div>
                             {mediaAvs && (
                               <span style={{ fontWeight:900, fontSize:15, color:"#d97706" }}>
                                 {mediaAvs.toFixed(1)} ⭐
@@ -3919,19 +3926,19 @@ export default function App() {
                           </div>
                           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
                             {avaliacoesCandidato.slice(0, 5).map(av => (
-                              <div key={av.id} style={{ paddingBottom:10, borderBottom:"1px solid #e2e8f0" }}>
+                              <div key={av.id} style={{ paddingBottom:10, borderBottom:"1px solid var(--border,#e2e8f0)" }}>
                                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
                                   <span style={{ fontSize:12 }}>{"⭐".repeat(av.nota)}{"☆".repeat(5-av.nota)}</span>
-                                  <span style={{ fontSize:11, color:"#94a3b8" }}>{new Date(av.created_at).toLocaleDateString("pt-BR")}</span>
+                                  <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{new Date(av.created_at).toLocaleDateString("pt-BR")}</span>
                                 </div>
-                                {av.comentario && <p style={{ fontSize:13, color:"#475569", margin:0, lineHeight:1.5 }}>{av.comentario}</p>}
+                                {av.comentario && <p style={{ fontSize:13, color:"var(--text-label,#475569)", margin:0, lineHeight:1.5 }}>{av.comentario}</p>}
                               </div>
                             ))}
                           </div>
                         </div>
                       )}
                       {!loadingPerfil && avaliacoesCandidato.length === 0 && (
-                        <div style={{ textAlign:"center", color:"#94a3b8", fontSize:13, padding:"8px 0" }}>
+                        <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:13, padding:"8px 0" }}>
                           Nenhuma avaliação ainda.
                         </div>
                       )}
@@ -3946,7 +3953,7 @@ export default function App() {
                         </button>
                       )}
                       <button
-                        style={{ width:"100%", padding:"13px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                         onClick={() => setPerfilCandidato(null)}>
                         ← Voltar à lista
                       </button>
@@ -3961,10 +3968,10 @@ export default function App() {
         {/* ── Modal Excluir Diária (empregador) ── */}
         {modalExcluir && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
               <div style={{ fontSize:48, textAlign:"center", marginBottom:10, lineHeight:1 }}>🗑️</div>
-              <div style={{ fontWeight:900, fontSize:19, color:"#0f172a", marginBottom:6, textAlign:"center" }}>Excluir diária?</div>
-              <div style={{ fontSize:13, color:"#64748b", marginBottom:16, lineHeight:1.6, textAlign:"center" }}>
+              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:6, textAlign:"center" }}>Excluir diária?</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16, lineHeight:1.6, textAlign:"center" }}>
                 A diária de <strong>{modalExcluir.funcao || modalExcluir.descricao}</strong> será removida permanentemente.
               </div>
               {/* Aviso: notifica todos os candidatos, não só o aceito */}
@@ -3972,11 +3979,11 @@ export default function App() {
                 ⚠️ Todos os diaristas com interesse ou que aceitaram serão <strong>notificados</strong> com o motivo informado abaixo.
               </div>
               {/* Campo de motivo obrigatório */}
-              <label style={{ fontSize:13, fontWeight:700, color:"#0f172a", display:"block", marginBottom:6 }}>
+              <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:6 }}>
                 Motivo da exclusão *
               </label>
               <textarea
-                style={{ width:"100%", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"system-ui,sans-serif", resize:"none", height:72, outline:"none", color:"#0f172a", lineHeight:1.5, boxSizing:"border-box", marginBottom:16 }}
+                style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"system-ui,sans-serif", resize:"none", height:72, outline:"none", color:"var(--text-1,#0f172a)", lineHeight:1.5, boxSizing:"border-box", marginBottom:16 }}
                 placeholder="Ex: Contratei por outro canal, adiamos o evento..."
                 value={motivoExclusao}
                 onChange={e => setMotivoExclusao(e.target.value)}
@@ -3989,7 +3996,7 @@ export default function App() {
                 {excluindo ? "Excluindo..." : "Sim, excluir e notificar"}
               </button>
               <button
-                style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                 onClick={() => { setModalExcluir(null); setMotivoExclusao(""); setAuthError(""); }}>
                 Cancelar
               </button>
@@ -4000,31 +4007,31 @@ export default function App() {
         {/* ── Modal: Editar Diária (empregador) ── */}
         {modalEditarDiaria && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
-              <div style={{ fontWeight:900, fontSize:18, color:"#0f172a", marginBottom:4 }}>✏️ Editar diária</div>
-              <div style={{ fontSize:13, color:"#64748b", marginBottom:16 }}>{modalEditarDiaria.funcao} · {new Date(modalEditarDiaria.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
-              <label style={{ fontSize:13, fontWeight:700, color:"#0f172a", display:"block", marginBottom:6 }}>Descrição</label>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✏️ Editar diária</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16 }}>{modalEditarDiaria.funcao} · {new Date(modalEditarDiaria.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+              <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:6 }}>Descrição</label>
               <textarea
-                style={{ width:"100%", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"system-ui,sans-serif", resize:"none", height:72, outline:"none", color:"#0f172a", lineHeight:1.5, boxSizing:"border-box", marginBottom:14 }}
+                style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"system-ui,sans-serif", resize:"none", height:72, outline:"none", color:"var(--text-1,#0f172a)", lineHeight:1.5, boxSizing:"border-box", marginBottom:14 }}
                 value={formEditarDiaria.descricao}
                 onChange={e => setFormEditarDiaria(p => ({...p, descricao:e.target.value}))}
               />
               <div style={{ display:"flex", gap:10, marginBottom:14 }}>
                 <div style={{ flex:1 }}>
-                  <label style={{ fontSize:13, fontWeight:700, color:"#0f172a", display:"block", marginBottom:4 }}>Início</label>
-                  <input type="time" style={{ width:"100%", border:"1.5px solid #e2e8f0", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" }}
+                  <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:4 }}>Início</label>
+                  <input type="time" style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" }}
                     value={formEditarDiaria.horario_inicio}
                     onChange={e => setFormEditarDiaria(p => ({...p, horario_inicio:e.target.value}))} />
                 </div>
                 <div style={{ flex:1 }}>
-                  <label style={{ fontSize:13, fontWeight:700, color:"#0f172a", display:"block", marginBottom:4 }}>Fim</label>
-                  <input type="time" style={{ width:"100%", border:"1.5px solid #e2e8f0", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" }}
+                  <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:4 }}>Fim</label>
+                  <input type="time" style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" }}
                     value={formEditarDiaria.horario_fim}
                     onChange={e => setFormEditarDiaria(p => ({...p, horario_fim:e.target.value}))} />
                 </div>
               </div>
-              <label style={{ fontSize:13, fontWeight:700, color:"#0f172a", display:"block", marginBottom:4 }}>Valor (R$)</label>
-              <input type="number" style={{ width:"100%", border:"1.5px solid #e2e8f0", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"system-ui,sans-serif", boxSizing:"border-box", marginBottom:16 }}
+              <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:4 }}>Valor (R$)</label>
+              <input type="number" style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"system-ui,sans-serif", boxSizing:"border-box", marginBottom:16 }}
                 value={formEditarDiaria.valor}
                 onChange={e => setFormEditarDiaria(p => ({...p, valor:e.target.value}))} />
               {authError && <p style={{ color:"#dc2626", fontSize:12, marginBottom:8 }}>{authError}</p>}
@@ -4035,7 +4042,7 @@ export default function App() {
                 {salvandoEdicao ? "Salvando..." : "✅ Salvar alterações"}
               </button>
               <button
-                style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                 onClick={() => { setModalEditarDiaria(null); setAuthError(""); }}>
                 Cancelar
               </button>
@@ -4052,13 +4059,13 @@ export default function App() {
           const horas = minutos > 0 ? `${Math.floor(minutos/60)}h${minutos%60>0?String(minutos%60).padStart(2,"0")+"min":""}` : "";
           return (
             <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.8)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-              <div style={{ background:"#fff", borderRadius:24, padding:"28px 24px 32px", width:"100%", maxWidth:380, boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px 32px", width:"100%", maxWidth:380, boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}>
                 <div style={{ textAlign:"center", marginBottom:16 }}>
                   <div style={{ fontSize:48, lineHeight:1, marginBottom:8 }}>🧾</div>
-                  <div style={{ fontWeight:900, fontSize:18, color:"#0f172a" }}>Recibo de Serviço</div>
-                  <div style={{ fontSize:12, color:"#94a3b8", marginTop:4 }}>Trampojá · {new Date().toLocaleDateString("pt-BR")}</div>
+                  <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>Recibo de Serviço</div>
+                  <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:4 }}>Trampojá · {new Date().toLocaleDateString("pt-BR")}</div>
                 </div>
-                <div style={{ background:"#f8fafc", borderRadius:16, padding:"16px 18px", marginBottom:16 }}>
+                <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:"16px 18px", marginBottom:16 }}>
                   {[
                     ["Serviço", modalRecibo.funcao || modalRecibo.descricao],
                     ["Data", new Date(modalRecibo.data+"T12:00:00").toLocaleDateString("pt-BR")],
@@ -4067,13 +4074,13 @@ export default function App() {
                     ["Profissional", dp?.nome || "—"],
                     ["Empregador", profile?.nome_negocio || profile?.nome || "—"],
                   ].map(([k, v]) => (
-                    <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", padding:"8px 0", borderBottom:"1px solid #e2e8f0" }}>
-                      <span style={{ fontSize:13, color:"#64748b", fontWeight:600 }}>{k}</span>
-                      <span style={{ fontSize:13, color:"#0f172a", fontWeight:700, textAlign:"right", maxWidth:"60%" }}>{v}</span>
+                    <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", padding:"8px 0", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+                      <span style={{ fontSize:13, color:"var(--text-2,#64748b)", fontWeight:600 }}>{k}</span>
+                      <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", fontWeight:700, textAlign:"right", maxWidth:"60%" }}>{v}</span>
                     </div>
                   ))}
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:12, marginTop:4 }}>
-                    <span style={{ fontSize:14, fontWeight:800, color:"#0f172a" }}>Total</span>
+                    <span style={{ fontSize:14, fontWeight:800, color:"var(--text-1,#0f172a)" }}>Total</span>
                     <span style={{ fontSize:20, fontWeight:900, color:"#22c55e" }}>R$ {modalRecibo.valor}</span>
                   </div>
                 </div>
@@ -4090,7 +4097,7 @@ export default function App() {
                   📤 Compartilhar recibo
                 </button>
                 <button
-                  style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                   onClick={() => setModalRecibo(null)}>
                   Fechar
                 </button>
@@ -4107,7 +4114,7 @@ export default function App() {
           return (
             <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:400, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
               onClick={() => setModalPagamentoMP(null)}>
-              <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", padding:"28px 24px 48px", width:"100%", maxWidth:480 }}
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 48px", width:"100%", maxWidth:480 }}
                 onClick={e => e.stopPropagation()}>
                 <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 22px" }} />
 
@@ -4115,27 +4122,27 @@ export default function App() {
                 <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:22 }}>
                   <div style={{ width:48, height:48, borderRadius:14, background:"#e8f4fd", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏦</div>
                   <div>
-                    <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Pagar com Mercado Pago</div>
-                    <div style={{ fontSize:12, color:"#64748b" }}>Pagamento seguro com split automático</div>
+                    <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)" }}>Pagar com Mercado Pago</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>Pagamento seguro com split automático</div>
                   </div>
                 </div>
 
                 {/* Resumo */}
-                <div style={{ background:"#f8fafc", borderRadius:16, padding:"16px 18px", marginBottom:16 }}>
-                  <div style={{ fontSize:11, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:12 }}>Resumo do pagamento</div>
+                <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:"16px 18px", marginBottom:16 }}>
+                  <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:12 }}>Resumo do pagamento</div>
                   {[
                     { k:"Serviço",             v: modalPagamentoMP.funcao || modalPagamentoMP.segmento },
                     { k:"Data",                v: new Date(modalPagamentoMP.data+"T12:00:00").toLocaleDateString("pt-BR") },
                     { k:"Valor do diarista",   v: `R$ ${valorDiar.toFixed(2)}` },
                     { k:"Taxa Trampojá (1,5%)",v: `R$ ${taxa.toFixed(2)}` },
                   ].map(r => (
-                    <div key={r.k} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid #e2e8f0" }}>
-                      <span style={{ fontSize:13, color:"#64748b" }}>{r.k}</span>
-                      <span style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{r.v}</span>
+                    <div key={r.k} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+                      <span style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>{r.k}</span>
+                      <span style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)" }}>{r.v}</span>
                     </div>
                   ))}
                   <div style={{ display:"flex", justifyContent:"space-between", paddingTop:12, marginTop:4 }}>
-                    <span style={{ fontSize:15, fontWeight:800, color:"#0f172a" }}>Total</span>
+                    <span style={{ fontSize:15, fontWeight:800, color:"var(--text-1,#0f172a)" }}>Total</span>
                     <span style={{ fontSize:22, fontWeight:900, color:"#009ee3" }}>R$ {valorTotal.toFixed(2)}</span>
                   </div>
                 </div>
@@ -4159,7 +4166,7 @@ export default function App() {
                   {criandoPagamento ? "Gerando link..." : "💳 Ir para o pagamento"}
                 </button>
                 <button
-                  style={{ width:"100%", padding:"13px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                   onClick={() => { setModalPagamentoMP(null); setAuthError(""); }}>
                   Cancelar
                 </button>
@@ -4177,7 +4184,7 @@ export default function App() {
           return (
             <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:400, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
               onClick={() => setModalPix(null)}>
-              <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", padding:"28px 24px 48px", width:"100%", maxWidth:480, boxShadow:"0 -8px 40px rgba(0,0,0,.3)" }}
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 48px", width:"100%", maxWidth:480, boxShadow:"0 -8px 40px rgba(0,0,0,.3)" }}
                 onClick={e => e.stopPropagation()}>
 
                 {/* Handle */}
@@ -4185,28 +4192,28 @@ export default function App() {
 
                 <div style={{ textAlign:"center", marginBottom:20 }}>
                   <div style={{ fontSize:44, lineHeight:1, marginBottom:8 }}>🏦</div>
-                  <div style={{ fontWeight:900, fontSize:18, color:"#0f172a" }}>Pagar via PIX</div>
-                  <div style={{ fontSize:13, color:"#64748b", marginTop:4 }}>
+                  <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>Pagar via PIX</div>
+                  <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:4 }}>
                     Serviço: <strong>{modalPix.funcao || modalPix.segmento}</strong>
                   </div>
                 </div>
 
                 {/* Pagar ao diarista */}
-                <div style={{ background:"#f8fafc", borderRadius:16, padding:"16px 18px", marginBottom:12 }}>
-                  <div style={{ fontSize:11, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:12 }}>
+                <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:"16px 18px", marginBottom:12 }}>
+                  <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:12 }}>
                     👷 Pagamento ao profissional
                   </div>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                    <span style={{ fontSize:13, color:"#475569" }}>Valor combinado</span>
+                    <span style={{ fontSize:13, color:"var(--text-label,#475569)" }}>Valor combinado</span>
                     <span style={{ fontSize:22, fontWeight:900, color:"#22c55e" }}>R$ {modalPix.valor}</span>
                   </div>
                   {dp && (
                     <>
-                      <div style={{ fontSize:13, color:"#475569", marginBottom:4 }}>Profissional: <strong style={{ color:"#0f172a" }}>{dp.nome}</strong></div>
-                      <div style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"12px 14px", marginTop:10 }}>
-                        <div style={{ fontSize:11, color:"#94a3b8", fontWeight:700, marginBottom:4 }}>CHAVE PIX (telefone/CPF)</div>
-                        <div style={{ fontSize:17, fontWeight:900, color:"#0f172a", letterSpacing:0.5 }}>{chavePix}</div>
-                        <div style={{ fontSize:12, color:"#64748b", marginTop:4 }}>{dp.nome?.split(" ")[0]}</div>
+                      <div style={{ fontSize:13, color:"var(--text-label,#475569)", marginBottom:4 }}>Profissional: <strong style={{ color:"var(--text-1,#0f172a)" }}>{dp.nome}</strong></div>
+                      <div style={{ background:"var(--bg-card,#fff)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 14px", marginTop:10 }}>
+                        <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, marginBottom:4 }}>CHAVE PIX (telefone/CPF)</div>
+                        <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)", letterSpacing:0.5 }}>{chavePix}</div>
+                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:4 }}>{dp.nome?.split(" ")[0]}</div>
                       </div>
                       <button
                         style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:10 }}
@@ -4227,8 +4234,8 @@ export default function App() {
                       <span style={{ fontSize:13, color:"#92400e" }}>Valor da encostada</span>
                       <span style={{ fontSize:20, fontWeight:900, color:"#FF6B35" }}>R$ {valorEncostada}</span>
                     </div>
-                    <div style={{ background:"#fff", border:"1.5px solid #fed7aa", borderRadius:12, padding:"12px 14px" }}>
-                      <div style={{ fontSize:11, color:"#94a3b8", fontWeight:700, marginBottom:4 }}>CHAVE PIX — Trampojá</div>
+                    <div style={{ background:"var(--bg-card,#fff)", border:"1.5px solid #fed7aa", borderRadius:12, padding:"12px 14px" }}>
+                      <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, marginBottom:4 }}>CHAVE PIX — Trampojá</div>
                       <div style={{ fontSize:16, fontWeight:900, color:"#FF6B35" }}>trampojaoficial@gmail.com</div>
                       <div style={{ fontSize:12, color:"#92400e", marginTop:4 }}>Pagar separado do profissional</div>
                     </div>
@@ -4245,7 +4252,7 @@ export default function App() {
                 </div>
 
                 <button
-                  style={{ width:"100%", padding:"13px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                   onClick={() => setModalPix(null)}>
                   Fechar
                 </button>
@@ -4257,10 +4264,10 @@ export default function App() {
         {/* ── Modal: Limite de vagas atingido ── */}
         {modalLimiteVagas && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-            <div style={{ background:"#fff", borderRadius:28, padding:"32px 24px", maxWidth:360, width:"100%", textAlign:"center" }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:28, padding:"32px 24px", maxWidth:360, width:"100%", textAlign:"center" }}>
               <div style={{ fontSize:52, marginBottom:12 }}>🚀</div>
-              <div style={{ fontWeight:900, fontSize:20, color:"#0f172a", marginBottom:8 }}>Limite do plano Grátis</div>
-              <div style={{ fontSize:14, color:"#64748b", lineHeight:1.7, marginBottom:24 }}>
+              <div style={{ fontWeight:900, fontSize:20, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Limite do plano Grátis</div>
+              <div style={{ fontSize:14, color:"var(--text-2,#64748b)", lineHeight:1.7, marginBottom:24 }}>
                 Você usou as <strong>3 vagas gratuitas</strong> deste mês.<br />
                 Faça upgrade para publicar vagas ilimitadas.
               </div>
@@ -4271,7 +4278,7 @@ export default function App() {
                   Ver planos →
                 </button>
                 <button
-                  style={{ padding:"12px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  style={{ padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                   onClick={() => setModalLimiteVagas(false)}>
                   Agora não
                 </button>
@@ -4283,13 +4290,13 @@ export default function App() {
         {/* ── Modal: Denúncia ── */}
         {modalDenunciar && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-            <div style={{ background:"#fff", borderRadius:24, padding:"28px 24px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
               <div style={{ fontSize:32, textAlign:"center", marginBottom:8 }}>⚑</div>
-              <div style={{ fontWeight:900, fontSize:18, color:"#0f172a", textAlign:"center", marginBottom:4 }}>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
                 Denunciar {modalDenunciar.tipo === "vaga" ? "vaga" : "usuário"}
               </div>
-              <div style={{ fontSize:13, color:"#64748b", textAlign:"center", marginBottom:20, lineHeight:1.5 }}>
-                <strong style={{ color:"#0f172a" }}>{modalDenunciar.nome}</strong><br />
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:20, lineHeight:1.5 }}>
+                <strong style={{ color:"var(--text-1,#0f172a)" }}>{modalDenunciar.nome}</strong><br />
                 Selecione o motivo e enviaremos para revisão.
               </div>
               {/* Motivos rápidos */}
@@ -4308,7 +4315,7 @@ export default function App() {
               </div>
               <div style={{ display:"flex", gap:10 }}>
                 <button
-                  style={{ flex:1, padding:"13px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  style={{ flex:1, padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                   onClick={() => { setModalDenunciar(null); setMotivoDenuncia(""); }}>
                   Cancelar
                 </button>
@@ -4326,14 +4333,14 @@ export default function App() {
         {/* ── Modal: Diarista aceitou a vaga ── */}
         {alertaAceite && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-            <div style={{ background:"#fff", borderRadius:28, padding:"36px 24px 28px", width:"100%", maxWidth:380, textAlign:"center", boxShadow:"0 20px 60px rgba(0,0,0,.35)" }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:28, padding:"36px 24px 28px", width:"100%", maxWidth:380, textAlign:"center", boxShadow:"0 20px 60px rgba(0,0,0,.35)" }}>
               <div style={{ fontSize:60, marginBottom:12, lineHeight:1 }}>🎉</div>
-              <div style={{ fontWeight:900, fontSize:22, color:"#0f172a", marginBottom:6 }}>Diarista confirmado!</div>
-              <div style={{ fontSize:14, color:"#64748b", lineHeight:1.7, marginBottom:24 }}>
+              <div style={{ fontWeight:900, fontSize:22, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Diarista confirmado!</div>
+              <div style={{ fontSize:14, color:"var(--text-2,#64748b)", lineHeight:1.7, marginBottom:24 }}>
                 Alguém aceitou sua vaga de<br />
-                <strong style={{ color:"#0f172a" }}>{alertaAceite.funcao || alertaAceite.segmento}</strong>
+                <strong style={{ color:"var(--text-1,#0f172a)" }}>{alertaAceite.funcao || alertaAceite.segmento}</strong>
                 {alertaAceite.data && (
-                  <> em <strong style={{ color:"#0f172a" }}>{new Date(alertaAceite.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong></>
+                  <> em <strong style={{ color:"var(--text-1,#0f172a)" }}>{new Date(alertaAceite.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong></>
                 )}.
                 <br /><br />
                 Peça ao profissional o QR Code e escaneie para confirmar a chegada.
@@ -4344,7 +4351,7 @@ export default function App() {
                 📋 Ver diária
               </button>
               <button
-                style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                 onClick={() => setAlertaAceite(null)}>
                 Fechar
               </button>
@@ -4355,11 +4362,11 @@ export default function App() {
         {/* ── Modal Scanner QR ── */}
         {scannerAberto && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.92)", zIndex:200, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24 }}>
-            <div style={{ background:"#fff", borderRadius:24, padding:"24px 20px", width:"100%", maxWidth:360 }}>
-              <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", marginBottom:4, textAlign:"center" as const }}>📷 Escanear QR Code</div>
-              <div style={{ fontSize:13, color:"#64748b", textAlign:"center" as const, marginBottom:16 }}>Aponte a câmera traseira para o QR Code do diarista</div>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 20px", width:"100%", maxWidth:360 }}>
+              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4, textAlign:"center" as const }}>📷 Escanear QR Code</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:16 }}>Aponte a câmera traseira para o QR Code do diarista</div>
               <QRScannerComponent onResult={confirmarInicio} onError={(msg) => setScanMsg({ ok:false, txt:msg })} onClose={() => setScannerAberto(false)} />
-              <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#475569", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:14 }}
+              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:14 }}
                 onClick={() => setScannerAberto(false)}>
                 Cancelar
               </button>
@@ -4376,35 +4383,35 @@ export default function App() {
             return (
               <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 130px)" }}>
                 {/* Header do chat */}
-                <div style={{ background:"#fff", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
+                <div style={{ background:"var(--bg-card,#fff)", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
                   <button style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", padding:"0 4px" }} onClick={() => { setChatDiariaAtiva(null); setConfirmExcluirChat(false); }}>←</button>
                   {dp?.foto_url
                     ? <img src={dp.foto_url} style={{ width:40, height:40, borderRadius:20, objectFit:"cover" }} alt="" />
                     : <div style={{ width:40, height:40, borderRadius:20, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, flexShrink:0 }}>{iniciais}</div>
                   }
                   <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:900, fontSize:15, color:"#0f172a" }}>{dp?.nome || "Diarista"}</div>
-                    <div style={{ fontSize:11, color:"#64748b" }}>{chatDiariaAtiva.funcao} · {new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                    <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Diarista"}</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)" }}>{chatDiariaAtiva.funcao} · {new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
                   </div>
                   {!confirmExcluirChat
-                    ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"#94a3b8" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
+                    ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
                     : <div style={{ display:"flex", gap:6, alignItems:"center" }}>
                         <span style={{ fontSize:12, color:"#dc2626", fontWeight:700 }}>Excluir?</span>
                         <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => excluirChat(chatDiariaAtiva.id)}>Sim</button>
-                        <button style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmExcluirChat(false)}>Não</button>
+                        <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmExcluirChat(false)}>Não</button>
                       </div>
                   }
                 </div>
                 {/* Mensagens */}
-                <div style={{ flex:1, overflowY:"auto", padding:"16px", display:"flex", flexDirection:"column", gap:10, background:"#f0f2f5" }}>
+                <div style={{ flex:1, overflowY:"auto", padding:"16px", display:"flex", flexDirection:"column", gap:10, background:"var(--bg-app,#f0f2f5)" }}>
                   {mensagensReais.length === 0 && (
-                    <div style={{ textAlign:"center", color:"#94a3b8", fontSize:13, marginTop:40 }}>Nenhuma mensagem ainda. Inicie a conversa! 👋</div>
+                    <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:13, marginTop:40 }}>Nenhuma mensagem ainda. Inicie a conversa! 👋</div>
                   )}
                   {mensagensReais.map(m => {
                     const isMeu = m.remetente_id === session?.user?.id;
                     return (
                       <div key={m.id} style={{ display:"flex", justifyContent: isMeu ? "flex-end" : "flex-start" }}>
-                        <div style={{ background: isMeu ? negocio.cor : "#fff", color: isMeu ? "#fff" : "#0f172a", borderRadius: isMeu ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding:"10px 14px", maxWidth:"75%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
+                        <div style={{ background: isMeu ? negocio.cor : "var(--bg-card,#fff)", color: isMeu ? "#fff" : "var(--text-1,#0f172a)", borderRadius: isMeu ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding:"10px 14px", maxWidth:"75%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
                           {m.conteudo}
                           <div style={{ fontSize:10, opacity:.6, marginTop:4, textAlign:"right" }}>
                             {new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
@@ -4416,9 +4423,9 @@ export default function App() {
                   <div ref={mensagensEndRef} />
                 </div>
                 {/* Input */}
-                <div style={{ background:"#fff", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid #e2e8f0", flexShrink:0 }}>
+                <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
                   <input
-                    style={{ flex:1, padding:"12px 16px", border:"1.5px solid #e2e8f0", borderRadius:24, fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none" }}
+                    style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none" }}
                     placeholder="Digite uma mensagem..."
                     value={msgInputReal}
                     onChange={e => setMsgInputReal(e.target.value)}
@@ -4438,12 +4445,12 @@ export default function App() {
           const conversas = diarias.filter(d => d.diarista_aceite_id && ["aceita","em_andamento","concluida"].includes(d.status) && !hiddenChats.has(d.id));
           return (
             <div style={{ padding:"16px" }}>
-              <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", marginBottom:16 }}>💬 Mensagens</div>
+              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
               {conversas.length === 0 ? (
-                <div style={{ background:"#fff", borderRadius:16, padding:"32px 20px", textAlign:"center" }}>
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"32px 20px", textAlign:"center" }}>
                   <div style={{ fontSize:40, marginBottom:10 }}>💬</div>
-                  <div style={{ fontWeight:800, fontSize:14, color:"#0f172a", marginBottom:6 }}>Nenhuma conversa ainda</div>
-                  <div style={{ color:"#94a3b8", fontSize:13 }}>Quando um diarista aceitar sua vaga, você poderá conversar aqui.</div>
+                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Nenhuma conversa ainda</div>
+                  <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>Quando um diarista aceitar sua vaga, você poderá conversar aqui.</div>
                 </div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -4452,17 +4459,17 @@ export default function App() {
                     const iniciais = dp?.nome?.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() || "?";
                     return (
                       <div key={dia.id}
-                        style={{ background:"#fff", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
+                        style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
                         onClick={() => setChatDiariaAtiva(dia)}>
                         {dp?.foto_url
                           ? <img src={dp.foto_url} style={{ width:50, height:50, borderRadius:25, objectFit:"cover", flexShrink:0 }} alt="" />
                           : <div style={{ width:50, height:50, borderRadius:25, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>{iniciais}</div>
                         }
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontWeight:900, fontSize:15, color:"#0f172a" }}>{dp?.nome || "Diarista"}</div>
-                          <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                          <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Diarista"}</div>
+                          <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
                         </div>
-                        <span style={{ fontSize:20, color:"#94a3b8" }}>›</span>
+                        <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
                       </div>
                     );
                   })}
@@ -4502,8 +4509,8 @@ export default function App() {
               {mediaEmpregadorPerfil !== null && (
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}>
                   <span style={{ fontSize:16 }}>⭐</span>
-                  <span style={{ fontWeight:900, fontSize:16, color:"#0f172a" }}>{mediaEmpregadorPerfil.toFixed(1)}</span>
-                  <span style={{ color:"#94a3b8", fontSize:13 }}>avaliação dos diaristas</span>
+                  <span style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>{mediaEmpregadorPerfil.toFixed(1)}</span>
+                  <span style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>avaliação dos diaristas</span>
                 </div>
               )}
               <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8 }}>
@@ -4541,7 +4548,7 @@ export default function App() {
                         {planoAtivo !== "gratis" && " ✅"}
                       </div>
                       {planoAtivo === "gratis" && (
-                        <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>
+                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
                           {Math.max(0, 3 - diarias.filter(d => d.created_at && d.created_at.slice(0,7) === new Date().toISOString().slice(0,7)).length)} vagas restantes este mês
                         </div>
                       )}
@@ -4558,8 +4565,8 @@ export default function App() {
 
             {/* Indicação empregador */}
             <div style={{ ...S.section, background:"#eff6ff", borderRadius:20, margin:"0 16px 16px", border:"1.5px solid #bfdbfe" }}>
-              <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", marginBottom:6 }}>🎁 Indique e cresça</div>
-              <div style={{ fontSize:13, color:"#64748b", marginBottom:12, lineHeight:1.5 }}>
+              <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>🎁 Indique e cresça</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:12, lineHeight:1.5 }}>
                 Indique o Trampojá para outros empregadores e diaristas da sua região!
               </div>
               <button
@@ -4577,13 +4584,13 @@ export default function App() {
             <div style={{ ...S.section, margin:"0 16px 16px" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div>
-                  <div style={{ fontWeight:700, fontSize:14, color:"#0f172a" }}>{darkMode ? "🌙 Modo escuro" : "☀️ Modo claro"}</div>
-                  <div style={{ fontSize:12, color:"#64748b" }}>Aparência do aplicativo</div>
+                  <div style={{ fontWeight:700, fontSize:14, color:"var(--text-1,#0f172a)" }}>{darkMode ? "🌙 Modo escuro" : "☀️ Modo claro"}</div>
+                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>Aparência do aplicativo</div>
                 </div>
                 <div
                   style={{ width:52, height:28, borderRadius:14, background:darkMode ? negocio.cor : "#e2e8f0", position:"relative", cursor:"pointer", transition:"background .2s" }}
                   onClick={() => setDarkMode(p => !p)}>
-                  <div style={{ position:"absolute", top:3, left:darkMode?26:3, width:22, height:22, borderRadius:11, background:"#fff", transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" }} />
+                  <div style={{ position:"absolute", top:3, left:darkMode?26:3, width:22, height:22, borderRadius:11, background:"var(--bg-card,#fff)", transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" }} />
                 </div>
               </div>
             </div>
@@ -4599,7 +4606,7 @@ export default function App() {
               <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
                 🏘️ Comunidade
               </button>
-              <button style={{ ...S.btnSecondary, color:"#64748b", borderColor:"#e2e8f0" }} onClick={handleLogout}>
+              <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={handleLogout}>
                 Sair da conta
               </button>
             </div>
@@ -4609,24 +4616,24 @@ export default function App() {
         {/* ── Modal info do perfil (empregador) ── */}
         {modalInfoPerfil && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:350, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => { setModalInfoPerfil(false); setEditandoBio(false); }}>
-            <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginBottom:20 }}>
                 <div style={{ width:72, height:72, borderRadius:36, background:negocio.cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:24, border:`3px solid ${negocio.cor}`, marginBottom:12 }}>
                   {iniciaisEmp}
                 </div>
-                <div style={{ fontWeight:900, fontSize:18, color:"#0f172a" }}>{profile?.nome}</div>
-                <div style={{ fontSize:13, color:"#64748b", marginTop:2 }}>{negocioSelecionado}</div>
+                <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>{profile?.nome}</div>
+                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:2 }}>{negocioSelecionado}</div>
                 {mediaEmpregadorPerfil !== null && (
                   <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:8 }}>
                     <span style={{ fontSize:16 }}>⭐</span>
-                    <span style={{ fontWeight:900, fontSize:15, color:"#0f172a" }}>{mediaEmpregadorPerfil.toFixed(1)}</span>
-                    <span style={{ color:"#94a3b8", fontSize:12 }}>avaliação dos diaristas</span>
+                    <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{mediaEmpregadorPerfil.toFixed(1)}</span>
+                    <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>avaliação dos diaristas</span>
                   </div>
                 )}
               </div>
               <div style={{ marginBottom:16 }}>
-                <div style={{ fontWeight:800, fontSize:12, color:"#64748b", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
+                <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
                 {editandoBio ? (
                   <>
                     <textarea
@@ -4643,7 +4650,7 @@ export default function App() {
                         Salvar
                       </button>
                       <button
-                        style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                         onClick={() => setEditandoBio(false)}>
                         Cancelar
                       </button>
@@ -4651,9 +4658,9 @@ export default function App() {
                   </>
                 ) : (
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
-                    <p style={{ color:"#475569", fontSize:13, lineHeight:1.6, margin:0, flex:1 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
+                    <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0, flex:1 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
                     <button
-                      style={{ background:"none", border:"1.5px solid #e2e8f0", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, color:"#5D5FEF", cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0 }}
+                      style={{ background:"none", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, color:"#5D5FEF", cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0 }}
                       onClick={() => setEditandoBio(true)}>
                       ✏️ Editar
                     </button>
@@ -4701,9 +4708,9 @@ export default function App() {
         {/* ── Painel de Notificações (empregador) ── */}
         {modalNotif && (
           <div style={S.modalOverlay} onClick={() => setModalNotif(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"#fff", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
-              <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", marginBottom:16 }}>🔔 Notificações</div>
+              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>🔔 Notificações</div>
               {/* Banner de suporte para admin */}
               {profile?.is_admin && suporteNaoLidos > 0 && (
                 <div style={{ background:"#fef3c7", border:"1.5px solid #f59e0b", borderRadius:14, padding:"12px 14px", marginBottom:14, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}
@@ -4716,7 +4723,7 @@ export default function App() {
                 </div>
               )}
               {listaNotif.length === 0 && !(profile?.is_admin && suporteNaoLidos > 0) ? (
-                <div style={{ textAlign:"center", color:"#94a3b8", padding:"32px 0", fontSize:14 }}>
+                <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", padding:"32px 0", fontSize:14 }}>
                   <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
                   Nenhuma notificação ainda
                 </div>
@@ -4726,15 +4733,15 @@ export default function App() {
                     <div key={i} style={{ background: n.tipo==="ok" ? "#f0fdf4" : "#fef2f2", borderRadius:12, padding:"10px 14px", display:"flex", gap:10, alignItems:"flex-start", border:`1px solid ${n.tipo==="ok"?"#bbf7d0":"#fecaca"}` }}>
                       <span style={{ fontSize:18 }}>{n.tipo==="ok" ? "✅" : "⚠️"}</span>
                       <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, color:"#0f172a", lineHeight:1.4 }}>{n.msg.replace(/^[✅❌⚠️🎉🔔]+\s*/,"")}</div>
-                        <div style={{ fontSize:11, color:"#94a3b8", marginTop:3 }}>{new Date(n.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>
+                        <div style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.4 }}>{n.msg.replace(/^[✅❌⚠️🎉🔔]+\s*/,"")}</div>
+                        <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:3 }}>{new Date(n.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
               {listaNotif.length > 0 && (
-                <button style={{ width:"100%", marginTop:16, padding:"10px", background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:13, color:"#64748b", fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                <button style={{ width:"100%", marginTop:16, padding:"10px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, color:"var(--text-2,#64748b)", fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                   onClick={() => { setListaNotif([]); setModalNotif(false); }}>
                   🗑️ Limpar notificações
                 </button>
@@ -4746,26 +4753,26 @@ export default function App() {
         {/* ── Bottom sheet: trocar de perfil ── */}
         {menuTrocarPerfil && (
           <div style={S.modalOverlay} onClick={() => setMenuTrocarPerfil(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"#fff", borderRadius:"24px 24px 0 0", padding:"8px 0 32px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 32px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               {/* Alça */}
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               {/* Modo atual */}
-              <div style={{ padding:"0 20px 16px", borderBottom:"1px solid #f1f5f9" }}>
-                <div style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>Modo atual</div>
+              <div style={{ padding:"0 20px 16px", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+                <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>Modo atual</div>
                 <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                   <div style={{ width:44, height:44, borderRadius:22, background:negocio.cor, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>{negocio.icone}</div>
                   <div>
-                    <div style={{ fontWeight:900, fontSize:16, color:"#0f172a" }}>Empregador</div>
-                    <div style={{ fontSize:12, color:"#64748b" }}>{profile?.nome_negocio || negocioSelecionado}</div>
+                    <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>Empregador</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>{profile?.nome_negocio || negocioSelecionado}</div>
                   </div>
                   <span style={{ marginLeft:"auto", background:"#dcfce7", color:"#16a34a", fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20 }}>✓ Ativo</span>
                 </div>
               </div>
               {/* Opção de trocar */}
               <div style={{ padding:"16px 20px" }}>
-                <div style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:12 }}>Trocar para</div>
+                <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:12 }}>Trocar para</div>
                 <button
-                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:16, padding:"14px 16px", cursor:"pointer", fontFamily:"system-ui,sans-serif", textAlign:"left" as const }}
+                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:16, padding:"14px 16px", cursor:"pointer", fontFamily:"system-ui,sans-serif", textAlign:"left" as const }}
                   onClick={() => {
                     setMenuTrocarPerfil(false);
                     setAuthError("");
@@ -4778,16 +4785,16 @@ export default function App() {
                   }}>
                   <div style={{ width:44, height:44, borderRadius:22, background:"#8338EC18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>👷</div>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:800, fontSize:15, color:"#0f172a" }}>Diarista</div>
-                    <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Diarista</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
                       {profile?.funcao ? `${profile.funcao} · R$ ${profile.valor_diaria}/dia` : "Cadastrar perfil de diarista"}
                     </div>
                   </div>
-                  <span style={{ fontSize:20, color:"#94a3b8" }}>›</span>
+                  <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
                 </button>
               </div>
               <div style={{ padding:"0 20px" }}>
-                <button style={{ ...S.btnSecondary, color:"#64748b", borderColor:"#e2e8f0", width:"100%" }} onClick={() => setMenuTrocarPerfil(false)}>Fechar</button>
+                <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)", width:"100%" }} onClick={() => setMenuTrocarPerfil(false)}>Fechar</button>
               </div>
             </div>
           </div>
@@ -4829,7 +4836,7 @@ export default function App() {
         </div>
         <div style={S.section}>
           <div style={S.sectionTitle}>Valor por diária</div>
-          <div style={S.valorGrande}>R$ {d.valor}<span style={{ fontSize:16, color:"#64748b" }}> /dia</span></div>
+          <div style={S.valorGrande}>R$ {d.valor}<span style={{ fontSize:16, color:"var(--text-2,#64748b)" }}> /dia</span></div>
         </div>
         <div style={S.section}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
@@ -4843,8 +4850,8 @@ export default function App() {
 
           {/* Formulário — visível somente após contratar e se ainda não avaliou */}
           {contratadoIds.includes(d.id) && !avaliacoes.some(a => a.empregador_id === session?.user?.id) && (
-            <div style={{ background:"#f8fafc", borderRadius:12, padding:"12px 14px", marginBottom:14, border:"1px solid #e2e8f0" }}>
-              <p style={{ fontSize:13, color:"#475569", fontWeight:700, margin:"0 0 8px" }}>
+            <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px", marginBottom:14, border:"1px solid var(--border,#e2e8f0)" }}>
+              <p style={{ fontSize:13, color:"var(--text-label,#475569)", fontWeight:700, margin:"0 0 8px" }}>
                 Avalie sua experiência com {d.nome.split(" ")[0]}:
               </p>
               <div style={{ display:"flex", gap:4, marginBottom:10 }}>
@@ -4871,7 +4878,7 @@ export default function App() {
 
           {/* Lista de avaliações reais */}
           {avaliacoes.length === 0 ? (
-            <div style={{ color:"#94a3b8", fontSize:13, textAlign:"center", padding:"14px 0" }}>
+            <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13, textAlign:"center", padding:"14px 0" }}>
               Nenhuma avaliação ainda.
             </div>
           ) : (
@@ -4883,12 +4890,12 @@ export default function App() {
                       <span key={n} style={{ color: n<=av.nota ? "#f59e0b" : "#e2e8f0", fontSize:14 }}>★</span>
                     ))}
                   </span>
-                  <span style={{ fontSize:11, color:"#94a3b8" }}>
+                  <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>
                     {new Date(av.created_at).toLocaleDateString("pt-BR")}
                   </span>
                 </div>
                 {av.comentario && (
-                  <span style={{ color:"#475569", fontSize:13, lineHeight:1.5 }}>{av.comentario}</span>
+                  <span style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.5 }}>{av.comentario}</span>
                 )}
               </div>
             ))
@@ -4989,7 +4996,7 @@ export default function App() {
       <div style={{ ...S.appShell, paddingBottom: 76, background: "#f0f2f5" }}>
 
         {/* ── Header novo estilo ── */}
-        <div style={{ background:"#fff", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
+        <div style={{ background:"var(--bg-card,#fff)", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
             {/* Avatar + Nome */}
             <div style={{ display:"flex", alignItems:"center", gap:14, flex:1 }}>
@@ -5000,8 +5007,8 @@ export default function App() {
                 }
               </div>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, color:"#64748b", fontWeight:600 }}>{saudacao},</div>
-                <div style={{ fontSize:20, fontWeight:900, color:"#0f172a", lineHeight:1.2 }}>
+                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", fontWeight:600 }}>{saudacao},</div>
+                <div style={{ fontSize:20, fontWeight:900, color:"var(--text-1,#0f172a)", lineHeight:1.2 }}>
                   <span style={{ color:"#FF6B35", cursor:"pointer" }} onClick={() => { setModalInfoPerfil(true); setBioDraft(profile?.bio || ""); }}>{primeiroNome}!</span> 👋
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
@@ -5012,10 +5019,10 @@ export default function App() {
             {/* Sino + botão trocar perfil */}
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               {tipo === "ambos" && (
-                <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
+                <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
                   onClick={() => setMenuTrocarPerfil(true)}>🔄</div>
               )}
-              <div style={{ position:"relative", background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
+              <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
                 onClick={() => { setModalNotif(true); setNotifNaoLidas(0); }}>
                 🔔
                 {(notifNaoLidas + suporteNaoLidos) > 0 && <div style={{ position:"absolute", top:-4, right:-4, background: suporteNaoLidos > 0 ? "#f59e0b" : "#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</div>}
@@ -5039,7 +5046,7 @@ export default function App() {
           </div>
           {/* Fade + seta indicando scroll */}
           <div style={{ position:"absolute", top:0, right:0, height:"100%", width:48, background:"linear-gradient(to right, transparent, #fff)", pointerEvents:"none", display:"flex", alignItems:"center", justifyContent:"flex-end", paddingRight:4 }}>
-            <span style={{ color:"#94a3b8", fontSize:14, fontWeight:900 }}>›</span>
+            <span style={{ color:"var(--text-3,#94a3b8)", fontSize:14, fontWeight:900 }}>›</span>
           </div>
           </div>
         </div>
@@ -5070,7 +5077,7 @@ export default function App() {
                 {minhasDiarias.find(d => d.status === "selecionado")?.nome_negocio || "Um contratante"} escolheu você — confirme sua presença agora.
               </div>
             </div>
-            <div style={{ background:"#fff", color:"#FF6B35", fontWeight:900, fontSize:13, borderRadius:12, padding:"8px 14px", whiteSpace:"nowrap" as const, flexShrink:0 }}>
+            <div style={{ background:"var(--bg-card,#fff)", color:"#FF6B35", fontWeight:900, fontSize:13, borderRadius:12, padding:"8px 14px", whiteSpace:"nowrap" as const, flexShrink:0 }}>
               Confirmar →
             </div>
           </div>
@@ -5079,19 +5086,19 @@ export default function App() {
         {/* ── Convites diretos pendentes ── */}
         {convitesRecebidos.filter(c => c.status === "pendente").length > 0 && (
           <div style={{ margin:"12px 16px 0" }}>
-            <div style={{ fontWeight:800, fontSize:13, color:"#0f172a", marginBottom:8 }}>
+            <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:8 }}>
               📨 Convites diretos ({convitesRecebidos.filter(c => c.status === "pendente").length})
             </div>
             {convitesRecebidos.filter(c => c.status === "pendente").map(c => (
-              <div key={c.id} style={{ background:"#fff", borderRadius:16, padding:"14px 16px", marginBottom:10, boxShadow:"0 2px 10px rgba(0,0,0,.07)", border:"1.5px solid #FF6B3530" }}>
+              <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:10, boxShadow:"0 2px 10px rgba(0,0,0,.07)", border:"1.5px solid #FF6B3530" }}>
                 <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:8 }}>
                   <div>
-                    <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>{c.contratante_nome || "Contratante"}</div>
-                    <div style={{ fontSize:12, color:"#64748b" }}>quer contratar você para <strong>{c.funcao}</strong></div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.contratante_nome || "Contratante"}</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>quer contratar você para <strong>{c.funcao}</strong></div>
                   </div>
                   <span style={{ background:"#fff7ed", color:"#FF6B35", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, flexShrink:0 }}>Pendente</span>
                 </div>
-                <div style={{ display:"flex", flexDirection:"column" as const, gap:4, fontSize:13, color:"#475569", marginBottom:12 }}>
+                <div style={{ display:"flex", flexDirection:"column" as const, gap:4, fontSize:13, color:"var(--text-label,#475569)", marginBottom:12 }}>
                   <span>📍 {c.local_servico}</span>
                   <span>📅 {new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR", { weekday:"long", day:"numeric", month:"long" })}</span>
                   <span>🕐 {c.horario_servico}</span>
@@ -5143,10 +5150,10 @@ export default function App() {
               </div>
               <div style={{ display:"flex", gap:6 }}>
                 {/* Toggle lista/mapa */}
-                <div style={{ display:"flex", background:"#f1f5f9", borderRadius:10, padding:2 }}>
+                <div style={{ display:"flex", background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:2 }}>
                   {(["lista","mapa"] as const).map(v => (
                     <button key={v}
-                      style={{ padding:"6px 12px", borderRadius:8, border:"none", background:tabDiaristaInicio===v?"#fff":"transparent", color:tabDiaristaInicio===v?"#0f172a":"#94a3b8", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:tabDiaristaInicio===v?"0 1px 4px rgba(0,0,0,.1)":"none" }}
+                      style={{ padding:"6px 12px", borderRadius:8, border:"none", background:tabDiaristaInicio===v?"var(--bg-card,#fff)":"transparent", color:tabDiaristaInicio===v?"var(--text-1,#0f172a)":"var(--text-3,#94a3b8)", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:tabDiaristaInicio===v?"0 1px 4px rgba(0,0,0,.1)":"none" }}
                       onClick={() => setTabDiaristaInicio(v)}>
                       {v==="lista" ? "☰" : "🗺️"}
                     </button>
@@ -5162,7 +5169,7 @@ export default function App() {
             {/* Mapa de vagas */}
             {tabDiaristaInicio === "mapa" && (
               <div style={{ padding:"0 16px 24px" }}>
-                <div style={{ borderRadius:16, overflow:"hidden", height:400, border:"1.5px solid #e2e8f0", background:"#f8fafc" }}>
+                <div style={{ borderRadius:16, overflow:"hidden", height:400, border:"1.5px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)" }}>
                   <MapComponent
                     lat={profile?.lat ?? -20.45}
                     lng={profile?.lng ?? -54.65}
@@ -5175,7 +5182,7 @@ export default function App() {
                     }))}
                   />
                 </div>
-                <p style={{ fontSize:12, color:"#94a3b8", textAlign:"center", marginTop:8 }}>
+                <p style={{ fontSize:12, color:"var(--text-3,#94a3b8)", textAlign:"center", marginTop:8 }}>
                   {vagasFiltradas.filter(v => v.lat && v.lng).length} vaga{vagasFiltradas.filter(v => v.lat && v.lng).length!==1?"s":""} com localização no mapa
                 </p>
               </div>
@@ -5183,10 +5190,10 @@ export default function App() {
 
             {tabDiaristaInicio === "lista" && <div style={{ padding:"0 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
               {vagasFiltradas.length === 0 ? (
-                <div style={{ background:"#fff", borderRadius:20, padding:"36px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"36px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                   <div style={{ fontSize:56, marginBottom:12 }}>📭</div>
-                  <div style={{ fontWeight:900, fontSize:16, color:"#0f172a", marginBottom:8 }}>Nenhuma vaga no momento</div>
-                  <div style={{ color:"#64748b", fontSize:13, lineHeight:1.6, marginBottom:16 }}>
+                  <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Nenhuma vaga no momento</div>
+                  <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:16 }}>
                     Ainda não há vagas para sua especialidade por aqui. Indique a plataforma para empregadores da sua cidade!
                   </div>
                   <button
@@ -5217,7 +5224,7 @@ export default function App() {
 
                   return (
                     <div key={dia.id}
-                      style={{ background:"#fff", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer" }}
+                      style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer" }}
                       onClick={() => { setVagaConfirm(dia); setVagaConfirmada(false); }}>
 
                       <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
@@ -5240,7 +5247,7 @@ export default function App() {
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                             <div style={{ flex:1, minWidth:0 }}>
-                              <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", lineHeight:1.3 }}>
+                              <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>
                                 {dia.nome_negocio || dia.segmento}
                               </div>
                               <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5, flexWrap:"wrap" }}>
@@ -5249,12 +5256,12 @@ export default function App() {
                                     {dia.funcao}
                                   </span>
                                 )}
-                                <span style={{ color:"#94a3b8", fontSize:12 }}>· {dia.segmento}</span>
+                                <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>· {dia.segmento}</span>
                               </div>
                             </div>
                             <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4, flexShrink:0 }}>
                               <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>R$ {dia.valor}</div>
-                              <div style={{ fontSize:11, color:"#94a3b8" }}>/dia</div>
+                              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/dia</div>
                               {/* Botão denunciar vaga */}
                               <button
                                 style={{ background:"none", border:"none", padding:"2px 4px", cursor:"pointer", fontSize:14, color:"#cbd5e1", lineHeight:1 }}
@@ -5265,12 +5272,12 @@ export default function App() {
                             </div>
                           </div>
 
-                          <div style={{ color:"#64748b", fontSize:12, marginTop:8, display:"flex", alignItems:"center", gap:4 }}>
+                          <div style={{ color:"var(--text-2,#64748b)", fontSize:12, marginTop:8, display:"flex", alignItems:"center", gap:4 }}>
                             <span>📅</span>
                             <span>{dataFmt} · {dia.horario_inicio.slice(0,5)} às {dia.horario_fim.slice(0,5)}{duracao}</span>
                           </div>
 
-                          <div style={{ color:"#94a3b8", fontSize:12, marginTop:4, display:"flex", alignItems:"center", gap:4 }}>
+                          <div style={{ color:"var(--text-3,#94a3b8)", fontSize:12, marginTop:4, display:"flex", alignItems:"center", gap:4 }}>
                             <span>📍</span>
                             {(() => {
                               const partes = (dia.endereco || "").split(", ");
@@ -5281,13 +5288,13 @@ export default function App() {
                                 return (
                                   <span>
                                     <span style={{ fontWeight:800, color:"#FF6B35" }}>{distTxt}</span>
-                                    {localHint ? <span style={{ color:"#94a3b8" }}> · {localHint}</span> : null}
+                                    {localHint ? <span style={{ color:"var(--text-3,#94a3b8)" }}> · {localHint}</span> : null}
                                   </span>
                                 );
                               }
                               // Sem GPS: mostra bairro/cidade se disponível
-                              if (localHint) return <span style={{ color:"#64748b", fontWeight:600 }}>{localHint}</span>;
-                              return <span style={{ fontStyle:"italic", color:"#94a3b8" }}>Bairro liberado após aceitar</span>;
+                              if (localHint) return <span style={{ color:"var(--text-2,#64748b)", fontWeight:600 }}>{localHint}</span>;
+                              return <span style={{ fontStyle:"italic", color:"var(--text-3,#94a3b8)" }}>Bairro liberado após aceitar</span>;
                             })()}
                           </div>
 
@@ -5410,11 +5417,11 @@ export default function App() {
             const mostrarQR = dia.status === "aceita" || dia.status === "em_andamento";
             return (
               <div
-                style={{ background:"#fff", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", borderLeft:`4px solid ${st.borda}`, cursor:"pointer" }}
+                style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", borderLeft:`4px solid ${st.borda}`, cursor:"pointer" }}
                 onClick={() => setDetalhesDiaria(dia)}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
                   <div style={{ flex:1, paddingRight:8 }}>
-                    <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", lineHeight:1.3 }}>{dia.nome_negocio || dia.segmento}</div>
+                    <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>{dia.nome_negocio || dia.segmento}</div>
                     <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5, flexWrap:"wrap" as const }}>
                       {dia.funcao && (
                         <span style={{ background:cor+"18", color:cor, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700 }}>{dia.funcao}</span>
@@ -5424,10 +5431,10 @@ export default function App() {
                   </div>
                   <div style={{ textAlign:"right", flexShrink:0 }}>
                     <div style={{ fontWeight:900, fontSize:20, color: dia.status==="concluida" ? "#22c55e" : "#5D5FEF", lineHeight:1 }}>R$ {dia.valor}</div>
-                    <div style={{ fontSize:11, color:"#94a3b8" }}>/dia</div>
+                    <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/dia</div>
                   </div>
                 </div>
-                <div style={{ display:"flex", gap:14, fontSize:12, color:"#64748b", flexWrap:"wrap" as const }}>
+                <div style={{ display:"flex", gap:14, fontSize:12, color:"var(--text-2,#64748b)", flexWrap:"wrap" as const }}>
                   <span>📅 {fmtData(dia.data)}</span>
                   <span>🕐 {dia.horario_inicio.slice(0,5)}–{dia.horario_fim.slice(0,5)}{dur ? ` · ${dur}` : ""}</span>
                 </div>
@@ -5436,7 +5443,7 @@ export default function App() {
                   <div style={{ display:"flex", alignItems:"flex-start", gap:6, marginTop:8, background:"#f0fdf4", borderRadius:10, padding:"8px 12px" }}>
                     <span style={{ fontSize:14, flexShrink:0, marginTop:1 }}>📍</span>
                     <div style={{ flex:1 }}>
-                      <div style={{ fontSize:13, color:"#0f172a", fontWeight:600, lineHeight:1.4 }}>{dia.endereco}</div>
+                      <div style={{ fontSize:13, color:"var(--text-1,#0f172a)", fontWeight:600, lineHeight:1.4 }}>{dia.endereco}</div>
                       {dia.lat && dia.lng && (
                         <a
                           href={`https://www.google.com/maps?q=${dia.lat},${dia.lng}`}
@@ -5461,7 +5468,7 @@ export default function App() {
                     </button>
                     {dia.status === "aceita" && (
                       <button
-                        style={{ background:"none", border:"none", color:"#94a3b8", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
+                        style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
                         onClick={e => { e.stopPropagation(); setModalDesistir(dia); setMotivoDesistencia(""); }}>
                         Cancelar diária
                       </button>
@@ -5548,13 +5555,13 @@ export default function App() {
                       <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Você foi selecionado!</div>
                       <div style={{ fontSize:12, color:"rgba(255,255,255,.85)", marginTop:2 }}>Confirme sua presença para garantir a vaga</div>
                     </div>
-                    <span style={{ background:"#fff", color:"#FF6B35", fontWeight:900, fontSize:14, borderRadius:20, padding:"2px 10px" }}>{paraConfirmar.length}</span>
+                    <span style={{ background:"var(--bg-card,#fff)", color:"#FF6B35", fontWeight:900, fontSize:14, borderRadius:20, padding:"2px 10px" }}>{paraConfirmar.length}</span>
                   </div>
                   <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
                     {paraConfirmar.map(d => (
-                      <div key={d.id} style={{ background:"#fff", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.1)", border:"2px solid #f59e0b" }}>
-                        <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", marginBottom:4 }}>{d.nome_negocio || d.segmento}</div>
-                        <div style={{ fontSize:12, color:"#64748b", marginBottom:12 }}>
+                      <div key={d.id} style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.1)", border:"2px solid #f59e0b" }}>
+                        <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:4 }}>{d.nome_negocio || d.segmento}</div>
+                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:12 }}>
                           {d.funcao && <span>👷 {d.funcao} · </span>}
                           📅 {new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {d.horario_inicio.slice(0,5)}–{d.horario_fim.slice(0,5)}
                         </div>
@@ -5584,7 +5591,7 @@ export default function App() {
               {/* Aguardando início */}
               {pendentes.length > 0 && (
                 <>
-                  <div style={{ fontSize:11, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>⏳ Aguardando início</div>
+                  <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>⏳ Aguardando início</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
                     {pendentes.map(d => <CardDiaria key={d.id} dia={d} />)}
                   </div>
@@ -5594,7 +5601,7 @@ export default function App() {
               {/* Concluídas */}
               {concluidas.length > 0 && (
                 <>
-                  <div style={{ fontSize:11, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>✅ Concluídas</div>
+                  <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>✅ Concluídas</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
                     {concluidas.map(d => <CardDiaria key={d.id} dia={d} />)}
                   </div>
@@ -5604,7 +5611,7 @@ export default function App() {
               {/* Canceladas */}
               {canceladas.length > 0 && (
                 <>
-                  <div style={{ fontSize:11, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>✗ Canceladas</div>
+                  <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>✗ Canceladas</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
                     {canceladas.map(d => <CardDiaria key={d.id} dia={d} />)}
                   </div>
@@ -5612,10 +5619,10 @@ export default function App() {
               )}
 
               {minhasDiarias.length === 0 && (
-                <div style={{ background:"#fff", borderRadius:20, padding:"36px 20px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"36px 20px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                   <div style={{ fontSize:52, marginBottom:12 }}>📋</div>
-                  <div style={{ fontWeight:900, fontSize:16, color:"#0f172a", marginBottom:6 }}>Nenhuma diária ainda</div>
-                  <div style={{ color:"#94a3b8", fontSize:13, lineHeight:1.5 }}>
+                  <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Nenhuma diária ainda</div>
+                  <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13, lineHeight:1.5 }}>
                     Aceite vagas na aba <strong>Home</strong> e elas aparecerão aqui com seu histórico de ganhos.
                   </div>
                 </div>
@@ -5656,10 +5663,10 @@ export default function App() {
             <div style={{ padding:"16px 16px 32px" }}>
 
               {/* Toggle disponibilidade */}
-              <div style={{ background:"#fff", borderRadius:16, padding:"14px 16px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                 <div>
-                  <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>Disponível agora</div>
-                  <div style={{ fontSize:12, color:"#94a3b8", marginTop:2 }}>Apareça para os empregadores</div>
+                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Disponível agora</div>
+                  <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Apareça para os empregadores</div>
                 </div>
                 <div style={{ ...S.toggle, ...(disponivelAgora?S.toggleAtivo:{}) }} onClick={handleToggleDisponivel}>
                   <div style={{ ...S.toggleThumb, ...(disponivelAgora?S.toggleThumbAtivo:{}) }} />
@@ -5667,8 +5674,8 @@ export default function App() {
               </div>
 
               {/* Dias disponíveis */}
-              <div style={{ background:"#fff", borderRadius:16, padding:"14px 16px", marginBottom:20, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
-                <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Dias que costumo trabalhar</div>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:20, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Dias que costumo trabalhar</div>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
                   {DIAS.map(dia=>(
                     <button key={dia} style={{ ...S.diaBtn, ...(agendaSelecionada.includes(dia)?S.diaBtnAtivo:{}) }} onClick={()=>handleToggleDia(dia)}>{DIAS_LABEL[dia]}</button>
@@ -5677,15 +5684,15 @@ export default function App() {
               </div>
 
               {/* Diárias agendadas */}
-              <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:12 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:12 }}>
                 📅 Diárias agendadas · {agendadas.length}
               </div>
 
               {agendadas.length === 0 ? (
-                <div style={{ background:"#fff", borderRadius:16, padding:"32px 20px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"32px 20px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                   <div style={{ fontSize:40, marginBottom:10 }}>📭</div>
-                  <div style={{ fontWeight:800, fontSize:14, color:"#0f172a", marginBottom:6 }}>Nenhuma diária agendada</div>
-                  <div style={{ color:"#94a3b8", fontSize:13, lineHeight:1.5 }}>Quando aceitar vagas, elas aparecerão aqui como compromissos.</div>
+                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Nenhuma diária agendada</div>
+                  <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13, lineHeight:1.5 }}>Quando aceitar vagas, elas aparecerão aqui como compromissos.</div>
                 </div>
               ) : (
                 Object.entries(porMes).map(([mes, dias]) => (
@@ -5706,7 +5713,7 @@ export default function App() {
                         const min = (parseInt(h2)*60+parseInt(m2))-(parseInt(h1)*60+parseInt(m1));
                         const dur = min>0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
                         return (
-                          <div key={dia.id} style={{ background:"#fff", borderRadius:18, overflow:"hidden", boxShadow:"0 2px 10px rgba(0,0,0,.07)", display:"flex" }}>
+                          <div key={dia.id} style={{ background:"var(--bg-card,#fff)", borderRadius:18, overflow:"hidden", boxShadow:"0 2px 10px rgba(0,0,0,.07)", display:"flex" }}>
                             {/* Coluna de data */}
                             <div style={{ width:64, background: isHoje ? "#FF6B35" : cor, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"14px 8px", flexShrink:0 }}>
                               <div style={{ fontSize:22, fontWeight:900, color:"#fff", lineHeight:1 }}>
@@ -5721,10 +5728,10 @@ export default function App() {
                             <div style={{ flex:1, padding:"12px 14px" }}>
                               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                                 <div style={{ flex:1 }}>
-                                  <div style={{ fontWeight:900, fontSize:14, color:"#0f172a", lineHeight:1.3 }}>
+                                  <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>
                                     {dia.nome_negocio || dia.segmento}
                                   </div>
-                                  <div style={{ fontSize:12, color:"#64748b", marginTop:3 }}>
+                                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:3 }}>
                                     {diaSemana}{!isHoje && `, ${dataFmt}`}
                                   </div>
                                 </div>
@@ -5733,7 +5740,7 @@ export default function App() {
                                 </span>
                               </div>
                               <div style={{ display:"flex", gap:10, marginTop:8, flexWrap:"wrap" as const }}>
-                                <span style={{ display:"flex", alignItems:"center", gap:4, fontSize:12, color:"#475569" }}>
+                                <span style={{ display:"flex", alignItems:"center", gap:4, fontSize:12, color:"var(--text-label,#475569)" }}>
                                   🕐 {dia.horario_inicio.slice(0,5)}–{dia.horario_fim.slice(0,5)}{dur ? ` · ${dur}` : ""}
                                 </span>
                                 {dia.funcao && (
@@ -5745,7 +5752,7 @@ export default function App() {
                                 <div style={{ display:"flex", alignItems:"flex-start", gap:5, marginTop:8, background:"#f0fdf4", borderRadius:8, padding:"6px 10px" }}>
                                   <span style={{ fontSize:12, flexShrink:0 }}>📍</span>
                                   <div style={{ flex:1 }}>
-                                    <div style={{ fontSize:12, color:"#0f172a", fontWeight:600, lineHeight:1.3 }}>{dia.endereco}</div>
+                                    <div style={{ fontSize:12, color:"var(--text-1,#0f172a)", fontWeight:600, lineHeight:1.3 }}>{dia.endereco}</div>
                                     {dia.lat && dia.lng && (
                                       <a
                                         href={`https://www.google.com/maps?q=${dia.lat},${dia.lng}`}
@@ -5759,12 +5766,12 @@ export default function App() {
                                 </div>
                               )}
                               {dia.descricao && (
-                                <div style={{ marginTop:8, fontSize:12, color:"#64748b", lineHeight:1.5, background:"#f8fafc", borderRadius:8, padding:"6px 10px" }}>
+                                <div style={{ marginTop:8, fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5, background:"var(--bg-surface,#f8fafc)", borderRadius:8, padding:"6px 10px" }}>
                                   📝 {dia.descricao}
                                 </div>
                               )}
                               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
-                                <span style={{ fontWeight:900, fontSize:15, color:"#5D5FEF" }}>R$ {dia.valor}<span style={{ fontSize:11, color:"#94a3b8", fontWeight:400 }}>/dia</span></span>
+                                <span style={{ fontWeight:900, fontSize:15, color:"#5D5FEF" }}>R$ {dia.valor}<span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:400 }}>/dia</span></span>
                                 <button
                                   style={{ background:"#0f172a", color:"#fff", border:"none", borderRadius:10, padding:"6px 12px", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                                   onClick={() => setQrDiaria(dia)}>
@@ -5774,7 +5781,7 @@ export default function App() {
                               {/* Botão Desistir — só para diárias ainda não iniciadas */}
                               {dia.status === "aceita" && (
                                 <button
-                                  style={{ width:"100%", marginTop:10, padding:"9px", background:"#fff", color:"#ef4444", border:"1.5px solid #fca5a5", borderRadius:10, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                                  style={{ width:"100%", marginTop:10, padding:"9px", background:"var(--bg-card,#fff)", color:"#ef4444", border:"1.5px solid #fca5a5", borderRadius:10, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                                   onClick={() => { setModalDesistir(dia); setMotivoDesistencia(""); }}>
                                   🚪 Desistir desta diária
                                 </button>
@@ -5797,34 +5804,34 @@ export default function App() {
             return (
               <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 130px)" }}>
                 {/* Header */}
-                <div style={{ background:"#fff", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
+                <div style={{ background:"var(--bg-card,#fff)", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
                   <button style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", padding:"0 4px" }} onClick={() => { setChatDiariaAtiva(null); setConfirmExcluirChat(false); }}>←</button>
                   <div style={{ width:40, height:40, borderRadius:20, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, flexShrink:0 }}>
                     {(chatDiariaAtiva.nome_negocio || chatDiariaAtiva.segmento).slice(0,2).toUpperCase()}
                   </div>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:900, fontSize:15, color:"#0f172a" }}>{chatDiariaAtiva.nome_negocio || chatDiariaAtiva.segmento}</div>
-                    <div style={{ fontSize:11, color:"#64748b" }}>{chatDiariaAtiva.funcao} · {new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                    <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{chatDiariaAtiva.nome_negocio || chatDiariaAtiva.segmento}</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)" }}>{chatDiariaAtiva.funcao} · {new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
                   </div>
                   {!confirmExcluirChat
-                    ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"#94a3b8" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
+                    ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
                     : <div style={{ display:"flex", gap:6, alignItems:"center" }}>
                         <span style={{ fontSize:12, color:"#dc2626", fontWeight:700 }}>Excluir?</span>
                         <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => excluirChat(chatDiariaAtiva.id)}>Sim</button>
-                        <button style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmExcluirChat(false)}>Não</button>
+                        <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmExcluirChat(false)}>Não</button>
                       </div>
                   }
                 </div>
                 {/* Mensagens */}
-                <div style={{ flex:1, overflowY:"auto", padding:"16px", display:"flex", flexDirection:"column", gap:10, background:"#f0f2f5" }}>
+                <div style={{ flex:1, overflowY:"auto", padding:"16px", display:"flex", flexDirection:"column", gap:10, background:"var(--bg-app,#f0f2f5)" }}>
                   {mensagensReais.length === 0 && (
-                    <div style={{ textAlign:"center", color:"#94a3b8", fontSize:13, marginTop:40 }}>Nenhuma mensagem ainda. 👋</div>
+                    <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:13, marginTop:40 }}>Nenhuma mensagem ainda. 👋</div>
                   )}
                   {mensagensReais.map(m => {
                     const isMeu = m.remetente_id === session?.user?.id;
                     return (
                       <div key={m.id} style={{ display:"flex", justifyContent: isMeu ? "flex-end" : "flex-start" }}>
-                        <div style={{ background: isMeu ? "#FF6B35" : "#fff", color: isMeu ? "#fff" : "#0f172a", borderRadius: isMeu ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding:"10px 14px", maxWidth:"75%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
+                        <div style={{ background: isMeu ? "#FF6B35" : "var(--bg-card,#fff)", color: isMeu ? "#fff" : "var(--text-1,#0f172a)", borderRadius: isMeu ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding:"10px 14px", maxWidth:"75%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
                           {m.conteudo}
                           <div style={{ fontSize:10, opacity:.6, marginTop:4, textAlign:"right" }}>
                             {new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
@@ -5836,9 +5843,9 @@ export default function App() {
                   <div ref={mensagensEndRef} />
                 </div>
                 {/* Input */}
-                <div style={{ background:"#fff", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid #e2e8f0", flexShrink:0 }}>
+                <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
                   <input
-                    style={{ flex:1, padding:"12px 16px", border:"1.5px solid #e2e8f0", borderRadius:24, fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none" }}
+                    style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none" }}
                     placeholder="Digite uma mensagem..."
                     value={msgInputReal}
                     onChange={e => setMsgInputReal(e.target.value)}
@@ -5858,27 +5865,27 @@ export default function App() {
           const conversas = minhasDiarias.filter(d => ["aceita","em_andamento","concluida"].includes(d.status) && !hiddenChats.has(d.id));
           return (
             <div style={{ padding:"16px" }}>
-              <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", marginBottom:16 }}>💬 Mensagens</div>
+              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
               {conversas.length === 0 ? (
-                <div style={{ background:"#fff", borderRadius:16, padding:"32px 20px", textAlign:"center" }}>
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"32px 20px", textAlign:"center" }}>
                   <div style={{ fontSize:40, marginBottom:10 }}>💬</div>
-                  <div style={{ fontWeight:800, fontSize:14, color:"#0f172a", marginBottom:6 }}>Nenhuma conversa ainda</div>
-                  <div style={{ color:"#94a3b8", fontSize:13 }}>Quando aceitar uma vaga, você poderá conversar com o empregador aqui.</div>
+                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Nenhuma conversa ainda</div>
+                  <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>Quando aceitar uma vaga, você poderá conversar com o empregador aqui.</div>
                 </div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
                   {conversas.map(dia => (
                     <div key={dia.id}
-                      style={{ background:"#fff", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
+                      style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
                       onClick={() => setChatDiariaAtiva(dia)}>
                       <div style={{ width:50, height:50, borderRadius:25, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>
                         {(dia.nome_negocio || dia.segmento).slice(0,2).toUpperCase()}
                       </div>
                       <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontWeight:900, fontSize:15, color:"#0f172a" }}>{dia.nome_negocio || dia.segmento}</div>
-                        <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                        <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dia.nome_negocio || dia.segmento}</div>
+                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
                       </div>
-                      <span style={{ fontSize:20, color:"#94a3b8" }}>›</span>
+                      <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
                     </div>
                   ))}
                 </div>
@@ -5919,7 +5926,7 @@ export default function App() {
               </button>
               <h2 style={S.perfilNome}>{profile?.nome}</h2>
               <div style={S.perfilRamo}>{profile?.funcao}</div>
-              {profile?.bio && <p style={{ color:"#64748b", fontSize:13, textAlign:"center", margin:"6px 16px 0", lineHeight:1.5 }}>{profile.bio}</p>}
+              {profile?.bio && <p style={{ color:"var(--text-2,#64748b)", fontSize:13, textAlign:"center", margin:"6px 16px 0", lineHeight:1.5 }}>{profile.bio}</p>}
               <div style={{ ...S.badge, ...(disponivelAgora?S.badgeVerde:S.badgeCinza), fontSize:13, marginTop:8 }}>
                 {disponivelAgora ? "● Disponível agora" : "● Indisponível"}
               </div>
@@ -5960,10 +5967,10 @@ export default function App() {
                       {mpConectado ? "✅" : "🏦"}
                     </div>
                     <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>
+                      <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>
                         {mpConectado ? "Mercado Pago conectado" : "Conectar Mercado Pago"}
                       </div>
-                      <div style={{ fontSize:12, color:"#64748b", marginTop:2, lineHeight:1.4 }}>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.4 }}>
                         {mpConectado
                           ? "Você recebe o pagamento automaticamente após cada diária concluída."
                           : "Conecte sua conta para receber pagamentos direto na sua conta MP após cada diária."}
@@ -6024,8 +6031,8 @@ export default function App() {
 
             {/* Sistema de Indicação */}
             <div style={{ ...S.section, background:"#f0fdf4", borderRadius:20, margin:"0 16px 16px", border:"1.5px solid #bbf7d0" }}>
-              <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", marginBottom:6 }}>🎁 Indique e ganhe</div>
-              <div style={{ fontSize:13, color:"#64748b", marginBottom:12, lineHeight:1.5 }}>
+              <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>🎁 Indique e ganhe</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:12, lineHeight:1.5 }}>
                 Compartilhe o Trampojá com empregadores e outros diaristas. Quanto mais a plataforma cresce, mais vagas aparecem para você!
               </div>
               <button
@@ -6043,13 +6050,13 @@ export default function App() {
             <div style={{ ...S.section, margin:"0 16px 16px" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div>
-                  <div style={{ fontWeight:700, fontSize:14, color:"#0f172a" }}>{darkMode ? "🌙 Modo escuro" : "☀️ Modo claro"}</div>
-                  <div style={{ fontSize:12, color:"#64748b" }}>Aparência do aplicativo</div>
+                  <div style={{ fontWeight:700, fontSize:14, color:"var(--text-1,#0f172a)" }}>{darkMode ? "🌙 Modo escuro" : "☀️ Modo claro"}</div>
+                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>Aparência do aplicativo</div>
                 </div>
                 <div
                   style={{ width:52, height:28, borderRadius:14, background:darkMode?"#5D5FEF":"#e2e8f0", position:"relative", cursor:"pointer", transition:"background .2s" }}
                   onClick={() => setDarkMode(p => !p)}>
-                  <div style={{ position:"absolute", top:3, left:darkMode?26:3, width:22, height:22, borderRadius:11, background:"#fff", transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" }} />
+                  <div style={{ position:"absolute", top:3, left:darkMode?26:3, width:22, height:22, borderRadius:11, background:"var(--bg-card,#fff)", transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" }} />
                 </div>
               </div>
             </div>
@@ -6079,7 +6086,7 @@ export default function App() {
               <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
                 🏘️ Comunidade
               </button>
-              <button style={{ ...S.btnSecondary, color:"#64748b", borderColor:"#e2e8f0" }} onClick={handleLogout}>
+              <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={handleLogout}>
                 Sair da conta
               </button>
             </div>
@@ -6131,9 +6138,9 @@ export default function App() {
                       { icone:"🕐", label:"Entrada", val: d.horario_inicio.slice(0,5) },
                       { icone:"🕔", label:"Saída", val: d.horario_fim.slice(0,5) },
                     ].map(b => (
-                      <div key={b.label} style={{ background:"#f8fafc", borderRadius:12, padding:"12px 14px" }}>
-                        <div style={{ fontSize:11, color:"#94a3b8", fontWeight:600, marginBottom:2 }}>{b.icone} {b.label}</div>
-                        <div style={{ fontWeight:900, fontSize:16, color:"#0f172a" }}>{b.val}</div>
+                      <div key={b.label} style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px" }}>
+                        <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:600, marginBottom:2 }}>{b.icone} {b.label}</div>
+                        <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>{b.val}</div>
                       </div>
                     ))}
                   </div>
@@ -6146,7 +6153,7 @@ export default function App() {
                     </div>
                     {valorHora && (
                       <div style={{ textAlign:"right" }}>
-                        <div style={{ fontSize:11, color:"#94a3b8", fontWeight:600 }}>Equivale a</div>
+                        <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:600 }}>Equivale a</div>
                         <div style={{ fontWeight:800, fontSize:15, color:"#5D5FEF" }}>R$ {valorHora}/h</div>
                       </div>
                     )}
@@ -6163,8 +6170,8 @@ export default function App() {
 
                   {/* O que precisa ser feito */}
                   {d.descricao && (
-                    <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"12px 14px", marginBottom:14 }}>
-                      <div style={{ fontSize:11, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:6 }}>📋 O que precisa ser feito</div>
+                    <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 14px", marginBottom:14 }}>
+                      <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:6 }}>📋 O que precisa ser feito</div>
                       <div style={{ fontSize:14, color:"#334155", lineHeight:1.65 }}>{d.descricao}</div>
                     </div>
                   )}
@@ -6173,7 +6180,7 @@ export default function App() {
                   {enderecoLiberado && d.endereco ? (
                     <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"12px 14px", marginBottom:14 }}>
                       <div style={{ fontSize:11, fontWeight:800, color:"#16a34a", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:6 }}>📍 Local (liberado após aceitar)</div>
-                      <div style={{ fontWeight:700, fontSize:14, color:"#0f172a", lineHeight:1.4 }}>{d.endereco}</div>
+                      <div style={{ fontWeight:700, fontSize:14, color:"var(--text-1,#0f172a)", lineHeight:1.4 }}>{d.endereco}</div>
                       {d.lat && d.lng && (
                         <a
                           href={`https://www.google.com/maps?q=${d.lat},${d.lng}`}
@@ -6184,9 +6191,9 @@ export default function App() {
                       )}
                     </div>
                   ) : !enderecoLiberado && (
-                    <div style={{ background:"#f1f5f9", borderRadius:12, padding:"12px 14px", marginBottom:14, display:"flex", gap:10, alignItems:"center" }}>
+                    <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:12, padding:"12px 14px", marginBottom:14, display:"flex", gap:10, alignItems:"center" }}>
                       <span style={{ fontSize:20 }}>🔒</span>
-                      <div style={{ fontSize:13, color:"#64748b" }}>Endereço liberado apenas após aceitar a vaga</div>
+                      <div style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>Endereço liberado apenas após aceitar a vaga</div>
                     </div>
                   )}
 
@@ -6198,7 +6205,7 @@ export default function App() {
                   )}
 
                   <button
-                    style={{ ...S.btnSecondary, color:"#64748b", borderColor:"#e2e8f0", width:"100%" }}
+                    style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)", width:"100%" }}
                     onClick={() => setDetalhesDiaria(null)}>
                     Fechar
                   </button>
@@ -6217,8 +6224,8 @@ export default function App() {
                 Ao desistir, a vaga ficará <strong>disponível para outros diaristas</strong>. O contratante será notificado.
               </p>
               <div style={{ ...S.modalRow, flexDirection:"column" as const, alignItems:"flex-start", gap:4 }}>
-                <span style={{ fontWeight:700, fontSize:13, color:"#0f172a" }}>{modalDesistir.nome_negocio || modalDesistir.segmento}</span>
-                <span style={{ fontSize:12, color:"#64748b" }}>{new Date(modalDesistir.data+"T12:00:00").toLocaleDateString("pt-BR")} · {modalDesistir.horario_inicio.slice(0,5)}–{modalDesistir.horario_fim.slice(0,5)}</span>
+                <span style={{ fontWeight:700, fontSize:13, color:"var(--text-1,#0f172a)" }}>{modalDesistir.nome_negocio || modalDesistir.segmento}</span>
+                <span style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>{new Date(modalDesistir.data+"T12:00:00").toLocaleDateString("pt-BR")} · {modalDesistir.horario_inicio.slice(0,5)}–{modalDesistir.horario_fim.slice(0,5)}</span>
               </div>
               <label style={{ ...S.label, marginTop:12 }}>Motivo da desistência *</label>
               <textarea
@@ -6235,7 +6242,7 @@ export default function App() {
                 {desistindo ? "Processando..." : "Confirmar desistência"}
               </button>
               <button
-                style={{ ...S.btnSecondary, marginTop:8, color:"#64748b", borderColor:"#e2e8f0" }}
+                style={{ ...S.btnSecondary, marginTop:8, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }}
                 onClick={() => { setModalDesistir(null); setMotivoDesistencia(""); }}>
                 Cancelar
               </button>
@@ -6266,8 +6273,8 @@ export default function App() {
                           { k:"Valor",   v: `R$ ${vagaConfirm.valor}/dia` },
                         ].map(r => (
                           <div key={r.k} style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"4px 0" }}>
-                            <span style={{ color:"#64748b" }}>{r.k}</span>
-                            <strong style={{ color:"#0f172a" }}>{r.v}</strong>
+                            <span style={{ color:"var(--text-2,#64748b)" }}>{r.k}</span>
+                            <strong style={{ color:"var(--text-1,#0f172a)" }}>{r.v}</strong>
                           </div>
                         ))}
                       </div>
@@ -6277,7 +6284,7 @@ export default function App() {
                         onClick={async () => { await confirmarPresenca(vagaConfirm); setVagaConfirm(null); }}>
                         {confirmando ? "Confirmando..." : "✅ Confirmar minha presença"}
                       </button>
-                      <button style={{ ...S.btnSecondary, marginTop:8, color:"#64748b", borderColor:"#e2e8f0" }} onClick={() => setVagaConfirm(null)}>
+                      <button style={{ ...S.btnSecondary, marginTop:8, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setVagaConfirm(null)}>
                         Ainda não
                       </button>
                     </>
@@ -6294,15 +6301,15 @@ export default function App() {
                         const cor = segInfo?.cor || "#FF6B35";
                         const fotoEmpSrc = emp?.foto_url || supabase.storage.from("avatars").getPublicUrl(`${vagaConfirm.empregador_id}.jpg`).data.publicUrl;
                         return (
-                          <div style={{ display:"flex", alignItems:"center", gap:12, background:"#f8fafc", borderRadius:14, padding:"12px 14px", marginBottom:14 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:12, background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"12px 14px", marginBottom:14 }}>
                             <div style={{ position:"relative", width:52, height:52, flexShrink:0 }}>
                               <div style={{ width:52, height:52, borderRadius:26, background:cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:17 }}>{empIniciais}</div>
                               <img src={fotoEmpSrc} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }}
                                 style={{ position:"absolute", inset:0, width:52, height:52, borderRadius:26, objectFit:"cover" as const, border:`2.5px solid ${cor}` }} />
                             </div>
                             <div>
-                              <div style={{ fontWeight:900, fontSize:14, color:"#0f172a" }}>{empNome}</div>
-                              <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>{vagaConfirm.segmento}</div>
+                              <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>{empNome}</div>
+                              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{vagaConfirm.segmento}</div>
                             </div>
                           </div>
                         );
@@ -6333,7 +6340,7 @@ export default function App() {
                       <button style={{ ...S.btnPrimary, background:"#FF6B35", marginTop:16 }} onClick={() => demonstrarInteresse(vagaConfirm)}>
                         ✋ Confirmar interesse
                       </button>
-                      <button style={{ ...S.btnSecondary, marginTop:8, color:"#64748b", borderColor:"#e2e8f0" }} onClick={() => setVagaConfirm(null)}>
+                      <button style={{ ...S.btnSecondary, marginTop:8, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setVagaConfirm(null)}>
                         Cancelar
                       </button>
                     </>
@@ -6357,13 +6364,13 @@ export default function App() {
         {/* ── Modal Cancelar Diária (diarista) ── */}
         {modalCancelar && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
-              <div style={{ fontWeight:900, fontSize:19, color:"#0f172a", marginBottom:4 }}>✕ Cancelar diária</div>
-              <div style={{ fontSize:13, color:"#64748b", marginBottom:20, lineHeight:1.6 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✕ Cancelar diária</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20, lineHeight:1.6 }}>
                 Informe o motivo para <strong>{modalCancelar.nome_negocio || modalCancelar.segmento}</strong>. O contratante será notificado.
               </div>
               <textarea
-                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:120 }}
+                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:120 }}
                 placeholder="Ex: Tive um imprevisto e não poderei comparecer..."
                 value={motivoCancelamento}
                 onChange={e => setMotivoCancelamento(e.target.value)}
@@ -6375,7 +6382,7 @@ export default function App() {
                 {cancelando ? "Cancelando..." : "Confirmar cancelamento"}
               </button>
               <button
-                style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                 onClick={() => { setModalCancelar(null); setMotivoCancelamento(""); }}>
                 Voltar
               </button>
@@ -6386,9 +6393,9 @@ export default function App() {
         {/* ── Modal Avaliar Empregador ── */}
         {modalAvalEmp && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
-              <div style={{ fontWeight:900, fontSize:19, color:"#0f172a", marginBottom:4 }}>⭐ Avaliar empregador</div>
-              <div style={{ fontSize:13, color:"#64748b", marginBottom:20 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>⭐ Avaliar empregador</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20 }}>
                 Como foi trabalhar em <strong>{modalAvalEmp.nome_negocio || modalAvalEmp.segmento}</strong>?
               </div>
               {/* Estrelas */}
@@ -6404,7 +6411,7 @@ export default function App() {
                 </div>
               )}
               <textarea
-                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none", boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:90 }}
+                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none", boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:90 }}
                 placeholder="Deixe um comentário (opcional)..."
                 value={comentarioEmp}
                 onChange={e => setComentarioEmp(e.target.value)}
@@ -6415,7 +6422,7 @@ export default function App() {
                 onClick={enviarAvaliacaoEmpregador}>
                 {enviandoAvalMutua ? "Enviando..." : "Enviar avaliação"}
               </button>
-              <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#64748b", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                 onClick={() => setModalAvalEmp(null)}>
                 Cancelar
               </button>
@@ -6427,14 +6434,14 @@ export default function App() {
         {qrDiaria && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:200, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24 }}
             onClick={() => setQrDiaria(null)}>
-            <div style={{ background:"#fff", borderRadius:24, padding:"28px 24px", width:"100%", maxWidth:360, textAlign:"center" }}
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", width:"100%", maxWidth:360, textAlign:"center" }}
               onClick={e => e.stopPropagation()}>
               {/* Instrução */}
-              <div style={{ fontSize:13, color:"#64748b", marginBottom:16, lineHeight:1.5 }}>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16, lineHeight:1.5 }}>
                 Mostre este QR Code para o <strong>empregador escanear</strong> e confirmar sua chegada
               </div>
               {/* QR */}
-              <div style={{ display:"flex", justifyContent:"center", background:"#f8fafc", borderRadius:16, padding:20, marginBottom:16 }}>
+              <div style={{ display:"flex", justifyContent:"center", background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:20, marginBottom:16 }}>
                 <QRCodeSVG
                   value={`DIARIAJA:${qrDiaria.id}`}
                   size={200}
@@ -6444,10 +6451,10 @@ export default function App() {
                 />
               </div>
               {/* Info da diária */}
-              <div style={{ background:"#f8fafc", borderRadius:12, padding:"12px 14px", marginBottom:16, textAlign:"left" }}>
-                <div style={{ fontWeight:900, fontSize:14, color:"#0f172a", marginBottom:4 }}>{qrDiaria.nome_negocio || qrDiaria.segmento}</div>
-                <div style={{ fontSize:12, color:"#64748b" }}>📅 {new Date(qrDiaria.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {qrDiaria.horario_inicio.slice(0,5)}–{qrDiaria.horario_fim.slice(0,5)}</div>
-                <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>💰 R$ {qrDiaria.valor}/dia</div>
+              <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px", marginBottom:16, textAlign:"left" }}>
+                <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:4 }}>{qrDiaria.nome_negocio || qrDiaria.segmento}</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>📅 {new Date(qrDiaria.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {qrDiaria.horario_inicio.slice(0,5)}–{qrDiaria.horario_fim.slice(0,5)}</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>💰 R$ {qrDiaria.valor}/dia</div>
               </div>
               {qrDiaria.status === "em_andamento" && (
                 <div style={{ background:"#fef3c7", color:"#d97706", borderRadius:12, padding:"10px 14px", fontSize:13, fontWeight:700, marginBottom:12 }}>
@@ -6465,25 +6472,25 @@ export default function App() {
         {/* ── Modal info do perfil (diarista) ── */}
         {modalInfoPerfil && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:350, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => { setModalInfoPerfil(false); setEditandoBio(false); }}>
-            <div style={{ background:"#fff", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginBottom:20 }}>
                 {fotoUrl
                   ? <img src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover", border:"3px solid #FF6B35", display:"block", marginBottom:12 }} alt="" />
                   : <div style={{ width:72, height:72, borderRadius:36, background:"#0f172a", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:24, border:"3px solid #FF6B35", marginBottom:12 }}>{iniciaisNome}</div>
                 }
-                <div style={{ fontWeight:900, fontSize:18, color:"#0f172a" }}>{profile?.nome}</div>
-                <div style={{ fontSize:13, color:"#64748b", marginTop:2 }}>{profile?.funcao}</div>
+                <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>{profile?.nome}</div>
+                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:2 }}>{profile?.funcao}</div>
                 {avaliacoesDiaristaReal.length > 0 && (
                   <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:8 }}>
                     <span style={{ fontSize:16 }}>⭐</span>
-                    <span style={{ fontWeight:900, fontSize:15, color:"#0f172a" }}>{(avaliacoesDiaristaReal.reduce((s,a)=>s+a.nota,0)/avaliacoesDiaristaReal.length).toFixed(1)}</span>
-                    <span style={{ color:"#94a3b8", fontSize:12 }}>({avaliacoesDiaristaReal.length} avaliação{avaliacoesDiaristaReal.length!==1?"s":""})</span>
+                    <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{(avaliacoesDiaristaReal.reduce((s,a)=>s+a.nota,0)/avaliacoesDiaristaReal.length).toFixed(1)}</span>
+                    <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>({avaliacoesDiaristaReal.length} avaliação{avaliacoesDiaristaReal.length!==1?"s":""})</span>
                   </div>
                 )}
               </div>
               <div style={{ marginBottom:16 }}>
-                <div style={{ fontWeight:800, fontSize:12, color:"#64748b", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
+                <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
                 {editandoBio ? (
                   <>
                     <textarea
@@ -6500,7 +6507,7 @@ export default function App() {
                         Salvar
                       </button>
                       <button
-                        style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                         onClick={() => setEditandoBio(false)}>
                         Cancelar
                       </button>
@@ -6508,9 +6515,9 @@ export default function App() {
                   </>
                 ) : (
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
-                    <p style={{ color:"#475569", fontSize:13, lineHeight:1.6, margin:0, flex:1 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
+                    <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0, flex:1 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
                     <button
-                      style={{ background:"none", border:"1.5px solid #e2e8f0", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, color:"#FF6B35", cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0 }}
+                      style={{ background:"none", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, color:"#FF6B35", cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0 }}
                       onClick={() => setEditandoBio(true)}>
                       ✏️ Editar
                     </button>
@@ -6555,26 +6562,26 @@ export default function App() {
         {/* ── Bottom sheet: trocar de perfil ── */}
         {menuTrocarPerfil && (
           <div style={S.modalOverlay} onClick={() => setMenuTrocarPerfil(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"#fff", borderRadius:"24px 24px 0 0", padding:"8px 0 32px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 32px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               {/* Alça */}
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               {/* Modo atual */}
-              <div style={{ padding:"0 20px 16px", borderBottom:"1px solid #f1f5f9" }}>
-                <div style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>Modo atual</div>
+              <div style={{ padding:"0 20px 16px", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+                <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>Modo atual</div>
                 <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                   <div style={{ width:44, height:44, borderRadius:22, background:"#FF6B3518", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>👷</div>
                   <div>
-                    <div style={{ fontWeight:900, fontSize:16, color:"#0f172a" }}>Diarista</div>
-                    <div style={{ fontSize:12, color:"#64748b" }}>{profile?.funcao || "—"}{profile?.valor_diaria ? ` · R$ ${profile.valor_diaria}/dia` : ""}</div>
+                    <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>Diarista</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>{profile?.funcao || "—"}{profile?.valor_diaria ? ` · R$ ${profile.valor_diaria}/dia` : ""}</div>
                   </div>
                   <span style={{ marginLeft:"auto", background:"#dcfce7", color:"#16a34a", fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20 }}>✓ Ativo</span>
                 </div>
               </div>
               {/* Opção de trocar */}
               <div style={{ padding:"16px 20px" }}>
-                <div style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:12 }}>Trocar para</div>
+                <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:12 }}>Trocar para</div>
                 <button
-                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:16, padding:"14px 16px", cursor:"pointer", fontFamily:"system-ui,sans-serif", textAlign:"left" as const }}
+                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:16, padding:"14px 16px", cursor:"pointer", fontFamily:"system-ui,sans-serif", textAlign:"left" as const }}
                   onClick={() => {
                     setMenuTrocarPerfil(false);
                     setAuthError("");
@@ -6588,16 +6595,16 @@ export default function App() {
                   }}>
                   <div style={{ width:44, height:44, borderRadius:22, background:"#3A86FF18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>🏢</div>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:800, fontSize:15, color:"#0f172a" }}>Empregador</div>
-                    <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Empregador</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
                       {profile?.nome_negocio ? `${profile.nome_negocio} · ${profile.segmento}` : "Cadastrar perfil de empregador"}
                     </div>
                   </div>
-                  <span style={{ fontSize:20, color:"#94a3b8" }}>›</span>
+                  <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
                 </button>
               </div>
               <div style={{ padding:"0 20px" }}>
-                <button style={{ ...S.btnSecondary, color:"#64748b", borderColor:"#e2e8f0", width:"100%" }} onClick={() => setMenuTrocarPerfil(false)}>Fechar</button>
+                <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)", width:"100%" }} onClick={() => setMenuTrocarPerfil(false)}>Fechar</button>
               </div>
             </div>
           </div>
@@ -6606,9 +6613,9 @@ export default function App() {
         {/* ── Painel de Notificações (diarista) ── */}
         {modalNotif && (
           <div style={S.modalOverlay} onClick={() => setModalNotif(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"#fff", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
-              <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", marginBottom:16 }}>🔔 Notificações</div>
+              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>🔔 Notificações</div>
               {/* Banner de suporte para admin */}
               {profile?.is_admin && suporteNaoLidos > 0 && (
                 <div style={{ background:"#fef3c7", border:"1.5px solid #f59e0b", borderRadius:14, padding:"12px 14px", marginBottom:14, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}
@@ -6621,7 +6628,7 @@ export default function App() {
                 </div>
               )}
               {listaNotif.length === 0 && !(profile?.is_admin && suporteNaoLidos > 0) ? (
-                <div style={{ textAlign:"center", color:"#94a3b8", padding:"32px 0", fontSize:14 }}>
+                <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", padding:"32px 0", fontSize:14 }}>
                   <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
                   Nenhuma notificação ainda
                 </div>
@@ -6631,15 +6638,15 @@ export default function App() {
                     <div key={i} style={{ background: n.tipo==="ok" ? "#f0fdf4" : "#fef2f2", borderRadius:12, padding:"10px 14px", display:"flex", gap:10, alignItems:"flex-start", border:`1px solid ${n.tipo==="ok"?"#bbf7d0":"#fecaca"}` }}>
                       <span style={{ fontSize:18 }}>{n.tipo==="ok" ? "✅" : "⚠️"}</span>
                       <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, color:"#0f172a", lineHeight:1.4 }}>{n.msg.replace(/^[✅❌⚠️🎉🔔]+\s*/,"")}</div>
-                        <div style={{ fontSize:11, color:"#94a3b8", marginTop:3 }}>{new Date(n.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>
+                        <div style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.4 }}>{n.msg.replace(/^[✅❌⚠️🎉🔔]+\s*/,"")}</div>
+                        <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:3 }}>{new Date(n.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
               {listaNotif.length > 0 && (
-                <button style={{ width:"100%", marginTop:16, padding:"10px", background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:13, color:"#64748b", fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                <button style={{ width:"100%", marginTop:16, padding:"10px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, color:"var(--text-2,#64748b)", fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                   onClick={() => { setListaNotif([]); setModalNotif(false); }}>
                   🗑️ Limpar notificações
                 </button>
@@ -6651,10 +6658,10 @@ export default function App() {
         {/* ── Modal Filtro de Vagas ── */}
         {modalFiltro && (
           <div style={S.modalOverlay} onClick={() => setModalFiltro(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"#fff", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
-              <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", marginBottom:20 }}>⚙️ Filtrar vagas</div>
-              <div style={{ fontWeight:700, fontSize:13, color:"#64748b", marginBottom:10 }}>📅 Data</div>
+              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:20 }}>⚙️ Filtrar vagas</div>
+              <div style={{ fontWeight:700, fontSize:13, color:"var(--text-2,#64748b)", marginBottom:10 }}>📅 Data</div>
               <div style={{ display:"flex", gap:8, marginBottom:20 }}>
                 {(["todas","hoje","amanha"] as const).map(v => (
                   <button key={v}
@@ -6664,7 +6671,7 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <div style={{ fontWeight:700, fontSize:13, color:"#64748b", marginBottom:10 }}>↕️ Ordenar por</div>
+              <div style={{ fontWeight:700, fontSize:13, color:"var(--text-2,#64748b)", marginBottom:10 }}>↕️ Ordenar por</div>
               <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
                 {([
                   ["recentes","🕐 Mais recentes"],
@@ -6682,7 +6689,7 @@ export default function App() {
               {/* Raio de distância */}
               {profile?.lat && profile?.lng && (
                 <>
-                  <div style={{ fontWeight:700, fontSize:13, color:"#64748b", marginBottom:8 }}>📍 Distância máxima</div>
+                  <div style={{ fontWeight:700, fontSize:13, color:"var(--text-2,#64748b)", marginBottom:8 }}>📍 Distância máxima</div>
                   <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
                     <input
                       type="range" min={5} max={100} step={5}
@@ -6695,7 +6702,7 @@ export default function App() {
                 </>
               )}
               <div style={{ display:"flex", gap:10 }}>
-                <button style={{ flex:1, padding:"11px", background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:13, fontWeight:700, color:"#64748b", cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                <button style={{ flex:1, padding:"11px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, fontWeight:700, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                   onClick={() => { setSortVagas("recentes"); setFiltroDataVaga("todas"); setFiltroRaioKm(50); }}>
                   Limpar filtros
                 </button>
@@ -6725,7 +6732,7 @@ export default function App() {
         <div style={{ position:"relative", cursor:"pointer" }} onClick={() => fotoInputRef.current?.click()}>
           {fotoUrl
             ? <img src={fotoUrl} alt="foto" style={{ width:90, height:90, borderRadius:45, objectFit:"cover", border:"3px solid #FF6B35", display:"block" }} />
-            : <div style={{ width:90, height:90, borderRadius:45, background:"#f1f5f9", display:"flex", alignItems:"center", justifyContent:"center", fontSize:36 }}>👤</div>
+            : <div style={{ width:90, height:90, borderRadius:45, background:"var(--bg-subtle,#f1f5f9)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:36 }}>👤</div>
           }
           <div style={{ position:"absolute", bottom:0, right:0, background:"#FF6B35", borderRadius:14, padding:"4px 8px", fontSize:12, color:"#fff", fontWeight:700 }}>
             {uploadingFoto ? "⏳" : "📷"}
@@ -6747,7 +6754,7 @@ export default function App() {
       <label style={S.label}>CPF</label>
       <input style={S.input} placeholder="000.000.000-00" value={form.cpf}
         onChange={e => setForm({...form, cpf: maskCPF(e.target.value)})} />
-      <p style={{ color:"#64748b", fontSize:11, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
+      <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
         🔒 Usado apenas para verificação de identidade. Nunca compartilhado.
       </p>
 
@@ -6767,7 +6774,7 @@ export default function App() {
         onChange={e=>setForm({...form,dataNasc:e.target.value})} />
 
       <label style={S.label}>Suas especialidades</label>
-      <p style={{ color:"#94a3b8", fontSize:12, margin:"2px 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira</strong> será sua especialidade principal.</p>
+      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"2px 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira</strong> será sua especialidade principal.</p>
       {categoriasSelecionadas.length > 0 && (
         <p style={{ color:"#FF6B35", fontSize:12, margin:"0 0 8px", fontWeight:700 }}>
           {categoriasSelecionadas.length} selecionada{categoriasSelecionadas.length > 1 ? "s" : ""} · Principal: {categoriasSelecionadas[0]}
@@ -6793,8 +6800,8 @@ export default function App() {
 
       <label style={S.label}>Valor por diária (R$)</label>
       <input style={S.input} type="number" value={form.valor} onChange={e=>setForm({...form,valor:e.target.value})} />
-      <p style={{ color:"#64748b", fontSize:12, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
-        📊 Média da região: <strong style={{ color:"#0f172a" }}>R$ 120 – R$ 250</strong> por diária
+      <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
+        📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>R$ 120 – R$ 250</strong> por diária
       </p>
 
       <label style={S.label}>Apresentação pessoal</label>
@@ -6812,21 +6819,21 @@ export default function App() {
       {profile?.lat && <p style={{ color:"#16a34a", fontSize:12, marginTop:4 }}>✅ Localização salva</p>}
 
       {/* Portfólio de trabalhos */}
-      <div style={{ fontWeight:800, fontSize:12, color:"#64748b", margin:"20px 0 8px", textTransform:"uppercase" as const, letterSpacing:0.5 }}>📸 Portfólio (até 3 fotos)</div>
-      <p style={{ color:"#64748b", fontSize:12, margin:"-4px 0 12px" }}>Fotos de trabalhos anteriores aumentam suas chances de contratação</p>
+      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", margin:"20px 0 8px", textTransform:"uppercase" as const, letterSpacing:0.5 }}>📸 Portfólio (até 3 fotos)</div>
+      <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 12px" }}>Fotos de trabalhos anteriores aumentam suas chances de contratação</p>
       <div style={{ display:"flex", gap:10, marginBottom:16 }}>
         {portfolioUrls.map((url, i) => (
           <div key={i} style={{ position:"relative", width:88, height:88, flexShrink:0 }}>
-            <img src={url} alt={`portfolio ${i+1}`} style={{ width:88, height:88, borderRadius:12, objectFit:"cover" as const, border:"2px solid #e2e8f0", display:"block" }} />
+            <img src={url} alt={`portfolio ${i+1}`} style={{ width:88, height:88, borderRadius:12, objectFit:"cover" as const, border:"2px solid var(--border,#e2e8f0)", display:"block" }} />
             <button
               style={{ position:"absolute", top:-6, right:-6, background:"#ef4444", color:"#fff", border:"none", borderRadius:10, width:22, height:22, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900 }}
               onClick={() => removerFotoPortfolio(i)}>×</button>
           </div>
         ))}
         {portfolioUrls.length < 3 && (
-          <label style={{ width:88, height:88, borderRadius:12, border:"2px dashed #e2e8f0", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", background:"#f8fafc", gap:4, flexShrink:0 }}>
+          <label style={{ width:88, height:88, borderRadius:12, border:"2px dashed #e2e8f0", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", background:"var(--bg-surface,#f8fafc)", gap:4, flexShrink:0 }}>
             <span style={{ fontSize:28 }}>{uploadingPortfolio ? "⏳" : "📷"}</span>
-            <span style={{ fontSize:11, color:"#94a3b8", fontWeight:700 }}>{uploadingPortfolio ? "Enviando" : "Adicionar"}</span>
+            <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{uploadingPortfolio ? "Enviando" : "Adicionar"}</span>
             <input ref={portfolioInputRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => e.target.files?.[0] && handlePortfolioUpload(e.target.files[0])} />
           </label>
         )}
@@ -6884,14 +6891,14 @@ export default function App() {
           <h2 style={{ color:"#fff", fontSize:22, fontWeight:900, textAlign:"center", margin:"8px 0" }}>
             Permitir localização?
           </h2>
-          <p style={{ color:"#94a3b8", textAlign:"center", fontSize:15, lineHeight:1.6, maxWidth:300 }}>
+          <p style={{ color:"var(--text-3,#94a3b8)", textAlign:"center", fontSize:15, lineHeight:1.6, maxWidth:300 }}>
             Usamos sua localização para mostrar profissionais próximos a você no mapa e ajudar empregadores a te encontrar.
           </p>
           <button style={{ ...S.btnPrimary, background:corTela, marginTop:16 }} onClick={handlePermitir}>
             📍 Permitir localização
           </button>
           <button
-            style={{ ...S.btnSecondary, color:"#94a3b8", borderColor:"#334155", marginTop:8 }}
+            style={{ ...S.btnSecondary, color:"var(--text-3,#94a3b8)", borderColor:"#334155", marginTop:8 }}
             onClick={irParaDestino}>
             Agora não
           </button>
@@ -6926,10 +6933,10 @@ export default function App() {
           {avaliacoesDiaristaReal.length > 0 && (
             <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}>
               <span style={{ fontSize:16 }}>⭐</span>
-              <span style={{ fontWeight:900, fontSize:16, color:"#0f172a" }}>
+              <span style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>
                 {(avaliacoesDiaristaReal.reduce((s,a)=>s+a.nota,0)/avaliacoesDiaristaReal.length).toFixed(1)}
               </span>
-              <span style={{ color:"#94a3b8", fontSize:13 }}>({avaliacoesDiaristaReal.length} avaliação{avaliacoesDiaristaReal.length!==1?"s":""})</span>
+              <span style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>({avaliacoesDiaristaReal.length} avaliação{avaliacoesDiaristaReal.length!==1?"s":""})</span>
             </div>
           )}
           <div style={{ ...S.badge, ...(d.disponivel ? S.badgeVerde : S.badgeCinza), fontSize:13, marginTop:8 }}>
@@ -6940,7 +6947,7 @@ export default function App() {
         {d.bio && (
           <div style={S.section}>
             <div style={S.sectionTitle}>Apresentação</div>
-            <p style={{ color:"#475569", fontSize:14, lineHeight:1.6, margin:0 }}>{d.bio}</p>
+            <p style={{ color:"var(--text-label,#475569)", fontSize:14, lineHeight:1.6, margin:0 }}>{d.bio}</p>
           </div>
         )}
 
@@ -6968,7 +6975,7 @@ export default function App() {
 
         <div style={S.section}>
           <div style={S.sectionTitle}>Valor por diária</div>
-          <div style={S.valorGrande}>R$ {d.valor_diaria}<span style={{ fontSize:16, color:"#64748b" }}> /dia</span></div>
+          <div style={S.valorGrande}>R$ {d.valor_diaria}<span style={{ fontSize:16, color:"var(--text-2,#64748b)" }}> /dia</span></div>
         </div>
 
         {/* Avaliações do diarista */}
@@ -6978,19 +6985,19 @@ export default function App() {
               <div style={S.sectionTitle}>Avaliações</div>
               <div style={{ display:"flex", alignItems:"center", gap:4 }}>
                 <span style={{ fontSize:16 }}>⭐</span>
-                <span style={{ fontWeight:900, fontSize:15, color:"#0f172a" }}>
+                <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>
                   {(avaliacoesDiaristaReal.reduce((s,a)=>s+a.nota,0)/avaliacoesDiaristaReal.length).toFixed(1)}
                 </span>
-                <span style={{ color:"#94a3b8", fontSize:12 }}>/ 5</span>
+                <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>/ 5</span>
               </div>
             </div>
             {avaliacoesDiaristaReal.slice(0,5).map(av => (
-              <div key={av.id} style={{ paddingBottom:12, marginBottom:12, borderBottom:"1px solid #f1f5f9" }}>
+              <div key={av.id} style={{ paddingBottom:12, marginBottom:12, borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
                   <span style={{ fontSize:13 }}>{"⭐".repeat(av.nota)}{"☆".repeat(5-av.nota)}</span>
-                  <span style={{ fontSize:11, color:"#94a3b8" }}>{new Date(av.created_at).toLocaleDateString("pt-BR")}</span>
+                  <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{new Date(av.created_at).toLocaleDateString("pt-BR")}</span>
                 </div>
-                {av.comentario && <p style={{ fontSize:13, color:"#475569", margin:0, lineHeight:1.5 }}>{av.comentario}</p>}
+                {av.comentario && <p style={{ fontSize:13, color:"var(--text-label,#475569)", margin:0, lineHeight:1.5 }}>{av.comentario}</p>}
               </div>
             ))}
           </div>
@@ -6998,7 +7005,7 @@ export default function App() {
 
         {/* Botão denunciar */}
         <div style={{ padding:"0 20px 4px" }}>
-          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:12, cursor:"pointer", textDecoration:"underline" }}
+          <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, cursor:"pointer", textDecoration:"underline" }}
             onClick={() => setModalDenunciar({ tipo:"usuario", id:d.id, nome:d.nome })}>
             ⚑ Denunciar perfil
           </button>
@@ -7036,7 +7043,7 @@ export default function App() {
                     <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:12, padding:"10px 14px" }}>
                       <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Confirmar cancelamento?</span>
                       <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => cancelarConvite(conviteAtivo.id)}>Sim</button>
-                      <button style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
+                      <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
                     </div>
                   ) : (
                     <button
@@ -7076,7 +7083,7 @@ export default function App() {
                       📱 WhatsApp: {d.telefone}
                     </a>
                   ) : (
-                    <div style={{ background:"#f1f5f9", borderRadius:12, padding:"12px 16px", fontSize:13, color:"#64748b", textAlign:"center" as const }}>
+                    <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:12, padding:"12px 16px", fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center" as const }}>
                       📞 Contato não cadastrado pelo profissional
                     </div>
                   )
@@ -7150,37 +7157,37 @@ export default function App() {
 
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:12 }}>
                     <div>
-                      <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>📍 Endereço completo *</label>
+                      <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>📍 Endereço completo *</label>
                       <input
                         value={formConvite.endereco}
                         onChange={e => setFormConvite(p => ({ ...p, endereco: e.target.value }))}
                         placeholder="Rua, número, bairro, cidade"
-                        style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                        style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
                       />
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                       <div>
-                        <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>📅 Data *</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>📅 Data *</label>
                         <input
                           type="date"
                           value={formConvite.data}
                           min={new Date().toISOString().split("T")[0]}
                           onChange={e => setFormConvite(p => ({ ...p, data: e.target.value }))}
-                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>🕐 Horário de início *</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>🕐 Horário de início *</label>
                         <input
                           type="time"
                           value={formConvite.horario}
                           onChange={e => setFormConvite(p => ({ ...p, horario: e.target.value }))}
-                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
                         />
                       </div>
                     </div>
                     <div>
-                      <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>⏱️ Carga horária *</label>
+                      <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>⏱️ Carga horária *</label>
                       <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
                         {["4", "6", "8", "10", "12"].map(h => (
                           <button key={h}
@@ -7194,18 +7201,18 @@ export default function App() {
                           value={!["4","6","8","10","12"].includes(formConvite.cargaHoraria) ? formConvite.cargaHoraria : ""}
                           onChange={e => setFormConvite(p => ({ ...p, cargaHoraria: e.target.value }))}
                           placeholder="Outro"
-                          style={{ width:70, padding:"8px 10px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                          style={{ width:70, padding:"8px 10px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
                         />
                       </div>
                     </div>
                     <div>
-                      <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>📝 Observações (opcional)</label>
+                      <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>📝 Observações (opcional)</label>
                       <textarea
                         value={formConvite.observacoes}
                         onChange={e => setFormConvite(p => ({ ...p, observacoes: e.target.value }))}
                         placeholder="Materiais necessários, tarefas específicas, etc."
                         rows={3}
-                        style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const }}
+                        style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const }}
                       />
                     </div>
                   </div>
@@ -7236,7 +7243,7 @@ export default function App() {
         <div style={{ textAlign:"center", margin:"8px 0 24px" }}>
           <div style={{ fontSize:48 }}>👷</div>
           <h2 style={{ ...S.pageTitle, marginBottom:4 }}>Perfil de Diarista</h2>
-          <p style={{ color:"#64748b", fontSize:13, margin:0 }}>Preencha seus dados para aparecer como diarista disponível.</p>
+          <p style={{ color:"var(--text-2,#64748b)", fontSize:13, margin:0 }}>Preencha seus dados para aparecer como diarista disponível.</p>
         </div>
 
         <label style={S.label}>Sua especialidade *</label>
@@ -7287,7 +7294,7 @@ export default function App() {
         <div style={{ textAlign:"center", margin:"8px 0 24px" }}>
           <div style={{ fontSize:48 }}>🏢</div>
           <h2 style={{ ...S.pageTitle, marginBottom:4 }}>Perfil de Empregador</h2>
-          <p style={{ color:"#64748b", fontSize:13, margin:0 }}>Preencha os dados do seu negócio para publicar vagas.</p>
+          <p style={{ color:"var(--text-2,#64748b)", fontSize:13, margin:0 }}>Preencha os dados do seu negócio para publicar vagas.</p>
         </div>
 
         <label style={S.label}>Nome do negócio *</label>
@@ -7356,8 +7363,8 @@ export default function App() {
           {icone}
         </div>
         <div>
-          <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>{titulo}</div>
-          {sub && <div style={{ fontSize:11, color:"#94a3b8", marginTop:1 }}>{sub}</div>}
+          <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{titulo}</div>
+          {sub && <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:1 }}>{sub}</div>}
         </div>
       </div>
     );
@@ -7416,11 +7423,11 @@ export default function App() {
             </div>
 
             <label style={S.label}>Valor por encostada (R$) *</label>
-            <p style={{ color:"#64748b", fontSize:12, margin:"-4px 0 8px" }}>
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px" }}>
               Taxa de alocação cobrada pelo Trampojá por entregador contratado.
             </p>
             <div style={{ position:"relative" }}>
-              <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"#64748b", fontWeight:700, fontSize:15 }}>R$</span>
+              <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
               <input
                 style={{ ...S.input, paddingLeft:40, borderColor: formDiaria.valor_encostada ? "#FF6B35" : undefined }}
                 type="number"
@@ -7431,11 +7438,11 @@ export default function App() {
             </div>
 
             <label style={{ ...S.label, marginTop:12 }}>Valor médio por entrega (R$)</label>
-            <p style={{ color:"#64748b", fontSize:12, margin:"-4px 0 8px" }}>
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px" }}>
               Quanto o entregador receberá por pedido (motoboys visualizam isso na vaga).
             </p>
             <div style={{ position:"relative" }}>
-              <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"#64748b", fontWeight:700, fontSize:15 }}>R$</span>
+              <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
               <input
                 style={{ ...S.input, paddingLeft:40 }}
                 type="number"
@@ -7446,11 +7453,11 @@ export default function App() {
             </div>
 
             <label style={{ ...S.label, marginTop:12 }}>Estimativa de ganho no dia (R$)</label>
-            <p style={{ color:"#64748b", fontSize:12, margin:"-4px 0 8px" }}>
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px" }}>
               Média de ganho total do entregador (ajuda a atrair bons profissionais).
             </p>
             <div style={{ position:"relative" }}>
-              <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"#64748b", fontWeight:700, fontSize:15 }}>R$</span>
+              <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
               <input
                 style={{ ...S.input, paddingLeft:40 }}
                 type="number"
@@ -7511,7 +7518,7 @@ export default function App() {
         <div style={{ background: duracao ? `${cor}14` : "#f1f5f9", border: duracao ? `1.5px solid ${cor}40` : "1.5px solid #e2e8f0", borderRadius:12, padding:"11px 16px", marginTop:6, display:"flex", alignItems:"center", gap:10 }}>
           <span style={{ fontSize:18 }}>⏱</span>
           <div>
-            <div style={{ fontSize:11, color:"#94a3b8", fontWeight:600 }}>Carga horária</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:600 }}>Carga horária</div>
             <div style={{ fontSize:15, fontWeight:900, color: duracao ? cor : "#cbd5e1" }}>
               {duracao || "— Preencha início e término"}
             </div>
@@ -7522,11 +7529,11 @@ export default function App() {
         <Secao icone="💰" titulo="Pagamento" />
 
         <label style={S.label}>Valor a pagar pelo dia (R$) *</label>
-        <p style={{ color:"#64748b", fontSize:12, margin:"-4px 0 8px", display:"flex", alignItems:"center", gap:4 }}>
-          📊 Média da região: <strong style={{ color:"#0f172a" }}>R$ 120 – R$ 250</strong> por diária
+        <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px", display:"flex", alignItems:"center", gap:4 }}>
+          📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>R$ 120 – R$ 250</strong> por diária
         </p>
         <div style={{ position:"relative" }}>
-          <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"#64748b", fontWeight:700, fontSize:15 }}>R$</span>
+          <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
           <input
             style={{ ...S.input, paddingLeft:40 }}
             type="number"
@@ -7582,7 +7589,7 @@ export default function App() {
             }}
           />
           {buscandoCEP && (
-            <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#64748b", fontWeight:600 }}>
+            <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"var(--text-2,#64748b)", fontWeight:600 }}>
               Buscando...
             </span>
           )}
@@ -7671,7 +7678,7 @@ export default function App() {
           {localizandoDiaria ? "📡 Buscando localização..." : latDiaria ? "✅ Localização no mapa capturada" : "📍 Marcar localização no mapa (GPS)"}
         </button>
         {!latDiaria && (
-          <p style={{ fontSize:11, color:"#94a3b8", marginTop:4, textAlign:"center" }}>
+          <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:4, textAlign:"center" }}>
             Recomendado — o diarista poderá abrir no Google Maps direto
           </p>
         )}
@@ -7683,8 +7690,8 @@ export default function App() {
             : "";
           if (!formDiaria.local || !formDiaria.descricao || !formDiaria.data || !formDiaria.horario_inicio || !formDiaria.horario_fim || !formDiaria.valor || !endCompleto) return null;
           return (
-            <div style={{ background:"#f8fafc", border:"1.5px solid #e2e8f0", borderRadius:16, padding:"14px 16px", marginTop:20 }}>
-              <div style={{ fontSize:11, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📋 Resumo da diária</div>
+            <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:16, padding:"14px 16px", marginTop:20 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📋 Resumo da diária</div>
               <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
                 {[
                   { k:"Local",    v: formDiaria.local },
@@ -7696,8 +7703,8 @@ export default function App() {
                   { k:"Endereço", v: "🔒 " + endCompleto },
                 ].map(r => (
                   <div key={r.k} style={{ display:"flex", justifyContent:"space-between", fontSize:12, gap:8 }}>
-                    <span style={{ color:"#94a3b8", flexShrink:0 }}>{r.k}</span>
-                    <span style={{ fontWeight:700, color:"#0f172a", textAlign:"right" }}>{r.v}</span>
+                    <span style={{ color:"var(--text-3,#94a3b8)", flexShrink:0 }}>{r.k}</span>
+                    <span style={{ fontWeight:700, color:"var(--text-1,#0f172a)", textAlign:"right" }}>{r.v}</span>
                   </div>
                 ))}
               </div>
@@ -7713,7 +7720,7 @@ export default function App() {
           onClick={salvarDiaria}>
           {salvandoDiaria ? "Publicando..." : "📋 Publicar diária"}
         </button>
-        <p style={{ fontSize:11, color:"#94a3b8", textAlign:"center", marginTop:8 }}>
+        <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginTop:8 }}>
           Campos com * são obrigatórios
         </p>
       </div>
@@ -7727,17 +7734,17 @@ export default function App() {
       <h2 style={S.pageTitle}>Editar perfil</h2>
 
       {/* Foto/logo do negócio */}
-      <div style={{ fontWeight:800, fontSize:12, color:"#64748b", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto / Logo do negócio</div>
-      <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20, padding:"14px 16px", background:"#f8fafc", borderRadius:16, border:"1.5px solid #e2e8f0" }}>
+      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto / Logo do negócio</div>
+      <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20, padding:"14px 16px", background:"var(--bg-surface,#f8fafc)", borderRadius:16, border:"1.5px solid var(--border,#e2e8f0)" }}>
         {fotoUrl
           ? <img src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover" as const, flexShrink:0, border:`3px solid ${negocio?.cor||"#FF6B35"}` }} alt="foto" />
           : <div style={{ width:72, height:72, borderRadius:36, background:"#e2e8f0", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, flexShrink:0 }}>🏢</div>
         }
         <div style={{ flex:1 }}>
-          <div style={{ fontWeight:700, fontSize:13, color:"#0f172a", marginBottom:4 }}>
+          <div style={{ fontWeight:700, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:4 }}>
             {fotoUrl ? "✅ Foto adicionada!" : "Adicione uma foto"}
           </div>
-          <div style={{ fontSize:12, color:"#64748b", marginBottom:8, lineHeight:1.4 }}>Aparece no card da vaga para os diaristas</div>
+          <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, lineHeight:1.4 }}>Aparece no card da vaga para os diaristas</div>
           <label style={{ display:"inline-block", padding:"8px 16px", background:fotoUrl ? "#f0fdf4" : (negocio?.cor||"#FF6B35"), color:fotoUrl ? "#16a34a" : "#fff", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer" }}>
             {uploadingFoto ? "Enviando..." : fotoUrl ? "Trocar foto" : "📷 Escolher foto"}
             <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>e.target.files?.[0]&&handleFotoUpload(e.target.files[0])} />
@@ -7752,7 +7759,7 @@ export default function App() {
       <input style={S.input} placeholder="(67) 99999-9999" value={form.telefone} onChange={e=>setForm({...form,telefone:e.target.value})} />
 
       <label style={S.label}>Nome do negócio / local</label>
-      <p style={{ color:"#94a3b8", fontSize:12, margin:"-6px 0 8px" }}>Nome do estabelecimento ou local — não coloque seu nome pessoal aqui.</p>
+      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Nome do estabelecimento ou local — não coloque seu nome pessoal aqui.</p>
       <input style={S.input} placeholder="Ex: Restaurante do João, Família Silva, Bar Guinness..." value={form.nomeNegocio} onChange={e=>setForm({...form,nomeNegocio:e.target.value})} />
 
       {/* Tipo de pessoa */}
@@ -7785,8 +7792,8 @@ export default function App() {
 
       {/* Endereço atual */}
       {profile?.endereco_empregador && (
-        <div style={{ background:"#f8fafc", borderRadius:10, padding:"10px 14px", marginBottom:12, border:"1px solid #e2e8f0" }}>
-          <p style={{ fontSize:12, color:"#64748b", margin:0, fontWeight:600 }}>Endereço atual:</p>
+        <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:10, padding:"10px 14px", marginBottom:12, border:"1px solid var(--border,#e2e8f0)" }}>
+          <p style={{ fontSize:12, color:"var(--text-2,#64748b)", margin:0, fontWeight:600 }}>Endereço atual:</p>
           <p style={{ fontSize:13, color:"#334155", margin:"4px 0 0" }}>{profile.endereco_empregador}</p>
         </div>
       )}
@@ -7869,9 +7876,9 @@ export default function App() {
         </div>
 
         {/* Mensagens */}
-        <div style={{ flex:1, overflowY:"auto", padding:16, display:"flex", flexDirection:"column", gap:10, background:"#f8fafc" }}>
+        <div style={{ flex:1, overflowY:"auto", padding:16, display:"flex", flexDirection:"column", gap:10, background:"var(--bg-surface,#f8fafc)" }}>
           {messages.length === 0 && (
-            <div style={{ textAlign:"center", color:"#94a3b8", fontSize:14, marginTop:40 }}>
+            <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:14, marginTop:40 }}>
               <div style={{ fontSize:40, marginBottom:10 }}>💬</div>
               Inicie a conversa com {d.nome.split(" ")[0]}!
             </div>
@@ -7892,7 +7899,7 @@ export default function App() {
         </div>
 
         {/* Input */}
-        <div style={{ display:"flex", gap:8, padding:"12px 16px", background:"#fff", borderTop:"1px solid #e2e8f0", flexShrink:0 }}>
+        <div style={{ display:"flex", gap:8, padding:"12px 16px", background:"var(--bg-card,#fff)", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
           <input
             style={{ ...S.input, marginBottom:0, flex:1, padding:"10px 14px" }}
             placeholder="Digite uma mensagem..."
@@ -7935,7 +7942,7 @@ export default function App() {
     // Tela de detalhe do tópico
     if (topicoAtivo) {
       return (
-        <div style={{ ...S.appShell, paddingBottom:80, background:"#f0f2f5" }}>
+        <div style={{ ...S.appShell, paddingBottom:80, background:"var(--bg-app,#f0f2f5)" }}>
           <div style={{ background:corAcento, padding:"16px 20px", display:"flex", alignItems:"center", gap:12 }}>
             <button style={{ background:"none", border:"none", color:"#fff", fontSize:22, cursor:"pointer", padding:0 }} onClick={() => setTopicoAtivo(null)}>←</button>
             <div style={{ flex:1 }}>
@@ -7944,11 +7951,11 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ background:"#fff", margin:"12px 16px", borderRadius:16, padding:"16px" }}>
+          <div style={{ background:"var(--bg-card,#fff)", margin:"12px 16px", borderRadius:16, padding:"16px" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
               <div>
-                <span style={{ fontWeight:800, fontSize:13, color:"#0f172a" }}>{topicoAtivo.autor_nome}</span>
-                <span style={{ fontSize:11, color:"#94a3b8", marginLeft:6 }}>• {agoraStr(topicoAtivo.created_at)}</span>
+                <span style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{topicoAtivo.autor_nome}</span>
+                <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginLeft:6 }}>• {agoraStr(topicoAtivo.created_at)}</span>
                 {topicoAtivo.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#5D5FEF15", color:"#5D5FEF", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Diarista</span>}
                 {topicoAtivo.autor_tipo === "empregador" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Contratante</span>}
               </div>
@@ -7962,47 +7969,47 @@ export default function App() {
               )}
             </div>
             <p style={{ color:"#334155", fontSize:14, lineHeight:1.7, margin:0, whiteSpace:"pre-wrap" as const }}>{topicoAtivo.conteudo}</p>
-            <div style={{ display:"flex", alignItems:"center", gap:16, marginTop:14, paddingTop:10, borderTop:"1px solid #f1f5f9" }}>
-              <button style={{ background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", gap:4, color:"#64748b", fontSize:13, fontWeight:700, fontFamily:"system-ui,sans-serif" }}
+            <div style={{ display:"flex", alignItems:"center", gap:16, marginTop:14, paddingTop:10, borderTop:"1px solid var(--border-sub,#f1f5f9)" }}>
+              <button style={{ background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", gap:4, color:"var(--text-2,#64748b)", fontSize:13, fontWeight:700, fontFamily:"system-ui,sans-serif" }}
                 onClick={() => curtirTopico(topicoAtivo.id)}>
                 ❤️ {topicoAtivo.likes}
               </button>
-              <span style={{ color:"#94a3b8", fontSize:13 }}>💬 {comentariosTopico.length} comentários</span>
+              <span style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>💬 {comentariosTopico.length} comentários</span>
             </div>
           </div>
 
           {/* Comentários */}
           <div style={{ margin:"0 16px" }}>
-            <div style={{ fontWeight:800, fontSize:13, color:"#0f172a", marginBottom:10 }}>Comentários</div>
+            <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:10 }}>Comentários</div>
             {comentariosTopico.length === 0 && (
-              <div style={{ textAlign:"center" as const, color:"#94a3b8", fontSize:14, padding:"24px 0" }}>Seja o primeiro a comentar! 👇</div>
+              <div style={{ textAlign:"center" as const, color:"var(--text-3,#94a3b8)", fontSize:14, padding:"24px 0" }}>Seja o primeiro a comentar! 👇</div>
             )}
             {comentariosTopico.map(c => (
-              <div key={c.id} style={{ background:"#fff", borderRadius:14, padding:"12px 14px", marginBottom:8 }}>
+              <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", marginBottom:8 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
                   <div>
-                    <span style={{ fontWeight:800, fontSize:13, color:"#0f172a" }}>{c.autor_nome}</span>
+                    <span style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{c.autor_nome}</span>
                     {c.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#5D5FEF15", color:"#5D5FEF", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Diarista</span>}
                     {c.autor_tipo === "empregador" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Contratante</span>}
                     {isAdmin && <span style={{ marginLeft:6, background:"#fef3c715", color:"#d97706", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>👑 Admin</span>}
-                    <span style={{ fontSize:11, color:"#94a3b8", marginLeft:6 }}>• {agoraStr(c.created_at)}</span>
+                    <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginLeft:6 }}>• {agoraStr(c.created_at)}</span>
                   </div>
                   {(isAdmin || c.autor_id === session?.user?.id) && (
-                    <button style={{ background:"none", border:"none", fontSize:14, cursor:"pointer", color:"#94a3b8" }} onClick={() => deletarComentario(c.id)}>🗑️</button>
+                    <button style={{ background:"none", border:"none", fontSize:14, cursor:"pointer", color:"var(--text-3,#94a3b8)" }} onClick={() => deletarComentario(c.id)}>🗑️</button>
                   )}
                 </div>
-                <p style={{ color:"#475569", fontSize:13, lineHeight:1.6, margin:0 }}>{c.conteudo}</p>
+                <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0 }}>{c.conteudo}</p>
               </div>
             ))}
           </div>
 
           {/* Input de novo comentário */}
-          <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"#fff", borderTop:"1px solid #e2e8f0", padding:"12px 16px", display:"flex", gap:10, boxSizing:"border-box" as const }}>
+          <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderTop:"1px solid var(--border,#e2e8f0)", padding:"12px 16px", display:"flex", gap:10, boxSizing:"border-box" as const }}>
             <input
               value={novoComentario}
               onChange={e => setNovoComentario(e.target.value)}
               placeholder="Escreva um comentário..."
-              style={{ flex:1, padding:"10px 14px", borderRadius:24, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none" }}
+              style={{ flex:1, padding:"10px 14px", borderRadius:24, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none" }}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); criarComentario(); } }}
             />
             <button
@@ -8017,7 +8024,7 @@ export default function App() {
 
     // Lista de tópicos
     return (
-      <div style={{ ...S.appShell, paddingBottom:76, background:"#f0f2f5" }}>
+      <div style={{ ...S.appShell, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
         {/* Header */}
         <div style={{ background:corAcento, padding:"20px 20px 16px" }}>
           <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
@@ -8047,35 +8054,35 @@ export default function App() {
         {/* Lista */}
         <div style={{ padding:"12px 16px", display:"flex", flexDirection:"column" as const, gap:10 }}>
           {topicos.length === 0 && (
-            <div style={{ textAlign:"center" as const, color:"#94a3b8", padding:"48px 0" }}>
+            <div style={{ textAlign:"center" as const, color:"var(--text-3,#94a3b8)", padding:"48px 0" }}>
               <div style={{ fontSize:48, marginBottom:12 }}>🏘️</div>
-              <div style={{ fontWeight:700, color:"#475569" }}>Nenhum tópico ainda</div>
+              <div style={{ fontWeight:700, color:"var(--text-label,#475569)" }}>Nenhum tópico ainda</div>
               <div style={{ fontSize:13, marginTop:6 }}>Seja o primeiro a publicar!</div>
             </div>
           )}
           {topicos.map(t => (
             <div key={t.id}
-              style={{ background:"#fff", borderRadius:16, padding:"14px 16px", cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)", border: t.pinned ? `2px solid ${corAcento}` : "none" }}
+              style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)", border: t.pinned ? `2px solid ${corAcento}` : "none" }}
               onClick={async () => { setTopicoAtivo(t); await carregarComentarios(t.id); }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
                 <div style={{ flex:1 }}>
                   {t.pinned && <span style={{ fontSize:11, fontWeight:700, color:corAcento, display:"block", marginBottom:4 }}>📌 FIXADO</span>}
-                  <div style={{ fontWeight:800, fontSize:14, color:"#0f172a", lineHeight:1.4 }}>{t.titulo}</div>
+                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", lineHeight:1.4 }}>{t.titulo}</div>
                 </div>
                 <span style={{ background:corAcento+"15", color:corAcento, fontSize:10, fontWeight:700, padding:"3px 8px", borderRadius:20, flexShrink:0, marginLeft:8 }}>
                   {catLabel[t.categoria] || "💬 Geral"}
                 </span>
               </div>
-              <p style={{ color:"#64748b", fontSize:13, margin:"0 0 10px", lineHeight:1.5, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" as const }}>{t.conteudo}</p>
+              <p style={{ color:"var(--text-2,#64748b)", fontSize:13, margin:"0 0 10px", lineHeight:1.5, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" as const }}>{t.conteudo}</p>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:4 }}>
-                  <span style={{ fontSize:11, fontWeight:700, color:"#94a3b8" }}>{t.autor_nome}</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)" }}>{t.autor_nome}</span>
                   <span style={{ fontSize:10, color:"#cbd5e1" }}>•</span>
-                  <span style={{ fontSize:11, color:"#94a3b8" }}>{agoraStr(t.created_at)}</span>
+                  <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{agoraStr(t.created_at)}</span>
                 </div>
                 <div style={{ display:"flex", gap:12 }}>
-                  <span style={{ fontSize:12, color:"#94a3b8" }}>❤️ {t.likes}</span>
-                  <span style={{ fontSize:12, color:"#94a3b8" }}>💬 {t.total_comentarios}</span>
+                  <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>❤️ {t.likes}</span>
+                  <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>💬 {t.total_comentarios}</span>
                   {isAdmin && (
                     <button style={{ background:"none", border:"none", fontSize:14, cursor:"pointer" }} onClick={e => { e.stopPropagation(); deletarTopico(t.id); }}>🗑️</button>
                   )}
@@ -8099,7 +8106,7 @@ export default function App() {
               <h3 style={S.modalTitle}>📝 Novo tópico</h3>
               <div style={{ display:"flex", flexDirection:"column" as const, gap:12 }}>
                 <div>
-                  <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Categoria</label>
+                  <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>Categoria</label>
                   <div style={{ display:"flex", flexWrap:"wrap" as const, gap:6 }}>
                     {CATS.filter(c => c.key !== "todos").map(c => (
                       <button key={c.key}
@@ -8111,16 +8118,16 @@ export default function App() {
                   </div>
                 </div>
                 <div>
-                  <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Título *</label>
+                  <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>Título *</label>
                   <input value={formTopico.titulo} onChange={e => setFormTopico(p => ({ ...p, titulo: e.target.value }))}
                     placeholder="Sobre o que é este tópico?" maxLength={120}
-                    style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
                 </div>
                 <div>
-                  <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Conteúdo *</label>
+                  <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>Conteúdo *</label>
                   <textarea value={formTopico.conteudo} onChange={e => setFormTopico(p => ({ ...p, conteudo: e.target.value }))}
                     placeholder="Escreva com detalhes. Quanto mais claro, melhor!" rows={5}
-                    style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const }} />
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const }} />
                 </div>
               </div>
               <button style={{ ...S.btnPrimary, background:corAcento, marginTop:16, opacity: enviandoTopico ? 0.7 : 1 }} onClick={criarTopico} disabled={enviandoTopico}>
@@ -8145,12 +8152,12 @@ export default function App() {
 
         {/* Header */}
         <div style={{ padding:"52px 24px 0" }}>
-          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:24, padding:0 }}
+          <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:24, padding:0 }}
             onClick={() => setTela(isEmp ? "home-empregador" : "home-diarista")}>← Voltar</button>
           <div style={{ textAlign:"center", marginBottom:32 }}>
             <div style={{ fontSize:44, marginBottom:10 }}>🚀</div>
             <div style={{ fontSize:26, fontWeight:900, color:"#fff", lineHeight:1.2, marginBottom:8 }}>Escolha seu plano</div>
-            <div style={{ fontSize:14, color:"#94a3b8", lineHeight:1.6 }}>
+            <div style={{ fontSize:14, color:"var(--text-3,#94a3b8)", lineHeight:1.6 }}>
               {isEmp ? "Publique mais vagas e encontre os melhores profissionais de CG." : "Apareça em primeiro e receba mais oportunidades de trabalho."}
             </div>
             {planoAtivo !== "gratis" && (
@@ -8185,13 +8192,13 @@ export default function App() {
                   <div>
                     <div style={{ fontSize:18, fontWeight:900, color:"#fff" }}>{p.nome}</div>
                     {p.valor === 0
-                      ? <div style={{ fontSize:13, color:"#64748b", marginTop:2 }}>Sempre grátis</div>
-                      : <div style={{ fontSize:13, color:"#94a3b8", marginTop:2 }}>por mês</div>
+                      ? <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:2 }}>Sempre grátis</div>
+                      : <div style={{ fontSize:13, color:"var(--text-3,#94a3b8)", marginTop:2 }}>por mês</div>
                     }
                   </div>
                   <div style={{ textAlign:"right" }}>
                     {p.valor === 0
-                      ? <div style={{ fontSize:28, fontWeight:900, color:"#64748b" }}>R$ 0</div>
+                      ? <div style={{ fontSize:28, fontWeight:900, color:"var(--text-2,#64748b)" }}>R$ 0</div>
                       : <div style={{ fontSize:28, fontWeight:900, color:p.cor }}>R$ {p.valor}</div>
                     }
                   </div>
@@ -8232,7 +8239,7 @@ export default function App() {
 
         {/* FAQ rápido */}
         <div style={{ margin:"28px 20px 0", background:"rgba(255,255,255,.05)", borderRadius:18, padding:"18px 20px" }}>
-          <div style={{ fontWeight:800, fontSize:13, color:"#94a3b8", marginBottom:14, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Dúvidas</div>
+          <div style={{ fontWeight:800, fontSize:13, color:"var(--text-3,#94a3b8)", marginBottom:14, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Dúvidas</div>
           {[
             { p:"Posso cancelar a qualquer momento?", r:"Sim. Você cancela pelo Mercado Pago quando quiser, sem multa." },
             { p:"Como é cobrado?", r:"Mensalmente via Mercado Pago — cartão, PIX ou saldo." },
@@ -8240,7 +8247,7 @@ export default function App() {
           ].map(f => (
             <div key={f.p} style={{ marginBottom:12, paddingBottom:12, borderBottom:"1px solid rgba(255,255,255,.08)" }}>
               <div style={{ fontSize:13, fontWeight:700, color:"#f1f5f9", marginBottom:4 }}>{f.p}</div>
-              <div style={{ fontSize:12, color:"#64748b", lineHeight:1.6 }}>{f.r}</div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>{f.r}</div>
             </div>
           ))}
         </div>
@@ -8258,7 +8265,7 @@ export default function App() {
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16, padding:32 }}>
         <div style={{ fontSize:48 }}>⚡</div>
         <div style={{ fontSize:28, fontWeight:900, color:"#fff" }}>Diária<span style={{ color:"#FF6B35" }}>Já</span></div>
-        <p style={{ color:"#64748b", fontSize:14 }}>Algo deu errado. Toque para voltar ao início.</p>
+        <p style={{ color:"var(--text-2,#64748b)", fontSize:14 }}>Algo deu errado. Toque para voltar ao início.</p>
         <button
           style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"12px 28px", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
           onClick={() => { setProfile(null); setTela("splash"); setLoading(false); }}>
@@ -8275,7 +8282,7 @@ const S: Record<string, React.CSSProperties> = {
   logo:             { display:"flex", alignItems:"center", gap:10 },
   logoIcon:         { fontSize:40 },
   logoText:         { fontSize:42, fontWeight:900, color:"#FF6B35", letterSpacing:-1 },
-  splashSub:        { color:"#94a3b8", fontSize:20, textAlign:"center", lineHeight:1.5, margin:"8px 0 24px" },
+  splashSub:        { color:"var(--text-3,#94a3b8)", fontSize:20, textAlign:"center", lineHeight:1.5, margin:"8px 0 24px" },
   page:             { minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", padding:"24px 20px", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" },
   pageTitle:        { fontSize:26, fontWeight:900, color:"var(--text-1,#0f172a)", margin:"16px 0 8px" },
   subTexto:         { color:"var(--text-2,#64748b)", fontSize:14, marginBottom:20 },
@@ -8307,7 +8314,7 @@ const S: Record<string, React.CSSProperties> = {
   switchRow:        { display:"flex", alignItems:"center", justifyContent:"space-between", margin:"12px 0" },
   toggle:           { width:48, height:28, borderRadius:14, background:"var(--border,#e2e8f0)", cursor:"pointer", position:"relative", transition:"background .2s" },
   toggleAtivo:      { background:"#FF6B35" },
-  toggleThumb:      { width:22, height:22, borderRadius:11, background:"#fff", position:"absolute", top:3, left:3, transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" },
+  toggleThumb:      { width:22, height:22, borderRadius:11, background:"var(--bg-card,#fff)", position:"absolute", top:3, left:3, transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" },
   toggleThumbAtivo: { left:23 },
   appShell:         { minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:32 },
   header:           { padding:"20px 20px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" },
