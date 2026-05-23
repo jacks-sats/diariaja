@@ -1,0 +1,291 @@
+import { describe, it, expect } from "vitest";
+import {
+  validarCPF,
+  validarNome,
+  nivelDiarista,
+  calcScore,
+  verificarFraudeDescricao,
+  detectarContatoExterno,
+  maskCPF,
+  maskCNPJ,
+  haversineKm,
+} from "../helpers";
+
+// ── validarCPF ────────────────────────────────────────────────────────────────
+describe("validarCPF", () => {
+  it("aceita CPF válido - 529.982.247-25", () => {
+    expect(validarCPF("529.982.247-25")).toBe(true);
+  });
+
+  it("aceita CPF válido sem formatação", () => {
+    expect(validarCPF("52998224725")).toBe(true);
+  });
+
+  it("aceita CPF válido - 111.444.777-35", () => {
+    expect(validarCPF("111.444.777-35")).toBe(true);
+  });
+
+  it("rejeita CPF com dígitos repetidos - 111.111.111-11", () => {
+    expect(validarCPF("111.111.111-11")).toBe(false);
+  });
+
+  it("rejeita CPF com dígitos repetidos - 000.000.000-00", () => {
+    expect(validarCPF("000.000.000-00")).toBe(false);
+  });
+
+  it("rejeita CPF com dígitos repetidos - 999.999.999-99", () => {
+    expect(validarCPF("999.999.999-99")).toBe(false);
+  });
+
+  it("rejeita CPF com dígito verificador errado", () => {
+    expect(validarCPF("529.982.247-26")).toBe(false);
+  });
+
+  it("rejeita CPF com menos de 11 dígitos", () => {
+    expect(validarCPF("123.456.789")).toBe(false);
+  });
+
+  it("rejeita CPF vazio", () => {
+    expect(validarCPF("")).toBe(false);
+  });
+
+  it("rejeita CPF com letras", () => {
+    expect(validarCPF("abc.def.ghi-jk")).toBe(false);
+  });
+});
+
+// ── validarNome ────────────────────────────────────────────────────────────────
+describe("validarNome", () => {
+  it("aceita nome completo válido", () => {
+    expect(validarNome("João Silva")).toBeNull();
+  });
+
+  it("aceita nome com três partes", () => {
+    expect(validarNome("Maria das Graças")).toBeNull();
+  });
+
+  it("rejeita nome com apenas uma palavra", () => {
+    expect(validarNome("João")).not.toBeNull();
+  });
+
+  it("rejeita nome com números", () => {
+    expect(validarNome("João 123")).not.toBeNull();
+  });
+
+  it("rejeita nome muito curto", () => {
+    expect(validarNome("Jo")).not.toBeNull();
+  });
+
+  it("rejeita nome com símbolos especiais", () => {
+    expect(validarNome("João @Silva")).not.toBeNull();
+  });
+
+  it("rejeita string vazia", () => {
+    expect(validarNome("")).not.toBeNull();
+  });
+
+  it("aceita nome com espaços extras (trim)", () => {
+    expect(validarNome("  João Silva  ")).toBeNull();
+  });
+});
+
+// ── nivelDiarista ──────────────────────────────────────────────────────────────
+describe("nivelDiarista", () => {
+  it("retorna Bronze para 0 diárias", () => {
+    expect(nivelDiarista(0).nome).toBe("Bronze");
+  });
+
+  it("retorna Bronze para 4 diárias", () => {
+    expect(nivelDiarista(4).nome).toBe("Bronze");
+  });
+
+  it("retorna Prata para 5 diárias", () => {
+    expect(nivelDiarista(5).nome).toBe("Prata");
+  });
+
+  it("retorna Prata para 14 diárias", () => {
+    expect(nivelDiarista(14).nome).toBe("Prata");
+  });
+
+  it("retorna Ouro para 15 diárias", () => {
+    expect(nivelDiarista(15).nome).toBe("Ouro");
+  });
+
+  it("retorna Ouro para 29 diárias", () => {
+    expect(nivelDiarista(29).nome).toBe("Ouro");
+  });
+
+  it("retorna Elite para 30 diárias", () => {
+    expect(nivelDiarista(30).nome).toBe("Elite");
+  });
+
+  it("retorna Elite para 100 diárias", () => {
+    expect(nivelDiarista(100).nome).toBe("Elite");
+  });
+
+  it("Elite tem proximo = 0 (topo máximo)", () => {
+    expect(nivelDiarista(30).proximo).toBe(0);
+  });
+
+  it("Bronze tem cor correta", () => {
+    expect(nivelDiarista(0).cor).toBe("#b45309");
+  });
+
+  it("Elite tem ícone 💎", () => {
+    expect(nivelDiarista(30).icone).toBe("💎");
+  });
+});
+
+// ── calcScore ──────────────────────────────────────────────────────────────────
+describe("calcScore", () => {
+  it("retorna 0 para perfil vazio sem diárias", () => {
+    expect(calcScore({}, 0, null)).toBe(0);
+  });
+
+  it("retorna 25 para perfil só com foto", () => {
+    expect(calcScore({ foto_url: "url" }, 0, null)).toBe(25);
+  });
+
+  it("retorna 50 para perfil com foto e CPF", () => {
+    expect(calcScore({ foto_url: "url", cpf: "123" }, 0, null)).toBe(50);
+  });
+
+  it("retorna 100 para perfil completo com boa avaliação e 15+ diárias", () => {
+    const p = { foto_url: "url", cpf: "123", telefone: "67999", bio: "Boa bio com mais de 20 chars" };
+    expect(calcScore(p, 15, 4.5)).toBe(100);
+  });
+
+  it("não ultrapassa 100", () => {
+    const p = { foto_url: "url", cpf: "123", telefone: "67999", bio: "Boa bio com mais de 20 chars" };
+    expect(calcScore(p, 100, 5)).toBeLessThanOrEqual(100);
+  });
+
+  it("bio curta (<= 20 chars) não pontua", () => {
+    const com = calcScore({ bio: "Bio longa mesmo sim" }, 0, null);  // 19 chars, não pontua
+    const sem = calcScore({}, 0, null);
+    expect(com).toBe(sem);
+  });
+
+  it("bio longa (> 20 chars) pontua +10", () => {
+    const com = calcScore({ bio: "Esta bio tem mais de vinte caracteres" }, 0, null);
+    const sem = calcScore({}, 0, null);
+    expect(com - sem).toBe(10);
+  });
+});
+
+// ── verificarFraudeDescricao ───────────────────────────────────────────────────
+describe("verificarFraudeDescricao", () => {
+  it("retorna null para descrição limpa", () => {
+    expect(verificarFraudeDescricao("Preciso de faxineira para apartamento de 3 quartos")).toBeNull();
+  });
+
+  it("detecta número de telefone na descrição", () => {
+    expect(verificarFraudeDescricao("Ligue 67999999999 para mais info")).not.toBeNull();
+  });
+
+  it("detecta WhatsApp na descrição", () => {
+    expect(verificarFraudeDescricao("Me chame no whatsapp")).not.toBeNull();
+  });
+
+  it("detecta Telegram na descrição", () => {
+    expect(verificarFraudeDescricao("Acesse meu telegram")).not.toBeNull();
+  });
+
+  it("detecta pedido de pagamento antecipado", () => {
+    expect(verificarFraudeDescricao("pague antes de começar")).not.toBeNull();
+  });
+
+  it("detecta descrição muito curta", () => {
+    expect(verificarFraudeDescricao("ok")).not.toBeNull();
+  });
+
+  it("retorna null para string vazia / null", () => {
+    expect(verificarFraudeDescricao("")).toBeNull();
+  });
+
+  it("detecta instagram na descrição", () => {
+    expect(verificarFraudeDescricao("meu insta é @joao")).not.toBeNull();
+  });
+});
+
+// ── detectarContatoExterno ────────────────────────────────────────────────────
+describe("detectarContatoExterno", () => {
+  it("detecta número de telefone em mensagem", () => {
+    expect(detectarContatoExterno("meu número é 67999887766")).toBe(true);
+  });
+
+  it("detecta whatsapp em mensagem", () => {
+    expect(detectarContatoExterno("me chama no whatsapp")).toBe(true);
+  });
+
+  it("detecta 'fora do app' em mensagem", () => {
+    expect(detectarContatoExterno("vamos conversar fora do app")).toBe(true);
+  });
+
+  it("não bloqueia mensagem normal", () => {
+    expect(detectarContatoExterno("Posso ir amanhã às 8h!")).toBe(false);
+  });
+
+  it("não bloqueia mensagem com endereço (sem número longo)", () => {
+    expect(detectarContatoExterno("Rua das Flores, 123, Campo Grande")).toBe(false);
+  });
+
+  it("detecta 'me liga' em mensagem", () => {
+    expect(detectarContatoExterno("pode me liga depois?")).toBe(true);
+  });
+});
+
+// ── maskCPF ───────────────────────────────────────────────────────────────────
+describe("maskCPF", () => {
+  it("formata CPF completo corretamente", () => {
+    expect(maskCPF("52998224725")).toBe("529.982.247-25");
+  });
+
+  it("ignora caracteres não numéricos", () => {
+    expect(maskCPF("529.982.247-25")).toBe("529.982.247-25");
+  });
+
+  it("limita a 11 dígitos", () => {
+    expect(maskCPF("529982247251234")).toBe("529.982.247-25");
+  });
+
+  it("formata parcialmente (4 dígitos)", () => {
+    expect(maskCPF("5299")).toBe("529.9");
+  });
+
+  it("retorna vazio para entrada vazia", () => {
+    expect(maskCPF("")).toBe("");
+  });
+});
+
+// ── maskCNPJ ──────────────────────────────────────────────────────────────────
+describe("maskCNPJ", () => {
+  it("formata CNPJ completo corretamente", () => {
+    expect(maskCNPJ("11222333000181")).toBe("11.222.333/0001-81");
+  });
+
+  it("ignora caracteres não numéricos", () => {
+    expect(maskCNPJ("11.222.333/0001-81")).toBe("11.222.333/0001-81");
+  });
+});
+
+// ── haversineKm ───────────────────────────────────────────────────────────────
+describe("haversineKm", () => {
+  it("retorna ~0 para mesma localização", () => {
+    expect(haversineKm(-20.4697, -54.6201, -20.4697, -54.6201)).toBeCloseTo(0, 1);
+  });
+
+  it("calcula distância Campo Grande ↔ Dourados (~196 km em linha reta)", () => {
+    // Campo Grande: -20.4697, -54.6201 | Dourados: -22.2233, -54.8057
+    // Distância haversine (linha reta) ≈ 196 km
+    const dist = haversineKm(-20.4697, -54.6201, -22.2233, -54.8057);
+    expect(dist).toBeGreaterThan(150);
+    expect(dist).toBeLessThan(230);
+  });
+
+  it("calcula distância dentro da cidade (~0-5 km)", () => {
+    // Dois pontos em Campo Grande
+    const dist = haversineKm(-20.4697, -54.6201, -20.4800, -54.6300);
+    expect(dist).toBeLessThan(5);
+  });
+});

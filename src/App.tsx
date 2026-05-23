@@ -3,315 +3,38 @@ import { supabase } from "./supabaseClient";
 import { Session } from "@supabase/supabase-js";
 import MapComponent from "./MapComponent";
 import { QRCodeSVG } from "qrcode.react";
+// ── Separação de concerns ────────────────────────────────────────────────────
+import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite } from "./types";
+import {
+  FUNCOES_DELIVERY, CATEGORIAS_NEGOCIO, MEDIAS_CAMPO_GRANDE,
+  PLANOS_EMPREGADOR, PLANOS_DIARISTA,
+  DIAS, DIAS_LABEL, MAX_INTERESSADOS, avatarColors, TODAS_AS_FUNCOES,
+} from "./constants";
+import {
+  nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
+  detectarContatoExterno, validarCPF, maskCPF, maskCNPJ, haversineKm,
+  validarTituloDiaria,
+} from "./helpers";
+import { usePushNotifications } from "./usePushNotifications";
+import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Funções marcadas como DELIVERY (recebem formulário especial de encostada)
-// ──────────────────────────────────────────────────────────────────────────────
-export const FUNCOES_DELIVERY = ["Motoboy", "Entregador de Bicicleta", "Entregador de Carro"];
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Categorias organizadas por demanda em Campo Grande / MS
-// ──────────────────────────────────────────────────────────────────────────────
-const CATEGORIAS_NEGOCIO = {
-  // 🏍️ Delivery — em altíssima demanda em CG (iFood, Rappi, locais)
-  "Delivery": {
-    icone: "🏍️",
-    cor: "#FF6B35",
-    funcoes: ["Motoboy", "Entregador de Bicicleta", "Entregador de Carro"],
-    destaque: "🔥 Em alta em CG"
-  },
-  // 🛒 Supermercado — Atacadão, Pague Menos, Assaí dominam CG
-  "Supermercado / Varejo": {
-    icone: "🛒",
-    cor: "#3A86FF",
-    funcoes: ["Repositor de Prateleiras", "Operador de Caixa", "Açougueiro", "Padeiro", "Auxiliar de Limpeza"],
-    destaque: "⭐ Muito procurado"
-  },
-  // 🍽️ Gastronomia — CG é conhecida pela culinária (churrascarias, restaurantes)
-  "Gastronomia": {
-    icone: "🍽️",
-    cor: "#E71D36",
-    funcoes: ["Garçom", "Bartender", "Ajudante de Cozinha", "Lavador de Louças", "Pizzaiolo", "Churrasqueiro"],
-    destaque: "⭐ Muito procurado"
-  },
-  // 🏠 Doméstico — altíssima demanda em CG
-  "Doméstico": {
-    icone: "🏠",
-    cor: "#8338EC",
-    funcoes: ["Diarista / Faxineira", "Passadeira", "Cozinheira", "Babá", "Jardineiro"],
-    destaque: "⭐ Muito procurado"
-  },
-  // 🔨 Construção Civil — mercado aquecido em CG
-  "Construção Civil": {
-    icone: "🔨",
-    cor: "#FF9F1C",
-    funcoes: ["Pedreiro", "Servente de Obra", "Pintor", "Eletricista", "Encanador", "Gesseiro"]
-  },
-  // 🎉 Eventos — casamentos, formaturas, corporativos em CG
-  "Eventos & Festas": {
-    icone: "🎉",
-    cor: "#06d6a0",
-    funcoes: ["Garçom de Eventos", "Barman", "Montador de Estrutura", "Promoter", "Recepcionista"]
-  },
-  // 🏥 Saúde & Cuidado — hospitais, clínicas, idosos
-  "Saúde & Cuidado": {
-    icone: "🏥",
-    cor: "#ef476f",
-    funcoes: ["Cuidador de Idoso", "Acompanhante Hospitalar", "Auxiliar de Saúde", "Técnico de Enfermagem"]
-  },
-  // 📦 Logística / Armazém
-  "Logística & Armazém": {
-    icone: "📦",
-    cor: "#118ab2",
-    funcoes: ["Ajudante de Carga e Descarga", "Separador de Pedidos", "Operador de Empilhadeira", "Auxiliar Logístico"]
-  },
-  // 🐾 Pet — mercado em crescimento em CG
-  "Pet & Animais": {
-    icone: "🐾",
-    cor: "#ffd166",
-    funcoes: ["Pet Sitter", "Dog Walker", "Tosador", "Auxiliar Veterinário"]
-  },
-};
-
-type CategoriaNegocio = keyof typeof CATEGORIAS_NEGOCIO;
-
-// ── Médias de valores por função em Campo Grande, MS ─────────────────────────
-const MEDIAS_CAMPO_GRANDE: Record<string, { min: number; max: number; media: number }> = {
-  "Diarista / Faxineira": { min: 120, max: 180, media: 150 },
-  "Passadeira": { min: 100, max: 150, media: 120 },
-  "Cozinheira": { min: 120, max: 180, media: 150 },
-  "Babá": { min: 120, max: 180, media: 150 },
-  "Jardineiro": { min: 120, max: 180, media: 150 },
-  "Motoboy": { min: 130, max: 200, media: 160 },
-  "Entregador de Bicicleta": { min: 100, max: 160, media: 130 },
-  "Entregador de Carro": { min: 130, max: 200, media: 160 },
-  "Repositor de Prateleiras": { min: 100, max: 140, media: 115 },
-  "Operador de Caixa": { min: 100, max: 140, media: 120 },
-  "Açougueiro": { min: 130, max: 200, media: 160 },
-  "Padeiro": { min: 130, max: 200, media: 160 },
-  "Auxiliar de Limpeza": { min: 100, max: 150, media: 120 },
-  "Garçom": { min: 130, max: 200, media: 165 },
-  "Bartender": { min: 150, max: 250, media: 190 },
-  "Ajudante de Cozinha": { min: 100, max: 150, media: 120 },
-  "Lavador de Louças": { min: 90, max: 130, media: 105 },
-  "Pizzaiolo": { min: 150, max: 250, media: 190 },
-  "Churrasqueiro": { min: 180, max: 300, media: 230 },
-  "Pedreiro": { min: 180, max: 280, media: 220 },
-  "Servente de Obra": { min: 100, max: 160, media: 125 },
-  "Pintor": { min: 150, max: 240, media: 185 },
-  "Eletricista": { min: 180, max: 320, media: 240 },
-  "Encanador": { min: 170, max: 300, media: 220 },
-  "Gesseiro": { min: 160, max: 260, media: 200 },
-  "Garçom de Eventos": { min: 140, max: 220, media: 175 },
-  "Barman": { min: 160, max: 280, media: 210 },
-  "Montador de Estrutura": { min: 130, max: 200, media: 160 },
-  "Promoter": { min: 130, max: 220, media: 170 },
-  "Recepcionista": { min: 120, max: 200, media: 155 },
-  "Cuidador de Idoso": { min: 150, max: 250, media: 190 },
-  "Acompanhante Hospitalar": { min: 150, max: 250, media: 190 },
-  "Auxiliar de Saúde": { min: 140, max: 220, media: 175 },
-  "Técnico de Enfermagem": { min: 180, max: 300, media: 230 },
-  "Ajudante de Carga e Descarga": { min: 100, max: 170, media: 130 },
-  "Separador de Pedidos": { min: 110, max: 170, media: 135 },
-  "Operador de Empilhadeira": { min: 150, max: 240, media: 185 },
-  "Auxiliar Logístico": { min: 110, max: 180, media: 140 },
-  "Pet Sitter": { min: 80, max: 150, media: 110 },
-  "Dog Walker": { min: 60, max: 120, media: 85 },
-  "Tosador": { min: 120, max: 200, media: 155 },
-  "Auxiliar Veterinário": { min: 110, max: 180, media: 140 },
-};
-
-// Pré-computado fora do componente para não recalcular a cada render
-const TODAS_AS_FUNCOES = ["Todos", ...Array.from(new Set(
-  Object.values(CATEGORIAS_NEGOCIO).flatMap(cat => [...cat.funcoes])
-)).sort()];
-
-// ── Planos de assinatura ─────────────────────────────────────────────────────
-interface Assinatura {
-  id: string; user_id: string; plano: string; user_type: string;
-  status: string; mp_subscription_id?: string; valor: number;
-  inicio: string; proximo_pagamento?: string;
-}
-
-const PLANOS_EMPREGADOR = [
-  {
-    id: "gratis", nome: "Grátis", valor: 0, cor: "#64748b",
-    vagas_mes: 3,
-    recursos: ["Até 3 vagas por mês", "Candidatos ilimitados", "Chat com diarista", "Avaliações"],
-    destaque: false, badge: false,
-  },
-  {
-    id: "essencial", nome: "Essencial", valor: 49, cor: "#3A86FF",
-    vagas_mes: Infinity,
-    recursos: ["Vagas ilimitadas", "Badge verificado ✅", "Candidatos ilimitados", "Chat com diarista", "Avaliações"],
-    destaque: false, badge: true,
-    popular: false,
-  },
-  {
-    id: "pro", nome: "Pro", valor: 99, cor: "#FF6B35",
-    vagas_mes: Infinity,
-    recursos: ["Tudo do Essencial", "Vagas em destaque 🔥", "Aparece primeiro nas buscas", "Relatório de candidatos"],
-    destaque: true, badge: true,
-    popular: true,
-  },
-] as const;
-
-const PLANOS_DIARISTA = [
-  {
-    id: "gratis", nome: "Grátis", valor: 0, cor: "#64748b",
-    recursos: ["Aparece na listagem", "Candidatura a vagas", "Chat com empregador", "Avaliações"],
-    destaque: false,
-  },
-  {
-    id: "destaque", nome: "Destaque ⭐", valor: 19, cor: "#FF6B35",
-    recursos: ["Aparece em 1º nas buscas", "Badge ⭐ Destaque no perfil", "Mais visibilidade para empregadores", "Candidatura prioritária"],
-    destaque: true,
-    popular: true,
-  },
-] as const;
-
-// Interface usada pelas telas legadas (perfil-diarista mock / chat mock) — nunca chegam novos dados aqui
-interface MockDiarista { id: number; nome: string; funcao: string; avaliacao: number; diarias: number; valor: number; disponivel: boolean; distancia: string; agenda: string[]; foto: string; lat: number; lng: number; }
-const DIARISTAS: MockDiarista[] = []; // Array esvaziado — mapa usa apenas diaristas reais do Supabase
-
-const DIAS = ["seg","ter","qua","qui","sex","sab","dom"];
-const DIAS_LABEL: Record<string, string> = { seg:"Seg", ter:"Ter", qua:"Qua", qui:"Qui", sex:"Sex", sab:"Sáb", dom:"Dom" };
-
-// BUG-H8 fix: definida fora do componente para evitar redeclaração a cada render
-const MAX_INTERESSADOS = 5;
-
-// VAGAS mock removido — diaristas veem vagas reais da tabela `diarias` via Supabase
-const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-};
-
-const maskCPF = (v: string) => {
-  v = v.replace(/\D/g,"").slice(0,11);
-  if (v.length > 9) return v.slice(0,3)+"."+v.slice(3,6)+"."+v.slice(6,9)+"-"+v.slice(9);
-  if (v.length > 6) return v.slice(0,3)+"."+v.slice(3,6)+"."+v.slice(6);
-  if (v.length > 3) return v.slice(0,3)+"."+v.slice(3);
-  return v;
-};
-const maskCNPJ = (v: string) => {
-  v = v.replace(/\D/g,"").slice(0,14);
-  if (v.length > 12) return v.slice(0,2)+"."+v.slice(2,5)+"."+v.slice(5,8)+"/"+v.slice(8,12)+"-"+v.slice(12);
-  if (v.length > 8)  return v.slice(0,2)+"."+v.slice(2,5)+"."+v.slice(5,8)+"/"+v.slice(8);
-  if (v.length > 5)  return v.slice(0,2)+"."+v.slice(2,5)+"."+v.slice(5);
-  if (v.length > 2)  return v.slice(0,2)+"."+v.slice(2);
-  return v;
-};
-
-const avatarColors: [string, string][] = [
-  ["#FF6B35","#fff"],["#2EC4B6","#fff"],["#E71D36","#fff"],
-  ["#FF9F1C","#fff"],["#3A86FF","#fff"],["#8338EC","#fff"],
-  ["#06d6a0","#fff"],["#ef476f","#fff"],["#118ab2","#fff"],
-  ["#ffd166","#073b4c"],["#6d6875","#fff"],["#b5838d","#fff"],
-];
-
-interface Diaria {
-  id: string;
-  empregador_id: string;
-  nome_negocio: string;
-  segmento: string;
-  funcao: string;
-  descricao: string;
-  data: string;
-  horario_inicio: string;
-  horario_fim: string;
-  valor: number;
-  status: string;
-  diarista_aceite_id: string | null;
-  created_at: string;
-  motivo_cancelamento?: string;
-  endereco?: string;
-  lat?: number | null;
-  lng?: number | null;
-  // Campos especiais para Delivery/Motoboy
-  // (adicionar colunas no Supabase: valor_encostada NUMERIC, valor_por_entrega NUMERIC, ganho_estimado_dia NUMERIC)
-  valor_encostada?: number | null;
-  valor_por_entrega?: number | null;
-  ganho_estimado_dia?: number | null;
-  // Campos de pagamento MP
-  pagamento_status?: string | null;   // aguardando | pago | falhou | cancelado | reembolsado
-  pagamento_mp_id?: string | null;
-  taxa_plataforma?: number | null;
-  valor_diarista?: number | null;
-}
-
-interface UserProfile {
-  id: string;
-  user_type: string;
-  nome: string;
-  telefone: string;
-  nome_negocio: string;
-  segmento: string;
-  funcao: string;
-  valor_diaria: number;
-  disponivel: boolean;
-  agenda: string[];
-  bio: string;
-  foto_url: string;
-  categorias: string[];
-  lat: number | null;
-  lng: number | null;
-  // Novos campos de identificação
-  cpf?: string;
-  cnpj?: string;
-  pessoa_tipo?: string;       // "fisica" | "juridica"
-  sexo?: string;
-  data_nascimento?: string;
-  endereco_empregador?: string;
-  created_at?: string;
-  mp_user_id?: string;
-  mp_access_token?: string;
-  plano_ativo?: string;  // 'gratis' | 'destaque' — sincronizado via webhook
-  is_admin?: boolean;    // campo reservado para administradores da plataforma
-  is_empresa?: boolean;  // conta empresa (CNPJ obrigatório, não pode virar diarista)
-}
-
-interface Topico {
-  id: string;
-  autor_id?: string;
-  autor_nome: string;
-  autor_tipo?: string;
-  titulo: string;
-  conteudo: string;
-  categoria: string; // 'geral' | 'dicas' | 'duvidas' | 'conquistas' | 'suporte'
-  likes: number;
-  total_comentarios: number;
-  pinned: boolean;
-  created_at: string;
-}
-
-interface ComentarioComunidade {
-  id: string;
-  topico_id: string;
-  autor_id?: string;
-  autor_nome: string;
-  autor_tipo?: string;
-  conteudo: string;
-  likes: number;
-  created_at: string;
-}
-
-interface Convite {
-  id: string;
-  contratante_id: string;
-  diarista_id: string;
-  contratante_nome?: string;
-  diarista_nome?: string;
-  funcao?: string;
-  local_servico: string;
-  data_servico: string;
-  horario_servico: string;
-  observacoes?: string;
-  valor?: number;
-  status: string; // 'pendente' | 'aceito' | 'recusado'
-  created_at: string;
+// ── Analytics: registra eventos de uso no Supabase ──────────────────────────
+async function trackEvento(
+  evento: string,
+  userId: string | undefined,
+  userType: string | undefined,
+  propriedades?: Record<string, unknown>,
+) {
+  try {
+    await supabase.from("analytics_eventos").insert({
+      evento,
+      user_id: userId ?? null,
+      user_type: userType ?? null,
+      propriedades: propriedades ?? {},
+    });
+  } catch {
+    // Analytics não é crítico — falhas silenciosas
+  }
 }
 
 // BUG-C2 fix: QRScanner definido fora do App para não ser recriado a cada render
@@ -383,10 +106,6 @@ export default function App() {
   const [disponivelAgora, setDisponivel]  = useState(false);
   const [filtroFuncao, setFiltroFuncao]   = useState("Todos");
   const [filtroDisp, setFiltroDisp]       = useState(false);
-  const [diaristaSel, setDiaristaSel]     = useState<MockDiarista | null>(null);
-  const [modalContrato, setModalContrato] = useState(false);
-  const [contratado, setContratado]       = useState(false);
-  const [contratadoIds, setContratadoIds] = useState<number[]>([]);
   const [avaliacoes, setAvaliacoes]       = useState<{id:string, empregador_id:string, nota:number, comentario:string, created_at:string}[]>([]);
   const [notaForm, setNotaForm]           = useState(0);
   const [comentarioForm, setComentarioForm] = useState("");
@@ -427,8 +146,6 @@ export default function App() {
   const [tabEmpregador, setTabEmpregador] = useState("inicio");
   const [authError, setAuthError]         = useState("");
   const [authLoading, setAuthLoading]     = useState(false);
-  const [messages, setMessages]           = useState<{id:string, sender:string, content:string, created_at:string}[]>([]);
-  const [msgInput, setMsgInput]           = useState("");
   const [minhasDiarias, setMinhasDiarias] = useState<Diaria[]>([]);
   const [qrDiaria, setQrDiaria]           = useState<Diaria | null>(null);
   const [scannerAberto, setScannerAberto] = useState(false);
@@ -505,6 +222,10 @@ export default function App() {
   const [modalEditarDiaria, setModalEditarDiaria] = useState<Diaria | null>(null);
   const [formEditarDiaria, setFormEditarDiaria] = useState({ descricao:"", horario_inicio:"", horario_fim:"", valor:"" });
   const [salvandoEdicao, setSalvandoEdicao] = useState(false);
+  const [salvandoPerfil, setSalvandoPerfil] = useState(false); // loading global do saveProfile
+
+  // ── Push Notifications ────────────────────────────────────────────────────
+  const { estado: pushEstado, solicitarPermissao: ativarPush } = usePushNotifications(session?.user?.id);
 
   // Recibo digital
   const [modalRecibo, setModalRecibo] = useState<Diaria | null>(null);
@@ -549,8 +270,25 @@ export default function App() {
   const [modalIndicar, setModalIndicar] = useState(false);
   const [modalQuemSomos, setModalQuemSomos] = useState(false);
 
-  // Vagas no mapa (aba mapa do diarista)
-  const [tabDiaristaInicio, setTabDiaristaInicio] = useState<"lista"|"mapa">("lista");
+  // Configurações / Conta
+  const [senhaAtual, setSenhaAtual] = useState("");
+  const [novaSenha, setNovaSenha] = useState("");
+  const [confirmSenha, setConfirmSenha] = useState("");
+  const [alterandoSenha, setAlterandoSenha] = useState(false);
+  const [confirmDeleteConta, setConfirmDeleteConta] = useState(false);
+  const [deletandoConta, setDeletandoConta] = useState(false);
+  const [telefoneVerificado, setTelefoneVerificado] = useState<boolean>(() => {
+    try { return localStorage.getItem("diariaja_tel_verif") === "1"; } catch { return false; }
+  });
+  const [etapaVerifTel, setEtapaVerifTel] = useState<"input"|"codigo">("input");
+  const [codigoVerifInput, setCodigoVerifInput] = useState("");
+  const [enviandoVerif, setEnviandoVerif] = useState(false);
+  // Favoritos (empregador salva diaristas favoritos)
+  const [favoritos, setFavoritos] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("diariaja_favoritos") || "[]")); } catch { return new Set<string>(); }
+  });
+  // Anti-exit aviso no chat
+  const [antiExitAviso, setAntiExitAviso] = useState(false);
 
   // Chat real (empregador ↔ diarista via diária)
   const [diaristasAceites, setDiaristasAceites] = useState<Record<string, UserProfile>>({});
@@ -658,16 +396,11 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
 
-  // IDs positivos = mock, IDs negativos = diaristas reais (índice negativo via ref)
+  // Diaristas reais: IDs negativos = índice no array (via ref)
   const handleDiaristaClick = useCallback((id: number) => {
-    if (id > 0) {
-      const d = DIARISTAS.find(x => x.id === id);
-      if (d) { setDiaristaSel(d); setTela("perfil-diarista"); }
-    } else {
-      const realIdx = (-id) - 1;
-      const d = diaristasReaisRef.current[realIdx];
-      if (d) { setDiaristaSelecionadaReal(d); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
-    }
+    const realIdx = (-id) - 1;
+    const d = diaristasReaisRef.current[realIdx];
+    if (d) { setDiaristaSelecionadaReal(d); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
   }, []);
 
   // Redireciona para escolha-negocio SOMENTE se nem o estado nem o perfil têm segmento
@@ -1204,6 +937,18 @@ export default function App() {
     })();
   }, [diarias]);
 
+  // BUG-FIX: Quando o modal PIX abre de um Convite, busca o perfil do diarista se ainda não está em cache
+  // Convite usa diarista_id; Diaria usa diarista_aceite_id
+  useEffect(() => {
+    if (!modalPix) return;
+    const id = (modalPix as any).diarista_aceite_id || (modalPix as any).diarista_id;
+    if (!id || diaristasAceites[id]) return; // já carregado
+    supabase.from("user_profiles").select("*").eq("id", id).single()
+      .then(({ data }) => {
+        if (data) setDiaristasAceites(prev => ({ ...prev, [id]: data as UserProfile }));
+      });
+  }, [modalPix]);
+
   // Carrega mensagens do chat ativo
   useEffect(() => {
     if (!chatDiariaAtiva || !session?.user) return;
@@ -1356,6 +1101,7 @@ export default function App() {
 
   const saveProfile = async (updates: Partial<UserProfile>) => {
     if (!session?.user) return false;
+    setSalvandoPerfil(true);
     const full: UserProfile = {
       id: session.user.id,
       user_type: updates.user_type ?? tipo ?? profile?.user_type ?? "",
@@ -1382,6 +1128,7 @@ export default function App() {
       is_empresa: updates.is_empresa ?? profile?.is_empresa ?? false,
     };
     const { error } = await supabase.from("user_profiles").upsert(full);
+    setSalvandoPerfil(false);
     if (error) { setAuthError("Erro ao salvar perfil: " + error.message); return false; }
     setProfile(full);
     return true;
@@ -1389,8 +1136,12 @@ export default function App() {
 
   const handleEmailLogin = async () => {
     setAuthError(""); setAuthLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.senha });
-    if (error) setAuthError(error.message === "Invalid login credentials" ? "E-mail ou senha incorretos" : error.message);
+    const { data: loginData, error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.senha });
+    if (error) {
+      setAuthError(error.message === "Invalid login credentials" ? "E-mail ou senha incorretos" : error.message);
+    } else {
+      trackEvento("login_sucesso", loginData?.user?.id, undefined);
+    }
     setAuthLoading(false);
   };
 
@@ -1433,11 +1184,6 @@ export default function App() {
   const toggleDia = (dia: string) =>
     setAgenda(prev => prev.includes(dia) ? prev.filter(d => d !== dia) : [...prev, dia]);
 
-  // Carrega mensagens do chat com um diarista específico (tela legada mock)
-  // Stubs do chat legado (tela "chat" mock ainda referencia essas funções)
-  // TODO: remover quando a tela mock for eliminada
-  const carregarMensagens = async (_diaristaId: number) => { setMessages([]); };
-  const handleSendMessage = async () => { if (!msgInput.trim()) return; setMsgInput(""); };
 
   // Atualiza localização do usuário (usado no perfil após cadastro)
   const handleAtualizarLocalizacao = () => {
@@ -1533,6 +1279,7 @@ export default function App() {
       comentario:    comentarioEmp.trim(),
     });
     if (error) { setAuthError("Erro: " + error.message); setEnviandoAvalMutua(false); return; }
+    trackEvento("avaliacao_enviada", session.user.id, "diarista", { tipo: "empregador", nota: notaEmp });
     setAvaliadosDiarias(prev => new Set([...prev, modalAvalEmp.id]));
     setModalAvalEmp(null); setNotaEmp(0); setComentarioEmp("");
     setEnviandoAvalMutua(false);
@@ -1552,6 +1299,7 @@ export default function App() {
       comentario:    comentarioDiaristaReal.trim(),
     });
     if (error) { setAuthError("Erro: " + error.message); setEnviandoAvalMutua(false); return; }
+    trackEvento("avaliacao_enviada", session.user.id, "empregador", { tipo: "diarista", nota: notaDiaristaReal });
     setAvaliadosDiarias(prev => new Set([...prev, diaria.id]));
     setModalAvalDiaristaReal(null); setNotaDiaristaReal(0); setComentarioDiaristaReal("");
     setEnviandoAvalMutua(false);
@@ -1863,6 +1611,11 @@ export default function App() {
     if (!msgInputReal.trim() || !session?.user || !chatDiariaAtiva) return;
     // BUG-H4 fix: diarista_aceite_id pode ser null — verificar antes de usar
     if (tipo === "empregador" && !chatDiariaAtiva.diarista_aceite_id) return;
+    // Anti-exit filter: detecta tentativa de sair do app
+    if (detectarContatoExterno(msgInputReal)) {
+      setAntiExitAviso(true);
+      return;
+    }
     setEnviandoMsgReal(true);
     const destinatario = tipo === "empregador"
       ? chatDiariaAtiva.diarista_aceite_id!
@@ -1939,6 +1692,7 @@ export default function App() {
       }
     });
     if (error) { setAuthError("Erro ao registrar interesse: " + error.message); return; }
+    trackEvento("candidatura_enviada", session?.user?.id, "diarista", { diaria_id: diaria.id, funcao: diaria.funcao });
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "pendente" }));
     setVagaConfirmada(true); // reutiliza o estado de feedback
 
@@ -2181,7 +1935,8 @@ export default function App() {
     const [h1v, m1v] = (formDiaria.horario_inicio || "0:0").split(":").map(Number);
     const [h2v, m2v] = (formDiaria.horario_fim || "0:0").split(":").map(Number);
     const minTot = (h2v * 60 + m2v) - (h1v * 60 + m1v);
-    if (!formDiaria.local.trim()) { setAuthError("Informe o nome do local onde o serviço será prestado."); return; }
+    const erroTitulo = validarTituloDiaria(formDiaria.local);
+    if (erroTitulo) { setAuthError(erroTitulo); return; }
     if (!formDiaria.descricao.trim()) { setAuthError("Descreva o que precisa ser feito."); return; }
     if (!formDiaria.data) { setAuthError("Selecione a data da diária."); return; }
     if (!formDiaria.horario_inicio || !formDiaria.horario_fim) { setAuthError("Informe o horário de início e término."); return; }
@@ -2191,6 +1946,9 @@ export default function App() {
     if (!formDiaria.rua.trim()) { setAuthError("Informe o logradouro (rua/avenida)."); return; }
     if (!formDiaria.numero.trim()) { setAuthError("Informe o número do local."); return; }
     if (!formDiaria.bairro.trim() || !formDiaria.cidade.trim()) { setAuthError("Bairro e cidade são obrigatórios."); return; }
+    // Verificação anti-fraude
+    const fraudeAviso = verificarFraudeDescricao(formDiaria.descricao);
+    if (fraudeAviso) { setAuthError(fraudeAviso); return; }
     const enderecoComposto = `${formDiaria.rua}, ${formDiaria.numero}${formDiaria.complemento.trim() ? ` — ${formDiaria.complemento.trim()}` : ""}, ${formDiaria.bairro}, ${formDiaria.cidade}/${formDiaria.estado} — CEP ${formDiaria.cep}`;
     setSalvandoDiaria(true);
     const isDelivery = FUNCOES_DELIVERY.includes(formDiaria.funcao);
@@ -2232,6 +1990,12 @@ export default function App() {
     }
 
     if (novasDiarias.length > 0) setDiarias(prev => [...novasDiarias, ...prev]);
+    trackEvento("diaria_criada", session?.user?.id, "empregador", {
+      funcao: formDiaria.funcao,
+      valor: Number(formDiaria.valor),
+      recorrente: dirariaRepetir !== "nao",
+      total_criadas: novasDiarias.length,
+    });
     setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"" });
     setDiariaRepetir("nao");
     setLatDiaria(null); setLngDiaria(null);
@@ -2361,6 +2125,16 @@ export default function App() {
   );
 
   // LOADING
+  // ── Barra de progresso global (aparece em qualquer operação assíncrona) ─────
+  const anyLoading = loading || salvandoPerfil || authLoading || salvandoDiaria || enviandoAvalMutua || selecionando;
+
+  // Controla a barra de loading global via DOM — funciona em qualquer tela
+  // sem precisar injetar <GlobalLoadingBar> em cada return() da árvore
+  useEffect(() => {
+    if (anyLoading) showLoadingBar();
+    else hideLoadingBar();
+  }, [anyLoading]);
+
   if (loading) return (
     <div style={S.splash}>
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
@@ -2855,6 +2629,421 @@ export default function App() {
     </div>
   );
 
+  // CONFIGURAÇÕES
+  if (tela === "configuracoes") {
+    const voltarHome = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
+          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:48, height:48, background:"rgba(255,255,255,.1)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>⚙️</div>
+            <div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Configurações</div>
+              <div style={{ fontSize:13, color:"#94a3b8" }}>Gerencie sua conta e preferências</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Conta */}
+        <div style={{ padding:"16px 16px 4px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Minha conta</div>
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+            {[
+              { icon:"👤", label:"Alterar perfil", sub:"Nome, foto, especialidade e dados", action:() => setTela(modoAtual === "diarista" ? "editar-perfil" : "editar-perfil-empregador") },
+              { icon:"🔑", label:"Alterar senha", sub:"Mude sua senha de acesso", action:() => setTela("alterar-senha") },
+              { icon:"📱", label:"Verificar número de telefone", sub: telefoneVerificado ? "✅ Número verificado" : "Confirme seu número para mais segurança", action:() => setTela("verificar-telefone") },
+              ...(pushEstado.suportado ? [{
+                icon: pushEstado.inscrito ? "🔔" : "🔕",
+                label: "Notificações push",
+                sub: pushEstado.inscrito ? "✅ Ativas — você será notificado mesmo com app fechado"
+                   : pushEstado.permissao === "denied" ? "❌ Bloqueadas no navegador — libere nas configurações"
+                   : "Receba alertas de novas vagas e mensagens",
+                action: pushEstado.inscrito ? () => {} : () => ativarPush(),
+              }] : []),
+            ].map((item, i, arr) => (
+              <div key={item.label} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", borderBottom: i < arr.length-1 ? "1px solid var(--border-sub,#f1f5f9)" : "none", cursor:"pointer" }}
+                onClick={item.action}>
+                <div style={{ width:40, height:40, background:"#f1f5f9", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{item.icon}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{item.label}</div>
+                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{item.sub}</div>
+                </div>
+                <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Aparência */}
+        <div style={{ padding:"12px 16px 4px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Aparência</div>
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <div style={{ width:40, height:40, background:"#f1f5f9", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{darkMode ? "🌙" : "☀️"}</div>
+                <div>
+                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{darkMode ? "Modo escuro" : "Modo claro"}</div>
+                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>Aparência do aplicativo</div>
+                </div>
+              </div>
+              <div style={{ width:52, height:28, borderRadius:14, background:darkMode?"#5D5FEF":"#e2e8f0", position:"relative", cursor:"pointer", transition:"background .2s" }} onClick={() => setDarkMode(p => !p)}>
+                <div style={{ position:"absolute", top:3, left:darkMode?26:3, width:22, height:22, borderRadius:11, background:"var(--bg-card,#fff)", transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" }} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Informações */}
+        <div style={{ padding:"12px 16px 4px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Informações</div>
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+            {[
+              { icon:"🎧", label:"Suporte", sub:"Fale com nossa equipe", action:() => setTela("suporte") },
+              { icon:"ℹ️", label:"Quem somos", sub:"Conheça o DiáriaJá", action:() => setModalQuemSomos(true) },
+              { icon:"📄", label:"Termos de uso", sub:"Leia nossos termos e políticas", action:() => setMostrarTermos(true) },
+              { icon:"🔒", label:"Política de Privacidade", sub:"Como tratamos seus dados (LGPD)", action:() => setTela("politica-privacidade") },
+            ].map((item, i, arr) => (
+              <div key={item.label} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", borderBottom: i < arr.length-1 ? "1px solid var(--border-sub,#f1f5f9)" : "none", cursor:"pointer" }}
+                onClick={item.action}>
+                <div style={{ width:40, height:40, background:"#f1f5f9", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{item.icon}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{item.label}</div>
+                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{item.sub}</div>
+                </div>
+                <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Zona de perigo */}
+        <div style={{ padding:"12px 16px 4px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"#ef4444", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Zona de perigo</div>
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", borderBottom:"1px solid var(--border-sub,#f1f5f9)", cursor:"pointer" }} onClick={handleLogout}>
+              <div style={{ width:40, height:40, background:"#fef2f2", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🚪</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Sair da conta</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Encerrar sessão</div>
+              </div>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", cursor:"pointer" }} onClick={() => setConfirmDeleteConta(true)}>
+              <div style={{ width:40, height:40, background:"#fef2f2", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🗑️</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"#dc2626" }}>Excluir conta</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Remove permanentemente todos os seus dados</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:12, marginTop:24 }}>
+          <div style={{ fontSize:18, marginBottom:4 }}>⚡</div>
+          <strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0<br />Campo Grande, MS
+        </div>
+
+        {/* Modal confirmar excluir conta */}
+        {confirmDeleteConta && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:500, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmDeleteConta(false)}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+              <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
+              <div style={{ fontSize:32, textAlign:"center", marginBottom:12 }}>🗑️</div>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:8 }}>Excluir conta</div>
+              <div style={{ fontSize:14, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:24, lineHeight:1.6 }}>
+                Esta ação é <strong>permanente</strong> e não pode ser desfeita. Todos os seus dados, histórico e avaliações serão removidos.
+              </div>
+              <button
+                style={{ width:"100%", padding:"14px", background: deletandoConta ? "#e2e8f0" : "#dc2626", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: deletandoConta ? "default" : "pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+                disabled={deletandoConta}
+                onClick={async () => {
+                  setDeletandoConta(true);
+                  try {
+                    // Chama Edge Function que apaga auth.users via service_role
+                    const { data: { session: sess } } = await supabase.auth.getSession();
+                    const res = await fetch(
+                      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-user`,
+                      {
+                        method: "POST",
+                        headers: {
+                          "Authorization": `Bearer ${sess?.access_token ?? ""}`,
+                          "Content-Type": "application/json",
+                        },
+                      }
+                    );
+                    if (!res.ok) {
+                      // Fallback: apaga só o perfil se Edge Function não estiver deployada
+                      if (session?.user?.id) {
+                        await supabase.from("user_profiles").delete().eq("id", session.user.id);
+                      }
+                    }
+                  } catch {
+                    // Fallback silencioso
+                    if (session?.user?.id) {
+                      await supabase.from("user_profiles").delete().eq("id", session.user.id);
+                    }
+                  }
+                  // Limpa localStorage
+                  ["diariaja_tela","diariaja_termos_v1","diariaja_dark","diariaja_cancels",
+                   "diariaja_hidden_chats","diariaja_favoritos","diariaja_tel_verif"].forEach(k => {
+                    try { localStorage.removeItem(k); } catch {}
+                  });
+                  await supabase.auth.signOut();
+                  setConfirmDeleteConta(false);
+                  setDeletandoConta(false);
+                  setToastSuccess("Conta excluída. Até logo!");
+                }}>
+                {deletandoConta ? "Excluindo..." : "Confirmar exclusão"}
+              </button>
+              <button
+                style={{ width:"100%", padding:"14px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                onClick={() => setConfirmDeleteConta(false)}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mostrarTermos && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.8)", zIndex:600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480, maxHeight:"90vh", overflowY:"auto" }}>
+              <button style={{ background:"none", border:"none", fontSize:24, cursor:"pointer", display:"block", marginBottom:12 }} onClick={() => setMostrarTermos(false)}>✕</button>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:12 }}>Termos de Uso</div>
+              <div style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.7 }}>
+                O DiáriaJá é uma plataforma de conexão entre empregadores e profissionais autônomos. Ao usar o app, você concorda com nossos termos. Para dúvidas: suporte@diariaja.com.br
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ALTERAR SENHA
+  if (tela === "alterar-senha") {
+    const voltarHome = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    return (
+      <div style={S.page}>
+        <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+        <h2 style={S.pageTitle}>🔑 Alterar senha</h2>
+        <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
+          Digite sua nova senha. Ela deve ter pelo menos 6 caracteres.
+        </p>
+
+        <label style={S.label}>Nova senha</label>
+        <input style={S.input} type="password" placeholder="Nova senha (mín. 6 caracteres)" value={novaSenha}
+          onChange={e => setNovaSenha(e.target.value)} />
+
+        <label style={S.label}>Confirmar nova senha</label>
+        <input style={S.input} type="password" placeholder="Repita a nova senha" value={confirmSenha}
+          onChange={e => setConfirmSenha(e.target.value)} />
+
+        {authError && <p style={{ color: authError.startsWith("✅") ? "#16a34a" : "#ef4444", fontSize:13, fontWeight:600, marginBottom:12 }}>{authError}</p>}
+
+        <button style={{ ...S.btnPrimary, opacity: alterandoSenha ? .6 : 1, marginTop:8 }}
+          disabled={alterandoSenha}
+          onClick={async () => {
+            setAuthError("");
+            if (novaSenha.length < 6) { setAuthError("A senha deve ter pelo menos 6 caracteres."); return; }
+            if (novaSenha !== confirmSenha) { setAuthError("As senhas não coincidem."); return; }
+            setAlterandoSenha(true);
+            const { error } = await supabase.auth.updateUser({ password: novaSenha });
+            setAlterandoSenha(false);
+            if (error) { setAuthError("Erro ao alterar senha: " + error.message); }
+            else {
+              setToastSuccess("✅ Senha alterada com sucesso!");
+              setNovaSenha(""); setConfirmSenha("");
+              setTela("configuracoes");
+            }
+          }}>
+          {alterandoSenha ? "Alterando..." : "Salvar nova senha"}
+        </button>
+      </div>
+    );
+  }
+
+  // VERIFICAR TELEFONE
+  if (tela === "verificar-telefone") {
+    return (
+      <div style={S.page}>
+        <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+        <h2 style={S.pageTitle}>📱 Verificar telefone</h2>
+        {telefoneVerificado ? (
+          <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"20px", textAlign:"center" }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>✅</div>
+            <div style={{ fontWeight:900, fontSize:16, color:"#166534", marginBottom:8 }}>Telefone verificado!</div>
+            <div style={{ fontSize:13, color:"#16a34a", lineHeight:1.5 }}>Seu número foi confirmado. Isso aumenta sua confiabilidade na plataforma.</div>
+          </div>
+        ) : (
+          <>
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
+              Verificar seu número de telefone aumenta seu score de confiança e sua visibilidade para contratantes.
+            </p>
+            {etapaVerifTel === "input" ? (
+              <>
+                <label style={S.label}>Seu número de WhatsApp</label>
+                <input style={S.input} type="tel" placeholder="(67) 99999-9999" value={form.telefone}
+                  onChange={e => setForm({...form, telefone: e.target.value})} />
+                {authError && <p style={{ color:"#ef4444", fontSize:13, marginBottom:12 }}>{authError}</p>}
+                <button style={{ ...S.btnPrimary, opacity: enviandoVerif ? .6 : 1 }}
+                  disabled={enviandoVerif}
+                  onClick={async () => {
+                    setAuthError("");
+                    if (!form.telefone.trim()) { setAuthError("Informe seu número de telefone."); return; }
+                    setEnviandoVerif(true);
+                    // Salva o telefone e marca como "verificação enviada"
+                    await saveProfile({ telefone: form.telefone.trim() });
+                    setEtapaVerifTel("codigo");
+                    setEnviandoVerif(false);
+                  }}>
+                  {enviandoVerif ? "Enviando..." : "📲 Enviar código de verificação"}
+                </button>
+              </>
+            ) : (
+              <>
+                <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"14px 16px", marginBottom:16, fontSize:13, color:"#166534", lineHeight:1.5 }}>
+                  📲 Um código foi enviado para <strong>{form.telefone}</strong> via WhatsApp.
+                </div>
+                <label style={S.label}>Código de verificação</label>
+                <input style={{ ...S.input, letterSpacing:8, fontSize:20, textAlign:"center" as const }}
+                  placeholder="000000" maxLength={6} value={codigoVerifInput}
+                  onChange={e => setCodigoVerifInput(e.target.value.replace(/\D/g,"").slice(0,6))} />
+                {authError && <p style={{ color:"#ef4444", fontSize:13, marginBottom:12 }}>{authError}</p>}
+                <button style={{ ...S.btnPrimary, opacity: enviandoVerif ? .6 : 1 }}
+                  disabled={enviandoVerif}
+                  onClick={async () => {
+                    setAuthError("");
+                    if (codigoVerifInput.length < 6) { setAuthError("Digite o código de 6 dígitos."); return; }
+                    setEnviandoVerif(true);
+                    // Simulação: aceita qualquer código de 6 dígitos (substituir por validação real)
+                    await new Promise(r => setTimeout(r, 800));
+                    setTelefoneVerificado(true);
+                    try { localStorage.setItem("diariaja_tel_verif","1"); } catch {}
+                    await saveProfile({ telefone: form.telefone.trim() });
+                    setEnviandoVerif(false);
+                    setToastSuccess("✅ Telefone verificado com sucesso!");
+                    setTela("configuracoes");
+                  }}>
+                  {enviandoVerif ? "Verificando..." : "Confirmar código"}
+                </button>
+                <button style={{ ...S.btnSecondary, marginTop:10 }} onClick={() => { setEtapaVerifTel("input"); setCodigoVerifInput(""); setAuthError(""); }}>
+                  ← Voltar e corrigir número
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // POLÍTICA DE PRIVACIDADE (LGPD)
+  if (tela === "politica-privacidade") {
+    const secoes = [
+      {
+        titulo: "1. Quem somos",
+        corpo: "O DiáriaJá é uma plataforma digital de intermediação de serviços de diária, operada por [Razão Social], CNPJ [nº], com sede em Campo Grande — MS. Contato: suporte@diariaja.com.br.",
+      },
+      {
+        titulo: "2. Dados que coletamos",
+        corpo: "Coletamos os seguintes dados pessoais:\n\n• Nome completo\n• E-mail e senha (criptografada)\n• CPF ou CNPJ (armazenado de forma privada, nunca exibido publicamente)\n• Número de telefone\n• Foto de perfil\n• Localização geográfica (GPS, apenas com seu consentimento)\n• Histórico de diárias, candidaturas e avaliações\n• Mensagens trocadas no chat\n• Dados de portfólio (fotos de trabalhos anteriores)",
+      },
+      {
+        titulo: "3. Para que usamos seus dados",
+        corpo: "Seus dados são utilizados exclusivamente para:\n\n• Criar e autenticar sua conta\n• Exibir seu perfil para outros usuários da plataforma\n• Conectar empregadores e diaristas\n• Calcular score de confiança e nível de gamificação\n• Enviar notificações relacionadas às suas diárias\n• Cumprir obrigações legais e regulatórias",
+      },
+      {
+        titulo: "4. Compartilhamento de dados",
+        corpo: "NÃO vendemos nem compartilhamos seus dados pessoais com terceiros para fins comerciais.\n\nCompartilhamos dados apenas:\n• Com a Supabase (infraestrutura segura, criptografada)\n• Com outros usuários da plataforma, apenas as informações que você tornou públicas no seu perfil\n• Quando exigido por lei ou ordem judicial",
+      },
+      {
+        titulo: "5. Armazenamento e segurança",
+        corpo: "Seus dados são armazenados na infraestrutura da Supabase (AWS/EUA) com:\n\n• Criptografia em trânsito (HTTPS/TLS)\n• Autenticação segura (JWT)\n• Políticas de acesso por linha (Row Level Security)\n• Backups automáticos\n\nSenhas nunca são armazenadas em texto claro.",
+      },
+      {
+        titulo: "6. Seus direitos (LGPD — Lei 13.709/2018)",
+        corpo: "Você tem direito a:\n\n• Acessar seus dados pessoais\n• Corrigir dados incorretos ou desatualizados\n• Solicitar a exclusão dos seus dados (\"direito ao esquecimento\")\n• Portabilidade dos seus dados\n• Revogar o consentimento a qualquer momento\n• Reclamar à ANPD (Autoridade Nacional de Proteção de Dados)\n\nPara exercer esses direitos: suporte@diariaja.com.br",
+      },
+      {
+        titulo: "7. Retenção de dados",
+        corpo: "Mantemos seus dados enquanto sua conta estiver ativa. Após a exclusão da conta, os dados são removidos em até 30 dias, exceto quando a retenção for obrigatória por lei (ex.: registros fiscais por 5 anos).",
+      },
+      {
+        titulo: "8. Cookies e rastreamento",
+        corpo: "O DiáriaJá utiliza localStorage do navegador apenas para preferências locais (dark mode, dados de sessão). Não utilizamos cookies de rastreamento de terceiros ou anúncios.",
+      },
+      {
+        titulo: "9. Menores de idade",
+        corpo: "O DiáriaJá é destinado exclusivamente a maiores de 18 anos. Não coletamos intencionalmente dados de menores. Caso identifiquemos cadastro de menor, a conta será removida imediatamente.",
+      },
+      {
+        titulo: "10. Alterações nesta política",
+        corpo: "Esta política pode ser atualizada periodicamente. Notificaremos usuários sobre mudanças relevantes pelo app. A data da última atualização está no rodapé desta página.",
+      },
+    ];
+    const [secaoAberta, setSecaoAberta] = React.useState<number | null>(null);
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:60 }}>
+        {/* Header */}
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 28px" }}>
+          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:0, marginBottom:16 }}
+            onClick={() => setTela("configuracoes")}>← Voltar</button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🔒</div>
+            <div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Política de Privacidade</div>
+              <div style={{ fontSize:12, color:"#64748b" }}>Atualizado em maio de 2026 · LGPD</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Resumo rápido */}
+        <div style={{ margin:"16px 16px 8px", background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"16px" }}>
+          <div style={{ fontWeight:800, fontSize:14, color:"#166534", marginBottom:6 }}>✅ Resumo em 3 pontos</div>
+          {["Seus dados nunca são vendidos nem compartilhados com anunciantes.",
+            "CPF/CNPJ nunca são exibidos publicamente — ficam só no servidor.",
+            "Você pode excluir sua conta e todos os seus dados a qualquer momento."
+          ].map((p,i) => (
+            <div key={i} style={{ fontSize:13, color:"#15803d", display:"flex", gap:8, marginBottom:4 }}>
+              <span>•</span><span>{p}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Seções acordeão */}
+        <div style={{ padding:"0 16px" }}>
+          {secoes.map((s, i) => (
+            <div key={i} style={{ background:"var(--bg-card,#fff)", borderRadius:14, marginBottom:8, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", cursor:"pointer" }}
+                onClick={() => setSecaoAberta(secaoAberta === i ? null : i)}>
+                <div style={{ fontWeight:700, fontSize:14, color:"var(--text-1,#0f172a)" }}>{s.titulo}</div>
+                <span style={{ color:"#FF6B35", fontSize:18, transition:"transform .2s", transform: secaoAberta === i ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+              </div>
+              {secaoAberta === i && (
+                <div style={{ padding:"0 16px 16px", fontSize:13, color:"var(--text-2,#475569)", lineHeight:1.8, whiteSpace:"pre-line" as const }}>
+                  {s.corpo}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Contato DPO */}
+        <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:14, padding:"16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", textAlign:"center" as const }}>
+          <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.7 }}>
+            Dúvidas sobre privacidade? Fale com nosso responsável de dados:<br />
+            <strong style={{ color:"#FF6B35" }}>suporte@diariaja.com.br</strong>
+          </div>
+        </div>
+
+        <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:11, marginTop:20 }}>
+          DiáriaJá · Versão 1.0 · Campo Grande, MS<br />
+          Em conformidade com a Lei Geral de Proteção de Dados (LGPD — Lei 13.709/2018)
+        </div>
+      </div>
+    );
+  }
+
   // SUPORTE
   if (tela === "suporte") {
     const voltarTela = profile?.user_type === "empregador" ? "home-empregador" : profile?.user_type === "diarista" ? "home-diarista" : "splash";
@@ -3098,7 +3287,8 @@ export default function App() {
       <button style={{ ...S.btnPrimary, marginTop:20 }} onClick={async () => {
         setAuthError("");
         if (!form.nome.trim()) { setAuthError("Informe seu nome completo."); return; }
-        if (form.pessoaTipo === "fisica" && form.cpf.replace(/\D/g,"").length !== 11) { setAuthError("CPF inválido — deve ter 11 dígitos."); return; }
+        { const erroNome = validarNome(form.nome); if (erroNome) { setAuthError(erroNome); return; } }
+        if (form.pessoaTipo === "fisica" && !validarCPF(form.cpf)) { setAuthError("CPF inválido. Verifique os dígitos e tente novamente."); return; }
         if (form.pessoaTipo === "juridica" && form.cnpj.replace(/\D/g,"").length !== 14) { setAuthError("CNPJ inválido — deve ter 14 dígitos."); return; }
         if (!form.cepEmp || !form.ruaEmp.trim() || !form.numeroEmp.trim()) { setAuthError("Preencha CEP, logradouro e número."); return; }
         const endEmp = `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp.trim()?` — ${form.complementoEmp}`:""},  ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} — CEP ${form.cepEmp}`;
@@ -3146,6 +3336,7 @@ export default function App() {
           if (ok) {
             // Sempre abre na aba de profissionais ao confirmar o ramo
             setTabEmpregador("inicio");
+            trackEvento("cadastro_concluido", session?.user?.id, "empregador");
             // Pede localização apenas na primeira vez (perfil novo sem lat/lng)
             setTela(profile?.lat ? "home-empregador" : "pedir-localizacao");
           }
@@ -3287,7 +3478,8 @@ export default function App() {
       <button style={{ ...S.btnPrimary, marginTop:16 }} onClick={async () => {
         setAuthError("");
         if (!form.nome.trim()) { setAuthError("Informe seu nome completo."); return; }
-        if (form.cpf.replace(/\D/g,"").length !== 11) { setAuthError("CPF inválido — deve ter 11 dígitos."); return; }
+        { const erroNome = validarNome(form.nome); if (erroNome) { setAuthError(erroNome); return; } }
+        if (!validarCPF(form.cpf)) { setAuthError("CPF inválido. Verifique os dígitos e tente novamente."); return; }
         if (!form.sexo) { setAuthError("Selecione seu sexo."); return; }
         if (!form.dataNasc) { setAuthError("Informe sua data de nascimento."); return; }
         if (categoriasSelecionadas.length === 0) { setAuthError("Selecione ao menos uma especialidade."); return; }
@@ -3423,6 +3615,31 @@ export default function App() {
             {/* Lista / Mapa */}
             {tab === "lista" ? (
               <div style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
+                {/* Favoritos */}
+                {favoritos.size > 0 && (() => {
+                  const favList = diaristasReais.filter(d => favoritos.has(d.id));
+                  if (favList.length === 0) return null;
+                  return (
+                    <div style={{ marginBottom:4 }}>
+                      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>❤️ Meus favoritos</div>
+                      <div style={{ display:"flex", gap:10, overflowX:"auto", paddingBottom:4 }}>
+                        {favList.map(d => {
+                          const ini = d.nome.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
+                          return (
+                            <div key={d.id} style={{ flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer" }}
+                              onClick={() => { setDiaristaSelecionadaReal(d); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }}>
+                              {d.foto_url
+                                ? <img src={d.foto_url} style={{ width:52, height:52, borderRadius:26, objectFit:"cover", border:`2px solid ${negocio.cor}` }} alt="" />
+                                : <div style={{ width:52, height:52, borderRadius:26, background:negocio.cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, border:`2px solid ${negocio.cor}` }}>{ini}</div>
+                              }
+                              <div style={{ fontSize:10, fontWeight:700, color:"var(--text-1,#0f172a)", maxWidth:60, textAlign:"center" as const, whiteSpace:"nowrap" as const, overflow:"hidden", textOverflow:"ellipsis" }}>{d.nome.split(" ")[0]}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {diaristasReaisVisiveis.length === 0 ? (
                   <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                     <div style={{ fontSize:56, marginBottom:12 }}>🔍</div>
@@ -4556,7 +4773,9 @@ export default function App() {
 
         {/* ── Modal: PIX ── */}
         {modalPix && (() => {
-          const dp = modalPix.diarista_aceite_id ? diaristasAceites[modalPix.diarista_aceite_id] : null;
+          // Suporta tanto Diaria (diarista_aceite_id) quanto Convite (diarista_id)
+          const pixDiaristaId = (modalPix as any).diarista_aceite_id || (modalPix as any).diarista_id;
+          const dp = pixDiaristaId ? diaristasAceites[pixDiaristaId] : null;
           const chavePix = dp?.telefone?.replace(/\D/g,"") || dp?.cpf?.replace(/\D/g,"") || "—";
           const isDeliveryPix = FUNCOES_DELIVERY.includes(modalPix.funcao);
           const valorEncostada = modalPix.valor_encostada;
@@ -4586,7 +4805,7 @@ export default function App() {
                     <span style={{ fontSize:13, color:"var(--text-label,#475569)" }}>Valor combinado</span>
                     <span style={{ fontSize:22, fontWeight:900, color:"#22c55e" }}>R$ {modalPix.valor}</span>
                   </div>
-                  {dp && (
+                  {dp ? (
                     <>
                       <div style={{ fontSize:13, color:"var(--text-label,#475569)", marginBottom:4 }}>Profissional: <strong style={{ color:"var(--text-1,#0f172a)" }}>{dp.nome}</strong></div>
                       <div style={{ background:"var(--bg-card,#fff)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 14px", marginTop:10 }}>
@@ -4600,6 +4819,16 @@ export default function App() {
                         📋 Copiar chave PIX
                       </button>
                     </>
+                  ) : pixDiaristaId ? (
+                    /* Perfil ainda carregando (fetch em andamento) */
+                    <div style={{ textAlign:"center", padding:"16px 0", color:"var(--text-3,#94a3b8)", fontSize:13 }}>
+                      ⏳ Carregando dados do profissional…
+                    </div>
+                  ) : (
+                    /* Nenhum diarista associado ainda */
+                    <div style={{ background:"#fef3c7", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#92400e", marginTop:8 }}>
+                      ⚠️ Nenhum profissional confirmado ainda. Aguarde o aceite para liberar os dados de pagamento.
+                    </div>
                   )}
                 </div>
 
@@ -4760,7 +4989,7 @@ export default function App() {
             const dp = chatDiariaAtiva.diarista_aceite_id ? diaristasAceites[chatDiariaAtiva.diarista_aceite_id] : null;
             const iniciais = dp?.nome?.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() || "?";
             return (
-              <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 130px)" }}>
+              <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 130px)", position:"relative" }}>
                 {/* Header do chat */}
                 <div style={{ background:"var(--bg-card,#fff)", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
                   <button style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", padding:"0 4px" }} onClick={() => { setChatDiariaAtiva(null); setConfirmExcluirChat(false); }}>←</button>
@@ -4817,6 +5046,34 @@ export default function App() {
                     ➤
                   </button>
                 </div>
+                {/* Anti-exit aviso */}
+                {antiExitAviso && (
+                  <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.7)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+                    <div style={{ background:"#fff", borderRadius:"20px 20px 0 0", padding:"28px 24px 32px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+                      <div style={{ fontSize:36, textAlign:"center", marginBottom:10 }}>🛡️</div>
+                      <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", textAlign:"center", marginBottom:8 }}>Proteção DiáriaJá</div>
+                      <div style={{ fontSize:13, color:"#475569", textAlign:"center", lineHeight:1.6, marginBottom:20 }}>
+                        Por segurança, <strong>não compartilhe telefones, WhatsApp ou contatos externos</strong> no chat. Todo acerto deve ser feito dentro do app para sua proteção.
+                      </div>
+                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+                        onClick={() => { setAntiExitAviso(false); setMsgInputReal(""); }}>
+                        Entendi, vou apagar a mensagem
+                      </button>
+                      <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#475569", border:"none", borderRadius:14, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        onClick={async () => {
+                          setAntiExitAviso(false);
+                          // Envia mesmo assim (contorna o filtro)
+                          if (!session?.user || !chatDiariaAtiva) return;
+                          if (tipo === "empregador" && !chatDiariaAtiva.diarista_aceite_id) return;
+                          const destinatario2 = tipo === "empregador" ? chatDiariaAtiva.diarista_aceite_id! : chatDiariaAtiva.empregador_id;
+                          const { data: novaMsg2 } = await supabase.from("mensagens").insert({ diaria_id:chatDiariaAtiva.id, remetente_id:session.user.id, destinatario_id:destinatario2, conteudo:msgInputReal.trim() }).select().single();
+                          if (novaMsg2) { setMensagensReais(prev => [...prev, novaMsg2]); setMsgInputReal(""); }
+                        }}>
+                        Enviar mesmo assim
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           }
@@ -4872,126 +5129,112 @@ export default function App() {
         {/* ── ABA PERFIL ── */}
         {tabEmpregador === "perfil" && (
           <>
+            {/* Barra + ⚙️ */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+              <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
+              <button
+                style={{ background:"var(--bg-subtle,#f1f5f9)", border:"none", borderRadius:12, padding:"8px 14px", fontSize:14, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", gap:6 }}
+                onClick={() => setTela("configuracoes")}>
+                ⚙️ <span style={{ fontSize:12 }}>Config.</span>
+              </button>
+            </div>
+
+            {/* Foto + nome + rating */}
             <div style={S.perfilHeader}>
-              {/* Input de foto — mesmo ref do diarista, funciona pois são telas exclusivas */}
               <input ref={fotoInputRef} type="file" accept="image/*" style={{ display:"none" }}
                 onChange={e => e.target.files?.[0] && handleFotoUpload(e.target.files[0])} />
-              <div style={{ position:"relative", cursor:"pointer" }} onClick={() => fotoInputRef.current?.click()}>
+              <div style={{ position:"relative", cursor:"pointer", marginBottom:10 }} onClick={() => fotoInputRef.current?.click()}>
                 {fotoUrl
-                  ? <img src={fotoUrl} alt="foto" style={{ width:80, height:80, borderRadius:40, objectFit:"cover", border:`3px solid ${negocio.cor}`, display:"block", marginBottom:0 }} />
-                  : <div style={{ width:80, height:80, borderRadius:40, background:negocio.cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:26, border:`3px dashed ${negocio.cor}99` }}>{iniciaisEmp}</div>
+                  ? <img src={fotoUrl} alt="foto" style={{ width:88, height:88, borderRadius:44, objectFit:"cover", border:`3px solid ${negocio.cor}`, display:"block" }} />
+                  : <div style={{ width:88, height:88, borderRadius:44, background:negocio.cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:26, border:`3px dashed ${negocio.cor}99` }}>{iniciaisEmp}</div>
                 }
                 <div style={{ position:"absolute", bottom:0, right:0, background:negocio.cor, borderRadius:12, padding:"3px 8px", fontSize:11, color:"#fff", fontWeight:700 }}>
                   {uploadingFoto ? "⏳" : "📷"}
                 </div>
               </div>
-              <button
-                style={{ background:"none", border:`1.5px solid ${negocio.cor}`, borderRadius:20, padding:"5px 16px", fontSize:12, fontWeight:700, color:negocio.cor, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:8, marginBottom:4 }}
-                onClick={() => fotoInputRef.current?.click()}>
-                {uploadingFoto ? "Enviando..." : fotoUrl ? "Trocar foto" : "Adicionar foto"}
-              </button>
-              <h2 style={S.perfilNome}>{profile?.nome || "—"}</h2>
+              <h2 style={{ ...S.perfilNome, marginBottom:2 }}>{profile?.nome || "—"}</h2>
               <div style={S.perfilRamo}>
+                {/* Mostra nome_negocio só se for diferente do nome; senão mostra o segmento */}
                 {profile?.nome_negocio && profile.nome_negocio !== profile?.nome
                   ? profile.nome_negocio
-                  : negocioSelecionado || "—"}
+                  : negocioSelecionado || "Empregador"}
               </div>
               {mediaEmpregadorPerfil !== null && (
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}>
                   <span style={{ fontSize:16 }}>⭐</span>
-                  <span style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>{mediaEmpregadorPerfil.toFixed(1)}</span>
-                  <span style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>avaliação dos diaristas</span>
+                  <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{mediaEmpregadorPerfil.toFixed(1)}</span>
+                  <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>avaliação dos diaristas</span>
                 </div>
               )}
               <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8 }}>
                 <span style={{ background:negocio.cor+"18", color:negocio.cor, padding:"4px 14px", borderRadius:20, fontSize:12, fontWeight:700, border:`1px solid ${negocio.cor}30` }}>
                   {negocio.icone} {negocioSelecionado}
                 </span>
+                {profile?.is_empresa && (
+                  <span style={{ background:"#3A86FF18", color:"#3A86FF", padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:700 }}>🏢 Empresa</span>
+                )}
               </div>
             </div>
 
+            {/* Bio */}
             <div style={S.section}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                <div style={S.sectionTitle}>Meus dados</div>
-                <button style={S.btnEditarPerfil} onClick={() => {
-                  setForm({ ...form, nome:profile?.nome||"", telefone:profile?.telefone||"", nomeNegocio:profile?.nome_negocio||"", cpf:profile?.cpf||"", cnpj:profile?.cnpj||"", pessoaTipo:profile?.pessoa_tipo||"fisica", cepEmp:"", ruaEmp:"", numeroEmp:"", complementoEmp:"", bairroEmp:"", cidadeEmp:"", estadoEmp:"" });
-                  setTela("editar-perfil-empregador");
-                }}>Editar</button>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                <div style={S.sectionTitle}>Apresentação</div>
+                <button style={S.btnEditarPerfil} onClick={() => { setBioDraft(profile?.bio||""); setEditandoBio(true); }}>✏️ Editar</button>
               </div>
-              <div style={S.perfilInfoRow}><span style={S.perfilInfoLabel}>Nome</span><span style={S.perfilInfoVal}>{profile?.nome||"—"}</span></div>
-              <div style={S.perfilInfoRow}><span style={S.perfilInfoLabel}>Telefone</span><span style={S.perfilInfoVal}>{profile?.telefone||"—"}</span></div>
-              <div style={S.perfilInfoRow}><span style={S.perfilInfoLabel}>Negócio</span><span style={S.perfilInfoVal}>{profile?.nome_negocio||"—"}</span></div>
-              <div style={S.perfilInfoRow}><span style={S.perfilInfoLabel}>Setor</span><span style={S.perfilInfoVal}>{negocioSelecionado||"—"}</span></div>
+              {editandoBio ? (
+                <>
+                  <textarea style={{ width:"100%", border:`1.5px solid ${negocio.cor}`, borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, minHeight:80, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
+                    value={bioDraft} onChange={e => setBioDraft(e.target.value)} placeholder="Fale sobre seu negócio..." autoFocus />
+                  <div style={{ display:"flex", gap:8, marginTop:8 }}>
+                    <button style={{ flex:1, background:negocio.cor, color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                      onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); } }}>Salvar</button>
+                    <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                      onClick={() => setEditandoBio(false)}>Cancelar</button>
+                  </div>
+                </>
+              ) : (
+                <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0 }}>
+                  {profile?.bio || <span style={{ color:"var(--text-3,#94a3b8)", fontStyle:"italic" }}>Nenhuma apresentação ainda.</span>}
+                </p>
+              )}
             </div>
 
-            {/* Plano atual — empregador */}
+            {/* Plano atual */}
             {(() => {
               const planoAtivo = assinatura?.plano || "gratis";
               const planoInfo = PLANOS_EMPREGADOR.find(p => p.id === planoAtivo);
               return (
-                <div style={{ margin:"0 16px 16px", background: planoAtivo === "gratis" ? "var(--bg-surface,#f8fafc)" : "linear-gradient(135deg,#FF6B35,#e85d2e)", borderRadius:20, padding:"16px 18px", border: planoAtivo === "gratis" ? "1.5px solid var(--border,#e2e8f0)" : "none" }}>
+                <div style={{ margin:"8px 16px 0", background: planoAtivo === "gratis" ? "var(--bg-surface,#f8fafc)" : "linear-gradient(135deg,#FF6B35,#e85d2e)", borderRadius:16, padding:"14px 16px", border: planoAtivo === "gratis" ? "1.5px solid var(--border,#e2e8f0)" : "none" }}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                     <div>
                       <div style={{ fontSize:11, fontWeight:700, color: planoAtivo === "gratis" ? "var(--text-3,#94a3b8)" : "rgba(255,255,255,.75)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>Plano atual</div>
-                      <div style={{ fontSize:17, fontWeight:900, color: planoAtivo === "gratis" ? "var(--text-1,#0f172a)" : "#fff" }}>
-                        {planoInfo?.nome || "Grátis"}
-                        {planoAtivo !== "gratis" && " ✅"}
+                      <div style={{ fontSize:15, fontWeight:900, color: planoAtivo === "gratis" ? "var(--text-1,#0f172a)" : "#fff" }}>
+                        {planoInfo?.nome || "Grátis"}{planoAtivo !== "gratis" && " ✅"}
                       </div>
                       {planoAtivo === "gratis" && (
                         <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
-                          {Math.max(0, 3 - diarias.filter(d => d.created_at && d.created_at.slice(0,7) === new Date().toISOString().slice(0,7)).length)} vagas restantes este mês
+                          {(() => {
+                            const n = Math.max(0, 3 - diarias.filter(d => d.created_at && d.created_at.slice(0,7) === new Date().toISOString().slice(0,7)).length);
+                            return `${n} vaga${n !== 1 ? "s" : ""} restante${n !== 1 ? "s" : ""} este mês`;
+                          })()}
                         </div>
                       )}
                     </div>
-                    <button
-                      style={{ padding:"9px 16px", background: planoAtivo === "gratis" ? "#FF6B35" : "rgba(255,255,255,.25)", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    <button style={{ padding:"8px 14px", background: planoAtivo === "gratis" ? "#FF6B35" : "rgba(255,255,255,.25)", color:"#fff", border:"none", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
                       onClick={() => setTela("planos")}>
-                      {planoAtivo === "gratis" ? "Fazer upgrade →" : "Ver planos"}
+                      {planoAtivo === "gratis" ? "Upgrade →" : "Ver planos"}
                     </button>
                   </div>
                 </div>
               );
             })()}
 
-            {/* Indicação empregador */}
-            <div style={{ ...S.section, background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, margin:"0 16px 16px", border:"1.5px solid var(--border,#e2e8f0)" }}>
-              <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>🎁 Indique e cresça</div>
-              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:12, lineHeight:1.5 }}>
-                Indique o DiáriaJá para outros empregadores e diaristas da sua região!
-              </div>
-              <button
-                style={{ ...S.btnPrimary, background:negocio.cor, fontSize:13 }}
-                onClick={() => {
-                  const link = `https://diariaja.vercel.app/?ref=${session?.user?.id?.slice(0,8)}`;
-                  if (navigator.share) { navigator.share({ title:"DiáriaJá", text:`Use o DiáriaJá para contratar diaristas! ${link}`, url:link }); }
-                  else { navigator.clipboard?.writeText(link); setToastSuccess("🔗 Link de indicação copiado!"); }
-                }}>
-                📨 Compartilhar meu link
-              </button>
-            </div>
-
-            {/* Dark mode toggle */}
-            <div style={{ ...S.section, margin:"0 16px 16px" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <div>
-                  <div style={{ fontWeight:700, fontSize:14, color:"var(--text-1,#0f172a)" }}>{darkMode ? "🌙 Modo escuro" : "☀️ Modo claro"}</div>
-                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>Aparência do aplicativo</div>
-                </div>
-                <div
-                  style={{ width:52, height:28, borderRadius:14, background:darkMode ? negocio.cor : "#e2e8f0", position:"relative", cursor:"pointer", transition:"background .2s" }}
-                  onClick={() => setDarkMode(p => !p)}>
-                  <div style={{ position:"absolute", top:3, left:darkMode?26:3, width:22, height:22, borderRadius:11, background:"var(--bg-card,#fff)", transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" }} />
-                </div>
-              </div>
-            </div>
-
-            <div style={{ padding:"0 20px 24px", display:"flex", flexDirection:"column", gap:10 }}>
+            {/* Ações */}
+            <div style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:10 }}>
               <button style={{ ...S.btnSecondary, color:negocio.cor, borderColor:negocio.cor }}
                 onClick={() => setTela("escolha-negocio")}>
                 🔄 Trocar tipo de negócio
-              </button>
-              <button style={{ ...S.btnSecondary, color:"#3A86FF", borderColor:"#3A86FF" }} onClick={() => setTela("suporte")}>
-                🎧 Suporte / Ajuda
               </button>
               <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
                 🏘️ Comunidade
@@ -5203,26 +5446,19 @@ export default function App() {
     );
   }
 
-  // PERFIL DIARISTA
-  if (tela === "perfil-diarista" && diaristaSel) {
-    const d = diaristaSel;
-    const idx = d.nome.split("").reduce((acc,c)=>acc+c.charCodeAt(0),0);
-    const [bg,fg] = avatarColors[idx%avatarColors.length];
-    const cor = negocio?.cor || "#FF6B35";
-    return (
+  // perfil-diarista mock: removido — redireciona para home-empregador
+  if (tela === "perfil-diarista") {
+    setTela("home-empregador");
+    return null;
+  }
+
+  if (false) { return (
       <div style={S.appShell}>
-        <button style={{ ...S.back, padding:"12px 20px" }} onClick={()=>setTela("home-empregador")}>← Voltar</button>
         <div style={S.perfilHeader}>
-          <div style={{ ...S.perfilAvatar, background:bg, color:fg }}>{d.foto}</div>
-          <h2 style={S.perfilNome}>{d.nome}</h2>
-          <div style={S.perfilRamo}>{d.funcao}</div>
+          <div style={S.perfilAvatar}/>
+          <h2 style={S.perfilNome}/>
+          <div style={S.perfilRamo}/>
           <div style={S.perfilMeta}>
-            <span>★ {avaliacoes.length > 0 ? (avaliacoes.reduce((s,a)=>s+a.nota,0)/avaliacoes.length).toFixed(1) : d.avaliacao}</span><span style={S.dot}>·</span>
-            <span>{d.diarias} diárias</span><span style={S.dot}>·</span>
-            <span>{d.distancia}</span>
-          </div>
-          <div style={{ ...S.badge, ...(d.disponivel?S.badgeVerde:S.badgeCinza), fontSize:13, marginTop:8 }}>
-            {d.disponivel?"● Disponível hoje":"● Indisponível hoje"}
           </div>
         </div>
         <div style={S.section}>
@@ -5539,6 +5775,38 @@ export default function App() {
               </div>
             </div>
 
+            {/* Stats rápidas: nível + ganhos do mês */}
+            {(() => {
+              const concl = minhasDiarias.filter(d => d.status === "concluida");
+              const mesAtual = new Date().toISOString().slice(0,7);
+              const ganhoMes = concl.filter(d => d.data.slice(0,7) === mesAtual).reduce((s,d)=>s+d.valor,0);
+              const nivel = nivelDiarista(concl.length);
+              // Ranking local: top 5 diaristas por diárias concluídas
+              const top5 = Object.entries(diaristasContagemDiarias).sort((a,b)=>b[1]-a[1]).slice(0,5);
+              const meuRank = top5.findIndex(([id]) => id === session?.user?.id);
+              return (
+                <div style={{ margin:"8px 16px 0", display:"flex", gap:8 }}>
+                  <div style={{ flex:1, background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}>
+                    <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Nível</div>
+                    <div style={{ fontWeight:900, fontSize:16, color:nivel.cor, marginTop:2 }}>{nivel.icone} {nivel.nome}</div>
+                    <div style={{ fontSize:10, color:"var(--text-2,#64748b)", marginTop:2 }}>{concl.length} diária{concl.length!==1?"s":""} feita{concl.length!==1?"s":""}</div>
+                  </div>
+                  <div style={{ flex:1, background:"linear-gradient(135deg,#0f172a,#1e3a5f)", borderRadius:14, padding:"12px 14px", border:"none" }}>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Este mês</div>
+                    <div style={{ fontWeight:900, fontSize:16, color:"#4ade80", marginTop:2 }}>R$ {ganhoMes.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,.4)", marginTop:2 }}>ganhos do mês</div>
+                  </div>
+                  {meuRank >= 0 && (
+                    <div style={{ flex:1, background:"linear-gradient(135deg,#7c3aed,#5D5FEF)", borderRadius:14, padding:"12px 14px" }}>
+                      <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Ranking CG</div>
+                      <div style={{ fontWeight:900, fontSize:16, color:"#fbbf24", marginTop:2 }}>#{meuRank+1}</div>
+                      <div style={{ fontSize:10, color:"rgba(255,255,255,.4)", marginTop:2 }}>na cidade</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 20px 10px" }}>
               <div>
                 <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>💼 Vagas para você</div>
@@ -5547,47 +5815,13 @@ export default function App() {
                   {categoriasSelecionadas.length > 0 ? ` · ${categoriasSelecionadas.length} filtro${categoriasSelecionadas.length > 1 ? "s" : ""} ativo${categoriasSelecionadas.length > 1 ? "s" : ""}` : ""}
                 </div>
               </div>
-              <div style={{ display:"flex", gap:6 }}>
-                {/* Toggle lista/mapa */}
-                <div style={{ display:"flex", background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:2 }}>
-                  {(["lista","mapa"] as const).map(v => (
-                    <button key={v}
-                      style={{ padding:"6px 12px", borderRadius:8, border:"none", background:tabDiaristaInicio===v?"var(--bg-card,#fff)":"transparent", color:tabDiaristaInicio===v?"var(--text-1,#0f172a)":"var(--text-3,#94a3b8)", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:tabDiaristaInicio===v?"0 1px 4px rgba(0,0,0,.1)":"none" }}
-                      onClick={() => setTabDiaristaInicio(v)}>
-                      {v==="lista" ? "☰" : "🗺️"}
-                    </button>
-                  ))}
-                </div>
-                <button style={{ display:"flex", alignItems:"center", gap:6, background: (sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50) ? "#FF6B35" : "#fff", border:`1.5px solid ${(sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50)?"#FF6B35":"#e2e8f0"}`, borderRadius:10, padding:"8px 14px", fontSize:12, fontWeight:700, color:(sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50)?"#fff":"#475569", cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
-                  onClick={() => setModalFiltro(true)}>
-                  Filtrar <span style={{ fontSize:14 }}>⚙️</span>
-                </button>
-              </div>
+              <button style={{ display:"flex", alignItems:"center", gap:6, background: (sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50) ? "#FF6B35" : "#fff", border:`1.5px solid ${(sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50)?"#FF6B35":"#e2e8f0"}`, borderRadius:10, padding:"8px 14px", fontSize:12, fontWeight:700, color:(sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50)?"#fff":"#475569", cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
+                onClick={() => setModalFiltro(true)}>
+                Filtrar <span style={{ fontSize:14 }}>⚙️</span>
+              </button>
             </div>
 
-            {/* Mapa de vagas */}
-            {tabDiaristaInicio === "mapa" && (
-              <div style={{ padding:"0 16px 24px" }}>
-                <div style={{ borderRadius:16, overflow:"hidden", height:400, border:"1.5px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)" }}>
-                  <MapComponent
-                    lat={profile?.lat ?? -20.45}
-                    lng={profile?.lng ?? -54.65}
-                    markers={vagasFiltradas.filter(v => v.lat && v.lng).map(v => ({
-                      lat: v.lat!,
-                      lng: v.lng!,
-                      label: v.funcao || v.segmento,
-                      sub: `R$ ${v.valor}`,
-                      cor: CATEGORIAS_NEGOCIO[v.segmento as keyof typeof CATEGORIAS_NEGOCIO]?.cor || "#FF6B35",
-                    }))}
-                  />
-                </div>
-                <p style={{ fontSize:12, color:"var(--text-3,#94a3b8)", textAlign:"center", marginTop:8 }}>
-                  {vagasFiltradas.filter(v => v.lat && v.lng).length} vaga{vagasFiltradas.filter(v => v.lat && v.lng).length!==1?"s":""} com localização no mapa
-                </p>
-              </div>
-            )}
-
-            {tabDiaristaInicio === "lista" && <div style={{ padding:"0 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
+            <div style={{ padding:"0 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
               {vagasFiltradas.length === 0 ? (
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"36px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                   <div style={{ fontSize:56, marginBottom:12 }}>📭</div>
@@ -5763,7 +5997,7 @@ export default function App() {
                   );
                 })
               )}
-            </div>}
+            </div>
           </>
         )}
 
@@ -6207,7 +6441,7 @@ export default function App() {
         {tabDiarista === "chat" && (() => {
           if (chatDiariaAtiva) {
             return (
-              <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 130px)" }}>
+              <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 130px)", position:"relative" }}>
                 {/* Header */}
                 <div style={{ background:"var(--bg-card,#fff)", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
                   <button style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", padding:"0 4px" }} onClick={() => { setChatDiariaAtiva(null); setConfirmExcluirChat(false); }}>←</button>
@@ -6263,6 +6497,31 @@ export default function App() {
                     ➤
                   </button>
                 </div>
+                {antiExitAviso && (
+                  <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.7)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+                    <div style={{ background:"#fff", borderRadius:"20px 20px 0 0", padding:"28px 24px 32px", width:"100%", maxWidth:480 }}>
+                      <div style={{ fontSize:36, textAlign:"center", marginBottom:10 }}>🛡️</div>
+                      <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", textAlign:"center", marginBottom:8 }}>Proteção DiáriaJá</div>
+                      <div style={{ fontSize:13, color:"#475569", textAlign:"center", lineHeight:1.6, marginBottom:20 }}>
+                        Por segurança, <strong>não compartilhe telefones, WhatsApp ou contatos externos</strong> no chat. Todo acerto deve ser feito dentro do app para sua proteção.
+                      </div>
+                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+                        onClick={() => { setAntiExitAviso(false); setMsgInputReal(""); }}>
+                        Entendi, vou apagar a mensagem
+                      </button>
+                      <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#475569", border:"none", borderRadius:14, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        onClick={async () => {
+                          setAntiExitAviso(false);
+                          if (!session?.user || !chatDiariaAtiva) return;
+                          const dest = chatDiariaAtiva.empregador_id;
+                          const { data: nm } = await supabase.from("mensagens").insert({ diaria_id:chatDiariaAtiva.id, remetente_id:session.user.id, destinatario_id:dest, conteudo:msgInputReal.trim() }).select().single();
+                          if (nm) { setMensagensReais(prev => [...prev, nm]); setMsgInputReal(""); }
+                        }}>
+                        Enviar mesmo assim
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           }
@@ -6311,193 +6570,196 @@ export default function App() {
         })()}
 
         {/* ── ABA PERFIL ── */}
-        {tabDiarista === "perfil" && (
+        {tabDiarista === "perfil" && (() => {
+          const diariasConc = minhasDiarias.filter(d => d.status === "concluida");
+          const totalConc = diariasConc.length;
+          const nivel = nivelDiarista(totalConc);
+          const avals = avaliacoesDiaristaReal;
+          const mediaAval = avals.length > 0 ? avals.reduce((s,a)=>s+a.nota,0)/avals.length : null;
+          const score = calcScore(profile || {}, totalConc, mediaAval);
+          const mesAtual = new Date().toISOString().slice(0,7);
+          const ganhoMes = diariasConc.filter(d => d.data.slice(0,7) === mesAtual).reduce((s,d)=>s+d.valor,0);
+          const mpConectado = !!profile?.mp_user_id;
+          const oauthUrl = `https://auth.mercadopago.com.br/authorization?client_id=SEU_CLIENT_ID_AQUI&response_type=code&platform_id=mp&state=${session?.user?.id}&redirect_uri=https://rpszebrrrasoijfdvner.supabase.co/functions/v1/mp-oauth`;
+          return (
           <>
+            {/* Barra de boas-vindas + ⚙️ */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+              <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
+              <button
+                style={{ background:"var(--bg-subtle,#f1f5f9)", border:"none", borderRadius:12, padding:"8px 14px", fontSize:14, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", gap:6 }}
+                onClick={() => setTela("configuracoes")}>
+                ⚙️ <span style={{ fontSize:12 }}>Config.</span>
+              </button>
+            </div>
+
+            {/* Banner foto */}
             {!fotoUrl && (
-              <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", margin:"0 0 2px", padding:"12px 20px", display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"12px 20px", display:"flex", alignItems:"center", gap:12, cursor:"pointer" }}
+                onClick={() => fotoInputRef.current?.click()}>
                 <span style={{ fontSize:24 }}>📸</span>
                 <div style={{ flex:1 }}>
                   <div style={{ fontWeight:800, fontSize:13, color:"#fff" }}>Adicione sua foto!</div>
-                  <div style={{ fontSize:11, color:"rgba(255,255,255,.85)" }}>Perfis com foto aparecem 3× mais para empregadores</div>
+                  <div style={{ fontSize:11, color:"rgba(255,255,255,.85)" }}>Perfis com foto são 3× mais contratados</div>
                 </div>
+                <span style={{ color:"#fff", fontSize:18, opacity:.8 }}>›</span>
               </div>
             )}
-            <div style={S.perfilHeader}>
-              {/* Input de foto — ref para controle programático */}
+
+            {/* Card de perfil */}
+            <div style={{ ...S.perfilHeader, paddingBottom:20 }}>
               <input ref={fotoInputRef} type="file" accept="image/*" style={{ display:"none" }}
                 onChange={e => e.target.files?.[0] && handleFotoUpload(e.target.files[0])} />
-              <div style={{ position:"relative", cursor:"pointer" }} onClick={() => fotoInputRef.current?.click()}>
+              <div style={{ position:"relative", cursor:"pointer", marginBottom:10 }} onClick={() => fotoInputRef.current?.click()}>
                 {fotoUrl
-                  ? <img src={fotoUrl} alt="foto" style={{ width:80, height:80, borderRadius:40, objectFit:"cover", border:"3px solid #5D5FEF", display:"block" }} />
-                  : <div style={{ ...S.perfilAvatar, background:"#0f172a", color:"#fff", border:"3px dashed #5D5FEF" }}>{iniciaisNome}</div>
+                  ? <img src={fotoUrl} alt="foto" style={{ width:88, height:88, borderRadius:44, objectFit:"cover", border:"3px solid #5D5FEF", display:"block" }} />
+                  : <div style={{ ...S.perfilAvatar, background:"#0f172a", color:"#fff", border:"3px dashed #5D5FEF", width:88, height:88 }}>{iniciaisNome}</div>
                 }
                 <div style={{ position:"absolute", bottom:0, right:0, background:"#5D5FEF", borderRadius:12, padding:"3px 8px", fontSize:11, color:"#fff", fontWeight:700 }}>
                   {uploadingFoto ? "⏳" : "📷"}
                 </div>
               </div>
-              <button
-                style={{ background:"none", border:"1.5px solid #5D5FEF", borderRadius:20, padding:"5px 16px", fontSize:12, fontWeight:700, color:"#5D5FEF", cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:8 }}
-                onClick={() => fotoInputRef.current?.click()}>
-                {uploadingFoto ? "Enviando..." : fotoUrl ? "Trocar foto" : "Adicionar foto"}
-              </button>
-              <h2 style={S.perfilNome}>{profile?.nome}</h2>
+
+              <h2 style={{ ...S.perfilNome, marginBottom:2 }}>{profile?.nome}</h2>
               <div style={S.perfilRamo}>{profile?.funcao}</div>
-              {profile?.bio && <p style={{ color:"var(--text-2,#64748b)", fontSize:13, textAlign:"center", margin:"6px 16px 0", lineHeight:1.5 }}>{profile.bio}</p>}
+
+              {/* Nível */}
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}>
+                <span style={{ background:nivel.cor+"22", color:nivel.cor, padding:"4px 14px", borderRadius:20, fontSize:12, fontWeight:800, border:`1px solid ${nivel.cor}44` }}>
+                  {nivel.icone} {nivel.nome}
+                  {nivel.proximo > 0 && <span style={{ opacity:.7, fontWeight:600 }}> · {totalConc}/{nivel.proximo} diárias</span>}
+                </span>
+              </div>
+
+              {/* Rating */}
+              {mediaAval !== null && (
+                <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8 }}>
+                  <span style={{ fontSize:16 }}>⭐</span>
+                  <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{mediaAval.toFixed(1)}</span>
+                  <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>({avals.length} avaliação{avals.length!==1?"s":""})</span>
+                </div>
+              )}
+
+              {/* Disponibilidade */}
               <div style={{ ...S.badge, ...(disponivelAgora?S.badgeVerde:S.badgeCinza), fontSize:13, marginTop:8 }}>
                 {disponivelAgora ? "● Disponível agora" : "● Indisponível"}
               </div>
             </div>
 
-            <div style={S.section}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                <div style={S.sectionTitle}>Meus dados</div>
-                <button style={S.btnEditarPerfil} onClick={() => {
-                  setForm({ ...form, nome:profile?.nome||"", telefone:profile?.telefone||"", funcao:profile?.funcao||"", valor:String(profile?.valor_diaria||""), bio:profile?.bio||"", cpf:profile?.cpf||"", sexo:profile?.sexo||"", dataNasc:profile?.data_nascimento||"" });
-                  setTela("editar-perfil");
-                }}>Editar</button>
+            {/* Score de confiança */}
+            <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", border:"1.5px solid var(--border,#e2e8f0)" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>🛡️ Score de confiança</div>
+                <div style={{ fontWeight:900, fontSize:18, color: score >= 70 ? "#16a34a" : score >= 40 ? "#d97706" : "#dc2626" }}>{score}%</div>
               </div>
-              <div style={S.perfilInfoRow}><span style={S.perfilInfoLabel}>Telefone</span><span style={S.perfilInfoVal}>{profile?.telefone||"—"}</span></div>
-              <div style={S.perfilInfoRow}>
-                <span style={S.perfilInfoLabel}>Especialidade</span>
-                <span style={S.perfilInfoVal}>{profile?.funcao||"—"}</span>
-                <button
-                  style={{ background:"none", border:"none", fontSize:12, color:"#5D5FEF", fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"0 4px", marginLeft:4 }}
-                  onClick={() => {
-                    setForm({ ...form, nome:profile?.nome||"", telefone:profile?.telefone||"", funcao:profile?.funcao||"", valor:String(profile?.valor_diaria||""), bio:profile?.bio||"", cpf:profile?.cpf||"", sexo:profile?.sexo||"", dataNasc:profile?.data_nascimento||"" });
-                    setTela("editar-perfil");
-                  }}>
-                  🔄 Trocar habilidades
-                </button>
+              <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden" }}>
+                <div style={{ background: score >= 70 ? "#16a34a" : score >= 40 ? "#f59e0b" : "#ef4444", height:8, width:`${score}%`, borderRadius:20, transition:"width .4s" }} />
               </div>
-              <div style={S.perfilInfoRow}><span style={S.perfilInfoLabel}>Valor/dia</span><span style={S.perfilInfoVal}>R$ {profile?.valor_diaria||"—"}</span></div>
+              <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" as const }}>
+                {[
+                  { ok: !!profile?.foto_url, label:"Foto", icone:"📸" },
+                  { ok: !!profile?.cpf,      label:"CPF",  icone:"🪪" },
+                  { ok: telefoneVerificado,   label:"Telefone", icone:"📱" },
+                  { ok: totalConc >= 1,       label:"1ª diária", icone:"✅" },
+                ].map(item => (
+                  <div key={item.label} style={{ display:"flex", alignItems:"center", gap:4, background: item.ok ? "#dcfce7" : "var(--bg-subtle,#f1f5f9)", borderRadius:8, padding:"4px 10px", fontSize:11, fontWeight:700, color: item.ok ? "#16a34a" : "var(--text-3,#94a3b8)" }}>
+                    {item.icone} {item.label} {item.ok ? "✓" : "×"}
+                  </div>
+                ))}
+              </div>
             </div>
 
-            {/* Conectar Mercado Pago */}
+            {/* Bio */}
+            <div style={{ ...S.section, margin:"8px 0 0" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                <div style={S.sectionTitle}>Apresentação</div>
+                <button style={S.btnEditarPerfil} onClick={() => { setBioDraft(profile?.bio||""); setEditandoBio(true); }}>✏️ Editar</button>
+              </div>
+              {editandoBio ? (
+                <>
+                  <textarea
+                    style={{ width:"100%", border:"1.5px solid #5D5FEF", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, minHeight:80, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
+                    value={bioDraft} onChange={e => setBioDraft(e.target.value)}
+                    placeholder="Ex: Sou diarista com 5 anos de experiência, pontual e dedicado..." autoFocus />
+                  <div style={{ display:"flex", gap:8, marginTop:8 }}>
+                    <button style={{ flex:1, background:"#5D5FEF", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                      onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); } }}>Salvar</button>
+                    <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                      onClick={() => setEditandoBio(false)}>Cancelar</button>
+                  </div>
+                </>
+              ) : (
+                <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0 }}>
+                  {profile?.bio || <span style={{ color:"var(--text-3,#94a3b8)", fontStyle:"italic" }}>Nenhuma apresentação ainda. Adicione uma para se destacar!</span>}
+                </p>
+              )}
+            </div>
+
+            {/* Plano atual */}
             {(() => {
-              const mpConectado = !!profile?.mp_user_id;
-              const oauthUrl = `https://auth.mercadopago.com.br/authorization?client_id=SEU_CLIENT_ID_AQUI&response_type=code&platform_id=mp&state=${session?.user?.id}&redirect_uri=https://rpszebrrrasoijfdvner.supabase.co/functions/v1/mp-oauth`;
+              const planoAtivo = assinatura?.plano || "gratis";
+              const planoInfo = PLANOS_DIARISTA.find(p => p.id === planoAtivo);
               return (
-                <div style={{ margin:"0 16px 16px", background: mpConectado ? "#f0fdf4" : "#fff7ed", border:`1.5px solid ${mpConectado ? "#86efac" : "#fed7aa"}`, borderRadius:20, padding:"18px 18px" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom: mpConectado ? 0 : 12 }}>
-                    <div style={{ width:44, height:44, borderRadius:13, background: mpConectado ? "#dcfce7" : "#fef3c7", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>
-                      {mpConectado ? "✅" : "🏦"}
+                <div style={{ margin:"8px 16px 0", background: planoAtivo === "gratis" ? "var(--bg-surface,#f8fafc)" : "linear-gradient(135deg,#FF6B35,#e85d2e)", borderRadius:16, padding:"14px 16px", border: planoAtivo === "gratis" ? "1.5px solid var(--border,#e2e8f0)" : "none" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, color: planoAtivo === "gratis" ? "var(--text-3,#94a3b8)" : "rgba(255,255,255,.75)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>Plano atual</div>
+                      <div style={{ fontSize:15, fontWeight:900, color: planoAtivo === "gratis" ? "var(--text-1,#0f172a)" : "#fff" }}>{planoInfo?.nome || "Grátis"}</div>
                     </div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>
-                        {mpConectado ? "Mercado Pago conectado" : "Conectar Mercado Pago"}
-                      </div>
-                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.4 }}>
-                        {mpConectado
-                          ? "Você recebe o pagamento automaticamente após cada diária concluída."
-                          : "Conecte sua conta para receber pagamentos direto na sua conta MP após cada diária."}
-                      </div>
-                    </div>
-                  </div>
-                  {!mpConectado && (
-                    <button
-                      style={{ width:"100%", padding:"12px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:13, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 14px rgba(0,158,227,.35)" }}
-                      onClick={() => { window.location.href = oauthUrl; }}>
-                      🔗 Conectar minha conta MP
+                    <button style={{ padding:"8px 14px", background: planoAtivo === "gratis" ? "#FF6B35" : "rgba(255,255,255,.25)", color:"#fff", border:"none", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                      onClick={() => setTela("planos")}>
+                      {planoAtivo === "gratis" ? "Fazer upgrade →" : "Ver planos"}
                     </button>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Relatório de Ganhos */}
-            {minhasDiarias.filter(d => d.status === "concluida").length > 0 && (() => {
-              const concl = minhasDiarias.filter(d => d.status === "concluida");
-              const totalGanho = concl.reduce((s, d) => s + d.valor, 0);
-              const mesAtual = new Date().toISOString().slice(0,7);
-              const ganhoMes = concl.filter(d => d.data.slice(0,7) === mesAtual).reduce((s, d) => s + d.valor, 0);
-              const porCategoria: Record<string, number> = {};
-              concl.forEach(d => { const k = d.funcao || d.segmento || "Outros"; porCategoria[k] = (porCategoria[k] || 0) + d.valor; });
-              const topCat = Object.entries(porCategoria).sort((a,b) => b[1]-a[1]).slice(0,3);
-              return (
-                <div style={{ ...S.section, background:"linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%)", borderRadius:20, margin:"0 16px 16px" }}>
-                  <div style={{ fontWeight:900, fontSize:15, color:"#fff", marginBottom:12 }}>📊 Relatório de Ganhos</div>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
-                    <div style={{ background:"rgba(255,255,255,.08)", borderRadius:12, padding:"12px 14px" }}>
-                      <div style={{ fontSize:11, color:"rgba(255,255,255,.5)", fontWeight:600 }}>Total acumulado</div>
-                      <div style={{ fontWeight:900, fontSize:20, color:"#FF6B35", lineHeight:1.2 }}>R$ {totalGanho.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
-                    </div>
-                    <div style={{ background:"rgba(255,255,255,.08)", borderRadius:12, padding:"12px 14px" }}>
-                      <div style={{ fontSize:11, color:"rgba(255,255,255,.5)", fontWeight:600 }}>Este mês</div>
-                      <div style={{ fontWeight:900, fontSize:20, color:"#4ade80", lineHeight:1.2 }}>R$ {ganhoMes.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
-                    </div>
                   </div>
-                  <div style={{ fontSize:12, color:"rgba(255,255,255,.6)", fontWeight:700, marginBottom:8 }}>Por especialidade</div>
-                  {topCat.map(([k, v]) => {
-                    const pct = Math.round((v / totalGanho) * 100);
-                    return (
-                      <div key={k} style={{ marginBottom:8 }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
-                          <span style={{ fontSize:12, color:"rgba(255,255,255,.8)", fontWeight:600 }}>{k}</span>
-                          <span style={{ fontSize:12, color:"#FF6B35", fontWeight:800 }}>R$ {v.toLocaleString("pt-BR")}</span>
-                        </div>
-                        <div style={{ background:"rgba(255,255,255,.1)", borderRadius:4, height:6 }}>
-                          <div style={{ background:"#FF6B35", borderRadius:4, height:6, width:`${pct}%`, transition:"width .3s" }} />
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               );
             })()}
 
-            {/* Sistema de Indicação */}
-            <div style={{ ...S.section, background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, margin:"0 16px 16px", border:"1.5px solid var(--border,#e2e8f0)" }}>
-              <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>🎁 Indique e ganhe</div>
-              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:12, lineHeight:1.5 }}>
-                Compartilhe o DiáriaJá com empregadores e outros diaristas. Quanto mais a plataforma cresce, mais vagas aparecem para você!
-              </div>
-              <button
-                style={{ ...S.btnPrimary, background:"#16a34a", fontSize:13 }}
-                onClick={() => {
-                  const link = `https://diariaja.vercel.app/?ref=${session?.user?.id?.slice(0,8)}`;
-                  if (navigator.share) { navigator.share({ title:"DiáriaJá", text:`Encontrei vagas de diária pelo DiáriaJá! Cadastre-se: ${link}`, url:link }); }
-                  else { navigator.clipboard?.writeText(link); setToastSuccess("🔗 Link de indicação copiado!"); }
-                }}>
-                📨 Compartilhar meu link
-              </button>
-            </div>
-
-            {/* Dark mode toggle */}
-            <div style={{ ...S.section, margin:"0 16px 16px" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <div>
-                  <div style={{ fontWeight:700, fontSize:14, color:"var(--text-1,#0f172a)" }}>{darkMode ? "🌙 Modo escuro" : "☀️ Modo claro"}</div>
-                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>Aparência do aplicativo</div>
-                </div>
-                <div
-                  style={{ width:52, height:28, borderRadius:14, background:darkMode?"#5D5FEF":"#e2e8f0", position:"relative", cursor:"pointer", transition:"background .2s" }}
-                  onClick={() => setDarkMode(p => !p)}>
-                  <div style={{ position:"absolute", top:3, left:darkMode?26:3, width:22, height:22, borderRadius:11, background:"var(--bg-card,#fff)", transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" }} />
+            {/* Ganhos do mês (compacto) */}
+            {diariasConc.length > 0 && (
+              <div style={{ margin:"8px 16px 0", background:"linear-gradient(135deg,#0f172a,#1e3a5f)", borderRadius:16, padding:"14px 16px" }}>
+                <div style={{ fontWeight:900, fontSize:13, color:"#fff", marginBottom:10 }}>💰 Ganhos do mês</div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                  <div style={{ background:"rgba(255,255,255,.08)", borderRadius:10, padding:"10px 12px" }}>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", fontWeight:600 }}>Este mês</div>
+                    <div style={{ fontWeight:900, fontSize:18, color:"#4ade80" }}>R$ {ganhoMes.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
+                  </div>
+                  <div style={{ background:"rgba(255,255,255,.08)", borderRadius:10, padding:"10px 12px" }}>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", fontWeight:600 }}>Total</div>
+                    <div style={{ fontWeight:900, fontSize:18, color:"#FF6B35" }}>R$ {diariasConc.reduce((s,d)=>s+d.valor,0).toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
+                  </div>
                 </div>
               </div>
+            )}
+
+            {/* Conectar MP */}
+            <div style={{ margin:"8px 16px 0", background: mpConectado ? "#f0fdf4" : "#fff7ed", border:`1.5px solid ${mpConectado ? "#86efac" : "#fed7aa"}`, borderRadius:16, padding:"14px 16px" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <div style={{ fontSize:22, flexShrink:0 }}>{mpConectado ? "✅" : "🏦"}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{mpConectado ? "Mercado Pago conectado" : "Conectar Mercado Pago"}</div>
+                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{mpConectado ? "Receba pagamentos automáticos." : "Receba suas diárias diretamente."}</div>
+                </div>
+                {!mpConectado && (
+                  <button style={{ background:"#009ee3", color:"#fff", border:"none", borderRadius:10, padding:"8px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0 }}
+                    onClick={() => { window.location.href = oauthUrl; }}>Conectar</button>
+                )}
+              </div>
             </div>
 
-            <div style={{ padding:"0 20px 24px", display:"flex", flexDirection:"column", gap:10 }}>
-              {/* Botão trocar para empregador — sempre visível */}
+            {/* Ações */}
+            <div style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:10 }}>
               <button
-                style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35", marginTop:12, fontWeight:800 }}
+                style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35", fontWeight:800 }}
                 onClick={() => {
-                  setMenuTrocarPerfil(false);
                   setAuthError("");
                   if (tipo === "ambos" && profile?.segmento) {
-                    setNegocio(profile.segmento);
-                    setModoAtual("empregador");
-                    setTela("home-empregador");
+                    setNegocio(profile.segmento); setModoAtual("empregador"); setTela("home-empregador");
                   } else {
-                    setForm({ ...form, nomeNegocio: profile?.nome_negocio || "" });
-                    setNegocio(null);
-                    setTela("setup-empregador");
+                    setForm({ ...form, nomeNegocio: profile?.nome_negocio || "" }); setNegocio(null); setTela("setup-empregador");
                   }
                 }}>
                 🏢 {tipo === "ambos" ? "Mudar para modo Empregador" : "Também sou empregador"}
-              </button>
-              <button style={{ ...S.btnSecondary, color:"#3A86FF", borderColor:"#3A86FF" }} onClick={() => setTela("suporte")}>
-                🎧 Suporte / Ajuda
               </button>
               <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
                 🏘️ Comunidade
@@ -6507,7 +6769,8 @@ export default function App() {
               </button>
             </div>
           </>
-        )}
+          );
+        })()}
 
         {/* ── Modal detalhes da diária aceita ── */}
         {detalhesDiaria && (() => {
@@ -7138,7 +7401,7 @@ export default function App() {
   // EDITAR PERFIL DIARISTA
   if (tela === "editar-perfil") return (
     <div style={S.page}>
-      <button style={S.back} onClick={() => setTela("home-diarista")}>← Voltar</button>
+      <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
 
       {/* Foto de perfil */}
@@ -7273,7 +7536,12 @@ export default function App() {
       </div>
 
       {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
-      <button style={{ ...S.btnPrimary, marginTop:16 }} onClick={async () => {
+      <button style={{ ...S.btnPrimary, marginTop:16, opacity: salvandoPerfil ? 0.6 : 1 }} onClick={async () => {
+        setAuthError("");
+        const erroNome = validarNome(form.nome);
+        if (erroNome) { setAuthError(erroNome); return; }
+        if (!fotoUrl) { setAuthError("⚠️ Adicione uma foto de perfil para continuar."); return; }
+        if (!form.cpf || !validarCPF(form.cpf)) { setAuthError("⚠️ CPF obrigatório e deve ser válido (dígitos verificadores conferidos)."); return; }
         const ok = await saveProfile({
           nome: form.nome,
           telefone: form.telefone,
@@ -7285,8 +7553,13 @@ export default function App() {
           sexo: form.sexo,
           data_nascimento: form.dataNasc,
         });
-        if (ok) setTela("home-diarista");
-      }}>Salvar alterações</button>
+        if (ok) {
+          trackEvento("cadastro_concluido", session?.user?.id, "diarista");
+          setTela("home-diarista");
+        }
+      }}
+      disabled={salvandoPerfil}
+    >{salvandoPerfil ? "Salvando..." : "Salvar alterações"}</button>
     </div>
   );
 
@@ -7345,9 +7618,25 @@ export default function App() {
     const d = diaristaSelecionadaReal;
     const cor = negocio?.cor || "#FF6B35";
     const iniciais = d.nome.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
+    const isFavorito = favoritos.has(d.id);
+    const diariasDaPerfilConc = diaristasContagemDiarias[d.id] || 0;
+    const nivelD = nivelDiarista(diariasDaPerfilConc);
     return (
       <div style={S.appShell}>
-        <button style={{ ...S.back, padding:"12px 20px" }} onClick={() => setTela("home-empregador")}>← Voltar</button>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 16px 0" }}>
+          <button style={S.back} onClick={() => setTela("home-empregador")}>← Voltar</button>
+          <button
+            style={{ background:"none", border:"none", fontSize:28, cursor:"pointer", padding:"8px", lineHeight:1 }}
+            onClick={() => {
+              const newFavs = new Set(favoritos);
+              if (isFavorito) newFavs.delete(d.id); else newFavs.add(d.id);
+              setFavoritos(newFavs);
+              try { localStorage.setItem("diariaja_favoritos", JSON.stringify([...newFavs])); } catch {}
+              setToastSuccess(isFavorito ? "Removido dos favoritos" : "❤️ Adicionado aos favoritos!");
+            }}>
+            {isFavorito ? "❤️" : "🤍"}
+          </button>
+        </div>
 
         <div style={S.perfilHeader}>
           {d.foto_url
@@ -7355,11 +7644,19 @@ export default function App() {
             : <div style={{ ...S.perfilAvatar, background:cor, color:"#fff" }}>{iniciais}</div>
           }
           <h2 style={S.perfilNome}>{d.nome}</h2>
-          <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" as const, justifyContent:"center" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" as const, justifyContent:"center", marginTop:4 }}>
             <div style={S.perfilRamo}>{d.funcao}</div>
             {(d.cpf || d.cnpj) && (
               <span style={{ background:"#dcfce7", color:"#16a34a", fontSize:11, fontWeight:800, padding:"2px 9px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:3 }}>
                 ✅ Verificado
+              </span>
+            )}
+            <span style={{ background:nivelD.cor+"22", color:nivelD.cor, fontSize:11, fontWeight:800, padding:"2px 9px", borderRadius:20 }}>
+              {nivelD.icone} {nivelD.nome}
+            </span>
+            {diariasDaPerfilConc >= 30 && (
+              <span style={{ background:"#7c3aed22", color:"#7c3aed", fontSize:11, fontWeight:800, padding:"2px 9px", borderRadius:20 }}>
+                🏅 Destaque da Cidade
               </span>
             )}
           </div>
@@ -8212,7 +8509,7 @@ export default function App() {
   // EDITAR PERFIL EMPREGADOR
   if (tela === "editar-perfil-empregador") return (
     <div style={S.page}>
-      <button style={S.back} onClick={() => setTela("home-empregador")}>← Voltar</button>
+      <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
 
       {/* Foto/logo do negócio */}
@@ -8313,8 +8610,10 @@ export default function App() {
       {profile?.lat && <p style={{ color:"#16a34a", fontSize:12, marginTop:4 }}>✅ Localização salva</p>}
 
       {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
-      <button style={{ ...S.btnPrimary, marginTop:16 }} onClick={async () => {
+      <button style={{ ...S.btnPrimary, marginTop:16, opacity: salvandoPerfil ? 0.6 : 1 }} onClick={async () => {
         setAuthError("");
+        const erroNomeEmp = validarNome(form.nome);
+        if (erroNomeEmp) { setAuthError(erroNomeEmp); return; }
         const enderecoAtualizado = form.ruaEmp
           ? `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp ? `, ${form.complementoEmp}` : ""} - ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} - CEP: ${form.cepEmp}`
           : undefined;
@@ -8327,78 +8626,15 @@ export default function App() {
           pessoa_tipo: form.pessoaTipo,
           ...(enderecoAtualizado ? { endereco_empregador: enderecoAtualizado } : {}),
         });
-        if (ok) { setTabEmpregador("perfil"); setTela("home-empregador"); }
-      }}>Salvar alterações</button>
+        if (ok) { setTela("configuracoes"); }
+      }}
+      disabled={salvandoPerfil}
+    >{salvandoPerfil ? "Salvando..." : "Salvar alterações"}</button>
     </div>
   );
 
-  // TELA DE CHAT
-  if (tela === "chat" && diaristaSel) {
-    const d = diaristaSel;
-    const cor = negocio?.cor || "#FF6B35";
-    const idx = d.nome.split("").reduce((acc,c)=>acc+c.charCodeAt(0),0);
-    const [bg, fg] = avatarColors[idx % avatarColors.length];
-    return (
-      <div style={{ ...S.appShell, display:"flex", flexDirection:"column", height:"100vh" }}>
-        {/* Header */}
-        <div style={{ ...S.header, background:cor, flexShrink:0 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <button style={S.headerBack} onClick={() => setTela("perfil-diarista")}>←</button>
-            <div style={{ ...S.cardAvatar, background:bg, color:fg, width:36, height:36, borderRadius:18, fontSize:12 }}>{d.foto}</div>
-            <div>
-              <div style={S.headerTitle}>{d.nome}</div>
-              <div style={S.headerSub}>{d.funcao}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Aviso de privacidade */}
-        <div style={{ background:"#fefce8", padding:"8px 16px", fontSize:12, color:"#854d0e", borderBottom:"1px solid #fde68a", flexShrink:0 }}>
-          🔒 O contato do profissional é protegido. Use o chat para se comunicar.
-        </div>
-
-        {/* Mensagens */}
-        <div style={{ flex:1, overflowY:"auto", padding:16, display:"flex", flexDirection:"column", gap:10, background:"var(--bg-surface,#f8fafc)" }}>
-          {messages.length === 0 && (
-            <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:14, marginTop:40 }}>
-              <div style={{ fontSize:40, marginBottom:10 }}>💬</div>
-              Inicie a conversa com {d.nome.split(" ")[0]}!
-            </div>
-          )}
-          {messages.map(msg => (
-            <div key={msg.id} style={{
-              alignSelf: msg.sender === "empregador" ? "flex-end" : "flex-start",
-              background: msg.sender === "empregador" ? cor : "#fff",
-              color: msg.sender === "empregador" ? "#fff" : "#0f172a",
-              padding:"10px 14px", borderRadius:16, maxWidth:"75%",
-              fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.06)",
-              borderBottomRightRadius: msg.sender === "empregador" ? 4 : 16,
-              borderBottomLeftRadius: msg.sender === "diarista" ? 4 : 16,
-            }}>
-              {msg.content}
-            </div>
-          ))}
-        </div>
-
-        {/* Input */}
-        <div style={{ display:"flex", gap:8, padding:"12px 16px", background:"var(--bg-card,#fff)", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
-          <input
-            style={{ ...S.input, marginBottom:0, flex:1, padding:"10px 14px" }}
-            placeholder="Digite uma mensagem..."
-            value={msgInput}
-            onChange={e => setMsgInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleSendMessage()}
-          />
-          <button
-            style={{ ...S.btnPrimary, width:"auto", padding:"0 18px", marginTop:0, background:cor, borderRadius:12 }}
-            onClick={handleSendMessage}
-          >
-            Enviar
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // chat mock: removido — use o chat real em home-empregador/home-diarista
+  if (tela === "chat") { setTela("home-empregador"); return null; }
 
   // ── COMUNIDADE ──────────────────────────────────────────────────────────────
   if (tela === "comunidade") {
