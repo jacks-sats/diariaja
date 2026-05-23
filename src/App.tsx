@@ -3845,26 +3845,25 @@ export default function App() {
       cancelada: { bg:"#fee2e2", color:"#dc2626" },
     };
 
+    // Para o filtro de categoria: se filtroFuncao é uma função de uma categoria,
+    // mostrar todos os diaristas dessa categoria (ou só aquela função específica)
+    const catDoFiltro = filtroFuncao !== "Todos"
+      ? Object.values(CATEGORIAS_NEGOCIO).find(info => (info.funcoes as readonly string[]).includes(filtroFuncao))
+      : null;
     const diaristasReaisVisiveis = diaristasReais
       .filter(d => {
-        // "Disponíveis hoje" é filtro OPCIONAL (chip no topo)
         if (filtroDisp && !d.disponivel) return false;
-        // Filtro por função específica (chip no topo)
-        if (filtroFuncao !== "Todos" && d.funcao !== filtroFuncao) return false;
+        if (filtroFuncao !== "Todos") {
+          // Verifica se o diarista tem aquela função exata OU alguma função da mesma categoria
+          const funcoesDiarista = (d.categorias?.length ? d.categorias : [d.funcao]).filter(Boolean);
+          if (!funcoesDiarista.some(f => f === filtroFuncao || (catDoFiltro && (catDoFiltro.funcoes as readonly string[]).includes(f)))) return false;
+        }
         return true;
       })
-      // Diaristas com plano Destaque aparecem primeiro (campo plano_ativo em user_profiles)
       .sort((a, b) => {
         const aD = (a as UserProfile & { plano_ativo?: string }).plano_ativo === "destaque" ? 1 : 0;
         const bD = (b as UserProfile & { plano_ativo?: string }).plano_ativo === "destaque" ? 1 : 0;
         return bD - aD;
-      });
-    const mapaReais = diaristasReaisVisiveis
-      .filter(d => d.lat && d.lng)
-      .map((d, i) => {
-        const [bg] = avatarColors[i % avatarColors.length];
-        const iniciais = d.nome.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
-        return { id:-(i+1), nome:d.nome, funcao:d.funcao, foto:iniciais, disponivel:d.disponivel, lat:d.lat!, lng:d.lng!, cor:bg, valor:d.valor_diaria };
       });
 
     return (
@@ -3930,25 +3929,43 @@ export default function App() {
         {/* ── ABA INÍCIO ── */}
         {tabEmpregador === "inicio" && (
           <>
-            {/* Abas Lista / Mapa */}
-            <div style={{ display:"flex", background:"var(--bg-card,#fff)", borderTop:"1px solid var(--border,#e2e8f0)", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
-              <button style={{ flex:1, padding:"12px", border:"none", borderBottom:`3px solid ${tab==="lista"?negocio.cor:"transparent"}`, background:"none", fontSize:14, fontWeight:700, color:tab==="lista"?negocio.cor:"#94a3b8", cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={()=>setTab("lista")}>Lista</button>
-              <button style={{ flex:1, padding:"12px", border:"none", borderBottom:`3px solid ${tab==="mapa"?negocio.cor:"transparent"}`, background:"none", fontSize:14, fontWeight:700, color:tab==="mapa"?negocio.cor:"#94a3b8", cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={()=>setTab("mapa")}>Mapa</button>
+            {/* Filtro de habilidades */}
+            <div style={{ background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+              {/* Linha 1: disponíveis hoje + por categoria */}
+              <div style={{ display:"flex", gap:8, padding:"10px 16px 6px", overflowX:"auto" }}>
+                <button style={{ ...S.filtroBtn, ...(filtroDisp?{ background:negocio.cor, color:"#fff", borderColor:negocio.cor }:{}) }} onClick={()=>setFiltroDisp(!filtroDisp)}>
+                  {filtroDisp?"✓ ":""}Disponíveis hoje
+                </button>
+                <button style={{ ...S.filtroBtn, ...(filtroFuncao==="Todos"?{ background:negocio.cor, color:"#fff", borderColor:negocio.cor }:{}) }} onClick={()=>setFiltroFuncao("Todos")}>Todos</button>
+                {Object.entries(CATEGORIAS_NEGOCIO).map(([cat, info]) => (
+                  <button key={cat}
+                    style={{ ...S.filtroBtn, whiteSpace:"nowrap", ...(filtroFuncao !== "Todos" && (info.funcoes as readonly string[]).includes(filtroFuncao) ? { background:info.cor, color:"#fff", borderColor:info.cor } : {}) }}
+                    onClick={() => setFiltroFuncao(filtroFuncao !== "Todos" && (info.funcoes as readonly string[]).includes(filtroFuncao) ? "Todos" : info.funcoes[0])}>
+                    {info.icone} {cat}
+                  </button>
+                ))}
+              </div>
+              {/* Linha 2: funções da categoria selecionada */}
+              {filtroFuncao !== "Todos" && (() => {
+                const catEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(filtroFuncao));
+                if (!catEntry) return null;
+                const [, catInfo] = catEntry;
+                return (
+                  <div style={{ display:"flex", gap:6, padding:"0 16px 8px", overflowX:"auto" }}>
+                    {(catInfo.funcoes as readonly string[]).map(f => (
+                      <button key={f}
+                        style={{ ...S.filtroBtn, fontSize:11, padding:"5px 10px", whiteSpace:"nowrap", ...(filtroFuncao===f?{ background:catInfo.cor, color:"#fff", borderColor:catInfo.cor }:{}) }}
+                        onClick={() => setFiltroFuncao(f)}>
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
 
-            {/* Filtros */}
-            <div style={{ display:"flex", gap:8, padding:"10px 16px", overflowX:"auto", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
-              <button style={{ ...S.filtroBtn, ...(filtroDisp?{ background:negocio.cor, color:"#fff", borderColor:negocio.cor }:{}) }} onClick={()=>setFiltroDisp(!filtroDisp)}>
-                {filtroDisp?"✓ ":""}Disponíveis hoje
-              </button>
-              {funcoes.map(f=>(
-                <button key={f} style={{ ...S.filtroBtn, ...(filtroFuncao===f?{ background:negocio.cor, color:"#fff", borderColor:negocio.cor }:{}) }} onClick={()=>setFiltroFuncao(f)}>{f}</button>
-              ))}
-            </div>
-
-            {/* Lista / Mapa */}
-            {tab === "lista" ? (
-              <div style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
+            {/* Lista de profissionais */}
+            <div style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
                 {/* Favoritos */}
                 {favoritos.size > 0 && (() => {
                   const favList = diaristasReais.filter(d => favoritos.has(d.id));
@@ -4063,16 +4080,6 @@ export default function App() {
                   })
                 )}
               </div>
-            ) : (
-              <div style={S.mapaContainer}>
-                <MapComponent
-                  diaristas={mapaReais}
-                  corNegocio={negocio.cor}
-                  onDiaristaClick={handleDiaristaClick}
-                  center={profile?.lat && profile?.lng ? [profile.lat, profile.lng] : undefined}
-                />
-              </div>
-            )}
           </>
         )}
 
@@ -4101,25 +4108,80 @@ export default function App() {
                 </div>
               )}
 
-              {/* ── Convites enviados ── */}
-              {convitesEnviados.length > 0 && (
+              {/* ── Convites: Aceitos ── */}
+              {convitesEnviados.filter(c => c.status === "aceito").length > 0 && (
                 <div style={{ marginBottom:20 }}>
-                  <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:10 }}>📨 Convites enviados</div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                    <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>🎉 Convites aceitos</span>
+                    <span style={{ background:"#dcfce7", color:"#16a34a", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c=>c.status==="aceito").length}</span>
+                  </div>
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
-                    {convitesEnviados.map(c => {
-                      const statusConv: Record<string,{bg:string,color:string,txt:string}> = {
-                        pendente:  { bg:"#fef3c7", color:"#d97706",  txt:"⏳ Aguardando resposta" },
-                        aceito:    { bg:"#dcfce7", color:"#16a34a",  txt:"✅ Aceito" },
-                        recusado:  { bg:"#fee2e2", color:"#dc2626",  txt:"✗ Recusado" },
-                      };
-                      const sc = statusConv[c.status] ?? statusConv.pendente;
-                      const bordaConv = c.status === "aceito" ? "#22c55e" : c.status === "recusado" ? "#ef4444" : "#f59e0b";
-                      const dataFmt = c.data_servico ? new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR", { day:"2-digit", month:"short" }) : "";
+                    {convitesEnviados.filter(c => c.status === "aceito").map(c => {
+                      const jaLiberado = contatosLiberados.has(c.id);
+                      const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
                       return (
-                        <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:`4px solid ${bordaConv}` }}>
+                        <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:"4px solid #22c55e" }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
                             <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.diarista_nome}</div>
-                            <span style={{ background:sc.bg, color:sc.color, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800, whiteSpace:"nowrap" as const }}>{sc.txt}</span>
+                            <span style={{ background:"#dcfce7", color:"#16a34a", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800, whiteSpace:"nowrap" as const }}>✅ Aceito</span>
+                          </div>
+                          {c.funcao && <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:4 }}>🛠 {c.funcao}</div>}
+                          <div style={{ fontSize:12, color:"var(--text-label,#475569)", display:"flex", flexWrap:"wrap" as const, gap:8, marginBottom:4 }}>
+                            <span>📅 {dataFmt}</span>
+                            <span>🕐 {c.horario_servico}</span>
+                          </div>
+                          <div style={{ fontSize:12, color:"var(--text-label,#475569)", marginBottom:12 }}>📍 {c.local_servico}</div>
+                          <div style={{ background:"#f0fdf4", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#166534", fontWeight:700, marginBottom:10 }}>
+                            🎉 {c.diarista_nome?.split(" ")[0]} aceitou! Pague para liberar o contato.
+                          </div>
+                          <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                            {jaLiberado ? (
+                              <button
+                                style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                                onClick={async () => {
+                                  const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
+                                  if (dp) { setDiaristaSelecionadaReal(dp); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
+                                }}>
+                                📱 Ver contato de {c.diarista_nome?.split(" ")[0]}
+                              </button>
+                            ) : (
+                              <button
+                                style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                                onClick={() => { setModalPix(c as any); setContatosLiberados(prev => new Set([...prev, c.id])); }}>
+                                💳 Pagar{c.valor ? ` R$ ${c.valor}` : ""} e liberar contato
+                              </button>
+                            )}
+                            <button
+                              style={{ width:"100%", padding:"9px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                              onClick={async () => {
+                                const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
+                                if (dp) { setDiaristaSelecionadaReal(dp); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
+                              }}>
+                              👤 Ver perfil completo
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Convites: Pendentes ── */}
+              {convitesEnviados.filter(c => c.status === "pendente").length > 0 && (
+                <div style={{ marginBottom:20 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                    <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>⏳ Aguardando resposta</span>
+                    <span style={{ background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c=>c.status==="pendente").length}</span>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+                    {convitesEnviados.filter(c => c.status === "pendente").map(c => {
+                      const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
+                      return (
+                        <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:"4px solid #f59e0b" }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+                            <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.diarista_nome}</div>
+                            <span style={{ background:"#fef3c7", color:"#d97706", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800, whiteSpace:"nowrap" as const }}>⏳ Aguardando</span>
                           </div>
                           {c.funcao && <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:4 }}>🛠 {c.funcao}</div>}
                           <div style={{ fontSize:12, color:"var(--text-label,#475569)", display:"flex", flexWrap:"wrap" as const, gap:8 }}>
@@ -4127,69 +4189,64 @@ export default function App() {
                             <span>🕐 {c.horario_servico}</span>
                           </div>
                           <div style={{ fontSize:12, color:"var(--text-label,#475569)", marginTop:4 }}>📍 {c.local_servico}</div>
-
-                          {/* ── CONVITE ACEITO: botões de ação ── */}
-                          {c.status === "aceito" && (() => {
-                            const jaLiberado = contatosLiberados.has(c.id);
-                            return (
-                              <div style={{ marginTop:12, display:"flex", flexDirection:"column", gap:8 }}>
-                                <div style={{ background:"#f0fdf4", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#166534", fontWeight:700 }}>
-                                  🎉 {c.diarista_nome?.split(" ")[0]} aceitou! Pague para liberar o contato.
-                                </div>
-                                {jaLiberado ? (
-                                  /* Contato liberado */
-                                  <button
-                                    style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
-                                    onClick={async () => {
-                                      /* Navega para perfil do diarista */
-                                      const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
-                                      if (dp) { setDiaristaSelecionadaReal(dp); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
-                                    }}>
-                                    📱 Ver contato de {c.diarista_nome?.split(" ")[0]}
-                                  </button>
-                                ) : (
-                                  /* Botão pagar e desbloquear */
-                                  <button
-                                    style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
-                                    onClick={() => {
-                                      setModalPix(c as any);
-                                      setContatosLiberados(prev => new Set([...prev, c.id]));
-                                    }}>
-                                    💳 Pagar{c.valor ? ` R$ ${c.valor}` : ""} e liberar contato
-                                  </button>
-                                )}
-                                <button
-                                  style={{ width:"100%", padding:"9px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
-                                  onClick={async () => {
-                                    const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
-                                    if (dp) { setDiaristaSelecionadaReal(dp); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
-                                  }}>
-                                  👤 Ver perfil completo
-                                </button>
+                          <div style={{ marginTop:10 }}>
+                            {confirmCancelarConvite === c.id ? (
+                              <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:10, padding:"8px 12px" }}>
+                                <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Cancelar este convite?</span>
+                                <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => cancelarConvite(c.id)}>Sim</button>
+                                <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
                               </div>
-                            );
-                          })()}
+                            ) : (
+                              <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, cursor:"pointer", textDecoration:"underline", padding:0 }} onClick={() => setConfirmCancelarConvite(c.id)}>
+                                🗑️ Cancelar convite
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
-                          {c.status === "recusado" && (
-                            <div style={{ marginTop:10, background:"#fef2f2", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#991b1b", fontWeight:700 }}>
-                              😔 {c.diarista_nome} não pode neste dia. Tente outro profissional.
+              {/* ── Convites: Recusados ── */}
+              {convitesEnviados.filter(c => c.status === "recusado").length > 0 && (
+                <div style={{ marginBottom:20 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                    <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>✗ Recusados</span>
+                    <span style={{ background:"#fee2e2", color:"#dc2626", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c=>c.status==="recusado").length}</span>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+                    {convitesEnviados.filter(c => c.status === "recusado").map(c => {
+                      const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
+                      return (
+                        <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:"4px solid #ef4444", opacity:0.9 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+                            <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.diarista_nome}</div>
+                            <span style={{ background:"#fee2e2", color:"#dc2626", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800, whiteSpace:"nowrap" as const }}>✗ Recusado</span>
+                          </div>
+                          {c.funcao && <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:4 }}>🛠 {c.funcao}</div>}
+                          <div style={{ fontSize:12, color:"var(--text-label,#475569)", display:"flex", flexWrap:"wrap" as const, gap:8 }}>
+                            <span>📅 {dataFmt}</span>
+                            <span>🕐 {c.horario_servico}</span>
+                          </div>
+                          <div style={{ fontSize:12, color:"var(--text-label,#475569)", marginTop:4, marginBottom:10 }}>📍 {c.local_servico}</div>
+                          <div style={{ background:"#fef2f2", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#991b1b", fontWeight:700, marginBottom:10 }}>
+                            😔 {c.diarista_nome?.split(" ")[0]} não pode neste dia. Tente outro profissional.
+                          </div>
+                          {/* Confirmar e excluir */}
+                          {confirmCancelarConvite === c.id ? (
+                            <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:10, padding:"8px 12px" }}>
+                              <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Confirmar exclusão?</span>
+                              <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => cancelarConvite(c.id)}>Excluir</button>
+                              <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Cancelar</button>
                             </div>
-                          )}
-                          {/* Botão cancelar convite pendente — padrão inline sem confirm() */}
-                          {c.status === "pendente" && (
-                            <div style={{ marginTop:10 }}>
-                              {confirmCancelarConvite === c.id ? (
-                                <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:10, padding:"8px 12px" }}>
-                                  <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Cancelar este convite?</span>
-                                  <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => cancelarConvite(c.id)}>Sim</button>
-                                  <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
-                                </div>
-                              ) : (
-                                <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, cursor:"pointer", textDecoration:"underline", padding:0 }} onClick={() => setConfirmCancelarConvite(c.id)}>
-                                  🗑️ Cancelar convite
-                                </button>
-                              )}
-                            </div>
+                          ) : (
+                            <button
+                              style={{ width:"100%", padding:"9px", background:"#fee2e2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                              onClick={() => setConfirmCancelarConvite(c.id)}>
+                              🗑️ Confirmar e excluir
+                            </button>
                           )}
                         </div>
                       );
