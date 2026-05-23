@@ -21,39 +21,61 @@ interface Diarista {
   valor: number;
 }
 
+interface MarkerGenerico {
+  lat: number;
+  lng: number;
+  label: string;
+  sub?: string;
+  cor?: string;
+}
+
 interface Props {
-  diaristas: Diarista[];
-  corNegocio: string;
-  onDiaristaClick: (id: number) => void;
-  center?: [number, number]; // localização real do usuário
+  diaristas?: Diarista[];
+  corNegocio?: string;
+  onDiaristaClick?: (id: number) => void;
+  center?: [number, number];
+  // Modo genérico de marcadores (para vagas do diarista)
+  lat?: number;
+  lng?: number;
+  markers?: MarkerGenerico[];
 }
 
 const CAMPO_GRANDE: [number, number] = [-20.45, -54.65];
 
-export default function MapComponent({ diaristas, corNegocio, onDiaristaClick, center }: Props) {
+export default function MapComponent({ diaristas, corNegocio, onDiaristaClick, center, lat, lng, markers }: Props) {
+  // Modo genérico: lat/lng + markers
+  const centerResolved: [number, number] = center ?? (lat && lng ? [lat, lng] : CAMPO_GRANDE);
   return (
     <MapContainer
-      center={center ?? CAMPO_GRANDE}
-      zoom={center ? 14 : 13}
+      center={centerResolved}
+      zoom={14}
       style={{ height: "100%", width: "100%" }}
     >
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-      {/* Marcador da posição do próprio usuário */}
-      {center && (
-        <Marker position={center} icon={L.divIcon({
+      {/* Marcador do usuário */}
+      {centerResolved && (corNegocio || lat) && (
+        <Marker position={centerResolved} icon={L.divIcon({
           className: "",
-          html: `<div style="width:20px;height:20px;border-radius:50%;background:${corNegocio};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.4)"></div>`,
+          html: `<div style="width:20px;height:20px;border-radius:50%;background:${corNegocio||"#FF6B35"};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.4)"></div>`,
           iconSize: [20, 20],
           iconAnchor: [10, 10],
         })}>
-          <Popup>
-            <div style={{ textAlign:"center", fontFamily:"system-ui,sans-serif", padding:"4px 0" }}>
-              <strong style={{ fontSize:13 }}>📍 Você está aqui</strong>
-            </div>
-          </Popup>
+          <Popup><div style={{ textAlign:"center", fontFamily:"system-ui,sans-serif", padding:"4px 0" }}><strong style={{ fontSize:13 }}>📍 Você está aqui</strong></div></Popup>
         </Marker>
       )}
-      {diaristas.map(d => (
+      {/* Marcadores genéricos (vagas) */}
+      {(markers || []).map((m, i) => (
+        <Marker key={i} position={[m.lat, m.lng]} icon={L.divIcon({
+          className: "",
+          html: `<div style="background:${m.cor||"#FF6B35"};color:#fff;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;font-family:system-ui;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3)">${m.label}</div>`,
+          iconSize: [100, 28],
+          iconAnchor: [50, 14],
+        })}>
+          <Popup><div style={{ textAlign:"center", fontFamily:"system-ui,sans-serif" }}><strong>{m.label}</strong>{m.sub && <><br/><span style={{ color:"#16a34a", fontWeight:700 }}>{m.sub}</span></>}</div></Popup>
+        </Marker>
+      ))}
+      {/* Marcadores de diaristas */}
+      {(diaristas || []).map(d => (
         <Marker key={d.id} position={[d.lat, d.lng]}>
           <Popup>
             <div style={{ textAlign: "center", padding: "4px 0", fontFamily: "system-ui, sans-serif" }}>
@@ -77,9 +99,9 @@ export default function MapComponent({ diaristas, corNegocio, onDiaristaClick, c
                 {d.disponivel ? "● disponível" : "● ocupado"}
               </span><br />
               <button
-                onClick={() => onDiaristaClick(d.id)}
+                onClick={() => onDiaristaClick && onDiaristaClick(d.id)}
                 style={{
-                  padding: "6px 14px", background: corNegocio, color: "#fff",
+                  padding: "6px 14px", background: corNegocio || "#FF6B35", color: "#fff",
                   border: "none", borderRadius: 8, cursor: "pointer",
                   fontSize: 12, fontWeight: 700, fontFamily: "system-ui, sans-serif"
                 }}

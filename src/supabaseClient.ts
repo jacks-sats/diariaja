@@ -1,9 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Substitua pelos valores do seu projeto no painel do Supabase:
+// Valores carregados de variáveis de ambiente (.env.local)
 // https://supabase.com/dashboard → seu projeto → Settings → API
-const SUPABASE_URL = "https://rpszebrrrasoijfdvner.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_3mVVT4hR6PFU0jbjr6hsvA_eXSbOvST";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {

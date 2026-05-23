@@ -1888,10 +1888,10 @@ export default function App() {
   const confirmarPresenca = async (diaria: Diaria) => {
     if (!session?.user) return;
     setConfirmando(true);
-    const { error } = await supabase.from("diarias").update({ status: "aceita" }).eq("id", diaria.id);
+    const { error } = await supabase.from("diarias").update({ status: "pendente" }).eq("id", diaria.id);
     if (error) { setAuthError(error.message); setConfirmando(false); return; }
     await supabase.from("candidaturas").update({ status: "confirmado" }).eq("diaria_id", diaria.id).eq("diarista_id", session.user.id);
-    setMinhasDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "aceita" } : d));
+    setMinhasDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "pendente" } : d));
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "confirmado" }));
     setConfirmando(false);
   };
