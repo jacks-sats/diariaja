@@ -69,7 +69,6 @@ export interface UserProfile {
   mp_access_token?: string;
   plano_ativo?: string;       // 'gratis' | 'destaque'
   is_admin?: boolean;
-  is_empresa?: boolean;
 }
 
 export interface Topico {

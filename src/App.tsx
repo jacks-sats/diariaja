@@ -1111,7 +1111,6 @@ export default function App() {
       sexo: updates.sexo ?? profile?.sexo ?? form.sexo ?? "",
       data_nascimento: updates.data_nascimento ?? profile?.data_nascimento ?? form.dataNasc ?? "",
       endereco_empregador: updates.endereco_empregador ?? profile?.endereco_empregador ?? "",
-      is_empresa: updates.is_empresa ?? profile?.is_empresa ?? false,
     };
     const { error } = await supabase.from("user_profiles").upsert(full);
     setSalvandoPerfil(false);
@@ -3304,7 +3303,6 @@ export default function App() {
           cnpj: form.cnpj,
           pessoa_tipo: form.pessoaTipo,
           endereco_empregador: endEmp,
-          is_empresa: tipo === "empresa" ? true : undefined,
         });
         if (ok) setTela("escolha-negocio");
       }}>Continuar →</button>
@@ -5191,7 +5189,7 @@ export default function App() {
                 <span style={{ background:negocio.cor+"18", color:negocio.cor, padding:"4px 14px", borderRadius:20, fontSize:12, fontWeight:700, border:`1px solid ${negocio.cor}30` }}>
                   {negocio.icone} {negocioSelecionado}
                 </span>
-                {profile?.is_empresa && (
+                {profile?.pessoa_tipo === "juridica" && (
                   <span style={{ background:"#3A86FF18", color:"#3A86FF", padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:700 }}>🏢 Empresa</span>
                 )}
               </div>
@@ -5422,10 +5420,10 @@ export default function App() {
                   <span style={{ marginLeft:"auto", background:"#dcfce7", color:"#16a34a", fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20 }}>✓ Ativo</span>
                 </div>
               </div>
-              {/* Opção de trocar — empresas (is_empresa) NÃO podem virar diarista */}
+              {/* Opção de trocar — empresas (pessoa_tipo === "juridica") NÃO podem virar diarista */}
               <div style={{ padding:"16px 20px" }}>
                 <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:12 }}>Trocar para</div>
-                {profile?.is_empresa ? (
+                {profile?.pessoa_tipo === "juridica" ? (
                   <div style={{ background:"#f8fafc", border:"1.5px dashed #cbd5e1", borderRadius:14, padding:"16px", textAlign:"center" as const }}>
                     <div style={{ fontSize:28, marginBottom:6 }}>🏢</div>
                     <div style={{ fontWeight:700, fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.4 }}>
