@@ -308,6 +308,17 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  // ── Controle de aceite dos Termos de Uso ──────────────────────────────
+  const TERMOS_VERSAO = "v1"; // incrementar aqui força re-aceite em nova versão
+  const [termosAceitos, setTermosAceitos] = useState<boolean>(() => {
+    try { return localStorage.getItem("diariaja_termos_" + TERMOS_VERSAO) === "1"; } catch { return false; }
+  });
+  const [mostrarTermos, setMostrarTermos] = useState(false);       // tela completa de termos
+  const [mostrarAceiteGate, setMostrarAceiteGate] = useState<boolean>(() => {
+    try { return localStorage.getItem("diariaja_termos_" + TERMOS_VERSAO) !== "1"; } catch { return true; }
+  });
+  const [checkTermos, setCheckTermos] = useState(false);           // checkbox do aceite
+  // ─────────────────────────────────────────────────────────────────────
   const [tela, setTela]                   = useState<string>(() => {
     try { return localStorage.getItem("diariaja_tela") || "splash"; } catch { return "splash"; }
   });
@@ -2245,6 +2256,130 @@ export default function App() {
     </div>
   );
 
+  // ── PORTÃO DE ACEITE DOS TERMOS (obrigatório, bloqueia tudo) ───────────
+  if (mostrarAceiteGate) return (
+    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"flex-end", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto" }}>
+      {/* Header */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 32px 24px", textAlign:"center" }}>
+        <div style={{ fontSize:60, marginBottom:16, filter:"drop-shadow(0 0 24px #FF6B35)" }}>⚡</div>
+        <div style={{ fontSize:34, fontWeight:900, color:"#fff", letterSpacing:-1, marginBottom:8 }}>
+          Diária<span style={{ color:"#FF6B35" }}>Já</span>
+        </div>
+        <div style={{ fontSize:14, color:"#94a3b8", lineHeight:1.6, marginBottom:8 }}>
+          Marketplace de diárias — conecte empregadores e trabalhadores autônomos de forma simples e segura.
+        </div>
+      </div>
+
+      {/* Card de aceite */}
+      <div style={{ background:"#fff", borderRadius:"28px 28px 0 0", padding:"28px 24px 40px", width:"100%", boxShadow:"0 -8px 40px rgba(0,0,0,.35)" }}>
+        <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
+        <div style={{ fontWeight:900, fontSize:19, color:"#0f172a", marginBottom:6 }}>Antes de começar</div>
+        <div style={{ fontSize:13, color:"#64748b", lineHeight:1.6, marginBottom:20 }}>
+          Para usar o DiáriaJá você precisa aceitar nossos Termos de Uso e a Política de Privacidade. Eles explicam como a plataforma funciona, seus direitos e responsabilidades.
+        </div>
+
+        {/* Resumo visual dos pontos mais importantes */}
+        {[
+          { icon:"🔒", titulo:"Seus dados estão protegidos", desc:"CPF e dados pessoais são tratados conforme a LGPD e nunca compartilhados sem motivo." },
+          { icon:"🤝", titulo:"Plataforma de intermediação", desc:"Somos apenas o canal de conexão — diarista e empregador são responsáveis pelo serviço." },
+          { icon:"⭐", titulo:"Avaliações reais", desc:"Sistema de reputação baseado em experiências reais. Avaliações falsas são proibidas." },
+        ].map(p => (
+          <div key={p.titulo} style={{ display:"flex", gap:12, alignItems:"flex-start", marginBottom:14 }}>
+            <span style={{ fontSize:22, flexShrink:0, marginTop:1 }}>{p.icon}</span>
+            <div>
+              <div style={{ fontWeight:700, fontSize:13, color:"#0f172a", marginBottom:2 }}>{p.titulo}</div>
+              <div style={{ fontSize:12, color:"#64748b", lineHeight:1.4 }}>{p.desc}</div>
+            </div>
+          </div>
+        ))}
+
+        {/* Checkbox de aceite */}
+        <label style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", margin:"18px 0 20px", background:"#f8fafc", borderRadius:12, padding:"12px 14px", border:`1.5px solid ${checkTermos?"#FF6B35":"#e2e8f0"}` }}>
+          <input
+            type="checkbox"
+            checked={checkTermos}
+            onChange={e => setCheckTermos(e.target.checked)}
+            style={{ width:18, height:18, accentColor:"#FF6B35", flexShrink:0, marginTop:1 }}
+          />
+          <span style={{ fontSize:13, color:"#0f172a", lineHeight:1.5 }}>
+            Li e aceito os{" "}
+            <span style={{ color:"#FF6B35", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
+              onClick={e => { e.preventDefault(); setMostrarTermos(true); }}>
+              Termos de Uso
+            </span>{" "}
+            e a{" "}
+            <span style={{ color:"#FF6B35", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
+              onClick={e => { e.preventDefault(); setMostrarTermos(true); }}>
+              Política de Privacidade
+            </span>{" "}
+            do DiáriaJá. Declaro ter mais de 18 anos e capacidade civil plena.
+          </span>
+        </label>
+
+        <button
+          disabled={!checkTermos}
+          style={{ width:"100%", padding:"16px", background: checkTermos ? "#FF6B35" : "#e2e8f0", color: checkTermos ? "#fff" : "#94a3b8", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor: checkTermos ? "pointer" : "default", fontFamily:"system-ui,sans-serif", transition:"all .2s", boxShadow: checkTermos ? "0 4px 18px rgba(255,107,53,.4)" : "none" }}
+          onClick={() => {
+            if (!checkTermos) return;
+            localStorage.setItem("diariaja_termos_" + TERMOS_VERSAO, "1");
+            localStorage.setItem("diariaja_termos_data", new Date().toISOString());
+            setTermosAceitos(true);
+            setMostrarAceiteGate(false);
+          }}>
+          {checkTermos ? "✅ Entrar no DiáriaJá →" : "Marque a caixa acima para continuar"}
+        </button>
+
+        <div style={{ textAlign:"center", marginTop:14, fontSize:11, color:"#94a3b8" }}>
+          DiáriaJá · Beta 1.0 · suporte@diariaja.com.br
+        </div>
+      </div>
+
+      {/* Tela de Termos completa (slide-up) */}
+      {mostrarTermos && (
+        <div style={{ position:"fixed", inset:0, background:"#fff", zIndex:999, overflowY:"auto", fontFamily:"system-ui,sans-serif" }}>
+          <div style={{ position:"sticky", top:0, background:"#fff", borderBottom:"1px solid #e2e8f0", padding:"16px 20px", display:"flex", alignItems:"center", gap:12, zIndex:1 }}>
+            <button style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
+            <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
+          </div>
+          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
+            {[
+              { titulo:"1. Apresentação", body:`O DiáriaJá é uma plataforma digital (PWA) que conecta trabalhadores autônomos (diaristas) a empregadores — pessoas físicas e estabelecimentos comerciais — para contratação de serviços pontuais nas categorias: Doméstico, Supermercado, Restaurante, Construção, Eventos, Saúde & Cuidado, Logística e Pet & Animais.\n\nAo acessar, cadastrar-se ou utilizar o DiáriaJá, você declara que leu, compreendeu e aceitou integralmente este Termo. Caso não concorde, interrompa o uso imediatamente.\n\nEste Termo observa: LGPD (Lei nº 13.709/2018), Marco Civil da Internet (Lei nº 12.965/2014), CDC (Lei nº 8.078/1990) e LC nº 150/2015.` },
+              { titulo:"2. Natureza da Plataforma", body:`O DiáriaJá é um ambiente digital de intermediação. Não prestamos serviços diretamente, não somos empregador das diaristas e não garantimos qualidade, presença ou pagamento externo.\n\nA relação entre diarista e empregador, após o aceite, é de responsabilidade exclusiva das partes. A prestação por mais de dois dias por semana, com pessoalidade e continuidade, pode configurar vínculo doméstico (LC nº 150/2015) — cabendo às partes avaliar suas obrigações legais.` },
+              { titulo:"3. Cadastro e Conta", body:`O cadastro exige dados verdadeiros, atualizados e completos. O DiáriaJá adota modelo dual: o mesmo usuário pode alternar entre modo diarista e empregador.\n\nÉ proibido: criar perfis falsos, usar CPF de terceiros, simular avaliações, duplicar contas abusivamente. O usuário responde por toda atividade realizada em sua conta.\n\nO usuário declara ser maior de 18 anos e plenamente capaz para praticar atos da vida civil.` },
+              { titulo:"4. Perfil do Diarista", body:`O perfil pode conter: nome, foto, cidade, localização aproximada, habilidades, categorias, disponibilidade, histórico de diárias e avaliações. O CPF é coletado para verificação interna e nunca exibido publicamente.\n\nO DiáriaJá exibe um badge "✅ Verificado" para diaristas com CPF ou CNPJ cadastrado — indicador de identidade verificada, sem garantia de idoneidade absoluta.\n\nO diarista pode publicar portfólio com até 3 fotos de trabalhos anteriores.` },
+              { titulo:"5. Perfil do Empregador", body:`O perfil pode conter: nome, foto, tipo de negócio, segmento, endereço do serviço, histórico e avaliações recebidas. O empregador compromete-se a publicar apenas oportunidades reais, lícitas e compatíveis com a plataforma.\n\nÉ proibido solicitar atividades ilegais, perigosas, humilhantes ou incompatíveis com o escopo informado.` },
+              { titulo:"6. Publicação de Diárias", body:`O empregador publica uma diária informando: data, categoria, função, valor, horário, local (CEP + mapa) e observações. O empregador pode criar diárias recorrentes (semanais ou quinzenais).\n\nA publicação não garante candidatos disponíveis. O empregador pode cancelar uma diária, informando motivo — os candidatos serão notificados automaticamente.` },
+              { titulo:"7. Candidaturas, Convites e Aceite", body:`O diarista pode se candidatar a vagas compatíveis com seu perfil. Ao se candidatar, declara intenção real de realizar o serviço.\n\nO empregador também pode enviar convites diretos a diaristas. O diarista pode aceitar ou recusar.\n\nApós o aceite, as demais candidaturas são recusadas automaticamente. O diarista confirma presença via QR Code gerado no app — esse evento marca o início da diária.` },
+              { titulo:"8. Comunicação e Chat", body:`O chat é exclusivo para fins relacionados à diária. É proibido usar o canal para assédio, ameaças, spam, discriminação, pedido de dados excessivos, conteúdo ilegal ou manipulação de avaliações.\n\nO DiáriaJá armazena mensagens para fins de segurança e resolução de conflitos, conforme a LGPD.` },
+              { titulo:"9. Pagamentos e Taxa de Plataforma", body:`O DiáriaJá facilita o pagamento via chave PIX exibida no app. A taxa de plataforma é de 1,5% sobre o valor da diária, devida pelo empregador. Esse valor deve ser enviado separadamente via PIX para suporte@diariaja.com.br.\n\nO DiáriaJá não processa pagamentos diretamente. Não nos responsabilizamos por atrasos, inadimplementos ou acordos realizados fora da plataforma.\n\nO sistema de planos (Grátis, Pro, Premium) oferece funcionalidades diferenciadas para empregadores.` },
+              { titulo:"10. Cancelamentos e Conclusão", body:`Empregador pode cancelar diárias abertas ou em andamento, informando motivo. Diarista pode cancelar diária aceita, informando motivo — a vaga volta a "aberta".\n\nDiárias são concluídas após QR Code de check-in + confirmação de encerramento. Após a conclusão, ambas as partes podem avaliar a experiência.\n\nO DiáriaJá registra todos os eventos (candidatura, aceite, cancelamento, conclusão) para fins de reputação e segurança.` },
+              { titulo:"11. Avaliações e Reputação", body:`Empregadores e diaristas podem avaliar uns aos outros após a conclusão da diária. As avaliações devem refletir experiências reais, de forma honesta e respeitosa.\n\nÉ proibido publicar avaliações falsas, ofensivas, compradas ou manipuladas. O DiáriaJá pode remover avaliações que violem este Termo.\n\nO histórico de avaliações é público e compõe a reputação do usuário na plataforma.` },
+              { titulo:"12. Geolocalização", body:`O DiáriaJá usa geolocalização (GPS do dispositivo ou CEP informado) para calcular distância entre diaristas e vagas. O usuário pode revogar a permissão nas configurações — isso limita funcionalidades de proximidade.\n\nÉ proibido usar informações de localização para perseguição, assédio ou qualquer finalidade fora da contratação legítima de diárias.` },
+              { titulo:"13. Dados Pessoais e Privacidade (LGPD)", body:`Tratamos os seguintes dados: nome, e-mail, foto, CPF/CNPJ (privado), geolocalização, endereço do serviço, histórico de diárias, candidaturas, mensagens e registros técnicos.\n\nFinalidades: cadastro, autenticação, segurança, cálculo de distância, exibição de perfis, comunicação, melhoria do produto e cumprimento legal.\n\nO CPF nunca é exibido publicamente — apenas o badge "Verificado" é visível.\n\nVocê pode solicitar acesso, correção, exclusão ou portabilidade dos seus dados pelo e-mail suporte@diariaja.com.br. Para encerrar sua conta, entre em contato pelo mesmo canal.` },
+              { titulo:"14. Condutas Proibidas", body:`São proibidas: fraude ou falsidade de dados; discriminação por raça, sexo, religião, origem ou condição social; assédio e violência; atividades ilícitas; spam, engenharia reversa, raspagem de dados; conteúdo ofensivo, pornográfico ou difamatório.\n\nO descumprimento pode resultar em suspensão ou exclusão definitiva da conta, além de comunicação às autoridades competentes.` },
+              { titulo:"15. Limitação de Responsabilidade", body:`O DiáriaJá não se responsabiliza por: informações falsas de usuários, descumprimento de acordos entre partes, inadimplemento de pagamento, qualidade do serviço, furtos, acidentes, conflitos pessoais, falhas de conexão ou serviços externos.\n\nEssa limitação não exclui responsabilidades previstas em lei, especialmente no CDC.` },
+              { titulo:"16. Alterações do Termo", body:`O DiáriaJá pode atualizar este Termo. Alterações relevantes serão comunicadas via notificação no app. O uso continuado após a publicação da nova versão indica aceitação. Versões novas requerem novo aceite explícito.` },
+              { titulo:"17. Informações da Operadora", body:`Aplicativo: DiáriaJá\nVersão: Beta 1.0\nData: 21 de maio de 2026\nE-mail de suporte: suporte@diariaja.com.br\nURL: diariaja.vercel.app\n\nRazão social, CNPJ e foro serão informados quando da formalização empresarial. O foro aplicável é o do domicílio do consumidor, em caso de relação de consumo, conforme o CDC.` },
+            ].map(({ titulo, body }) => (
+              <div key={titulo} style={{ marginBottom:24 }}>
+                <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", marginBottom:8, paddingBottom:6, borderBottom:"2px solid #FF6B35" }}>{titulo}</div>
+                {body.split("\n\n").map((p, i) => (
+                  <p key={i} style={{ fontSize:13, color:"#475569", lineHeight:1.7, marginBottom:10 }}>{p}</p>
+                ))}
+              </div>
+            ))}
+            <button
+              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:8 }}
+              onClick={() => { setMostrarTermos(false); setCheckTermos(true); }}>
+              ✅ Entendido — Aceitar os Termos
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+  // ────────────────────────────────────────────────────────────────────────
+
   // SPLASH
   if (tela === "splash") return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", position:"relative", overflow:"hidden" }}>
@@ -2594,6 +2729,7 @@ export default function App() {
     ];
     // faqAberta já está no topo do componente (BUG-C1 fix)
     return (
+      <>
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
 
         {/* Header */}
@@ -2657,13 +2793,67 @@ export default function App() {
           </div>
         </div>
 
+        {/* Termos de Uso e Privacidade */}
+        <div style={{ margin:"20px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px", border:"1px solid var(--border,#e2e8f0)" }}>
+          <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:10 }}>📄 Documentos legais</div>
+          <button
+            style={{ width:"100%", textAlign:"left" as const, background:"none", border:"none", padding:"10px 0", fontSize:13, color:"#FF6B35", fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", borderBottom:"1px solid var(--border-sub,#f1f5f9)", display:"flex", justifyContent:"space-between" }}
+            onClick={() => setMostrarTermos(true)}>
+            Termos de Uso e Política de Privacidade <span>→</span>
+          </button>
+          <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:10, lineHeight:1.5 }}>
+            Você aceitou os Termos em: {(() => { try { const d = localStorage.getItem("diariaja_termos_data"); return d ? new Date(d).toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"}) : "—"; } catch { return "—"; } })()}
+          </div>
+        </div>
+
         {/* Versão */}
         <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:12, marginTop:24 }}>
           <div style={{ fontSize:20, marginBottom:4 }}>⚡</div>
-          <strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0<br />
-          Feito com ❤️ em Campo Grande, MS
+          <strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0 · Beta<br />
+          Feito com ❤️ em Campo Grande, MS<br />
+          suporte@diariaja.com.br
         </div>
       </div>
+
+      {/* Tela de Termos completa (acessível aqui também) */}
+      {mostrarTermos && (
+        <div style={{ position:"fixed", inset:0, background:"var(--bg-card,#fff)", zIndex:999, overflowY:"auto", fontFamily:"system-ui,sans-serif" }}>
+          <div style={{ position:"sticky", top:0, background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border,#e2e8f0)", padding:"16px 20px", display:"flex", alignItems:"center", gap:12, zIndex:1 }}>
+            <button style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
+            <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)" }}>Termos de Uso — DiáriaJá</div>
+          </div>
+          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
+            {[
+              { titulo:"1. Apresentação", body:`O DiáriaJá é uma plataforma digital (PWA) que conecta trabalhadores autônomos (diaristas) a empregadores para contratação de serviços pontuais nas categorias: Doméstico, Supermercado, Restaurante, Construção, Eventos, Saúde & Cuidado, Logística e Pet & Animais.\n\nEste Termo observa: LGPD (Lei nº 13.709/2018), Marco Civil da Internet (Lei nº 12.965/2014), CDC (Lei nº 8.078/1990) e LC nº 150/2015.` },
+              { titulo:"2. Natureza da Plataforma", body:`Somos um ambiente digital de intermediação. Não prestamos serviços diretamente, não somos empregador das diaristas e não garantimos qualidade, presença ou pagamento externo.\n\nA relação entre diarista e empregador, após o aceite, é de responsabilidade exclusiva das partes.` },
+              { titulo:"3. Cadastro e Conta", body:`Exigimos dados verdadeiros e completos. O usuário declara ter mais de 18 anos e plena capacidade civil. É proibido: perfis falsos, CPF de terceiros, simular avaliações ou duplicar contas.` },
+              { titulo:"4. Perfil e Verificação", body:`CPF/CNPJ são coletados para verificação interna e nunca exibidos publicamente. O badge "✅ Verificado" indica identidade verificada. O diarista pode publicar portfólio com até 3 fotos.` },
+              { titulo:"5. Publicação de Diárias", body:`O empregador publica vagas com: data, função, valor, horário, local e observações. Diárias recorrentes (semanal/quinzenal) são suportadas. O cancelamento notifica candidatos automaticamente.` },
+              { titulo:"6. Candidaturas, Convites e Aceite", body:`O diarista candidata-se a vagas. O empregador pode também enviar convites diretos. Após o aceite, demais candidatos são recusados. A confirmação de presença é feita via QR Code no app.` },
+              { titulo:"7. Chat e Comunicação", body:`O chat é exclusivo para fins da diária. É proibido assédio, ameaças, spam e conteúdo ilegal. Mensagens são armazenadas para segurança e resolução de conflitos.` },
+              { titulo:"8. Pagamentos e Taxa", body:`O DiáriaJá facilita o pagamento via PIX (chave: suporte@diariaja.com.br). A taxa de plataforma é de 1,5% sobre o valor da diária, devida pelo empregador. Não processamos pagamentos diretamente.\n\nPlanos de assinatura para empregadores oferecem funcionalidades diferenciadas.` },
+              { titulo:"9. Avaliações e Reputação", body:`Avaliações devem refletir experiências reais. São proibidas avaliações falsas, compradas ou manipuladas. O DiáriaJá pode remover avaliações que violem este Termo.` },
+              { titulo:"10. Dados Pessoais (LGPD)", body:`Tratamos: nome, e-mail, foto, CPF/CNPJ (privado), geolocalização, histórico e mensagens. O CPF nunca é exibido publicamente.\n\nVocê pode solicitar acesso, correção, exclusão ou portabilidade pelo e-mail suporte@diariaja.com.br.` },
+              { titulo:"11. Condutas Proibidas", body:`São proibidas: fraude de dados, discriminação, assédio, atividades ilícitas, spam, engenharia reversa e conteúdo ofensivo. O descumprimento pode resultar em exclusão da conta e comunicação às autoridades.` },
+              { titulo:"12. Limitação de Responsabilidade", body:`Não nos responsabilizamos por: informações falsas de usuários, descumprimento de acordos, qualidade do serviço, furtos, acidentes ou falhas de conexão. Os direitos previstos no CDC são preservados.` },
+              { titulo:"13. Informações da Operadora", body:`DiáriaJá · Beta 1.0 · diariaja.vercel.app\nE-mail: suporte@diariaja.com.br\nData de vigência: 21 de maio de 2026\n\nForo: domicílio do consumidor (relações de consumo, conforme CDC). Demais casos: Campo Grande, MS.` },
+            ].map(({ titulo, body }) => (
+              <div key={titulo} style={{ marginBottom:24 }}>
+                <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:8, paddingBottom:6, borderBottom:"2px solid #FF6B35" }}>{titulo}</div>
+                {body.split("\n\n").map((p, i) => (
+                  <p key={i} style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.7, marginBottom:10 }}>{p}</p>
+                ))}
+              </div>
+            ))}
+            <button
+              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:8 }}
+              onClick={() => setMostrarTermos(false)}>
+              ← Voltar
+            </button>
+          </div>
+        </div>
+      )}
+      </>
     );
   }
 
@@ -4063,7 +4253,7 @@ export default function App() {
                 <div style={{ textAlign:"center", marginBottom:16 }}>
                   <div style={{ fontSize:48, lineHeight:1, marginBottom:8 }}>🧾</div>
                   <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>Recibo de Serviço</div>
-                  <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:4 }}>Trampojá · {new Date().toLocaleDateString("pt-BR")}</div>
+                  <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:4 }}>DiáriaJá · {new Date().toLocaleDateString("pt-BR")}</div>
                 </div>
                 <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:"16px 18px", marginBottom:16 }}>
                   {[
@@ -4090,8 +4280,8 @@ export default function App() {
                 <button
                   style={{ width:"100%", padding:"13px", background:"#0f172a", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
                   onClick={() => {
-                    const texto = `🧾 RECIBO DE SERVIÇO - Trampojá\n\nServiço: ${modalRecibo.funcao||modalRecibo.descricao}\nData: ${new Date(modalRecibo.data+"T12:00:00").toLocaleDateString("pt-BR")}\nHorário: ${modalRecibo.horario_inicio.slice(0,5)} – ${modalRecibo.horario_fim.slice(0,5)}\nLocal: ${modalRecibo.nome_negocio||modalRecibo.segmento}\nProfissional: ${dp?.nome||"—"}\nValor: R$ ${modalRecibo.valor}\n\nGerado em: ${new Date().toLocaleString("pt-BR")}`;
-                    if (navigator.share) { navigator.share({ title:"Recibo Trampojá", text:texto }); }
+                    const texto = `🧾 RECIBO DE SERVIÇO - DiáriaJá\n\nServiço: ${modalRecibo.funcao||modalRecibo.descricao}\nData: ${new Date(modalRecibo.data+"T12:00:00").toLocaleDateString("pt-BR")}\nHorário: ${modalRecibo.horario_inicio.slice(0,5)} – ${modalRecibo.horario_fim.slice(0,5)}\nLocal: ${modalRecibo.nome_negocio||modalRecibo.segmento}\nProfissional: ${dp?.nome||"—"}\nValor: R$ ${modalRecibo.valor}\n\nGerado em: ${new Date().toLocaleString("pt-BR")}`;
+                    if (navigator.share) { navigator.share({ title:"Recibo DiáriaJá", text:texto }); }
                     else { navigator.clipboard?.writeText(texto); setToastSuccess("📋 Recibo copiado!"); }
                   }}>
                   📤 Compartilhar recibo
@@ -4134,7 +4324,7 @@ export default function App() {
                     { k:"Serviço",             v: modalPagamentoMP.funcao || modalPagamentoMP.segmento },
                     { k:"Data",                v: new Date(modalPagamentoMP.data+"T12:00:00").toLocaleDateString("pt-BR") },
                     { k:"Valor do diarista",   v: `R$ ${valorDiar.toFixed(2)}` },
-                    { k:"Taxa Trampojá (1,5%)",v: `R$ ${taxa.toFixed(2)}` },
+                    { k:"Taxa DiáriaJá (1,5%)",v: `R$ ${taxa.toFixed(2)}` },
                   ].map(r => (
                     <div key={r.k} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
                       <span style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>{r.k}</span>
@@ -4153,7 +4343,7 @@ export default function App() {
                     <strong>Como funciona:</strong>
                     <br />1. Você paga agora via MP (cartão, PIX ou saldo)
                     <br />2. O diarista recebe <strong>R$ {valorDiar.toFixed(2)}</strong> automaticamente após a conclusão
-                    <br />3. O Trampojá retém <strong>R$ {taxa.toFixed(2)}</strong> como taxa de conexão
+                    <br />3. O DiáriaJá retém <strong>R$ {taxa.toFixed(2)}</strong> como taxa de conexão
                   </div>
                 </div>
 
@@ -4228,27 +4418,27 @@ export default function App() {
                 {isDeliveryPix && valorEncostada && (
                   <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"16px 18px", marginBottom:12 }}>
                     <div style={{ fontSize:11, fontWeight:800, color:"#92400e", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:10 }}>
-                      🏍️ Taxa de plataforma — Trampojá
+                      🏍️ Taxa de plataforma — DiáriaJá
                     </div>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
                       <span style={{ fontSize:13, color:"#92400e" }}>Valor da encostada</span>
                       <span style={{ fontSize:20, fontWeight:900, color:"#FF6B35" }}>R$ {valorEncostada}</span>
                     </div>
                     <div style={{ background:"var(--bg-card,#fff)", border:"1.5px solid #fed7aa", borderRadius:12, padding:"12px 14px" }}>
-                      <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, marginBottom:4 }}>CHAVE PIX — Trampojá</div>
-                      <div style={{ fontSize:16, fontWeight:900, color:"#FF6B35" }}>trampojaoficial@gmail.com</div>
+                      <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, marginBottom:4 }}>CHAVE PIX — DiáriaJá</div>
+                      <div style={{ fontSize:16, fontWeight:900, color:"#FF6B35" }}>suporte@diariaja.com.br</div>
                       <div style={{ fontSize:12, color:"#92400e", marginTop:4 }}>Pagar separado do profissional</div>
                     </div>
                     <button
                       style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:10 }}
-                      onClick={() => { navigator.clipboard?.writeText("trampojaoficial@gmail.com"); setToastSuccess("✅ Chave PIX Trampojá copiada!"); }}>
-                      📋 Copiar chave Trampojá
+                      onClick={() => { navigator.clipboard?.writeText("suporte@diariaja.com.br"); setToastSuccess("✅ Chave PIX DiáriaJá copiada!"); }}>
+                      📋 Copiar chave DiáriaJá
                     </button>
                   </div>
                 )}
 
                 <div style={{ background:"#fef3c7", borderRadius:12, padding:"9px 13px", fontSize:12, color:"#92400e", lineHeight:1.5, marginBottom:16 }}>
-                  ℹ️ Realize o pagamento pelo app do seu banco usando a chave PIX acima. O Trampojá não processa pagamentos — somos uma plataforma de anúncios.
+                  ℹ️ Realize o pagamento pelo app do seu banco usando a chave PIX acima. O DiáriaJá não processa pagamentos — somos uma plataforma de anúncios.
                 </div>
 
                 <button
@@ -4567,13 +4757,13 @@ export default function App() {
             <div style={{ ...S.section, background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, margin:"0 16px 16px", border:"1.5px solid var(--border,#e2e8f0)" }}>
               <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>🎁 Indique e cresça</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:12, lineHeight:1.5 }}>
-                Indique o Trampojá para outros empregadores e diaristas da sua região!
+                Indique o DiáriaJá para outros empregadores e diaristas da sua região!
               </div>
               <button
                 style={{ ...S.btnPrimary, background:negocio.cor, fontSize:13 }}
                 onClick={() => {
                   const link = `https://diariaja.vercel.app/?ref=${session?.user?.id?.slice(0,8)}`;
-                  if (navigator.share) { navigator.share({ title:"Trampojá", text:`Use o Trampojá para contratar diaristas! ${link}`, url:link }); }
+                  if (navigator.share) { navigator.share({ title:"DiáriaJá", text:`Use o DiáriaJá para contratar diaristas! ${link}`, url:link }); }
                   else { navigator.clipboard?.writeText(link); setToastSuccess("🔗 Link de indicação copiado!"); }
                 }}>
                 📨 Compartilhar meu link
@@ -6033,13 +6223,13 @@ export default function App() {
             <div style={{ ...S.section, background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, margin:"0 16px 16px", border:"1.5px solid var(--border,#e2e8f0)" }}>
               <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>🎁 Indique e ganhe</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:12, lineHeight:1.5 }}>
-                Compartilhe o Trampojá com empregadores e outros diaristas. Quanto mais a plataforma cresce, mais vagas aparecem para você!
+                Compartilhe o DiáriaJá com empregadores e outros diaristas. Quanto mais a plataforma cresce, mais vagas aparecem para você!
               </div>
               <button
                 style={{ ...S.btnPrimary, background:"#16a34a", fontSize:13 }}
                 onClick={() => {
                   const link = `https://diariaja.vercel.app/?ref=${session?.user?.id?.slice(0,8)}`;
-                  if (navigator.share) { navigator.share({ title:"Trampojá", text:`Encontrei vagas de diária pelo Trampojá! Cadastre-se: ${link}`, url:link }); }
+                  if (navigator.share) { navigator.share({ title:"DiáriaJá", text:`Encontrei vagas de diária pelo DiáriaJá! Cadastre-se: ${link}`, url:link }); }
                   else { navigator.clipboard?.writeText(link); setToastSuccess("🔗 Link de indicação copiado!"); }
                 }}>
                 📨 Compartilhar meu link
@@ -7419,12 +7609,12 @@ export default function App() {
             <Secao icone="🏍️" titulo="Informações de Delivery" sub="Preencha os valores para o entregador" />
 
             <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:14, padding:"12px 14px", marginBottom:16, fontSize:13, color:"#92400e", lineHeight:1.6 }}>
-              <strong>💡 Como funciona:</strong> O <em>valor por encostada</em> é a taxa de conexão paga ao Trampojá por cada entregador alocado. Os demais valores são informativos para o entregador estimar o ganho do dia.
+              <strong>💡 Como funciona:</strong> O <em>valor por encostada</em> é a taxa de conexão paga ao DiáriaJá por cada entregador alocado. Os demais valores são informativos para o entregador estimar o ganho do dia.
             </div>
 
             <label style={S.label}>Valor por encostada (R$) *</label>
             <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px" }}>
-              Taxa de alocação cobrada pelo Trampojá por entregador contratado.
+              Taxa de alocação cobrada pelo DiáriaJá por entregador contratado.
             </p>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
@@ -8253,7 +8443,7 @@ export default function App() {
         </div>
 
         <p style={{ textAlign:"center", color:"#334155", fontSize:11, margin:"20px 24px 0", lineHeight:1.6 }}>
-          Os planos são gerenciados pelo Mercado Pago. O Trampojá não armazena dados de cartão.
+          Os planos são gerenciados pelo Mercado Pago. O DiáriaJá não armazena dados de cartão.
         </p>
       </div>
     );

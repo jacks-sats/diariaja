@@ -1,4 +1,4 @@
-// Service Worker — Trampojá PWA
+// Service Worker — DiáriaJá PWA
 const CACHE = "trampojaV1";
 const ASSETS = ["/", "/index.html"];
 
@@ -34,7 +34,7 @@ self.addEventListener("fetch", e => {
 self.addEventListener("push", e => {
   const data = e.data?.json() || {};
   e.waitUntil(
-    self.registration.showNotification(data.title || "Trampojá", {
+    self.registration.showNotification(data.title || "DiáriaJá", {
       body: data.body || "Você tem uma nova notificação!",
       icon: "/icon-192.png",
       badge: "/icon-192.png",
