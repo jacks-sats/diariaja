@@ -3897,7 +3897,7 @@ export default function App() {
                             {dia.pagamento_status === "pago" && (
                               <span style={{ background:"#dcfce7", color:"#15803d", padding:"3px 9px", borderRadius:20, fontSize:10, fontWeight:800 }}>💳 Pago</span>
                             )}
-                            {(dia.pagamento_status === "aguardando" || !dia.pagamento_status) && dia.diarista_aceite_id && dia.status !== "aberta" && (
+                            {(dia.pagamento_status === "aguardando" || !dia.pagamento_status) && dia.diarista_aceite_id && (dia.status === "aceita" || dia.status === "em_andamento") && (
                               <span style={{ background:"#fef3c7", color:"#d97706", padding:"3px 9px", borderRadius:20, fontSize:10, fontWeight:800 }}>⏳ Pg. pendente</span>
                             )}
                           </div>
@@ -3951,16 +3951,16 @@ export default function App() {
                         {/* ── Painel de ações rápidas (aparece ao expandir o card) ── */}
                         {estaExpandida && (
                           <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const, marginTop:10, paddingTop:10, borderTop:"1px solid var(--border,#f1f5f9)" }} onClick={e => e.stopPropagation()}>
-                            {/* Chat — quando há diarista aceito */}
-                            {(dia.status === "aceita" || dia.status === "em_andamento") && dia.diarista_aceite_id && (
+                            {/* Chat — liberado após pagamento */}
+                            {((dia.status === "aceita" && dia.pagamento_status === "pago") || dia.status === "em_andamento") && dia.diarista_aceite_id && (
                               <button
                                 style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#eff6ff", color:"#3A86FF", border:"1.5px solid #bfdbfe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                 onClick={() => { setChatDiariaAtiva(dia); setTabEmpregador("chat"); setMsgNaoLidas(0); }}>
                                 💬 Chat
                               </button>
                             )}
-                            {/* Pagar — quando há diarista pendente/aceito e pagamento pendente */}
-                            {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && (dia.status === "pendente" || dia.status === "aceita") && (
+                            {/* Pagar — só depois que o diarista confirmou (status "aceita") */}
+                            {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && dia.status === "aceita" && (
                               <button
                                 style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f0fdf4", color:"#15803d", border:"1.5px solid #bbf7d0", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                 onClick={() => setModalPix(dia)}>
@@ -4012,8 +4012,8 @@ export default function App() {
                             {dia.ganho_estimado_dia && <span style={{ fontSize:11, color:"#92400e" }}>💰 Estimativa: <strong>R$ {dia.ganho_estimado_dia}</strong></span>}
                           </div>
                         )}
-                        {/* Botão pagar via MP — aparece quando há diarista aguardando/confirmado e pagamento pendente */}
-                        {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && (dia.status === "pendente" || dia.status === "aceita") && (
+                        {/* Botão pagar via MP — só depois que o diarista confirmou (status "aceita") */}
+                        {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && dia.status === "aceita" && (
                           <button
                             style={{ width:"100%", padding:"13px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:10, boxShadow:"0 4px 16px rgba(0,158,227,.4)", opacity: criandoPagamento ? 0.7 : 1 }}
                             disabled={criandoPagamento}
@@ -4864,6 +4864,21 @@ export default function App() {
                 <div style={{ background:"#fef3c7", borderRadius:12, padding:"9px 13px", fontSize:12, color:"#92400e", lineHeight:1.5, marginBottom:16 }}>
                   ℹ️ Realize o pagamento pelo app do seu banco usando a chave PIX acima. O DiáriaJá não processa pagamentos — somos uma plataforma de anúncios.
                 </div>
+
+                {/* Botão "Já paguei" — só para diárias (não convites); libera o chat */}
+                {(modalPix as any).diarista_aceite_id && (modalPix as any).pagamento_status !== "pago" && (
+                  <button
+                    style={{ width:"100%", padding:"13px", background:"linear-gradient(135deg,#22c55e,#16a34a)", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+                    onClick={async () => {
+                      const diariaId = (modalPix as any).id;
+                      await supabase.from("diarias").update({ pagamento_status: "pago" }).eq("id", diariaId);
+                      setDiarias(prev => prev.map(d => d.id === diariaId ? { ...d, pagamento_status: "pago" } : d));
+                      setToastSuccess("✅ Pagamento confirmado! O chat foi liberado.");
+                      setModalPix(null);
+                    }}>
+                    ✅ Já paguei — liberar chat
+                  </button>
+                )}
 
                 <button
                   style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
