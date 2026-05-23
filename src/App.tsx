@@ -3465,7 +3465,7 @@ export default function App() {
                                   🟣 Diarista confirmou presença! <strong>Escaneie o QR Code</strong> dele acima quando ele chegar.
                                 </div>
                               ) : (
-                                <div style={{ background:"#eff6ff", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", fontWeight:600 }}>
+                                <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", fontWeight:600 }}>
                                   📲 Peça ao diarista o QR Code e toque em <strong>"Escanear"</strong> acima para confirmar a chegada.
                                 </div>
                               )}
@@ -4539,11 +4539,11 @@ export default function App() {
               const planoAtivo = assinatura?.plano || "gratis";
               const planoInfo = PLANOS_EMPREGADOR.find(p => p.id === planoAtivo);
               return (
-                <div style={{ margin:"0 16px 16px", background: planoAtivo === "gratis" ? "#f8fafc" : "linear-gradient(135deg,#FF6B35,#e85d2e)", borderRadius:20, padding:"16px 18px", border: planoAtivo === "gratis" ? "1.5px solid #e2e8f0" : "none" }}>
+                <div style={{ margin:"0 16px 16px", background: planoAtivo === "gratis" ? "var(--bg-surface,#f8fafc)" : "linear-gradient(135deg,#FF6B35,#e85d2e)", borderRadius:20, padding:"16px 18px", border: planoAtivo === "gratis" ? "1.5px solid var(--border,#e2e8f0)" : "none" }}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                     <div>
-                      <div style={{ fontSize:11, fontWeight:700, color: planoAtivo === "gratis" ? "#94a3b8" : "rgba(255,255,255,.75)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>Plano atual</div>
-                      <div style={{ fontSize:17, fontWeight:900, color: planoAtivo === "gratis" ? "#0f172a" : "#fff" }}>
+                      <div style={{ fontSize:11, fontWeight:700, color: planoAtivo === "gratis" ? "var(--text-3,#94a3b8)" : "rgba(255,255,255,.75)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>Plano atual</div>
+                      <div style={{ fontSize:17, fontWeight:900, color: planoAtivo === "gratis" ? "var(--text-1,#0f172a)" : "#fff" }}>
                         {planoInfo?.nome || "Grátis"}
                         {planoAtivo !== "gratis" && " ✅"}
                       </div>
@@ -4564,7 +4564,7 @@ export default function App() {
             })()}
 
             {/* Indicação empregador */}
-            <div style={{ ...S.section, background:"#eff6ff", borderRadius:20, margin:"0 16px 16px", border:"1.5px solid #bfdbfe" }}>
+            <div style={{ ...S.section, background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, margin:"0 16px 16px", border:"1.5px solid var(--border,#e2e8f0)" }}>
               <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>🎁 Indique e cresça</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:12, lineHeight:1.5 }}>
                 Indique o Trampojá para outros empregadores e diaristas da sua região!
@@ -6030,7 +6030,7 @@ export default function App() {
             })()}
 
             {/* Sistema de Indicação */}
-            <div style={{ ...S.section, background:"#f0fdf4", borderRadius:20, margin:"0 16px 16px", border:"1.5px solid #bbf7d0" }}>
+            <div style={{ ...S.section, background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, margin:"0 16px 16px", border:"1.5px solid var(--border,#e2e8f0)" }}>
               <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>🎁 Indique e ganhe</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:12, lineHeight:1.5 }}>
                 Compartilhe o Trampojá com empregadores e outros diaristas. Quanto mais a plataforma cresce, mais vagas aparecem para você!
@@ -6333,7 +6333,7 @@ export default function App() {
                         <strong>Valor oferecido</strong>
                         <strong style={{ color:"#FF6B35", fontSize:17 }}>R$ {vagaConfirm.valor}/dia</strong>
                       </div>
-                      <div style={{ background:"#eff6ff", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", marginTop:12 }}>
+                      <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", marginTop:12 }}>
                         💡 O endereço completo só será revelado após o contratante te selecionar e você confirmar a presença.
                       </div>
                       {authError && <p style={S.errorText}>{authError}</p>}
