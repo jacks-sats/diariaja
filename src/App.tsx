@@ -456,6 +456,9 @@ export default function App() {
   const [motivoDenuncia, setMotivoDenuncia] = useState("");
   const [enviandoDenuncia, setEnviandoDenuncia] = useState(false);
 
+  // Contato liberado após pagamento (Set de convite IDs cujo contato foi desbloqueado)
+  const [contatosLiberados, setContatosLiberados] = useState<Set<string>>(new Set());
+
   // BUG-C1 fix: faqAberta deve estar no topo, não dentro do bloco if(tela==="suporte")
   const [faqAberta, setFaqAberta] = useState<number | null>(null);
 
@@ -2937,7 +2940,11 @@ export default function App() {
   // HOME EMPREGADOR
   if (tela === "home-empregador") {
     if (!negocio) { setTimeout(() => setTela("escolha-negocio"), 0); return null; }
-    const funcoes = ["Todos", ...funcoesDoNegocio];
+    // Todas as funções disponíveis em TODAS as categorias (para o filtro de chip)
+    const todasAsFuncoes = Array.from(new Set(
+      Object.values(CATEGORIAS_NEGOCIO).flatMap(cat => [...cat.funcoes])
+    )).sort();
+    const funcoes = ["Todos", ...todasAsFuncoes];
     const iniciaisEmp = profile?.nome?.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase() || "?";
     const hora = new Date().getHours();
     const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
@@ -2952,11 +2959,9 @@ export default function App() {
 
     const diaristasReaisVisiveis = diaristasReais
       .filter(d => {
-        // Exibe apenas diaristas disponíveis E cuja HABILIDADE PRINCIPAL (funcao) bate com o negócio
-        if (!d.disponivel) return false;
-        const temFuncaoPrincipal = funcoesDoNegocio.includes(d.funcao);
-        if (!temFuncaoPrincipal) return false;
-        // Filtro extra por função específica (chips no topo)
+        // "Disponíveis hoje" é filtro OPCIONAL (chip no topo)
+        if (filtroDisp && !d.disponivel) return false;
+        // Filtro por função específica (chip no topo)
         if (filtroFuncao !== "Todos" && d.funcao !== filtroFuncao) return false;
         return true;
       })
@@ -3238,8 +3243,11 @@ export default function App() {
                     const min = (parseInt(h2s)*60+parseInt(m2s)) - (parseInt(h1s)*60+parseInt(m1s));
                     const dur = min > 0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
                     const bordaCor = dia.status==="em_andamento" ? "#f59e0b" : dia.status==="aceita" ? "#3A86FF" : dia.status==="concluida" ? "#22c55e" : dia.status==="cancelada" ? "#ef4444" : "#e2e8f0";
+                    const estaExpandida = detalhesDiaria?.id === dia.id;
                     return (
-                      <div key={dia.id} style={{ background:"#fff", borderRadius:18, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:`4px solid ${bordaCor}` }}>
+                      <div key={dia.id}
+                        style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:`4px solid ${bordaCor}`, cursor:"pointer", transition:"box-shadow .15s" }}
+                        onClick={() => setDetalhesDiaria(estaExpandida ? null : dia)}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
                           <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
                             <span style={{ background:sl.bg, color:sl.color, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800 }}>{sl.txt}</span>
@@ -3257,7 +3265,7 @@ export default function App() {
                               <button
                                 style={{ background:"#eff6ff", color:"#3A86FF", border:"none", borderRadius:8, padding:"4px 9px", fontSize:14, cursor:"pointer", lineHeight:1 }}
                                 title="Editar diária"
-                                onClick={() => { setModalEditarDiaria(dia); setFormEditarDiaria({ descricao:dia.descricao, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); setAuthError(""); }}>
+                                onClick={e => { e.stopPropagation(); setModalEditarDiaria(dia); setFormEditarDiaria({ descricao:dia.descricao, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); setAuthError(""); }}>
                                 ✏️
                               </button>
                             )}
@@ -3267,13 +3275,13 @@ export default function App() {
                                 <button
                                   style={{ background:"#f0fdf4", color:"#16a34a", border:"none", borderRadius:8, padding:"4px 9px", fontSize:14, cursor:"pointer", lineHeight:1 }}
                                   title="Ver recibo"
-                                  onClick={() => setModalRecibo(dia)}>
+                                  onClick={e => { e.stopPropagation(); setModalRecibo(dia); }}>
                                   🧾
                                 </button>
                                 <button
                                   style={{ background:"#f0fdf4", color:"#16a34a", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", lineHeight:1 }}
                                   title="Pagar via PIX"
-                                  onClick={() => setModalPix(dia)}>
+                                  onClick={e => { e.stopPropagation(); setModalPix(dia); }}>
                                   PIX
                                 </button>
                               </>
@@ -3282,18 +3290,78 @@ export default function App() {
                               <button
                                 style={{ background:"#fee2e2", color:"#ef4444", border:"none", borderRadius:8, padding:"4px 9px", fontSize:14, cursor:"pointer", fontFamily:"system-ui,sans-serif", lineHeight:1 }}
                                 title="Excluir diária"
-                                onClick={() => setModalExcluir(dia)}>
+                                onClick={e => { e.stopPropagation(); setModalExcluir(dia); }}>
                                 🗑️
                               </button>
                             )}
                             <span style={{ fontWeight:900, fontSize:16, color:negocio.cor }}>R$ {dia.valor}</span>
+                            {/* Indicador expand/collapse */}
+                            <span style={{ fontSize:12, color:"#94a3b8", transition:"transform .2s", display:"inline-block", transform: estaExpandida ? "rotate(180deg)" : "rotate(0deg)" }}>▼</span>
                           </div>
                         </div>
-                        <div style={{ fontWeight:700, fontSize:14, color:"#0f172a", marginBottom:6 }}>{dia.descricao}</div>
-                        <div style={{ fontSize:12, color:"#64748b", marginBottom:4 }}>
+                        <div style={{ fontWeight:700, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:6 }}>{dia.descricao}</div>
+                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:4 }}>
                           {dia.funcao && <span>👷 {dia.funcao} · </span>}
                           <span>📅 {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {dia.horario_inicio.slice(0,5)}–{dia.horario_fim.slice(0,5)}{dur ? ` · ${dur}` : ""}</span>
                         </div>
+                        {dia.endereco && <div style={{ fontSize:11, color:"#94a3b8", marginBottom:4 }}>📍 {dia.endereco.split(", ").slice(0,3).join(", ")}</div>}
+
+                        {/* ── Painel de ações rápidas (aparece ao expandir o card) ── */}
+                        {estaExpandida && (
+                          <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const, marginTop:10, paddingTop:10, borderTop:"1px solid var(--border,#f1f5f9)" }} onClick={e => e.stopPropagation()}>
+                            {/* Chat — quando há diarista aceito */}
+                            {(dia.status === "aceita" || dia.status === "em_andamento") && dia.diarista_aceite_id && (
+                              <button
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#eff6ff", color:"#3A86FF", border:"1.5px solid #bfdbfe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                onClick={() => { setChatDiariaAtiva(dia); setTabEmpregador("chat"); setMsgNaoLidas(0); }}>
+                                💬 Chat
+                              </button>
+                            )}
+                            {/* Pagar — quando há diarista selecionado/aceito e pagamento pendente */}
+                            {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && (dia.status === "selecionado" || dia.status === "aceita") && (
+                              <button
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f0fdf4", color:"#15803d", border:"1.5px solid #bbf7d0", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                onClick={() => setModalPix(dia)}>
+                                💳 Pagar
+                              </button>
+                            )}
+                            {/* Ver candidatos — diária aberta */}
+                            {dia.status === "aberta" && (() => {
+                              const cands = candidaturas.filter(c => c.diaria_id === dia.id && c.status === "pendente");
+                              return cands.length > 0 ? (
+                                <button
+                                  style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f5f3ff", color:"#7c3aed", border:"1.5px solid #ddd6fe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                  onClick={() => setModalCandidatos(dia)}>
+                                  👥 {cands.length} candidato{cands.length>1?"s":""}
+                                </button>
+                              ) : null;
+                            })()}
+                            {/* Editar */}
+                            {(dia.status === "aberta" || dia.status === "selecionado") && (
+                              <button
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#fef3c7", color:"#92400e", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                onClick={() => { setModalEditarDiaria(dia); setFormEditarDiaria({ descricao:dia.descricao, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); }}>
+                                ✏️ Editar
+                              </button>
+                            )}
+                            {/* Cancelar */}
+                            {dia.status !== "concluida" && dia.status !== "cancelada" && (
+                              <button
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#fef2f2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                onClick={() => { setModalCancelar(dia); setMotivoCancelamento(""); }}>
+                                ✕ Cancelar
+                              </button>
+                            )}
+                            {/* Recibo (concluída) */}
+                            {dia.status === "concluida" && (
+                              <button
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f0fdf4", color:"#15803d", border:"1.5px solid #bbf7d0", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                onClick={() => setModalRecibo(dia)}>
+                                🧾 Recibo
+                              </button>
+                            )}
+                          </div>
+                        )}
                         {/* Delivery info para empregador */}
                         {FUNCOES_DELIVERY.includes(dia.funcao) && (dia.valor_encostada || dia.valor_por_entrega || dia.ganho_estimado_dia) && (
                           <div style={{ display:"flex", gap:10, flexWrap:"wrap", background:"#fff7ed", border:"1px solid #fed7aa", borderRadius:10, padding:"7px 10px", marginBottom: (dia.status==="aceita"||dia.status==="em_andamento") ? 12 : 4 }}>
@@ -3307,7 +3375,7 @@ export default function App() {
                           <button
                             style={{ width:"100%", padding:"13px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:10, boxShadow:"0 4px 16px rgba(0,158,227,.4)", opacity: criandoPagamento ? 0.7 : 1 }}
                             disabled={criandoPagamento}
-                            onClick={() => { setModalPagamentoMP(dia); setAuthError(""); }}>
+                            onClick={e => { e.stopPropagation(); setModalPagamentoMP(dia); setAuthError(""); }}>
                             <svg width="20" height="20" viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="10" fill="#fff"/><text x="50%" y="60%" dominantBaseline="middle" textAnchor="middle" fontSize="28" fontWeight="900" fill="#009ee3">$</text></svg>
                             {criandoPagamento ? "Aguarde..." : "Pagar via Mercado Pago"}
                           </button>
@@ -3363,7 +3431,7 @@ export default function App() {
                               </div>
                               <button
                                 style={{ background:"none", border:"none", color:"#94a3b8", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
-                                onClick={() => { setModalCancelar(dia); setMotivoCancelamento(""); }}>
+                                onClick={e => { e.stopPropagation(); setModalCancelar(dia); setMotivoCancelamento(""); }}>
                                 Cancelar diária
                               </button>
                             </div>
@@ -3414,7 +3482,7 @@ export default function App() {
                               {cands.length > 0 ? (
                                 <button
                                   style={{ width:"100%", padding:"11px", background:"#5D5FEF", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 12px rgba(93,95,239,.35)" }}
-                                  onClick={() => setModalCandidatos(dia)}>
+                                  onClick={e => { e.stopPropagation(); setModalCandidatos(dia); }}>
                                   👥 Ver {cands.length} candidato{cands.length > 1 ? "s" : ""} interessado{cands.length > 1 ? "s" : ""}
                                 </button>
                               ) : (
@@ -3424,7 +3492,7 @@ export default function App() {
                               )}
                               <button
                                 style={{ background:"none", border:"none", color:"#94a3b8", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
-                                onClick={() => { setModalCancelar(dia); setMotivoCancelamento(""); }}>
+                                onClick={e => { e.stopPropagation(); setModalCancelar(dia); setMotivoCancelamento(""); }}>
                                 Cancelar publicação
                               </button>
                             </div>
@@ -3440,7 +3508,7 @@ export default function App() {
                         {dia.status === "em_andamento" && (
                           <button
                             style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 12px rgba(34,197,94,.4)" }}
-                            onClick={() => concluirDiaria(dia.id)}>
+                            onClick={e => { e.stopPropagation(); concluirDiaria(dia.id); }}>
                             ✅ Marcar como concluída
                           </button>
                         )}
@@ -5017,10 +5085,25 @@ export default function App() {
         {/* ── ABA INÍCIO ── */}
         {tabDiarista === "inicio" && (
           <>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 10px" }}>
+            {/* Toggle de disponibilidade — fixo no topo da aba */}
+            <div style={{ margin:"12px 16px 0", background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 1px 6px rgba(0,0,0,.07)", border:"1.5px solid var(--border,#e2e8f0)" }}>
               <div>
-                <div style={{ fontSize:17, fontWeight:900, color:"#0f172a" }}>💼 Vagas para você</div>
-                <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>
+                  {disponivelAgora ? "🟢 Disponível agora" : "⚫ Indisponível"}
+                </div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                  {disponivelAgora ? "Você aparece para os empregadores" : "Toque para aparecer para empregadores"}
+                </div>
+              </div>
+              <div style={{ ...S.toggle, ...(disponivelAgora ? S.toggleAtivo : {}) }} onClick={handleToggleDisponivel}>
+                <div style={{ ...S.toggleThumb, ...(disponivelAgora ? S.toggleThumbAtivo : {}) }} />
+              </div>
+            </div>
+
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 20px 10px" }}>
+              <div>
+                <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>💼 Vagas para você</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
                   {vagasFiltradas.length} {vagasFiltradas.length === 1 ? "vaga encontrada" : "vagas encontradas"}
                   {categoriasSelecionadas.length > 0 ? ` · ${categoriasSelecionadas.length} filtro${categoriasSelecionadas.length > 1 ? "s" : ""} ativo${categoriasSelecionadas.length > 1 ? "s" : ""}` : ""}
                 </div>
@@ -6923,7 +7006,8 @@ export default function App() {
           }
 
           if (statusConvite === "aceito") {
-            // ── Estado: aceito — libera pagamento e contato ──
+            // ── Estado: aceito — contato liberado apenas após pagamento ──
+            const contatoJaLiberado = conviteAtivo && contatosLiberados.has(conviteAtivo.id);
             return (
               <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
                 <div style={{ background:"#dcfce7", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 }}>
@@ -6931,32 +7015,51 @@ export default function App() {
                   <div>
                     <div style={{ fontWeight:800, fontSize:14, color:"#166534" }}>Convite aceito!</div>
                     <div style={{ fontSize:12, color:"#15803d", marginTop:2 }}>
-                      {d.nome.split(" ")[0]} vai na sua diária. Combine os detalhes abaixo.
+                      {d.nome.split(" ")[0]} confirmou presença. Efetue o pagamento para ver o contato.
                     </div>
                   </div>
                 </div>
-                {/* Contato liberado */}
-                {d.telefone ? (
-                  <a
-                    href={`https://wa.me/55${d.telefone.replace(/\D/g,"")}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ ...S.btnPrimary, background:"#22c55e", textDecoration:"none", textAlign:"center" as const }}>
-                    📱 WhatsApp: {d.telefone}
-                  </a>
+
+                {/* Contato — bloqueado até pagamento */}
+                {contatoJaLiberado ? (
+                  d.telefone ? (
+                    <a
+                      href={`https://wa.me/55${d.telefone.replace(/\D/g,"")}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ ...S.btnPrimary, background:"#22c55e", textDecoration:"none", textAlign:"center" as const }}>
+                      📱 WhatsApp: {d.telefone}
+                    </a>
+                  ) : (
+                    <div style={{ background:"#f1f5f9", borderRadius:12, padding:"12px 16px", fontSize:13, color:"#64748b", textAlign:"center" as const }}>
+                      📞 Contato não cadastrado pelo profissional
+                    </div>
+                  )
                 ) : (
-                  <div style={{ background:"#f1f5f9", borderRadius:12, padding:"12px 16px", fontSize:13, color:"#64748b", textAlign:"center" as const }}>
-                    📞 Contato não cadastrado pelo profissional
+                  <div style={{ background:"#fef3c7", borderRadius:14, padding:"14px 16px", textAlign:"center" as const }}>
+                    <div style={{ fontSize:20, marginBottom:6 }}>🔒</div>
+                    <div style={{ fontWeight:800, fontSize:13, color:"#92400e", marginBottom:4 }}>Contato bloqueado</div>
+                    <div style={{ fontSize:12, color:"#a16207", lineHeight:1.5 }}>
+                      Pague para desbloquear o WhatsApp de {d.nome.split(" ")[0]}.
+                    </div>
                   </div>
                 )}
-                {/* Liberar pagamento */}
-                {conviteAtivo?.valor && (
+
+                {/* Botão pagamento + desbloquear contato */}
+                {!contatoJaLiberado && (
                   <button
                     style={{ ...S.btnPrimary, background:cor }}
-                    onClick={() => setModalPix(conviteAtivo as any)}>
-                    💳 Liberar pagamento — R$ {conviteAtivo.valor}
+                    onClick={() => {
+                      if (conviteAtivo) {
+                        setModalPix(conviteAtivo as any);
+                        // Marca o contato como liberado ao clicar em pagar (simula confirmação)
+                        setContatosLiberados(prev => new Set([...prev, conviteAtivo.id]));
+                      }
+                    }}>
+                    💳 Pagar e desbloquear contato{conviteAtivo?.valor ? ` — R$ ${conviteAtivo.valor}` : ""}
                   </button>
                 )}
+
                 <button
                   style={{ ...S.btnSecondary, color:cor, borderColor:cor, fontSize:12 }}
                   onClick={() => { setModalConvite(true); }}>
