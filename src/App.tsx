@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import { Session } from "@supabase/supabase-js";
 import MapComponent from "./MapComponent";
@@ -246,8 +246,11 @@ export default function App() {
   const [modalTermoDiarista, setModalTermoDiarista] = useState<Diaria | null>(null);
   const [termoDiaristaCheck, setTermoDiaristaCheck] = useState(false);
   const [chatSuporte, setChatSuporte] = useState(false);
-  const [msgsSuporte, setMsgsSuporte] = useState<{de: "user"|"bot", texto: string}[]>([{de:"bot", texto:"Olá! 👋 Sou o assistente do DiáriaJá. Como posso ajudar? Digite sua dúvida!"}]);
+  const [msgsSuporte, setMsgsSuporte] = useState<{de: "user"|"bot", texto: string}[]>([{de:"bot", texto:"Olá! 👋 Sou a **Jájá**, assistente virtual do Trampojá. Conheço todo o app e posso te ajudar agora! O que você precisa?"}]);
   const [inputSuporte, setInputSuporte] = useState("");
+  const [suporteDigitando, setSuporteDigitando] = useState(false);
+  // Histórico no formato Anthropic API (role: user | assistant)
+  const historicoSuporteRef = useRef<{role:"user"|"assistant", content:string}[]>([]);
   const [habilidadesExpandidas, setHabilidadesExpandidas] = useState(false);
   const [modalReciboDiarista, setModalReciboDiarista] = useState<Diaria | null>(null);
 
@@ -2201,13 +2204,45 @@ export default function App() {
     { keys: ["seguro","garantia","confiavel","verificado"], resp: "Todos os diaristas com badge '✅ Verificado' tiveram o CPF confirmado. Recomendamos verificar avaliações e histórico antes de contratar. 🛡️" },
   ];
 
-  const responderSuporte = (msg: string) => {
-    const lower = msg.toLowerCase();
-    const faq = SUPORTE_FAQ.find(f => f.keys.some(k => lower.includes(k)));
-    const resp = faq?.resp ?? "Não encontrei resposta exata para isso 🤔. Pode reformular? Ou entre em contato: suporte@diariaja.com.br";
-    setTimeout(() => {
-      setMsgsSuporte(prev => [...prev, { de: "bot", texto: resp }]);
-    }, 600);
+  const responderSuporte = async (msg: string) => {
+    // Adiciona mensagem do usuário ao histórico da API
+    historicoSuporteRef.current = [
+      ...historicoSuporteRef.current,
+      { role: "user", content: msg },
+    ];
+
+    setSuporteDigitando(true);
+    try {
+      const { data: { session: sess } } = await supabase.auth.getSession();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+      };
+      if (sess?.access_token) headers["Authorization"] = `Bearer ${sess.access_token}`;
+
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-support`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ messages: historicoSuporteRef.current }),
+        }
+      );
+      const json = await res.json() as { reply?: string; error?: string };
+      const reply = json.reply ?? "Desculpe, tive um problema. Tente novamente ou fale com nossa equipe: suporte@diariaja.com.br 🙏";
+
+      // Adiciona resposta da IA ao histórico
+      historicoSuporteRef.current = [
+        ...historicoSuporteRef.current,
+        { role: "assistant", content: reply },
+      ];
+
+      setMsgsSuporte(prev => [...prev, { de: "bot", texto: reply }]);
+    } catch {
+      setMsgsSuporte(prev => [...prev, { de: "bot", texto: "Ops! Sem conexão no momento. Tente novamente ou contate: suporte@diariaja.com.br 📧" }]);
+    } finally {
+      setSuporteDigitando(false);
+    }
   };
 
   // Envia avaliação de um diarista
@@ -3625,58 +3660,93 @@ export default function App() {
     </div>
   );
 
-  // ── Chat Suporte DiáriaJá (deve vir antes dos home-* para não ser bloqueado) ─
+  // ── Chat Suporte DiáriaJá — Jájá IA (deve vir antes dos home-* para não ser bloqueado) ─
   if (chatSuporte) {
     const msgSupportEndRef = { current: null } as React.MutableRefObject<HTMLDivElement | null>;
+    const enviarMensagemSuporte = () => {
+      if (!inputSuporte.trim() || suporteDigitando) return;
+      const txt = inputSuporte.trim();
+      setMsgsSuporte(prev => [...prev, { de:"user", texto:txt }]);
+      setInputSuporte("");
+      void responderSuporte(txt);
+    };
     return (
       <div style={{ position:"fixed", inset:0, background:"var(--bg-app,#f0f2f5)", zIndex:300, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", fontFamily:"system-ui,sans-serif" }}>
         {/* Header */}
         <div style={{ background:"linear-gradient(135deg,#8338EC,#5D5FEF)", padding:"20px 16px 14px", display:"flex", alignItems:"center", gap:12 }}>
           <button style={{ background:"rgba(255,255,255,.2)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", width:36, height:36, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={() => setChatSuporte(false)}>←</button>
-          <div style={{ width:40, height:40, borderRadius:20, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>💬</div>
+          {/* Avatar Jájá */}
+          <div style={{ width:44, height:44, borderRadius:22, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0, boxShadow:"0 2px 8px rgba(0,0,0,.25)" }}>🤖</div>
           <div style={{ flex:1 }}>
-            <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Suporte DiáriaJá</div>
-            <div style={{ fontSize:11, color:"rgba(255,255,255,.8)" }}>Assistente automático</div>
+            <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Jájá — IA do Trampojá</div>
+            <div style={{ fontSize:11, color:"rgba(255,255,255,.8)" }}>{suporteDigitando ? "✍️ digitando..." : "Assistente inteligente · online"}</div>
           </div>
-          <span style={{ background:"#22c55e", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>Online</span>
+          <span style={{ background:"#22c55e", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>IA</span>
         </div>
+
+        {/* Sugestões rápidas (mostrar só quando conversa está vazia) */}
+        {msgsSuporte.length <= 1 && (
+          <div style={{ padding:"12px 16px 0", display:"flex", flexWrap:"wrap", gap:8 }}>
+            {[
+              "Como funciona o check-in? 📱",
+              "Como pagar o diarista? 💰",
+              "Como editar meu perfil? 👤",
+              "Esqueci minha senha 🔑",
+              "Como cancelar uma diária? ❌",
+            ].map(s => (
+              <button key={s}
+                style={{ background:"#fff", border:"1.5px solid #8338EC", color:"#8338EC", borderRadius:20, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                onClick={() => {
+                  setMsgsSuporte(prev => [...prev, { de:"user", texto:s }]);
+                  void responderSuporte(s);
+                }}>
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Mensagens */}
         <div style={{ flex:1, overflowY:"auto", padding:"16px", display:"flex", flexDirection:"column", gap:10 }}>
           {msgsSuporte.map((m, i) => (
-            <div key={i} style={{ display:"flex", justifyContent:m.de==="user"?"flex-end":"flex-start" }}>
-              <div style={{ background:m.de==="user"?"#8338EC":"var(--bg-card,#fff)", color:m.de==="user"?"#fff":"var(--text-1,#0f172a)", borderRadius:m.de==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px", padding:"10px 14px", maxWidth:"78%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
+            <div key={i} style={{ display:"flex", justifyContent:m.de==="user"?"flex-end":"flex-start", alignItems:"flex-end", gap:8 }}>
+              {m.de === "bot" && (
+                <div style={{ width:28, height:28, borderRadius:14, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>🤖</div>
+              )}
+              <div style={{ background:m.de==="user"?"#8338EC":"var(--bg-card,#fff)", color:m.de==="user"?"#fff":"var(--text-1,#0f172a)", borderRadius:m.de==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px", padding:"10px 14px", maxWidth:"75%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.6, whiteSpace:"pre-wrap" }}>
                 {m.texto}
               </div>
             </div>
           ))}
+
+          {/* Indicador de digitando */}
+          {suporteDigitando && (
+            <div style={{ display:"flex", alignItems:"flex-end", gap:8 }}>
+              <div style={{ width:28, height:28, borderRadius:14, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>🤖</div>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:"18px 18px 18px 4px", padding:"12px 16px", boxShadow:"0 1px 4px rgba(0,0,0,.1)", display:"flex", gap:5, alignItems:"center" }}>
+                <span style={{ width:8, height:8, borderRadius:4, background:"#8338EC", display:"inline-block", animation:"bounce 1.2s infinite 0s" }} />
+                <span style={{ width:8, height:8, borderRadius:4, background:"#8338EC", display:"inline-block", animation:"bounce 1.2s infinite .2s" }} />
+                <span style={{ width:8, height:8, borderRadius:4, background:"#8338EC", display:"inline-block", animation:"bounce 1.2s infinite .4s" }} />
+              </div>
+            </div>
+          )}
           <div ref={msgSupportEndRef} />
         </div>
+
         {/* Input */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)" }}>
           <input
             style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none", background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
-            placeholder="Digite sua dúvida..."
+            placeholder={suporteDigitando ? "Jájá está digitando..." : "Pergunte qualquer coisa..."}
             value={inputSuporte}
+            disabled={suporteDigitando}
             onChange={e => setInputSuporte(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && inputSuporte.trim()) {
-                const txt = inputSuporte.trim();
-                setMsgsSuporte(prev => [...prev, { de:"user", texto:txt }]);
-                setInputSuporte("");
-                responderSuporte(txt);
-              }
-            }}
+            onKeyDown={e => { if (e.key === "Enter") enviarMensagemSuporte(); }}
           />
           <button
-            style={{ width:44, height:44, borderRadius:22, background:inputSuporte.trim()?"#8338EC":"#e2e8f0", border:"none", color:"#fff", fontSize:20, cursor:inputSuporte.trim()?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
-            disabled={!inputSuporte.trim()}
-            onClick={() => {
-              if (!inputSuporte.trim()) return;
-              const txt = inputSuporte.trim();
-              setMsgsSuporte(prev => [...prev, { de:"user", texto:txt }]);
-              setInputSuporte("");
-              responderSuporte(txt);
-            }}>
+            style={{ width:44, height:44, borderRadius:22, background:inputSuporte.trim() && !suporteDigitando?"#8338EC":"#e2e8f0", border:"none", color:"#fff", fontSize:20, cursor:inputSuporte.trim() && !suporteDigitando?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"background .2s" }}
+            disabled={!inputSuporte.trim() || suporteDigitando}
+            onClick={enviarMensagemSuporte}>
             ➤
           </button>
         </div>

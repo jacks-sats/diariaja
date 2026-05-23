@@ -101,6 +101,12 @@
         color: var(--text-1, #0f172a);
         border-color: var(--border, #e2e8f0);
       }
+
+      /* Animação dos pontinhos do chat IA */
+      @keyframes bounce {
+        0%, 60%, 100% { transform: translateY(0); opacity: .6; }
+        30%            { transform: translateY(-6px); opacity: 1; }
+      }
     </style>
   </head>
   <body>
