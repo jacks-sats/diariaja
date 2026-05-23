@@ -55,6 +55,22 @@ export const CATEGORIAS_NEGOCIO = {
     cor: "#ffd166",
     funcoes: ["Pet Sitter", "Dog Walker", "Tosador", "Auxiliar Veterinário"],
   },
+  "Beleza & Estética": {
+    icone: "💅",
+    cor: "#e91e8c",
+    funcoes: [
+      "Manicure",
+      "Pedicure",
+      "Manicure e Pedicure",
+      "Designer de Sobrancelhas",
+      "Depiladora",
+      "Cabeleireiro(a)",
+      "Maquiador(a)",
+      "Barbeiro",
+      "Esteticista",
+    ],
+    destaque: "💅 Para ele e ela",
+  },
 } as const;
 
 export type CategoriaNegocio = keyof typeof CATEGORIAS_NEGOCIO;
@@ -103,6 +119,16 @@ export const MEDIAS_CAMPO_GRANDE: Record<string, { min: number; max: number; med
   "Dog Walker":                 { min: 60,  max: 120, media: 85  },
   "Tosador":                    { min: 120, max: 200, media: 155 },
   "Auxiliar Veterinário":       { min: 110, max: 180, media: 140 },
+  // Beleza & Estética
+  "Manicure":                   { min: 80,  max: 150, media: 110 },
+  "Pedicure":                   { min: 80,  max: 150, media: 110 },
+  "Manicure e Pedicure":        { min: 120, max: 200, media: 155 },
+  "Designer de Sobrancelhas":   { min: 80,  max: 160, media: 115 },
+  "Depiladora":                 { min: 100, max: 180, media: 135 },
+  "Cabeleireiro(a)":            { min: 120, max: 220, media: 165 },
+  "Maquiador(a)":               { min: 150, max: 300, media: 210 },
+  "Barbeiro":                   { min: 100, max: 200, media: 145 },
+  "Esteticista":                { min: 130, max: 250, media: 180 },
 };
 
 // ── Planos de assinatura ─────────────────────────────────────────────────────
