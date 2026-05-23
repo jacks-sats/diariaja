@@ -75,6 +75,11 @@ const CATEGORIAS_NEGOCIO = {
 
 type CategoriaNegocio = keyof typeof CATEGORIAS_NEGOCIO;
 
+// Pré-computado fora do componente para não recalcular a cada render
+const TODAS_AS_FUNCOES = ["Todos", ...Array.from(new Set(
+  Object.values(CATEGORIAS_NEGOCIO).flatMap(cat => [...cat.funcoes])
+)).sort()];
+
 // ── Planos de assinatura ─────────────────────────────────────────────────────
 interface Assinatura {
   id: string; user_id: string; plano: string; user_type: string;
@@ -218,6 +223,7 @@ interface UserProfile {
   mp_user_id?: string;
   mp_access_token?: string;
   plano_ativo?: string;  // 'gratis' | 'destaque' — sincronizado via webhook
+  is_admin?: boolean;    // campo reservado para administradores da plataforma
 }
 
 interface Topico {
@@ -486,6 +492,7 @@ export default function App() {
   });
   const [confirmExcluirChat, setConfirmExcluirChat] = useState(false);
   const [confirmExcluirDiariaCancelada, setConfirmExcluirDiariaCancelada] = useState<string | null>(null);
+  const [confirmCancelarConvite, setConfirmCancelarConvite] = useState<string | null>(null); // convite ID
   const [mensagensReais, setMensagensReais] = useState<{id:string,diaria_id:string,remetente_id:string,destinatario_id:string,conteudo:string,created_at:string}[]>([]);
   const [msgInputReal, setMsgInputReal] = useState("");
   const [enviandoMsgReal, setEnviandoMsgReal] = useState(false);
@@ -692,7 +699,7 @@ export default function App() {
         .from("diarias")
         .select("*")
         .eq("diarista_aceite_id", session.user!.id)
-        .in("status", ["selecionado", "aceita", "em_andamento", "concluida", "cancelada"])
+        .in("status", ["selecionado", "pendente", "aceita", "em_andamento", "concluida", "cancelada"])
         .order("data", { ascending: false });
       if (data) {
         setMinhasDiarias(data);
@@ -817,12 +824,11 @@ export default function App() {
       .channel(`msgs-notif-${userId}`)
       .on(
         "postgres_changes" as any,
-        { event: "INSERT", schema: "public", table: "messages" },
+        { event: "INSERT", schema: "public", table: "mensagens" },
         (payload: any) => {
           const msg = payload.new;
-          const paraMin =
-            (modoAtual === "empregador" && msg.empregador_id === userId && msg.sender === "diarista") ||
-            (modoAtual === "diarista"   && msg.diarista_id   === userId && msg.sender === "empregador");
+          // Tabela mensagens tem: diaria_id, remetente_id, destinatario_id, conteudo
+          const paraMin = msg.destinatario_id === userId;
           if (!paraMin) return;
           setMsgNaoLidas(prev => prev + 1);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
@@ -857,12 +863,12 @@ export default function App() {
           const oldStatus = payload.old?.status;
           const vaga = updated.funcao || updated.segmento;
           const motivo = updated.motivo_cancelamento ? ` Motivo: ${updated.motivo_cancelamento}` : "";
-          // Dispara alertaAceite independente de notificação
-          if (updated.status === "aceita" && (oldStatus === "aberta" || oldStatus === "selecionado")) setAlertaAceite(updated);
+          // Dispara alertaAceite quando diarista confirma (pendente = confirmou, aguarda QR)
+          if (updated.status === "pendente" && oldStatus === "selecionado") setAlertaAceite(updated);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            if (updated.status === "aceita" && oldStatus === "selecionado") {
+            if (updated.status === "pendente" && oldStatus === "selecionado") {
               new Notification("✅ Diarista confirmou presença!", {
-                body: `O profissional confirmou presença na vaga de ${vaga}. Tudo certo!`,
+                body: `O profissional confirmou presença na vaga de ${vaga}. Escaneie o QR Code dele!`,
                 icon: "/vite.svg",
               });
             } else if (updated.status === "aceita" && oldStatus === "aberta") {
@@ -1080,7 +1086,7 @@ export default function App() {
 
   // 10) Realtime: admin recebe notificação quando alguém posta tópico de suporte
   useEffect(() => {
-    if (!session?.user || !(profile as any)?.is_admin) return;
+    if (!session?.user || !profile?.is_admin) return;
     const channel = supabase
       .channel(`suporte-admin-${session.user.id}`)
       .on("postgres_changes" as any,
@@ -1101,7 +1107,7 @@ export default function App() {
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [session?.user?.id, (profile as any)?.is_admin]);
+  }, [session?.user?.id, profile?.is_admin]);
 
   // Carrega perfis dos diaristas que aceitaram as diárias do empregador
   useEffect(() => {
@@ -1324,8 +1330,22 @@ export default function App() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    // Limpa TODO o estado local para não vazar dados entre usuários no mesmo dispositivo
+    const keysToRemove = [
+      "diariaja_tela", "diariaja_modo", "diariaja_dark",
+      "diariaja_hidden_chats", "diariaja_portfolio", "diariaja_cancels",
+    ];
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    // Reset de estado React
     setProfile(null); setTipo(null); setNegocio(null);
-    localStorage.removeItem("diariaja_tela"); // volta pro splash ao fazer logout
+    setModoAtual("empregador");
+    setDiarias([]); setMinhasDiarias([]); setVagasReais([]);
+    setCandidaturas([]); setCandidatosProfiles({});
+    setConvitesEnviados([]); setConvitesRecebidos([]);
+    setMensagensReais([]); setChatDiariaAtiva(null);
+    setDiaristasReais([]); setDiaristasAceites({});
+    setContatosLiberados(new Set());
+    setListaNotif([]); setNotifNaoLidas(0);
     setTela("splash");
   };
 
@@ -1335,17 +1355,10 @@ export default function App() {
     setAgenda(prev => prev.includes(dia) ? prev.filter(d => d !== dia) : [...prev, dia]);
 
   // Carrega mensagens do chat com um diarista específico (tela legada mock)
-  // BUG-L2 fix: tabela correta é "mensagens", não "messages"
-  const carregarMensagens = async (_diaristaId: number) => {
-    // Tela de chat mock desativada — mensagens reais usam chatDiariaAtiva + mensagensReais
-    setMessages([]);
-  };
-
-  // Envia mensagem (mock — sem uso real)
-  const handleSendMessage = async () => {
-    if (!msgInput.trim() || !session?.user) return;
-    setMsgInput("");
-  };
+  // Stubs do chat legado (tela "chat" mock ainda referencia essas funções)
+  // TODO: remover quando a tela mock for eliminada
+  const carregarMensagens = async (_diaristaId: number) => { setMessages([]); };
+  const handleSendMessage = async () => { if (!msgInput.trim()) return; setMsgInput(""); };
 
   // Atualiza localização do usuário (usado no perfil após cadastro)
   const handleAtualizarLocalizacao = () => {
@@ -1628,10 +1641,10 @@ export default function App() {
   };
 
   const cancelarConvite = async (conviteId: string) => {
-    if (!confirm("Tem certeza que deseja cancelar este convite?")) return;
     const { error } = await supabase.from("convites").delete().eq("id", conviteId);
     if (error) { setToastError("Erro ao cancelar convite."); return; }
     setConvitesEnviados(prev => prev.filter(c => c.id !== conviteId));
+    setConfirmCancelarConvite(null);
     setToastSuccess("🗑️ Convite cancelado.");
   };
 
@@ -2940,11 +2953,8 @@ export default function App() {
   // HOME EMPREGADOR
   if (tela === "home-empregador") {
     if (!negocio) { setTimeout(() => setTela("escolha-negocio"), 0); return null; }
-    // Todas as funções disponíveis em TODAS as categorias (para o filtro de chip)
-    const todasAsFuncoes = Array.from(new Set(
-      Object.values(CATEGORIAS_NEGOCIO).flatMap(cat => [...cat.funcoes])
-    )).sort();
-    const funcoes = ["Todos", ...todasAsFuncoes];
+    // Usa constante global pré-computada (evita recalcular a cada render)
+    const funcoes = TODAS_AS_FUNCOES;
     const iniciaisEmp = profile?.nome?.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase() || "?";
     const hora = new Date().getHours();
     const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
@@ -3165,6 +3175,7 @@ export default function App() {
           const statusLabel: Record<string,{bg:string,color:string,txt:string}> = {
             aberta:       { bg:"#f1f5f9", color:"#475569",  txt:"Aberta" },
             selecionado:  { bg:"#fef3c7", color:"#d97706",  txt:"⏳ Aguardando confirmação" },
+            pendente:     { bg:"#ede9fe", color:"#7c3aed",  txt:"✅ Confirmado — escaneie o QR" },
             aceita:       { bg:"#dbeafe", color:"#1d4ed8",  txt:"⏳ Aguardando início" },
             em_andamento: { bg:"#fef3c7", color:"#d97706",  txt:"🔄 Em andamento" },
             concluida:    { bg:"#dcfce7", color:"#16a34a",  txt:"✅ Concluída" },
@@ -3219,6 +3230,22 @@ export default function App() {
                           {c.status === "recusado" && (
                             <div style={{ marginTop:10, background:"#fef2f2", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#991b1b", fontWeight:700 }}>
                               😔 {c.diarista_nome} não pode neste dia. Tente outro profissional.
+                            </div>
+                          )}
+                          {/* Botão cancelar convite pendente — padrão inline sem confirm() */}
+                          {c.status === "pendente" && (
+                            <div style={{ marginTop:10 }}>
+                              {confirmCancelarConvite === c.id ? (
+                                <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:10, padding:"8px 12px" }}>
+                                  <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Cancelar este convite?</span>
+                                  <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => cancelarConvite(c.id)}>Sim</button>
+                                  <button style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
+                                </div>
+                              ) : (
+                                <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:12, cursor:"pointer", textDecoration:"underline", padding:0 }} onClick={() => setConfirmCancelarConvite(c.id)}>
+                                  🗑️ Cancelar convite
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -3381,8 +3408,8 @@ export default function App() {
                           </button>
                         )}
 
-                        {/* Diarista que aceitou + chat */}
-                        {dia.status === "aceita" && dia.diarista_aceite_id && (() => {
+                        {/* Diarista confirmado (pendente = aguardando QR scan, aceita = QR escaneado) */}
+                        {(dia.status === "aceita" || dia.status === "pendente") && dia.diarista_aceite_id && (() => {
                           const dp = diaristasAceites[dia.diarista_aceite_id];
                           const iniciais = dp?.nome?.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() || "?";
                           const qtdDiarias = diaristasContagemDiarias[dia.diarista_aceite_id] ?? null;
@@ -3426,9 +3453,15 @@ export default function App() {
                                   💬 Chat
                                 </button>
                               </div>
-                              <div style={{ background:"#eff6ff", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", fontWeight:600 }}>
-                                📲 Peça ao diarista o QR Code e toque em <strong>"Escanear"</strong> acima para confirmar a chegada.
-                              </div>
+                              {dia.status === "pendente" ? (
+                                <div style={{ background:"#ede9fe", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#7c3aed", fontWeight:700 }}>
+                                  🟣 Diarista confirmou presença! <strong>Escaneie o QR Code</strong> dele acima quando ele chegar.
+                                </div>
+                              ) : (
+                                <div style={{ background:"#eff6ff", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", fontWeight:600 }}>
+                                  📲 Peça ao diarista o QR Code e toque em <strong>"Escanear"</strong> acima para confirmar a chegada.
+                                </div>
+                              )}
                               <button
                                 style={{ background:"none", border:"none", color:"#94a3b8", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
                                 onClick={e => { e.stopPropagation(); setModalCancelar(dia); setMotivoCancelamento(""); }}>
@@ -4672,7 +4705,7 @@ export default function App() {
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", marginBottom:16 }}>🔔 Notificações</div>
               {/* Banner de suporte para admin */}
-              {(profile as any)?.is_admin && suporteNaoLidos > 0 && (
+              {profile?.is_admin && suporteNaoLidos > 0 && (
                 <div style={{ background:"#fef3c7", border:"1.5px solid #f59e0b", borderRadius:14, padding:"12px 14px", marginBottom:14, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}
                   onClick={() => { setModalNotif(false); setSuporteNaoLidos(0); setFiltroComunidade("suporte"); carregarTopicos("suporte"); setTopicoAtivo(null); setTela("comunidade"); }}>
                   <span style={{ fontSize:24 }}>🔧</span>
@@ -4682,7 +4715,7 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {listaNotif.length === 0 && !((profile as any)?.is_admin && suporteNaoLidos > 0) ? (
+              {listaNotif.length === 0 && !(profile?.is_admin && suporteNaoLidos > 0) ? (
                 <div style={{ textAlign:"center", color:"#94a3b8", padding:"32px 0", fontSize:14 }}>
                   <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
                   Nenhuma notificação ainda
@@ -5331,17 +5364,20 @@ export default function App() {
         {/* ── ABA MINHAS DIÁRIAS ── */}
         {tabDiarista === "vagas" && (() => {
           const paraConfirmar = minhasDiarias.filter(d => d.status === "selecionado");
-          const pendentes    = minhasDiarias.filter(d => d.status === "aceita");
+          const pendentes    = minhasDiarias.filter(d => d.status === "pendente" || d.status === "aceita");
           const emAndamento  = minhasDiarias.filter(d => d.status === "em_andamento");
           const concluidas   = minhasDiarias.filter(d => d.status === "concluida");
           // Canceladas: só mostra se o cancelamento ocorreu nas últimas 24h (via localStorage)
+          // Leitura feita UMA VEZ por render da aba, não por item
           const VINTE_QUATRO_H = 24 * 60 * 60 * 1000;
-          const cancelTimestamps: Record<string,number> = (() => { try { return JSON.parse(localStorage.getItem("diariaja_cancels") || "{}"); } catch { return {}; } })();
+          const agora = Date.now();
+          let cancelTimestamps: Record<string,number> = {};
+          try { cancelTimestamps = JSON.parse(localStorage.getItem("diariaja_cancels") || "{}"); } catch {}
           const canceladas = minhasDiarias.filter(d => {
             if (d.status !== "cancelada") return false;
             const ts = cancelTimestamps[d.id];
             if (!ts) return false; // sem timestamp = já passou ou nunca registrado → não mostra
-            return Date.now() - ts < VINTE_QUATRO_H;
+            return agora - ts < VINTE_QUATRO_H;
           });
           const ganhoTotal   = concluidas.reduce((s, d) => s + d.valor, 0);
 
@@ -5355,11 +5391,12 @@ export default function App() {
           };
 
           const stMap: Record<string,{bg:string,color:string,txt:string,borda:string}> = {
-            selecionado:  { bg:"#fef3c7", color:"#d97706", txt:"🎯 Confirme sua presença", borda:"#f59e0b" },
-            aceita:       { bg:"#dbeafe", color:"#1d4ed8", txt:"⏳ Aguardando início",      borda:"#3A86FF" },
-            em_andamento: { bg:"#fef3c7", color:"#d97706", txt:"🔄 Em andamento",            borda:"#f59e0b" },
-            concluida:    { bg:"#dcfce7", color:"#16a34a", txt:"✅ Concluída",               borda:"#22c55e" },
-            cancelada:    { bg:"#fee2e2", color:"#dc2626", txt:"✗ Cancelada",               borda:"#ef4444" },
+            selecionado:  { bg:"#fef3c7", color:"#d97706", txt:"🎯 Confirme sua presença",       borda:"#f59e0b" },
+            pendente:     { bg:"#ede9fe", color:"#7c3aed", txt:"✅ Confirmado — aguardando QR",   borda:"#8b5cf6" },
+            aceita:       { bg:"#dbeafe", color:"#1d4ed8", txt:"⏳ Aguardando início",            borda:"#3A86FF" },
+            em_andamento: { bg:"#fef3c7", color:"#d97706", txt:"🔄 Em andamento",                borda:"#f59e0b" },
+            concluida:    { bg:"#dcfce7", color:"#16a34a", txt:"✅ Concluída",                    borda:"#22c55e" },
+            cancelada:    { bg:"#fee2e2", color:"#dc2626", txt:"✗ Cancelada",                    borda:"#ef4444" },
           };
 
           const CardDiaria = ({ dia }: { dia: Diaria }) => {
@@ -6573,7 +6610,7 @@ export default function App() {
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", marginBottom:16 }}>🔔 Notificações</div>
               {/* Banner de suporte para admin */}
-              {(profile as any)?.is_admin && suporteNaoLidos > 0 && (
+              {profile?.is_admin && suporteNaoLidos > 0 && (
                 <div style={{ background:"#fef3c7", border:"1.5px solid #f59e0b", borderRadius:14, padding:"12px 14px", marginBottom:14, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}
                   onClick={() => { setModalNotif(false); setSuporteNaoLidos(0); setFiltroComunidade("suporte"); carregarTopicos("suporte"); setTopicoAtivo(null); setTela("comunidade"); }}>
                   <span style={{ fontSize:24 }}>🔧</span>
@@ -6583,7 +6620,7 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {listaNotif.length === 0 && !((profile as any)?.is_admin && suporteNaoLidos > 0) ? (
+              {listaNotif.length === 0 && !(profile?.is_admin && suporteNaoLidos > 0) ? (
                 <div style={{ textAlign:"center", color:"#94a3b8", padding:"32px 0", fontSize:14 }}>
                   <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
                   Nenhuma notificação ainda
@@ -6995,11 +7032,19 @@ export default function App() {
                   ⏳ Convite enviado — aguardando resposta
                 </button>
                 {conviteAtivo && (
-                  <button
-                    style={{ ...S.btnSecondary, color:"#dc2626", borderColor:"#fca5a5", fontSize:12 }}
-                    onClick={() => cancelarConvite(conviteAtivo.id)}>
-                    🗑️ Cancelar convite
-                  </button>
+                  confirmCancelarConvite === conviteAtivo.id ? (
+                    <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:12, padding:"10px 14px" }}>
+                      <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Confirmar cancelamento?</span>
+                      <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => cancelarConvite(conviteAtivo.id)}>Sim</button>
+                      <button style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
+                    </div>
+                  ) : (
+                    <button
+                      style={{ ...S.btnSecondary, color:"#dc2626", borderColor:"#fca5a5", fontSize:12 }}
+                      onClick={() => setConfirmCancelarConvite(conviteAtivo.id)}>
+                      🗑️ Cancelar convite
+                    </button>
+                  )
                 )}
               </div>
             );
@@ -7868,7 +7913,7 @@ export default function App() {
 
   // ── COMUNIDADE ──────────────────────────────────────────────────────────────
   if (tela === "comunidade") {
-    const isAdmin = !!(profile as any)?.is_admin;
+    const isAdmin = !!profile?.is_admin;
     const corAcento = modoAtual === "empregador" ? (negocio?.cor || "#FF6B35") : "#5D5FEF";
     const CATS = [
       { key:"todos",      label:"Todos",      icone:"🌐" },
