@@ -376,10 +376,18 @@ export default function App() {
       window.history.replaceState({}, "", window.location.pathname);
     }
     if (pagStatus === "sucesso") {
-      setToastSuccess("✅ Pagamento confirmado! A diária está garantida.");
+      const diariaRetornoId = params.get("diaria");
+      if (diariaRetornoId) {
+        // Atualiza estado local imediatamente — o webhook MP já gravou "pago" no banco
+        setDiarias(prev => prev.map(d => d.id === diariaRetornoId ? { ...d, pagamento_status: "pago" } : d));
+      }
+      setToastSuccess("✅ Pagamento confirmado via Mercado Pago! O chat foi liberado.");
       window.history.replaceState({}, "", window.location.pathname);
     } else if (pagStatus === "falha") {
       setToastError("❌ Pagamento não aprovado. Tente novamente.");
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (pagStatus === "pendente") {
+      setToastSuccess("⏳ Pagamento em processamento. O chat será liberado assim que confirmado.");
       window.history.replaceState({}, "", window.location.pathname);
     }
     const assinaturaStatus = params.get("assinatura");
@@ -654,6 +662,10 @@ export default function App() {
           const motivo = updated.motivo_cancelamento ? ` Motivo: ${updated.motivo_cancelamento}` : "";
           // Dispara alertaAceite quando diarista confirma (aceita = confirmou, aguarda QR)
           if (updated.status === "aceita" && oldStatus === "pendente") setAlertaAceite(updated);
+          // Realtime: webhook MP confirmou pagamento → desbloqueia chat automaticamente
+          if (updated.pagamento_status === "pago" && payload.old?.pagamento_status !== "pago") {
+            setToastSuccess(`✅ Pagamento confirmado pelo Mercado Pago! O chat com o diarista foi liberado.`);
+          }
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             if (updated.status === "aceita" && oldStatus === "pendente") {
               new Notification("✅ Diarista confirmou presença!", {
@@ -4032,11 +4044,11 @@ export default function App() {
                                 💬 Chat
                               </button>
                             )}
-                            {/* Pagar — só depois que o diarista confirmou (status "aceita") */}
+                            {/* Pagar via MP — só depois que o diarista confirmou (status "aceita") */}
                             {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && dia.status === "aceita" && (
                               <button
-                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f0fdf4", color:"#15803d", border:"1.5px solid #bbf7d0", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
-                                onClick={() => setModalPix(dia)}>
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                onClick={e => { e.stopPropagation(); setModalPagamentoMP(dia); setAuthError(""); }}>
                                 💳 Pagar
                               </button>
                             )}
@@ -4937,21 +4949,6 @@ export default function App() {
                 <div style={{ background:"#fef3c7", borderRadius:12, padding:"9px 13px", fontSize:12, color:"#92400e", lineHeight:1.5, marginBottom:16 }}>
                   ℹ️ Realize o pagamento pelo app do seu banco usando a chave PIX acima. O DiáriaJá não processa pagamentos — somos uma plataforma de anúncios.
                 </div>
-
-                {/* Botão "Já paguei" — só para diárias (não convites); libera o chat */}
-                {(modalPix as any).diarista_aceite_id && (modalPix as any).pagamento_status !== "pago" && (
-                  <button
-                    style={{ width:"100%", padding:"13px", background:"linear-gradient(135deg,#22c55e,#16a34a)", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
-                    onClick={async () => {
-                      const diariaId = (modalPix as any).id;
-                      await supabase.from("diarias").update({ pagamento_status: "pago" }).eq("id", diariaId);
-                      setDiarias(prev => prev.map(d => d.id === diariaId ? { ...d, pagamento_status: "pago" } : d));
-                      setToastSuccess("✅ Pagamento confirmado! O chat foi liberado.");
-                      setModalPix(null);
-                    }}>
-                    ✅ Já paguei — liberar chat
-                  </button>
-                )}
 
                 <button
                   style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
