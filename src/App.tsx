@@ -1120,11 +1120,31 @@ export default function App() {
     return true;
   };
 
+  // Traduz mensagens de erro brutas do Supabase para pt-BR
+  const traduzirErroAuth = (msg: string): string => {
+    const m = msg.toLowerCase();
+    if (m.includes("missing email") || m.includes("missing email or phone")) return "Informe seu e-mail.";
+    if (m.includes("invalid login credentials") || m.includes("invalid credentials")) return "E-mail ou senha incorretos.";
+    if (m.includes("email not confirmed")) return "Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada.";
+    if (m.includes("user already registered") || m.includes("already registered")) return "Este e-mail já está cadastrado. Faça login.";
+    if (m.includes("password should be at least")) return "A senha deve ter pelo menos 6 caracteres.";
+    if (m.includes("invalid email")) return "E-mail inválido. Verifique e tente novamente.";
+    if (m.includes("email rate limit") || m.includes("rate limit")) return "Muitas tentativas. Aguarde alguns minutos e tente novamente.";
+    if (m.includes("signup is disabled")) return "Cadastros temporariamente desabilitados. Tente mais tarde.";
+    if (m.includes("anonymous") || m.includes("sign-ins are disabled")) return "Informe seu e-mail e senha para continuar.";
+    if (m.includes("network") || m.includes("fetch")) return "Sem conexão. Verifique sua internet e tente novamente.";
+    if (m.includes("weak password")) return "Senha muito fraca. Use pelo menos 6 caracteres com letras e números.";
+    if (m.includes("email_address_not_authorized")) return "E-mail não autorizado nesta plataforma.";
+    if (m.includes("too many requests") || m.includes("over_email_send_rate_limit")) return "Muitas tentativas. Aguarde alguns minutos e tente novamente.";
+    if (m.includes("for security purposes")) return "Por segurança, aguarde alguns segundos antes de tentar novamente.";
+    return msg; // fallback: exibe o original se não reconhecido
+  };
+
   const handleEmailLogin = async () => {
     setAuthError(""); setAuthLoading(true);
     const { data: loginData, error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.senha });
     if (error) {
-      setAuthError(error.message === "Invalid login credentials" ? "E-mail ou senha incorretos" : error.message);
+      setAuthError(traduzirErroAuth(error.message));
     } else {
       trackEvento("login_sucesso", loginData?.user?.id, undefined);
     }
@@ -1134,14 +1154,14 @@ export default function App() {
   const handleEmailSignup = async () => {
     setAuthError(""); setAuthLoading(true);
     const { error } = await supabase.auth.signUp({ email: form.email, password: form.senha });
-    if (error) setAuthError(error.message);
+    if (error) setAuthError(traduzirErroAuth(error.message));
     setAuthLoading(false);
   };
 
   const handleGoogleLogin = async () => {
     setAuthError("");
     const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
-    if (error) setAuthError(error.message);
+    if (error) setAuthError(traduzirErroAuth(error.message));
   };
 
   const handleLogout = async () => {
@@ -2462,7 +2482,7 @@ export default function App() {
   if (tela === "login") return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px" }}>
 
-      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => setTela("splash")}>
+      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => { setAuthError(""); setTela("splash"); }}>
         ← Voltar
       </button>
 
@@ -2503,7 +2523,7 @@ export default function App() {
         </button>
       </div>
 
-      <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:14, marginTop:20, cursor:"pointer" }} onClick={() => setTela("cadastro-tipo")}>
+      <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:14, marginTop:20, cursor:"pointer" }} onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
         Não tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Cadastre-se grátis</span>
       </p>
     </div>
@@ -2570,7 +2590,7 @@ export default function App() {
   if (tela === "cadastro-auth") return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
 
-      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => setTela("cadastro-tipo")}>
+      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
         ← Voltar
       </button>
 
@@ -2609,7 +2629,7 @@ export default function App() {
         </button>
       </div>
 
-      <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:14, marginTop:20, cursor:"pointer" }} onClick={() => setTela("login")}>
+      <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:14, marginTop:20, cursor:"pointer" }} onClick={() => { setAuthError(""); setTela("login"); }}>
         Já tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Entrar</span>
       </p>
     </div>
