@@ -1792,19 +1792,29 @@ export default function App() {
 
   // Empregador seleciona um candidato — executa a lógica real após confirmação do modal
   const executarSelecaoCandidato = async (diaria: Diaria, diaristaId: string) => {
-    if (!session?.user) return;
+    if (!session?.user) {
+      // Fecha o modal ANTES de mostrar o toast (modal faz early-return e bloqueia o toast)
+      setModalTermoCiencia(null);
+      setTermoCienciaCheck(false);
+      setToastError("❌ Sessão expirada. Faça login novamente.");
+      return;
+    }
     setSelecionando(true);
 
-    // 1. Tenta atualizar a diária (sem .select() para evitar falha de RLS no SELECT pós-update)
+    // Fecha o modal imediatamente (UI otimista) para que toasts apareçam
+    setModalTermoCiencia(null);
+    setTermoCienciaCheck(false);
+
+    // 1. Atualiza a diária
     const { error: e1 } = await supabase
       .from("diarias")
       .update({ status: "pendente", diarista_aceite_id: diaristaId })
       .eq("id", diaria.id)
-      .eq("empregador_id", session.user.id);  // garante que só o dono pode alterar
+      .eq("empregador_id", session.user.id);
 
     if (e1) {
-      setToastError("❌ Erro ao selecionar candidato: " + e1.message);
       setSelecionando(false);
+      setToastError("❌ Erro ao selecionar candidato: " + e1.message);
       return;
     }
 
@@ -1818,8 +1828,6 @@ export default function App() {
 
     setModalCandidatos(null);
     setSelecionando(false);
-    setModalTermoCiencia(null);
-    setTermoCienciaCheck(false);
     setToastSuccess("✅ Candidato selecionado! Aguardando confirmação dele.");
   };
 
@@ -3786,10 +3794,10 @@ export default function App() {
             <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Entendi e quero selecionar este profissional</span>
           </label>
           <button
-            style={{ width:"100%", padding:"15px", background:termoCienciaCheck?"#FF6B35":"#e2e8f0", color:termoCienciaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoCienciaCheck?"pointer":"default", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
-            disabled={!termoCienciaCheck}
-            onClick={() => { if (termoCienciaCheck) executarSelecaoCandidato(diaria, diaristaId); }}>
-            Confirmar seleção
+            style={{ width:"100%", padding:"15px", background:termoCienciaCheck?"#FF6B35":"#e2e8f0", color:termoCienciaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoCienciaCheck && !selecionando?"pointer":"default", fontFamily:"system-ui,sans-serif", marginBottom:10, opacity: selecionando ? 0.7 : 1 }}
+            disabled={!termoCienciaCheck || selecionando}
+            onClick={() => { if (termoCienciaCheck && !selecionando) void executarSelecaoCandidato(diaria, diaristaId); }}>
+            {selecionando ? "⏳ Confirmando..." : "✅ Confirmar seleção"}
           </button>
           <button
             style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
