@@ -32,6 +32,9 @@
         --input-bg:    #ffffff;
         --btn-edit-bg: #f1f5f9;
         --btn-edit-cl: #475569;
+        --modal-bg:    #ffffff;
+        --overlay-bg:  rgba(15, 23, 42, 0.6);
+        --shadow:      rgba(0, 0, 0, 0.06);
         /* aliases legados */
         --text-primary:   #0f172a;
         --text-secondary: #64748b;
@@ -53,10 +56,27 @@
         --input-bg:    #0f172a;
         --btn-edit-bg: #334155;
         --btn-edit-cl: #94a3b8;
+        --modal-bg:    #1e293b;
+        --overlay-bg:  rgba(0, 0, 0, 0.8);
+        --shadow:      rgba(0, 0, 0, 0.2);
         /* aliases legados */
         --text-primary:   #f1f5f9;
         --text-secondary: #94a3b8;
         --border-color:   #334155;
+      }
+
+      /* Regras globais para dark mode — forçam cores escuras em elementos comuns */
+      body[data-dark="1"] button:not([style*="background"]) {
+        background: var(--bg-card) !important;
+        color: var(--text-1) !important;
+      }
+      body[data-dark="1"] input, body[data-dark="1"] textarea, body[data-dark="1"] select {
+        background: var(--input-bg) !important;
+        color: var(--text-1) !important;
+        border-color: var(--border) !important;
+      }
+      body[data-dark="1"] .modal, body[data-dark="1"] [style*="borderRadius: \"20px 20px 0 0\""] {
+        background: var(--modal-bg) !important;
       }
 
       /* Transição suave ao alternar */
