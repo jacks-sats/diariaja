@@ -75,6 +75,52 @@ const CATEGORIAS_NEGOCIO = {
 
 type CategoriaNegocio = keyof typeof CATEGORIAS_NEGOCIO;
 
+// ── Médias de valores por função em Campo Grande, MS ─────────────────────────
+const MEDIAS_CAMPO_GRANDE: Record<string, { min: number; max: number; media: number }> = {
+  "Diarista / Faxineira": { min: 120, max: 180, media: 150 },
+  "Passadeira": { min: 100, max: 150, media: 120 },
+  "Cozinheira": { min: 120, max: 180, media: 150 },
+  "Babá": { min: 120, max: 180, media: 150 },
+  "Jardineiro": { min: 120, max: 180, media: 150 },
+  "Motoboy": { min: 130, max: 200, media: 160 },
+  "Entregador de Bicicleta": { min: 100, max: 160, media: 130 },
+  "Entregador de Carro": { min: 130, max: 200, media: 160 },
+  "Repositor de Prateleiras": { min: 100, max: 140, media: 115 },
+  "Operador de Caixa": { min: 100, max: 140, media: 120 },
+  "Açougueiro": { min: 130, max: 200, media: 160 },
+  "Padeiro": { min: 130, max: 200, media: 160 },
+  "Auxiliar de Limpeza": { min: 100, max: 150, media: 120 },
+  "Garçom": { min: 130, max: 200, media: 165 },
+  "Bartender": { min: 150, max: 250, media: 190 },
+  "Ajudante de Cozinha": { min: 100, max: 150, media: 120 },
+  "Lavador de Louças": { min: 90, max: 130, media: 105 },
+  "Pizzaiolo": { min: 150, max: 250, media: 190 },
+  "Churrasqueiro": { min: 180, max: 300, media: 230 },
+  "Pedreiro": { min: 180, max: 280, media: 220 },
+  "Servente de Obra": { min: 100, max: 160, media: 125 },
+  "Pintor": { min: 150, max: 240, media: 185 },
+  "Eletricista": { min: 180, max: 320, media: 240 },
+  "Encanador": { min: 170, max: 300, media: 220 },
+  "Gesseiro": { min: 160, max: 260, media: 200 },
+  "Garçom de Eventos": { min: 140, max: 220, media: 175 },
+  "Barman": { min: 160, max: 280, media: 210 },
+  "Montador de Estrutura": { min: 130, max: 200, media: 160 },
+  "Promoter": { min: 130, max: 220, media: 170 },
+  "Recepcionista": { min: 120, max: 200, media: 155 },
+  "Cuidador de Idoso": { min: 150, max: 250, media: 190 },
+  "Acompanhante Hospitalar": { min: 150, max: 250, media: 190 },
+  "Auxiliar de Saúde": { min: 140, max: 220, media: 175 },
+  "Técnico de Enfermagem": { min: 180, max: 300, media: 230 },
+  "Ajudante de Carga e Descarga": { min: 100, max: 170, media: 130 },
+  "Separador de Pedidos": { min: 110, max: 170, media: 135 },
+  "Operador de Empilhadeira": { min: 150, max: 240, media: 185 },
+  "Auxiliar Logístico": { min: 110, max: 180, media: 140 },
+  "Pet Sitter": { min: 80, max: 150, media: 110 },
+  "Dog Walker": { min: 60, max: 120, media: 85 },
+  "Tosador": { min: 120, max: 200, media: 155 },
+  "Auxiliar Veterinário": { min: 110, max: 180, media: 140 },
+};
+
 // Pré-computado fora do componente para não recalcular a cada render
 const TODAS_AS_FUNCOES = ["Todos", ...Array.from(new Set(
   Object.values(CATEGORIAS_NEGOCIO).flatMap(cat => [...cat.funcoes])
@@ -224,6 +270,7 @@ interface UserProfile {
   mp_access_token?: string;
   plano_ativo?: string;  // 'gratis' | 'destaque' — sincronizado via webhook
   is_admin?: boolean;    // campo reservado para administradores da plataforma
+  is_empresa?: boolean;  // conta empresa (CNPJ obrigatório, não pode virar diarista)
 }
 
 interface Topico {
@@ -468,6 +515,17 @@ export default function App() {
   const [assinatura, setAssinatura] = useState<Assinatura | null>(null);
   const [criandoAssinatura, setCriandoAssinatura] = useState(false);
   const [modalLimiteVagas, setModalLimiteVagas] = useState(false);
+
+  // Novas features v2
+  const [modalTermoCiencia, setModalTermoCiencia] = useState<{diaria: Diaria, diaristaId: string} | null>(null);
+  const [termoCienciaCheck, setTermoCienciaCheck] = useState(false);
+  const [modalTermoDiarista, setModalTermoDiarista] = useState<Diaria | null>(null);
+  const [termoDiaristaCheck, setTermoDiaristaCheck] = useState(false);
+  const [chatSuporte, setChatSuporte] = useState(false);
+  const [msgsSuporte, setMsgsSuporte] = useState<{de: "user"|"bot", texto: string}[]>([{de:"bot", texto:"Olá! 👋 Sou o assistente do DiáriaJá. Como posso ajudar? Digite sua dúvida!"}]);
+  const [inputSuporte, setInputSuporte] = useState("");
+  const [habilidadesExpandidas, setHabilidadesExpandidas] = useState(false);
+  const [modalReciboDiarista, setModalReciboDiarista] = useState<Diaria | null>(null);
 
   // Denúncias
   const [modalDenunciar, setModalDenunciar] = useState<{tipo:"vaga"|"usuario"; id:string; nome:string} | null>(null);
@@ -953,6 +1011,8 @@ export default function App() {
               icon: "/vite.svg",
             });
           } else if (updated.status === "concluida") {
+            // Auto-abre recibo do diarista após conclusão
+            setTimeout(() => setModalReciboDiarista(updated), 500);
             new Notification("🎉 Diária concluída!", {
               body: `Sua diária em ${local} foi encerrada. Avalie o empregador!`,
               icon: "/vite.svg",
@@ -1319,6 +1379,7 @@ export default function App() {
       sexo: updates.sexo ?? profile?.sexo ?? form.sexo ?? "",
       data_nascimento: updates.data_nascimento ?? profile?.data_nascimento ?? form.dataNasc ?? "",
       endereco_empregador: updates.endereco_empregador ?? profile?.endereco_empregador ?? "",
+      is_empresa: updates.is_empresa ?? profile?.is_empresa ?? false,
     };
     const { error } = await supabase.from("user_profiles").upsert(full);
     if (error) { setAuthError("Erro ao salvar perfil: " + error.message); return false; }
@@ -1518,7 +1579,10 @@ export default function App() {
       .eq("id", diariaId)
       .eq("empregador_id", session.user.id);
     if (error) { setAuthError("Erro ao concluir: " + error.message); return; }
+    const diariaAtualizada = diarias.find(d => d.id === diariaId);
     setDiarias(prev => prev.map(d => d.id === diariaId ? { ...d, status:"concluida" } : d));
+    // Auto-abre recibo para o empregador após conclusão
+    if (diariaAtualizada) setTimeout(() => setModalRecibo({ ...diariaAtualizada, status:"concluida" }), 400);
   };
 
   // Cancela uma diária com motivo
@@ -1889,8 +1953,8 @@ export default function App() {
     }
   };
 
-  // Empregador seleciona um candidato (de até 5)
-  const selecionarCandidato = async (diaria: Diaria, diaristaId: string) => {
+  // Empregador seleciona um candidato — executa a lógica real após confirmação do modal
+  const executarSelecaoCandidato = async (diaria: Diaria, diaristaId: string) => {
     if (!session?.user) return;
     setSelecionando(true);
 
@@ -1917,11 +1981,25 @@ export default function App() {
 
     setModalCandidatos(null);
     setSelecionando(false);
+    setModalTermoCiencia(null);
+    setTermoCienciaCheck(false);
     setToastSuccess("✅ Candidato selecionado! Aguardando confirmação dele.");
   };
 
-  // Diarista confirma presença após ser selecionado
-  const confirmarPresenca = async (diaria: Diaria) => {
+  // Wrapper: abre o modal de termo antes de selecionar
+  const selecionarCandidato = (diaria: Diaria, diaristaId: string) => {
+    setModalTermoCiencia({ diaria, diaristaId });
+    setTermoCienciaCheck(false);
+  };
+
+  // Wrapper: abre o modal de termo antes de confirmar presença
+  const confirmarPresenca = (diaria: Diaria) => {
+    setModalTermoDiarista(diaria);
+    setTermoDiaristaCheck(false);
+  };
+
+  // Executa confirmação real após aceite do modal
+  const executarConfirmarPresenca = async (diaria: Diaria) => {
     if (!session?.user) return;
     setConfirmando(true);
     const { error } = await supabase.from("diarias").update({ status: "aceita" }).eq("id", diaria.id);
@@ -1930,6 +2008,8 @@ export default function App() {
     setMinhasDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "aceita" } : d));
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "confirmado" }));
     setConfirmando(false);
+    setModalTermoDiarista(null);
+    setTermoDiaristaCheck(false);
   };
 
   const excluirChat = async (diaId: string) => {
@@ -2210,6 +2290,30 @@ export default function App() {
       setFormConvite(prev => ({ ...prev, rua: json.logradouro || prev.rua, bairro: json.bairro || prev.bairro, cidade: json.localidade || prev.cidade, estado: json.uf || prev.estado }));
     } catch {}
     setBuscandoCEPConvite(false);
+  };
+
+  // ── SUPORTE FAQ (chatbot automático) ─────────────────────────────────────
+  const SUPORTE_FAQ = [
+    { keys: ["cancelar","cancel"], resp: "Para cancelar uma diária, abra a diária na aba 'Diárias' e toque em '✕ Cancelar'. Informe um motivo — o diarista/contratante será notificado automaticamente. ⚠️ Cancelamentos frequentes afetam sua reputação." },
+    { keys: ["pagar","pagamento","pix","dinheiro"], resp: "O pagamento é feito diretamente entre vocês (o app recomenda PIX). Após conclusão, vá na diária concluída e toque em '🧾 Recibo' para gerar o comprovante." },
+    { keys: ["avalia","nota","star","estrela"], resp: "Após a conclusão da diária, ambos podem se avaliar. A avaliação aparece no perfil e ajuda a construir reputação. Seja justo! ⭐" },
+    { keys: ["conta","perfil","editar","foto"], resp: "Para editar seu perfil, vá na aba 'Perfil' e toque em '✏️ Editar'. Você pode atualizar foto, bio, função e muito mais." },
+    { keys: ["convite","convidar"], resp: "Empregadores podem enviar convites diretos a diaristas específicos. Acesse o perfil do diarista e toque em '📨 Convidar para diária'." },
+    { keys: ["qr","qrcode","check","chegada"], resp: "O check-in é feito via QR Code. O diarista mostra o QR Code no app e o empregador escaneia. Isso confirma a chegada e inicia a diária oficialmente." },
+    { keys: ["senha","esqueci","login","entrar"], resp: "Para redefinir sua senha, toque em 'Esqueci minha senha' na tela de login. Um link será enviado para seu e-mail." },
+    { keys: ["problema","erro","bug","não funciona","ajuda"], resp: "Sinto muito pelo transtorno! 🙏 Entre em contato pelo e-mail suporte@diariaja.com.br ou pelo WhatsApp. Respondemos em até 24h." },
+    { keys: ["taxa","cobrança","custo","gratuito"], resp: "O DiáriaJá cobra uma taxa de 1,5% sobre o valor da diária para empregadores. Diaristas não pagam taxa. 💚" },
+    { keys: ["nota fiscal","recibo","comprovante"], resp: "Após conclusão da diária, o comprovante fica disponível na aba 'Diárias'. Toque em '🧾 Recibo' para visualizar e compartilhar." },
+    { keys: ["seguro","garantia","confiavel","verificado"], resp: "Todos os diaristas com badge '✅ Verificado' tiveram o CPF confirmado. Recomendamos verificar avaliações e histórico antes de contratar. 🛡️" },
+  ];
+
+  const responderSuporte = (msg: string) => {
+    const lower = msg.toLowerCase();
+    const faq = SUPORTE_FAQ.find(f => f.keys.some(k => lower.includes(k)));
+    const resp = faq?.resp ?? "Não encontrei resposta exata para isso 🤔. Pode reformular? Ou entre em contato: suporte@diariaja.com.br";
+    setTimeout(() => {
+      setMsgsSuporte(prev => [...prev, { de: "bot", texto: resp }]);
+    }, 600);
   };
 
   // Envia avaliação de um diarista
@@ -2661,7 +2765,7 @@ export default function App() {
         <p style={{ color:"var(--text-3,#94a3b8)", fontSize:14, marginTop:8 }}>Como você vai usar o app?</p>
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:24 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:12 }}>
         {[
           { key:"empregador", icone:"🏢", label:"Empregador", desc:"Restaurante, mercado, obra..." },
           { key:"diarista",   icone:"👷", label:"Diarista",   desc:"Quero encontrar trabalho" },
@@ -2675,12 +2779,27 @@ export default function App() {
           </div>
         ))}
       </div>
+      {/* Card empresa — linha separada, largura total */}
+      <div
+        style={{ background: tipo==="empresa" ? "rgba(58,134,255,.18)" : "rgba(255,255,255,.06)", border: tipo==="empresa" ? "2px solid #3A86FF" : "1.5px solid rgba(255,255,255,.1)", borderRadius:20, padding:"18px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:8, cursor:"pointer", marginBottom:24 }}
+        onClick={() => setTipo("empresa")}>
+        <span style={{ fontSize:36 }}>🏢</span>
+        <span style={{ fontWeight:800, fontSize:15, color:tipo==="empresa"?"#3A86FF":"#f1f5f9" }}>Sou Empresa / CNPJ</span>
+        <span style={{ fontSize:11, color:"var(--text-2,#64748b)", textAlign:"center" as const }}>Empresa com CNPJ — CNPJ obrigatório</span>
+      </div>
 
       <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", opacity:tipo?1:0.35, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
         disabled={!tipo}
         onClick={() => {
-          if (session) { setTela(tipo === "empregador" ? "cadastro-empregador" : "cadastro-diarista"); }
-          else { setTela("cadastro-auth"); }
+          if (tipo === "empresa") {
+            setForm(prev => ({ ...prev, pessoaTipo: "juridica" }));
+            if (session) { setTela("cadastro-empregador"); }
+            else { setTela("cadastro-auth"); }
+          } else if (session) {
+            setTela(tipo === "empregador" ? "cadastro-empregador" : "cadastro-diarista");
+          } else {
+            setTela("cadastro-auth");
+          }
         }}>
         Continuar →
       </button>
@@ -2989,6 +3108,7 @@ export default function App() {
           cnpj: form.cnpj,
           pessoa_tipo: form.pessoaTipo,
           endereco_empregador: endEmp,
+          is_empresa: tipo === "empresa" ? true : undefined,
         });
         if (ok) setTela("escolha-negocio");
       }}>Continuar →</button>
@@ -3099,35 +3219,54 @@ export default function App() {
         max={new Date(new Date().setFullYear(new Date().getFullYear()-16)).toISOString().split("T")[0]}
         value={form.dataNasc} onChange={e=>setForm({...form,dataNasc:e.target.value})} />
 
-      {/* Especialidades */}
+      {/* Especialidades com seção colapsável */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💼 Especialidades *</div>
-      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira selecionada</strong> vira sua especialidade principal no perfil.</p>
+      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira selecionada ⭐</strong> é sua especialidade principal.</p>
       {categoriasSelecionadas.length > 0 && (
         <p style={{ color:"#FF6B35", fontSize:12, margin:"0 0 8px", fontWeight:700 }}>
-          {categoriasSelecionadas.length} selecionada{categoriasSelecionadas.length > 1 ? "s" : ""} · Principal: {categoriasSelecionadas[0]}
+          {categoriasSelecionadas.length} selecionada{categoriasSelecionadas.length > 1 ? "s" : ""} · Principal: ⭐ {categoriasSelecionadas[0]}
         </p>
       )}
-      <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, marginBottom:12 }}>
-        {Object.entries(CATEGORIAS_NEGOCIO).flatMap(([, info]) =>
-          info.funcoes.map(f => {
-            const sel = categoriasSelecionadas.includes(f);
-            const idx = categoriasSelecionadas.indexOf(f);
-            return (
-              <button key={f}
-                style={{ padding:"7px 14px", borderRadius:20, border:`2px solid ${sel?"#FF6B35":"#e2e8f0"}`,
-                  background:sel?"#FF6B35":"#fff", color:sel?"#fff":"#475569",
-                  fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", position:"relative" as const }}
-                onClick={() => setCategorias(prev => sel ? prev.filter(x=>x!==f) : [...prev, f])}>
-                {f}{sel && idx === 0 ? " ★" : ""}
-              </button>
-            );
-          })
-        )}
-      </div>
+      {/* Botão expandir/recolher habilidades */}
+      <button
+        style={{ width:"100%", padding:"11px 14px", borderRadius:12, border:"2px dashed #e2e8f0", background:"var(--bg-surface,#f8fafc)", color:"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}
+        onClick={() => setHabilidadesExpandidas(prev => !prev)}>
+        <span>{habilidadesExpandidas ? "🔼 Recolher habilidades" : "🔽 Ver todas as habilidades"}</span>
+        <span style={{ background:"#FF6B35", color:"#fff", borderRadius:20, padding:"2px 10px", fontSize:11 }}>{habilidadesExpandidas ? "−" : "+"}</span>
+      </button>
+      {habilidadesExpandidas && (
+        <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, marginBottom:12, background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px", border:"1px solid var(--border,#e2e8f0)" }}>
+          {Object.entries(CATEGORIAS_NEGOCIO).flatMap(([, info]) =>
+            info.funcoes.map(f => {
+              const sel = categoriasSelecionadas.includes(f);
+              const idx = categoriasSelecionadas.indexOf(f);
+              return (
+                <button key={f}
+                  style={{ padding:"7px 14px", borderRadius:20, border:`2px solid ${sel?"#FF6B35":"#e2e8f0"}`,
+                    background:sel?"#FF6B35":"#fff", color:sel?"#fff":"#475569",
+                    fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", position:"relative" as const }}
+                  onClick={() => setCategorias(prev => sel ? prev.filter(x=>x!==f) : [...prev, f])}>
+                  {f}{sel && idx === 0 ? " ⭐" : ""}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
 
       <label style={S.label}>Valor por diária (R$) *</label>
       <input style={S.input} placeholder="Ex: 150" type="number" value={form.valor} onChange={e=>setForm({...form,valor:e.target.value})} />
-      <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
+      {/* Banner de média de mercado por função */}
+      {categoriasSelecionadas[0] && MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]] && (() => {
+        const med = MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]];
+        return (
+          <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:10, padding:"9px 12px", marginBottom:8, fontSize:12, color:"#166534" }}>
+            💡 Média em Campo Grande para <strong>{categoriasSelecionadas[0]}</strong>:{" "}
+            R$ {med.min} — R$ {med.max}/dia (média R$ {med.media})
+          </div>
+        );
+      })()}
+      <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-2px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
         📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>R$ 120 – R$ 250</strong> por diária
       </p>
 
@@ -4686,6 +4825,17 @@ export default function App() {
           return (
             <div style={{ padding:"16px" }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
+              {/* Suporte DiáriaJá — sempre no topo */}
+              <div
+                style={{ background:"linear-gradient(135deg,#8338EC,#5D5FEF)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 4px 14px rgba(131,56,236,.3)", cursor:"pointer", marginBottom:10 }}
+                onClick={() => { setChatSuporte(true); }}>
+                <div style={{ width:50, height:50, borderRadius:25, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>💬</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Suporte DiáriaJá</div>
+                  <div style={{ fontSize:12, color:"rgba(255,255,255,.8)", marginTop:2 }}>Tire suas dúvidas instantaneamente</div>
+                </div>
+                <span style={{ background:"#22c55e", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>Online</span>
+              </div>
               {conversas.length === 0 ? (
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"32px 20px", textAlign:"center" }}>
                   <div style={{ fontSize:40, marginBottom:10 }}>💬</div>
@@ -5008,30 +5158,39 @@ export default function App() {
                   <span style={{ marginLeft:"auto", background:"#dcfce7", color:"#16a34a", fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20 }}>✓ Ativo</span>
                 </div>
               </div>
-              {/* Opção de trocar */}
+              {/* Opção de trocar — empresas (is_empresa) NÃO podem virar diarista */}
               <div style={{ padding:"16px 20px" }}>
                 <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:12 }}>Trocar para</div>
-                <button
-                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:16, padding:"14px 16px", cursor:"pointer", fontFamily:"system-ui,sans-serif", textAlign:"left" as const }}
-                  onClick={() => {
-                    setMenuTrocarPerfil(false);
-                    setAuthError("");
-                    if (profile?.funcao && profile?.valor_diaria) {
-                      setModoAtual("diarista"); setTela("home-diarista");
-                    } else {
-                      setForm({ ...form, funcao: profile?.funcao || "", valor: String(profile?.valor_diaria || "") });
-                      setTela("setup-diarista");
-                    }
-                  }}>
-                  <div style={{ width:44, height:44, borderRadius:22, background:"#8338EC18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>👷</div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Diarista</div>
-                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
-                      {profile?.funcao ? `${profile.funcao} · R$ ${profile.valor_diaria}/dia` : "Cadastrar perfil de diarista"}
+                {profile?.is_empresa ? (
+                  <div style={{ background:"#f8fafc", border:"1.5px dashed #cbd5e1", borderRadius:14, padding:"16px", textAlign:"center" as const }}>
+                    <div style={{ fontSize:28, marginBottom:6 }}>🏢</div>
+                    <div style={{ fontWeight:700, fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.4 }}>
+                      Contas empresa não podem ter perfil de diarista.
                     </div>
                   </div>
-                  <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
-                </button>
+                ) : (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:16, padding:"14px 16px", cursor:"pointer", fontFamily:"system-ui,sans-serif", textAlign:"left" as const }}
+                    onClick={() => {
+                      setMenuTrocarPerfil(false);
+                      setAuthError("");
+                      if (profile?.funcao && profile?.valor_diaria) {
+                        setModoAtual("diarista"); setTela("home-diarista");
+                      } else {
+                        setForm({ ...form, funcao: profile?.funcao || "", valor: String(profile?.valor_diaria || "") });
+                        setTela("setup-diarista");
+                      }
+                    }}>
+                    <div style={{ width:44, height:44, borderRadius:22, background:"#8338EC18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>👷</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Diarista</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                        {profile?.funcao ? `${profile.funcao} · R$ ${profile.valor_diaria}/dia` : "Cadastrar perfil de diarista"}
+                      </div>
+                    </div>
+                    <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                  </button>
+                )}
               </div>
               <div style={{ padding:"0 20px" }}>
                 <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)", width:"100%" }} onClick={() => setMenuTrocarPerfil(false)}>Fechar</button>
@@ -5730,17 +5889,24 @@ export default function App() {
                     </button>
                   </div>
                 )}
-                {/* Botão avaliar empregador após conclusão */}
+                {/* Botão avaliar empregador e recibo após conclusão */}
                 {dia.status === "concluida" && (
-                  avaliadosDiarias.has(dia.id) ? (
-                    <div style={{ textAlign:"center", fontSize:12, color:"#16a34a", fontWeight:700, marginTop:4 }}>⭐ Avaliação enviada!</div>
-                  ) : (
+                  <>
                     <button
-                      style={{ width:"100%", padding:"10px", background:"#fef3c7", color:"#d97706", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:4 }}
-                      onClick={e => { e.stopPropagation(); setModalAvalEmp(dia); setNotaEmp(0); setComentarioEmp(""); }}>
-                      ⭐ Avaliar o empregador
+                      style={{ width:"100%", padding:"10px", background:"#f0fdf4", color:"#16a34a", border:"1.5px solid #86efac", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:4, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                      onClick={e => { e.stopPropagation(); setModalReciboDiarista(dia); }}>
+                      🧾 Meu Recibo
                     </button>
-                  )
+                    {avaliadosDiarias.has(dia.id) ? (
+                      <div style={{ textAlign:"center", fontSize:12, color:"#16a34a", fontWeight:700, marginTop:4 }}>⭐ Avaliação enviada!</div>
+                    ) : (
+                      <button
+                        style={{ width:"100%", padding:"10px", background:"#fef3c7", color:"#d97706", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:4 }}
+                        onClick={e => { e.stopPropagation(); setModalAvalEmp(dia); setNotaEmp(0); setComentarioEmp(""); }}>
+                        ⭐ Avaliar o empregador
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             );
@@ -6105,6 +6271,17 @@ export default function App() {
           return (
             <div style={{ padding:"16px" }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
+              {/* Suporte DiáriaJá — sempre no topo */}
+              <div
+                style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 4px 14px rgba(255,107,53,.3)", cursor:"pointer", marginBottom:10 }}
+                onClick={() => { setChatSuporte(true); }}>
+                <div style={{ width:50, height:50, borderRadius:25, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>💬</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Suporte DiáriaJá</div>
+                  <div style={{ fontSize:12, color:"rgba(255,255,255,.8)", marginTop:2 }}>Tire suas dúvidas instantaneamente</div>
+                </div>
+                <span style={{ background:"#22c55e", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>Online</span>
+              </div>
               {conversas.length === 0 ? (
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"32px 20px", textAlign:"center" }}>
                   <div style={{ fontSize:40, marginBottom:10 }}>💬</div>
@@ -6520,7 +6697,7 @@ export default function App() {
                       {authError && <p style={S.errorText}>{authError}</p>}
                       <button style={{ ...S.btnPrimary, background:"#22c55e", marginTop:8, opacity:confirmando?0.6:1 }}
                         disabled={confirmando}
-                        onClick={async () => { await confirmarPresenca(vagaConfirm); setVagaConfirm(null); }}>
+                        onClick={() => { setVagaConfirm(null); confirmarPresenca(vagaConfirm); }}>
                         {confirmando ? "Confirmando..." : "✅ Confirmar minha presença"}
                       </button>
                       <button style={{ ...S.btnSecondary, marginTop:8, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setVagaConfirm(null)}>
@@ -7013,32 +7190,49 @@ export default function App() {
         onChange={e=>setForm({...form,dataNasc:e.target.value})} />
 
       <label style={S.label}>Suas especialidades</label>
-      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"2px 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira</strong> será sua especialidade principal.</p>
+      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"2px 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira ⭐</strong> será sua especialidade principal.</p>
       {categoriasSelecionadas.length > 0 && (
         <p style={{ color:"#FF6B35", fontSize:12, margin:"0 0 8px", fontWeight:700 }}>
-          {categoriasSelecionadas.length} selecionada{categoriasSelecionadas.length > 1 ? "s" : ""} · Principal: {categoriasSelecionadas[0]}
+          {categoriasSelecionadas.length} selecionada{categoriasSelecionadas.length > 1 ? "s" : ""} · Principal: ⭐ {categoriasSelecionadas[0]}
         </p>
       )}
-      <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:8 }}>
-        {Object.entries(CATEGORIAS_NEGOCIO).flatMap(([, info]) =>
-          info.funcoes.map(f => {
-            const sel = categoriasSelecionadas.includes(f);
-            const idx = categoriasSelecionadas.indexOf(f);
-            return (
-              <button key={f}
-                style={{ padding:"7px 14px", borderRadius:20, border:`2px solid ${sel ? "#FF6B35" : "#e2e8f0"}`,
-                  background: sel ? "#FF6B35" : "#fff", color: sel ? "#fff" : "#475569",
-                  fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
-                onClick={() => setCategorias(prev => sel ? prev.filter(x=>x!==f) : [...prev, f])}>
-                {f}{sel && idx === 0 ? " ★" : ""}
-              </button>
-            );
-          })
-        )}
-      </div>
+      <button
+        style={{ width:"100%", padding:"11px 14px", borderRadius:12, border:"2px dashed #e2e8f0", background:"var(--bg-surface,#f8fafc)", color:"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}
+        onClick={() => setHabilidadesExpandidas(prev => !prev)}>
+        <span>{habilidadesExpandidas ? "🔼 Recolher habilidades" : "🔽 Ver todas as habilidades"}</span>
+        <span style={{ background:"#FF6B35", color:"#fff", borderRadius:20, padding:"2px 10px", fontSize:11 }}>{habilidadesExpandidas ? "−" : "+"}</span>
+      </button>
+      {habilidadesExpandidas && (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:8, background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px", border:"1px solid var(--border,#e2e8f0)" }}>
+          {Object.entries(CATEGORIAS_NEGOCIO).flatMap(([, info]) =>
+            info.funcoes.map(f => {
+              const sel = categoriasSelecionadas.includes(f);
+              const idx = categoriasSelecionadas.indexOf(f);
+              return (
+                <button key={f}
+                  style={{ padding:"7px 14px", borderRadius:20, border:`2px solid ${sel ? "#FF6B35" : "#e2e8f0"}`,
+                    background: sel ? "#FF6B35" : "#fff", color: sel ? "#fff" : "#475569",
+                    fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  onClick={() => setCategorias(prev => sel ? prev.filter(x=>x!==f) : [...prev, f])}>
+                  {f}{sel && idx === 0 ? " ⭐" : ""}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
 
       <label style={S.label}>Valor por diária (R$)</label>
       <input style={S.input} type="number" value={form.valor} onChange={e=>setForm({...form,valor:e.target.value})} />
+      {categoriasSelecionadas[0] && MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]] && (() => {
+        const med = MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]];
+        return (
+          <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:10, padding:"9px 12px", marginBottom:8, fontSize:12, color:"#166534" }}>
+            💡 Média em Campo Grande para <strong>{categoriasSelecionadas[0]}</strong>:{" "}
+            R$ {med.min} — R$ {med.max}/dia (média R$ {med.media})
+          </div>
+        );
+      })()}
       <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
         📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>R$ 120 – R$ 250</strong> por diária
       </p>
@@ -8543,6 +8737,204 @@ export default function App() {
         <p style={{ textAlign:"center", color:"#334155", fontSize:11, margin:"20px 24px 0", lineHeight:1.6 }}>
           Os planos são gerenciados pelo Mercado Pago. O DiáriaJá não armazena dados de cartão.
         </p>
+      </div>
+    );
+  }
+
+  // ── MODAL: Termo de Ciência (Empregador seleciona candidato) ──────────────
+  if (modalTermoCiencia) {
+    const { diaria, diaristaId } = modalTermoCiencia;
+    const dp = candidatosProfiles[diaristaId];
+    return (
+      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
+          <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
+          <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>📋 Antes de confirmar...</h3>
+          <p style={{ fontSize:14, color:"var(--text-label,#475569)", lineHeight:1.6, marginBottom:16 }}>
+            Você está prestes a contratar <strong>{dp?.nome || "este profissional"}</strong> para <strong>{diaria.funcao}</strong>. Combinamos que:
+          </p>
+          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+            {[
+              { icon:"✅", txt:"O DiáriaJá conecta profissionais e contratantes com facilidade" },
+              { icon:"⚠️", txt:"Não verificamos ativamente as qualificações de cada profissional" },
+              { icon:"💡", txt:"Recomendamos verificar referências pessoalmente quando possível" },
+              { icon:"🤝", txt:"A negociação final é entre você e o profissional" },
+            ].map(it => (
+              <div key={it.icon} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>{it.icon}</span>
+                <span style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.5 }}>{it.txt}</span>
+              </div>
+            ))}
+          </div>
+          <label style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoCienciaCheck?"#FF6B35":"#e2e8f0"}`, marginBottom:16 }}>
+            <input type="checkbox" checked={termoCienciaCheck} onChange={e => setTermoCienciaCheck(e.target.checked)} style={{ width:18, height:18, accentColor:"#FF6B35", flexShrink:0, marginTop:1 }} />
+            <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Entendi e quero selecionar este profissional</span>
+          </label>
+          <button
+            style={{ width:"100%", padding:"15px", background:termoCienciaCheck?"#FF6B35":"#e2e8f0", color:termoCienciaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoCienciaCheck?"pointer":"default", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+            disabled={!termoCienciaCheck}
+            onClick={() => { if (termoCienciaCheck) executarSelecaoCandidato(diaria, diaristaId); }}>
+            Confirmar seleção
+          </button>
+          <button
+            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+            onClick={() => { setModalTermoCiencia(null); setTermoCienciaCheck(false); }}>
+            Cancelar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── MODAL: Termo do Diarista (confirma presença) ─────────────────────────
+  if (modalTermoDiarista) {
+    const d = modalTermoDiarista;
+    return (
+      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
+          <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
+          <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>✅ Confirmar compromisso</h3>
+          <p style={{ fontSize:14, color:"var(--text-label,#475569)", lineHeight:1.6, marginBottom:16 }}>
+            Ao confirmar, você declara que:
+          </p>
+          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+            {[
+              { icon:"📅", txt:`Irá comparecer em ${new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")} às ${d.horario_inicio.slice(0,5)}` },
+              { icon:"🤝", txt:`Prestará o serviço de ${d.funcao} com dedicação` },
+              { icon:"📱", txt:"Manterá contato pelo chat caso algo mude" },
+              { icon:"⚠️", txt:"Cancelamentos tardios afetam sua reputação" },
+            ].map(it => (
+              <div key={it.icon} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>{it.icon}</span>
+                <span style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.5 }}>{it.txt}</span>
+              </div>
+            ))}
+          </div>
+          <label style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoDiaristaCheck?"#22c55e":"#e2e8f0"}`, marginBottom:16 }}>
+            <input type="checkbox" checked={termoDiaristaCheck} onChange={e => setTermoDiaristaCheck(e.target.checked)} style={{ width:18, height:18, accentColor:"#22c55e", flexShrink:0, marginTop:1 }} />
+            <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Sim, confirmo que irei comparecer!</span>
+          </label>
+          <button
+            style={{ width:"100%", padding:"15px", background:termoDiaristaCheck?"#22c55e":"#e2e8f0", color:termoDiaristaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoDiaristaCheck?"pointer":"default", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+            disabled={!termoDiaristaCheck || confirmando}
+            onClick={() => { if (termoDiaristaCheck) executarConfirmarPresenca(d); }}>
+            {confirmando ? "Confirmando..." : "Confirmar presença ✅"}
+          </button>
+          <button
+            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+            onClick={() => { setModalTermoDiarista(null); setTermoDiaristaCheck(false); }}>
+            Voltar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── MODAL: Chat Suporte DiáriaJá ─────────────────────────────────────────
+  if (chatSuporte) {
+    const msgSupportEndRef = { current: null } as React.MutableRefObject<HTMLDivElement | null>;
+    return (
+      <div style={{ position:"fixed", inset:0, background:"var(--bg-app,#f0f2f5)", zIndex:300, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", fontFamily:"system-ui,sans-serif" }}>
+        {/* Header */}
+        <div style={{ background:"linear-gradient(135deg,#8338EC,#5D5FEF)", padding:"20px 16px 14px", display:"flex", alignItems:"center", gap:12 }}>
+          <button style={{ background:"rgba(255,255,255,.2)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", width:36, height:36, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={() => setChatSuporte(false)}>←</button>
+          <div style={{ width:40, height:40, borderRadius:20, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>💬</div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Suporte DiáriaJá</div>
+            <div style={{ fontSize:11, color:"rgba(255,255,255,.8)" }}>Assistente automático</div>
+          </div>
+          <span style={{ background:"#22c55e", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>Online</span>
+        </div>
+        {/* Mensagens */}
+        <div style={{ flex:1, overflowY:"auto", padding:"16px", display:"flex", flexDirection:"column", gap:10 }}>
+          {msgsSuporte.map((m, i) => (
+            <div key={i} style={{ display:"flex", justifyContent:m.de==="user"?"flex-end":"flex-start" }}>
+              <div style={{ background:m.de==="user"?"#8338EC":"var(--bg-card,#fff)", color:m.de==="user"?"#fff":"var(--text-1,#0f172a)", borderRadius:m.de==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px", padding:"10px 14px", maxWidth:"78%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
+                {m.texto}
+              </div>
+            </div>
+          ))}
+          <div ref={msgSupportEndRef} />
+        </div>
+        {/* Input */}
+        <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)" }}>
+          <input
+            style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none", background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
+            placeholder="Digite sua dúvida..."
+            value={inputSuporte}
+            onChange={e => setInputSuporte(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && inputSuporte.trim()) {
+                const txt = inputSuporte.trim();
+                setMsgsSuporte(prev => [...prev, { de:"user", texto:txt }]);
+                setInputSuporte("");
+                responderSuporte(txt);
+              }
+            }}
+          />
+          <button
+            style={{ width:44, height:44, borderRadius:22, background:inputSuporte.trim()?"#8338EC":"#e2e8f0", border:"none", color:"#fff", fontSize:20, cursor:inputSuporte.trim()?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
+            disabled={!inputSuporte.trim()}
+            onClick={() => {
+              if (!inputSuporte.trim()) return;
+              const txt = inputSuporte.trim();
+              setMsgsSuporte(prev => [...prev, { de:"user", texto:txt }]);
+              setInputSuporte("");
+              responderSuporte(txt);
+            }}>
+            ➤
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── MODAL: Recibo do Diarista ─────────────────────────────────────────────
+  if (modalReciboDiarista) {
+    const d = modalReciboDiarista;
+    const recibo = `RECIBO DE SERVIÇO PRESTADO — DiáriaJá\n\nPrestador: ${profile?.nome || ""}\nFunção: ${d.funcao}\nContratante: ${d.nome_negocio || d.segmento}\nData: ${new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")}\nHorário: ${d.horario_inicio.slice(0,5)} às ${d.horario_fim.slice(0,5)}\nValor: R$ ${d.valor}\n\nServiço prestado e registrado na plataforma DiáriaJá.`;
+    return (
+      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
+          <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
+          <div style={{ textAlign:"center", marginBottom:16 }}>
+            <div style={{ fontSize:36, marginBottom:8 }}>🧾</div>
+            <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)" }}>RECIBO DE SERVIÇO PRESTADO</div>
+            <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:2 }}>DiáriaJá</div>
+          </div>
+          <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"14px 16px", display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
+            {[
+              { k:"Prestador", v:profile?.nome || "—" },
+              { k:"Função",    v:d.funcao },
+              { k:"Contratante", v:d.nome_negocio || d.segmento },
+              { k:"Data",      v:new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR") },
+              { k:"Horário",   v:`${d.horario_inicio.slice(0,5)} às ${d.horario_fim.slice(0,5)}` },
+              { k:"Valor",     v:`R$ ${d.valor}` },
+            ].map(r => (
+              <div key={r.k} style={{ display:"flex", justifyContent:"space-between", fontSize:13 }}>
+                <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:600 }}>{r.k}</span>
+                <strong style={{ color:"var(--text-1,#0f172a)" }}>{r.v}</strong>
+              </div>
+            ))}
+          </div>
+          <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"10px 14px", fontSize:12, color:"#166534", marginBottom:16, textAlign:"center" }}>
+            Serviço prestado e registrado na plataforma DiáriaJá.
+          </div>
+          {typeof navigator !== "undefined" && (navigator as Navigator & {share?: (data: object) => Promise<void>}).share && (
+            <button
+              style={{ width:"100%", padding:"13px", background:"#22c55e", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+              onClick={() => {
+                (navigator as Navigator & {share?: (data: object) => Promise<void>}).share?.({ title:"Recibo DiáriaJá", text:recibo });
+              }}>
+              📤 Compartilhar recibo
+            </button>
+          )}
+          <button
+            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+            onClick={() => setModalReciboDiarista(null)}>
+            Fechar
+          </button>
+        </div>
       </div>
     );
   }
