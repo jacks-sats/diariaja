@@ -135,20 +135,45 @@ export const MEDIAS_CAMPO_GRANDE: Record<string, { min: number; max: number; med
 export const PLANOS_EMPREGADOR = [
   {
     id: "gratis", nome: "Grátis", valor: 0, cor: "#64748b",
-    vagas_mes: 3,
-    recursos: ["Até 3 vagas por mês", "Candidatos ilimitados", "Chat com diarista", "Avaliações"],
+    vagas_mes: Infinity,             // vagas ilimitadas; limite é em seleções de candidato
+    contatos_mes: 3,                 // até 3 seleções/mês; além disso R$ 1 por contato
+    recursos: [
+      "3 seleções de candidato/mês",
+      "Vagas ilimitadas",
+      "Candidatos ilimitados por vaga",
+      "Chat após seleção",
+      "Avaliações",
+    ],
     destaque: false, badge: false,
   },
   {
     id: "essencial", nome: "Essencial", valor: 49, cor: "#3A86FF",
     vagas_mes: Infinity,
-    recursos: ["Vagas ilimitadas", "Badge verificado ✅", "Candidatos ilimitados", "Chat com diarista", "Avaliações"],
+    contatos_mes: Infinity,
+    descricao: "Para restaurantes, condomínios, clínicas e eventos recorrentes",
+    recursos: [
+      "Seleções ilimitadas de candidato",
+      "Vagas ilimitadas",
+      "Badge verificado ✅",
+      "Candidatos ilimitados",
+      "Chat com diarista",
+      "Avaliações",
+    ],
     destaque: false, badge: true, popular: false,
   },
   {
     id: "pro", nome: "Pro", valor: 99, cor: "#FF6B35",
     vagas_mes: Infinity,
-    recursos: ["Tudo do Essencial", "Vagas em destaque 🔥", "Aparece primeiro nas buscas", "Relatório de candidatos"],
+    contatos_mes: Infinity,
+    descricao: "Para empresas com demanda recorrente e alto volume",
+    recursos: [
+      "Tudo do Essencial",
+      "Vagas em destaque 🔥",
+      "Aparece primeiro nas buscas",
+      "Profissionais favoritos",
+      "Relatório de candidatos",
+      "Suporte prioritário",
+    ],
     destaque: true, badge: true, popular: true,
   },
 ] as const;

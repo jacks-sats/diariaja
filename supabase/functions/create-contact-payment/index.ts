@@ -1,0 +1,92 @@
+// Edge Function: create-contact-payment
+// Cria preferência de R$ 1 no Mercado Pago para desbloquear
+// uma seleção de candidato adicional no plano Grátis.
+//
+// Body: { empregador_id: string }
+// Retorna: { checkout_url: string }
+//
+// Variáveis de ambiente:
+//   MP_ACCESS_TOKEN  → Access Token de produção
+//   APP_URL          → URL pública do app
+
+const MP_TOKEN = Deno.env.get("MP_ACCESS_TOKEN")!;
+const APP_URL  = Deno.env.get("APP_URL") ?? "https://diariaja.vercel.app";
+
+const CORS = {
+  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS });
+  }
+
+  try {
+    const { empregador_id } = await req.json();
+
+    if (!empregador_id) {
+      return json({ error: "empregador_id obrigatório" }, 400);
+    }
+
+    // Cria preferência de R$ 1,00 para desbloqueio de contato
+    const idempotencyKey = `contact-unlock-${empregador_id}-${new Date().toISOString().slice(0, 13)}`;
+
+    const preferencia = {
+      items: [
+        {
+          id:          `contact_unlock_${empregador_id}`,
+          title:       "DiáriaJá — Desbloqueio de contato",
+          description: "Desbloqueie 1 seleção de candidato adicional no plano Grátis.",
+          quantity:    1,
+          currency_id: "BRL",
+          unit_price:  1.00,
+        },
+      ],
+      external_reference: `contact_unlock::${empregador_id}`,
+      back_urls: {
+        success: `${APP_URL}/?contato_desbloqueado=sucesso`,
+        failure: `${APP_URL}/?contato_desbloqueado=falha`,
+        pending: `${APP_URL}/?contato_desbloqueado=pendente`,
+      },
+      auto_return:       "approved",
+      notification_url:  `${Deno.env.get("SUPABASE_URL")}/functions/v1/mp-webhook`,
+      statement_descriptor: "DIARIAJA",
+      payer: { name: "Contratante DiáriaJá" },
+    };
+
+    const mpResp = await fetch("https://api.mercadopago.com/checkout/preferences", {
+      method:  "POST",
+      headers: {
+        "Authorization":    `Bearer ${MP_TOKEN}`,
+        "Content-Type":     "application/json",
+        "X-Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify(preferencia),
+    });
+
+    const mpData = await mpResp.json();
+
+    if (!mpResp.ok) {
+      console.error("Erro MP create-contact-payment:", JSON.stringify(mpData));
+      return json({ error: "Erro ao criar pagamento no Mercado Pago", detalhe: mpData }, 502);
+    }
+
+    return json({
+      checkout_url:  mpData.init_point,
+      sandbox_url:   mpData.sandbox_init_point,
+      preference_id: mpData.id,
+    });
+
+  } catch (err) {
+    console.error("create-contact-payment error:", err);
+    return json({ error: "Erro interno" }, 500);
+  }
+});
+
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", ...CORS },
+  });
+}

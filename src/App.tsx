@@ -237,6 +237,15 @@ export default function App() {
   const [assinatura, setAssinatura] = useState<Assinatura | null>(null);
   const [criandoAssinatura, setCriandoAssinatura] = useState(false);
   const [modalLimiteVagas, setModalLimiteVagas] = useState(false);
+  const [modalLimiteContato, setModalLimiteContato] = useState(false);
+  const [desbloqueandoContato, setDesbloqueandoContato] = useState(false);
+  // Contatos desbloqueados via R$ 1 neste mês (persiste em localStorage)
+  const [contatosDesbloqueados, setContatosDesbloqueados] = useState<number>(() => {
+    try {
+      const chave = "diariaja_contatos_desblo_" + new Date().toISOString().slice(0, 7);
+      return parseInt(localStorage.getItem(chave) || "0", 10);
+    } catch { return 0; }
+  });
 
   // Novas features v2
   const [modalTermoCiencia, setModalTermoCiencia] = useState<{diaria: Diaria, diaristaId: string} | null>(null);
@@ -1024,8 +1033,19 @@ export default function App() {
       setLoading(prev => { if (prev) { setTela("splash"); } return false; });
     }, 12000);
 
-    // Se a URL contém erro de auth do Supabase (ex: bad_oauth_state), vai direto para splash
+    // ── Retorno do MP após desbloqueio de contato (R$ 1) ───────────────────
     const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("contato_desbloqueado") === "sucesso") {
+      try {
+        const chave = "diariaja_contatos_desblo_" + new Date().toISOString().slice(0, 7);
+        const atual = parseInt(localStorage.getItem(chave) || "0", 10);
+        localStorage.setItem(chave, String(atual + 1));
+        setContatosDesbloqueados(atual + 1);
+      } catch { /* ignore */ }
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    // Se a URL contém erro de auth do Supabase (ex: bad_oauth_state), vai direto para splash
     if (urlParams.get("error") || urlParams.get("error_code")) {
       const desc = urlParams.get("error_description")?.replace(/\+/g, " ") || "Erro de autenticação";
       window.history.replaceState({}, "", window.location.pathname);
@@ -1853,8 +1873,49 @@ export default function App() {
     setToastSuccess("✅ Candidato selecionado! Aguardando confirmação dele.");
   };
 
-  // Wrapper: abre o modal de termo antes de selecionar
+  // Inicia pagamento de R$ 1 para desbloquear seleção de contato adicional
+  const desbloquearContato = async () => {
+    if (!session?.user) return;
+    setDesbloqueandoContato(true);
+    try {
+      const resp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-contact-payment`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":  "application/json",
+            "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_JWT_ANON}`,
+          },
+          body: JSON.stringify({ empregador_id: session.user.id }),
+        }
+      );
+      const data = await resp.json();
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else {
+        setToastError("❌ Erro ao gerar link de pagamento. Tente novamente.");
+      }
+    } catch {
+      setToastError("❌ Erro de conexão. Verifique sua internet.");
+    }
+    setDesbloqueandoContato(false);
+  };
+
+  // Wrapper: verifica limite de contatos e abre modal de termo antes de selecionar
   const selecionarCandidato = (diaria: Diaria, diaristaId: string) => {
+    // Verifica limite para plano grátis (3 seleções/mês + extras desbloqueados)
+    const planoEmp = assinatura?.plano ?? "gratis";
+    if (planoEmp === "gratis") {
+      const mes = new Date().toISOString().slice(0, 7);
+      const selecionadasNoMes = diarias.filter(
+        d => d.diarista_aceite_id && d.created_at && d.created_at.slice(0, 7) === mes
+      ).length;
+      const limite = 3 + contatosDesbloqueados;
+      if (selecionadasNoMes >= limite) {
+        setModalLimiteContato(true);
+        return;
+      }
+    }
     setModalTermoCiencia({ diaria, diaristaId });
     setTermoCienciaCheck(false);
   };
@@ -2034,14 +2095,9 @@ export default function App() {
   const salvarDiaria = async () => {
     if (!session?.user) return;
 
-    // ── Verificação de limite do plano gratuito ──
-    // TODO: reativar antes do lançamento (desabilitado durante testes)
-    // const planoEmp = assinatura?.plano || "gratis";
-    // if (planoEmp === "gratis") {
-    //   const mesAtual = new Date().toISOString().slice(0,7);
-    //   const vagasNoMes = diarias.filter(d => d.created_at && d.created_at.slice(0,7) === mesAtual).length;
-    //   if (vagasNoMes >= 3) { setModalLimiteVagas(true); return; }
-    // }
+    // ── Limite de vagas: removido (vagas são ilimitadas em todos os planos) ──
+    // O limite passou a ser em seleções de candidato (R$ 1/contato extra no grátis)
+    // Verificado em selecionarCandidato()
 
     const [h1v, m1v] = (formDiaria.horario_inicio || "0:0").split(":").map(Number);
     const [h2v, m2v] = (formDiaria.horario_fim || "0:0").split(":").map(Number);
@@ -3727,11 +3783,21 @@ export default function App() {
       {/* Banner de média de mercado por função */}
       {categoriasSelecionadas[0] && MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]] && (() => {
         const med = MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]];
+        const valorNum = Number(form.valor);
+        const abaixoMinimo = valorNum > 0 && !isNaN(valorNum) && valorNum < med.min;
         return (
-          <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:10, padding:"9px 12px", marginBottom:8, fontSize:12, color:"#166534" }}>
-            💡 Média em Campo Grande para <strong>{categoriasSelecionadas[0]}</strong>:{" "}
-            R$ {med.min} — R$ {med.max}/dia (média R$ {med.media})
-          </div>
+          <>
+            <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:10, padding:"9px 12px", marginBottom:6, fontSize:12, color:"#166534" }}>
+              💡 Faixa em Campo Grande para <strong>{categoriasSelecionadas[0]}</strong>:{" "}
+              R$ {med.min} — R$ {med.max}/dia (média R$ {med.media})
+            </div>
+            {abaixoMinimo && (
+              <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:10, padding:"9px 12px", marginBottom:6, fontSize:12, color:"#9a3412", display:"flex", alignItems:"flex-start", gap:7 }}>
+                <span style={{ fontSize:14, flexShrink:0, lineHeight:1.4 }}>⚠️</span>
+                <span>Valor abaixo da faixa mínima de mercado. Ofertas assim costumam receber <strong>menos candidatos</strong>. Considere oferecer pelo menos R$ {med.min}.</span>
+              </div>
+            )}
+          </>
         );
       })()}
       <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-2px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
@@ -5479,6 +5545,55 @@ export default function App() {
                   Agora não
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal: Limite de contatos atingido (R$ 1/contato adicional) ── */}
+        {modalLimiteContato && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:28, padding:"32px 24px", maxWidth:370, width:"100%", textAlign:"center" }}>
+              <div style={{ fontSize:48, marginBottom:10 }}>👥</div>
+              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:6 }}>
+                Limite de seleções gratuitas
+              </div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.7, marginBottom:20 }}>
+                Você usou as <strong>3 seleções gratuitas</strong> deste mês.<br />
+                Escolha como continuar:
+              </div>
+
+              {/* Opção 1 — R$ 1 por este contato */}
+              <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"#166534", marginBottom:4 }}>💳 Desbloquear este contato — R$ 1,00</div>
+                <div style={{ fontSize:12, color:"#4b7c59", lineHeight:1.5, marginBottom:12 }}>
+                  Pague R$ 1 via Mercado Pago (cartão, PIX ou saldo) para selecionar mais um candidato agora.
+                </div>
+                <button
+                  style={{ width:"100%", padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: desbloqueandoContato ? "default" : "pointer", fontFamily:"system-ui,sans-serif", opacity: desbloqueandoContato ? 0.6 : 1 }}
+                  disabled={desbloqueandoContato}
+                  onClick={desbloquearContato}>
+                  {desbloqueandoContato ? "Aguarde..." : "Pagar R$ 1,00 e selecionar →"}
+                </button>
+              </div>
+
+              {/* Opção 2 — Assinar plano */}
+              <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"#9a3412", marginBottom:4 }}>🚀 Assinar Essencial — R$ 49/mês</div>
+                <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.5, marginBottom:12 }}>
+                  Seleções ilimitadas + vagas em destaque + badge verificado. Ideal para restaurantes, eventos e comércios.
+                </div>
+                <button
+                  style={{ width:"100%", padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  onClick={() => { setModalLimiteContato(false); setTela("planos"); }}>
+                  Ver planos →
+                </button>
+              </div>
+
+              <button
+                style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                onClick={() => setModalLimiteContato(false)}>
+                Agora não
+              </button>
             </div>
           </div>
         )}

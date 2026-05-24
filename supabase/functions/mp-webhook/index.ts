@@ -137,6 +137,15 @@ Deno.serve(async (req) => {
 
       if (!payment.external_reference) return new Response("ok", { status: 200 });
 
+      // ── Desbloqueio de contato (R$ 1) ──────────────────────────
+      // O cliente é redirecionado para /?contato_desbloqueado=sucesso
+      // e controla o contador via localStorage. O webhook apenas loga.
+      if (String(payment.external_reference).startsWith("contact_unlock::")) {
+        const userId = String(payment.external_reference).split("::")[1] ?? "";
+        console.log(`Contato desbloqueado: user=${userId} payment=${paymentId} status=${payment.status}`);
+        return new Response("ok", { status: 200 });
+      }
+
       const diariaId = payment.external_reference;
 
       const statusMap: Record<string, string> = {
