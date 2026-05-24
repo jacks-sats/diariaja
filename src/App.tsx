@@ -2009,11 +2009,7 @@ export default function App() {
       );
       const data = await resp.json();
       if (!resp.ok) {
-        if (data.code === "MP_NOT_CONNECTED") {
-          setAuthError("O diarista ainda não conectou a conta Mercado Pago. Peça para ele acessar o perfil e conectar.");
-        } else {
-          setAuthError(data.error || "Erro ao iniciar pagamento.");
-        }
+        setAuthError(data.error || "Erro ao iniciar pagamento. Tente novamente.");
         setCriandoPagamento(false);
         return;
       }
@@ -2048,7 +2044,7 @@ export default function App() {
     if (!formDiaria.data) { setAuthError("Selecione a data da diária."); return; }
     if (!formDiaria.horario_inicio || !formDiaria.horario_fim) { setAuthError("Informe o horário de início e término."); return; }
     if (minTot <= 0) { setAuthError("O horário de término deve ser após o início."); return; }
-    if (!formDiaria.valor || Number(formDiaria.valor) <= 0) { setAuthError("Informe o valor a pagar."); return; }
+    if (!formDiaria.valor || isNaN(Number(formDiaria.valor)) || Number(formDiaria.valor) <= 0) { setAuthError("Informe um valor numérico válido."); return; }
     if (!formDiaria.cep.trim() || formDiaria.cep.replace(/\D/g,"").length < 8) { setAuthError("Informe um CEP válido (8 dígitos)."); return; }
     if (!formDiaria.rua.trim()) { setAuthError("Informe o logradouro (rua/avenida)."); return; }
     if (!formDiaria.numero.trim()) { setAuthError("Informe o número do local."); return; }
