@@ -7171,22 +7171,14 @@ export default function App() {
               </div>
             )}
 
-            {/* Conectar MP */}
-            <div style={{ margin:"8px 16px 0", background: mpConectado ? "#f0fdf4" : "#fff7ed", border:`1.5px solid ${mpConectado ? "#86efac" : "#fed7aa"}`, borderRadius:16, padding:"14px 16px" }}>
+            {/* Pagamento info */}
+            <div style={{ margin:"8px 16px 0", background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"14px 16px" }}>
               <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-                <div style={{ fontSize:22, flexShrink:0 }}>{mpConectado ? "✅" : "🏦"}</div>
+                <div style={{ fontSize:22, flexShrink:0 }}>💸</div>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{mpConectado ? "Mercado Pago conectado" : "Conectar Mercado Pago"}</div>
-                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{mpConectado ? "Receba pagamentos automáticos." : "Receba suas diárias diretamente."}</div>
+                  <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>Recebimento via PIX</div>
+                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>O contratante paga via Mercado Pago e o repasse chega no seu PIX em até 1 dia útil.</div>
                 </div>
-                {!mpConectado && (
-                  mpClientId && mpClientId !== "SEU_CLIENT_ID_AQUI" ? (
-                    <button style={{ background:"#009ee3", color:"#fff", border:"none", borderRadius:10, padding:"8px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0 }}
-                      onClick={() => { window.location.href = oauthUrl; }}>Conectar</button>
-                  ) : (
-                    <span style={{ fontSize:11, color:"#92400e", background:"#fef3c7", borderRadius:8, padding:"4px 8px" }}>Em breve</span>
-                  )
-                )}
               </div>
             </div>
 

@@ -1,29 +1,27 @@
 // Edge Function: create-payment
-// Cria uma preferência de pagamento no Mercado Pago com split automático
-// O diarista recebe (valor - 1,5%) direto na conta MP dele
-// A plataforma retém os 1,5% como marketplace_fee
+// Cria uma preferência de pagamento no Mercado Pago (CheckoutPro)
+// O empregador paga o valor total para a plataforma via MP
+// O repasse ao diarista é feito via PIX pela plataforma após confirmação
 //
-// Variáveis de ambiente necessárias no Supabase Dashboard → Settings → Edge Functions:
-//   MP_CLIENT_ID       → seu CLIENT_ID do app no MP Developers
-//   MP_CLIENT_SECRET   → seu CLIENT_SECRET
-//   APP_URL            → URL pública do seu app (ex: https://trampojaapp.com.br)
+// Variáveis de ambiente (Supabase → Edge Functions → Secrets):
+//   MP_ACCESS_TOKEN  → Access Token de produção do app DiáriaJá no MP
+//   APP_URL          → URL pública do app (ex: https://diariaja.vercel.app)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const TAXA_PLATAFORMA = 0.015; // 1,5%
-const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const APP_URL         = Deno.env.get("APP_URL") ?? "https://trampojaapp.com.br";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const MP_TOKEN     = Deno.env.get("MP_ACCESS_TOKEN")!;
+const APP_URL      = Deno.env.get("APP_URL") ?? "https://diariaja.vercel.app";
+
+const CORS = {
+  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 Deno.serve(async (req) => {
-  // CORS
   if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-      },
-    });
+    return new Response("ok", { headers: CORS });
   }
 
   try {
@@ -35,10 +33,10 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // 1. Busca a diária
+    // 1. Busca a diária e o perfil do diarista
     const { data: diaria, error: dErr } = await supabase
       .from("diarias")
-      .select("*, user_profiles!diarias_diarista_aceite_id_fkey(*)")
+      .select("*, user_profiles!diarias_diarista_aceite_id_fkey(nome, telefone)")
       .eq("id", diaria_id)
       .single();
 
@@ -46,38 +44,22 @@ Deno.serve(async (req) => {
     if (diaria.empregador_id !== empregador_id) return json({ error: "Não autorizado" }, 403);
     if (!diaria.diarista_aceite_id) return json({ error: "Nenhum diarista selecionado ainda" }, 400);
 
-    // 2. Busca o access_token do diarista (conectado via OAuth)
-    const { data: diaristaPerfil } = await supabase
-      .from("user_profiles")
-      .select("mp_access_token, mp_user_id, nome")
-      .eq("id", diaria.diarista_aceite_id)
-      .single();
+    const valorTotal = Number(diaria.valor);
+    const diaristaNome = (diaria.user_profiles as any)?.nome || "Profissional";
 
-    if (!diaristaPerfil?.mp_access_token) {
-      return json({
-        error: "O diarista ainda não conectou a conta Mercado Pago. Peça para ele acessar o perfil e conectar.",
-        code: "MP_NOT_CONNECTED",
-      }, 422);
-    }
-
-    // 3. Calcula valores
-    const valorTotal   = Number(diaria.valor);
-    const taxaApp      = Math.round(valorTotal * TAXA_PLATAFORMA * 100) / 100;
-
-    // 4. Cria preferência no MP com o token do DIARISTA (split automático)
+    // 2. Cria preferência no MP com o token da PLATAFORMA (CheckoutPro)
     const preferencia = {
       items: [
         {
           id:          diaria.id,
-          title:       `Diária – ${diaria.funcao || diaria.segmento}`,
-          description: diaria.descricao?.slice(0, 255) || "",
+          title:       `DiáriaJá – ${diaria.funcao || diaria.segmento}`,
+          description: `Serviço com ${diaristaNome} em ${new Date(diaria.data + "T12:00:00").toLocaleDateString("pt-BR")}`,
           quantity:    1,
           currency_id: "BRL",
           unit_price:  valorTotal,
         },
       ],
-      marketplace_fee: taxaApp,           // valor que vai para a plataforma
-      external_reference: diaria.id,      // nosso ID interno
+      external_reference: diaria.id,
       back_urls: {
         success: `${APP_URL}/?pagamento=sucesso&diaria=${diaria.id}`,
         failure: `${APP_URL}/?pagamento=falha&diaria=${diaria.id}`,
@@ -85,7 +67,7 @@ Deno.serve(async (req) => {
       },
       auto_return:       "approved",
       notification_url:  `${SUPABASE_URL}/functions/v1/mp-webhook`,
-      statement_descriptor: "TRAMPOJAAPP",
+      statement_descriptor: "DIARIAJA",
       payer: {
         name: diaria.nome_negocio || "Contratante",
       },
@@ -94,9 +76,9 @@ Deno.serve(async (req) => {
     const mpResp = await fetch("https://api.mercadopago.com/checkout/preferences", {
       method:  "POST",
       headers: {
-        "Authorization": `Bearer ${diaristaPerfil.mp_access_token}`,
-        "Content-Type":  "application/json",
-        "X-Idempotency-Key": `trampojadiaria-${diaria.id}`,
+        "Authorization":    `Bearer ${MP_TOKEN}`,
+        "Content-Type":     "application/json",
+        "X-Idempotency-Key": `diariaja-${diaria.id}`,
       },
       body: JSON.stringify(preferencia),
     });
@@ -104,28 +86,25 @@ Deno.serve(async (req) => {
     const mpData = await mpResp.json();
 
     if (!mpResp.ok) {
-      console.error("Erro MP:", mpData);
+      console.error("Erro MP:", JSON.stringify(mpData));
       return json({ error: "Erro ao criar pagamento no Mercado Pago", detalhe: mpData }, 502);
     }
 
-    // 5. Salva o MP preference ID na diária
+    // 3. Salva o MP preference ID na diária
     await supabase
       .from("diarias")
       .update({
-        pagamento_mp_id:    mpData.id,
-        pagamento_status:   "aguardando",
-        taxa_plataforma:    taxaApp,
-        valor_diarista:     valorTotal - taxaApp,
+        pagamento_mp_id:  mpData.id,
+        pagamento_status: "aguardando",
+        valor_diarista:   valorTotal,  // repasse total ao diarista (sem split automático)
       })
       .eq("id", diaria.id);
 
     return json({
-      checkout_url:       mpData.init_point,          // URL para redirecionar o empregador
-      sandbox_url:        mpData.sandbox_init_point,  // URL de teste
-      preference_id:      mpData.id,
-      valor_total:        valorTotal,
-      taxa_plataforma:    taxaApp,
-      valor_diarista:     valorTotal - taxaApp,
+      checkout_url:  mpData.init_point,
+      sandbox_url:   mpData.sandbox_init_point,
+      preference_id: mpData.id,
+      valor_total:   valorTotal,
     });
 
   } catch (err) {
@@ -137,9 +116,6 @@ Deno.serve(async (req) => {
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    },
+    headers: { "Content-Type": "application/json", ...CORS },
   });
 }
