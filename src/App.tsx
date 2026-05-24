@@ -83,11 +83,9 @@ export default function App() {
   const [termosAceitos, setTermosAceitos] = useState<boolean>(() => {
     try { return localStorage.getItem("diariaja_termos_" + TERMOS_VERSAO) === "1"; } catch { return false; }
   });
-  const [mostrarTermos, setMostrarTermos] = useState(false);       // tela completa de termos
-  const [mostrarAceiteGate, setMostrarAceiteGate] = useState<boolean>(() => {
-    try { return localStorage.getItem("diariaja_termos_" + TERMOS_VERSAO) !== "1"; } catch { return true; }
-  });
-  const [checkTermos, setCheckTermos] = useState(false);           // checkbox do aceite
+  const [mostrarTermos, setMostrarTermos] = useState(false);       // modal de termos (usado no cadastro)
+  // Gate de aceite removido: consentimento agora ocorre no momento do cadastro (melhoria UX/conversão)
+  const [checkTermos, setCheckTermos] = useState(false);           // checkbox no cadastro
   // ─────────────────────────────────────────────────────────────────────
   const [tela, setTela]                   = useState<string>(() => {
     try { return localStorage.getItem("diariaja_tela") || "splash"; } catch { return "splash"; }
@@ -1201,9 +1199,19 @@ export default function App() {
   };
 
   const handleEmailSignup = async () => {
+    if (!checkTermos) { setAuthError("Você precisa aceitar os Termos de Uso para criar uma conta."); return; }
     setAuthError(""); setAuthLoading(true);
     const { error } = await supabase.auth.signUp({ email: form.email, password: form.senha });
-    if (error) setAuthError(traduzirErroAuth(error.message));
+    if (error) {
+      setAuthError(traduzirErroAuth(error.message));
+    } else {
+      // Registra aceite dos termos no momento do cadastro
+      try {
+        localStorage.setItem("diariaja_termos_" + TERMOS_VERSAO, "1");
+        localStorage.setItem("diariaja_termos_data", new Date().toISOString());
+        setTermosAceitos(true);
+      } catch { /* ignore */ }
+    }
     setAuthLoading(false);
   };
 
@@ -2338,86 +2346,9 @@ export default function App() {
     </div>
   );
 
-  // ── PORTÃO DE ACEITE DOS TERMOS (obrigatório, bloqueia tudo) ───────────
-  if (mostrarAceiteGate) return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"flex-end", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto" }}>
-      {/* Header */}
-      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 32px 24px", textAlign:"center" }}>
-        <div style={{ fontSize:60, marginBottom:16, filter:"drop-shadow(0 0 24px #FF6B35)" }}>⚡</div>
-        <div style={{ fontSize:34, fontWeight:900, color:"#fff", letterSpacing:-1, marginBottom:8 }}>
-          Diária<span style={{ color:"#FF6B35" }}>Já</span>
-        </div>
-        <div style={{ fontSize:14, color:"#94a3b8", lineHeight:1.6, marginBottom:8 }}>
-          Marketplace de diárias — conecte empregadores e trabalhadores autônomos de forma simples e segura.
-        </div>
-      </div>
-
-      {/* Card de aceite */}
-      <div style={{ background:"#fff", borderRadius:"28px 28px 0 0", padding:"28px 24px 40px", width:"100%", boxShadow:"0 -8px 40px rgba(0,0,0,.35)" }}>
-        <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
-        <div style={{ fontWeight:900, fontSize:19, color:"#0f172a", marginBottom:6 }}>Antes de começar</div>
-        <div style={{ fontSize:13, color:"#64748b", lineHeight:1.6, marginBottom:20 }}>
-          Para usar o DiáriaJá você precisa aceitar nossos Termos de Uso e a Política de Privacidade. Eles explicam como a plataforma funciona, seus direitos e responsabilidades.
-        </div>
-
-        {/* Resumo visual dos pontos mais importantes */}
-        {[
-          { icon:"🔒", titulo:"Seus dados estão protegidos", desc:"CPF e dados pessoais são tratados conforme a LGPD e nunca compartilhados sem motivo." },
-          { icon:"🤝", titulo:"Plataforma de intermediação", desc:"Somos apenas o canal de conexão — diarista e empregador são responsáveis pelo serviço." },
-          { icon:"⭐", titulo:"Avaliações reais", desc:"Sistema de reputação baseado em experiências reais. Avaliações falsas são proibidas." },
-        ].map(p => (
-          <div key={p.titulo} style={{ display:"flex", gap:12, alignItems:"flex-start", marginBottom:14 }}>
-            <span style={{ fontSize:22, flexShrink:0, marginTop:1 }}>{p.icon}</span>
-            <div>
-              <div style={{ fontWeight:700, fontSize:13, color:"#0f172a", marginBottom:2 }}>{p.titulo}</div>
-              <div style={{ fontSize:12, color:"#64748b", lineHeight:1.4 }}>{p.desc}</div>
-            </div>
-          </div>
-        ))}
-
-        {/* Checkbox de aceite */}
-        <label style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", margin:"18px 0 20px", background:"#f8fafc", borderRadius:12, padding:"12px 14px", border:`1.5px solid ${checkTermos?"#FF6B35":"#e2e8f0"}` }}>
-          <input
-            type="checkbox"
-            checked={checkTermos}
-            onChange={e => setCheckTermos(e.target.checked)}
-            style={{ width:18, height:18, accentColor:"#FF6B35", flexShrink:0, marginTop:1 }}
-          />
-          <span style={{ fontSize:13, color:"#0f172a", lineHeight:1.5 }}>
-            Li e aceito os{" "}
-            <span style={{ color:"#FF6B35", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
-              onClick={e => { e.preventDefault(); setMostrarTermos(true); }}>
-              Termos de Uso
-            </span>{" "}
-            e a{" "}
-            <span style={{ color:"#FF6B35", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
-              onClick={e => { e.preventDefault(); setMostrarTermos(true); }}>
-              Política de Privacidade
-            </span>{" "}
-            do DiáriaJá. Declaro ter mais de 18 anos e capacidade civil plena.
-          </span>
-        </label>
-
-        <button
-          disabled={!checkTermos}
-          style={{ width:"100%", padding:"16px", background: checkTermos ? "#FF6B35" : "#e2e8f0", color: checkTermos ? "#fff" : "#94a3b8", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor: checkTermos ? "pointer" : "default", fontFamily:"system-ui,sans-serif", transition:"all .2s", boxShadow: checkTermos ? "0 4px 18px rgba(255,107,53,.4)" : "none" }}
-          onClick={() => {
-            if (!checkTermos) return;
-            localStorage.setItem("diariaja_termos_" + TERMOS_VERSAO, "1");
-            localStorage.setItem("diariaja_termos_data", new Date().toISOString());
-            setTermosAceitos(true);
-            setMostrarAceiteGate(false);
-          }}>
-          {checkTermos ? "✅ Entrar no DiáriaJá →" : "Marque a caixa acima para continuar"}
-        </button>
-
-        <div style={{ textAlign:"center", marginTop:14, fontSize:11, color:"#94a3b8" }}>
-          DiáriaJá · Beta 1.0 · suporte@diariaja.com.br
-        </div>
-      </div>
-
-      {/* Tela de Termos completa (slide-up) */}
-      {mostrarTermos && (
+  // ── MODAL DE TERMOS COMPLETO (acessível de qualquer tela) ───────────
+  // (gate removido: landing é mostrada primeiro, consent ocorre no cadastro)
+  {mostrarTermos && (
         <div style={{ position:"fixed", inset:0, background:"#fff", zIndex:999, overflowY:"auto", fontFamily:"system-ui,sans-serif" }}>
           <div style={{ position:"sticky", top:0, background:"#fff", borderBottom:"1px solid #e2e8f0", padding:"16px 20px", display:"flex", alignItems:"center", gap:12, zIndex:1 }}>
             <button style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
@@ -2457,9 +2388,7 @@ export default function App() {
             </button>
           </div>
         </div>
-      )}
-    </div>
-  );
+  )}
   // ────────────────────────────────────────────────────────────────────────
 
   // SPLASH
@@ -2486,11 +2415,14 @@ export default function App() {
         <div style={{ width:200, height:2, background:"linear-gradient(90deg,transparent,#FF6B35,transparent)", marginBottom:22 }} />
 
         {/* Tagline */}
-        <p style={{ fontSize:20, color:"#cbd5e1", textAlign:"center", lineHeight:1.5, margin:"0 0 4px", fontWeight:400 }}>
-          Mão de obra certa,
+        <p style={{ fontSize:16, color:"#94a3b8", textAlign:"center", lineHeight:1.6, margin:"0 0 4px", fontWeight:400 }}>
+          Contrate ou encontre serviços por diária
         </p>
-        <p style={{ fontSize:23, color:"#FF6B35", textAlign:"center", lineHeight:1.4, margin:"0 0 30px", fontWeight:900, letterSpacing:-0.3 }}>
-          na hora certa.
+        <p style={{ fontSize:21, color:"#FF6B35", textAlign:"center", lineHeight:1.4, margin:"0 0 8px", fontWeight:900, letterSpacing:-0.3 }}>
+          em Campo Grande/MS
+        </p>
+        <p style={{ fontSize:12, color:"#64748b", textAlign:"center", lineHeight:1.6, margin:"0 0 26px", maxWidth:300 }}>
+          Conectamos contratantes, empresas e profissionais autônomos com perfis verificados, chat, avaliações e confirmação de presença pelo app.
         </p>
 
         {/* ── 3 cards de features — ícones SVG laranja, sem dependência de emoji ── */}
@@ -2538,14 +2470,17 @@ export default function App() {
           ))}
         </div>
 
-        {/* ── Social proof — preenche o gap ── */}
+        {/* ── Categorias / Social proof ── */}
         <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap" as const, marginBottom:4 }}>
           {[
-            { dot:"🔥", txt:"Delivery em alta em CG" },
-            { dot:"📍", txt:"Campo Grande · MS" },
+            { dot:"🏠", txt:"Doméstico" },
+            { dot:"🍽️", txt:"Restaurante" },
+            { dot:"🏗️", txt:"Construção" },
+            { dot:"🎉", txt:"Eventos" },
+            { dot:"🚚", txt:"Delivery" },
           ].map(b => (
-            <div key={b.txt} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"6px 14px", display:"flex", alignItems:"center", gap:5 }}>
-              <span style={{ fontSize:12 }}>{b.dot}</span>
+            <div key={b.txt} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"5px 12px", display:"flex", alignItems:"center", gap:5 }}>
+              <span style={{ fontSize:11 }}>{b.dot}</span>
               <span style={{ color:"var(--text-3,#94a3b8)", fontSize:11, fontWeight:600 }}>{b.txt}</span>
             </div>
           ))}
@@ -2568,6 +2503,32 @@ export default function App() {
               <div key={item.txt} style={{ display:"flex", alignItems:"center", gap:10 }}>
                 <span style={{ fontSize:14, flexShrink:0 }}>{item.icon}</span>
                 <span style={{ color:"#cbd5e1", fontSize:12, fontWeight:500 }}>{item.txt}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Como funciona — 6 passos ── */}
+      <div style={{ padding:"16px 24px 0" }}>
+        <div style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.08)", borderRadius:20, padding:"16px 18px" }}>
+          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, fontWeight:800, textTransform:"uppercase" as const, letterSpacing:0.8, textAlign:"center", marginBottom:14 }}>
+            📋 Como funciona
+          </p>
+          <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+            {[
+              { n:"1", txt:"Crie sua conta como contratante, profissional ou empresa." },
+              { n:"2", txt:"Complete seu perfil com dados básicos e área de atuação." },
+              { n:"3", txt:"Publique uma diária ou candidate-se às vagas próximas." },
+              { n:"4", txt:"Converse pelo chat e combine os detalhes com a outra parte." },
+              { n:"5", txt:"Confirme a presença pelo QR Code no início do serviço." },
+              { n:"6", txt:"Finalize, gere o comprovante e avalie a experiência." },
+            ].map(step => (
+              <div key={step.n} style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
+                <div style={{ width:22, height:22, borderRadius:8, background:"rgba(255,107,53,.25)", border:"1px solid rgba(255,107,53,.4)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
+                  <span style={{ color:"#FF6B35", fontSize:11, fontWeight:900, lineHeight:1 }}>{step.n}</span>
+                </div>
+                <span style={{ color:"#cbd5e1", fontSize:12, lineHeight:1.5 }}>{step.txt}</span>
               </div>
             ))}
           </div>
@@ -2709,16 +2670,25 @@ export default function App() {
         </div>
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
-        <input style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+        <input
+          id="login-email"
+          aria-label="E-mail"
+          type="email"
+          autoComplete="email"
+          style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
 
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-          <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>Senha</label>
+          <label htmlFor="login-senha" style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>Senha</label>
         </div>
         <div style={{ position:"relative" as const }}>
-          <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none" }}
+          <input
+            id="login-senha"
+            aria-label="Senha"
+            autoComplete="current-password"
+            style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none" }}
             placeholder="Sua senha" type={mostrarSenha ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
-          <button type="button" style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
+          <button type="button" aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"} style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
             onClick={() => setMostrarSenha(p => !p)}>
             {mostrarSenha ? "🙈" : "👁️"}
           </button>
@@ -2853,14 +2823,14 @@ export default function App() {
         </div>
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
-        <input style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+        <input id="cad-email" aria-label="E-mail" type="email" autoComplete="email" style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
         <div style={{ position:"relative" as const }}>
           <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none" }}
-            placeholder="Mínimo 6 caracteres" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
-          <button type="button" style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
+            id="cad-senha" aria-label="Senha" autoComplete="new-password" placeholder="Mínimo 6 caracteres" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
+          <button type="button" aria-label={mostrarSenhaCadastro ? "Ocultar senha" : "Mostrar senha"} style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
             onClick={() => setMostrarSenhaCadastro(p => !p)}>
             {mostrarSenhaCadastro ? "🙈" : "👁️"}
           </button>
@@ -2868,15 +2838,70 @@ export default function App() {
 
         {authError && <p style={{ color:"#f87171", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>{authError}</p>}
 
-        <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:16, opacity:authLoading?0.6:1, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
-          disabled={authLoading} onClick={handleEmailSignup}>
-          {authLoading ? "Criando conta..." : "Criar conta grátis"}
+        {/* ── Consentimento de Termos (obrigatório antes de criar conta) ── */}
+        <label aria-label="Aceite dos Termos de Uso" style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", margin:"16px 0 4px", background:"#f8fafc", borderRadius:12, padding:"12px 14px", border:`1.5px solid ${checkTermos?"#FF6B35":"#e2e8f0"}` }}>
+          <input
+            id="chk-termos"
+            type="checkbox"
+            checked={checkTermos}
+            onChange={e => setCheckTermos(e.target.checked)}
+            style={{ width:18, height:18, accentColor:"#FF6B35", flexShrink:0, marginTop:2 }}
+          />
+          <span style={{ fontSize:12, color:"#475569", lineHeight:1.5 }}>
+            Li e aceito os{" "}
+            <span role="button" style={{ color:"#FF6B35", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
+              onClick={e => { e.preventDefault(); setMostrarTermos(true); }}>
+              Termos de Uso
+            </span>{" "}
+            e a Política de Privacidade do DiáriaJá.{" "}
+            <span style={{ color:"#94a3b8" }}>CPF/CNPJ são usados apenas para verificação interna e nunca aparecem no perfil público.</span>
+          </span>
+        </label>
+
+        <button
+          style={{ width:"100%", padding:"15px", background: checkTermos ? "#FF6B35" : "#cbd5e1", color: checkTermos ? "#fff" : "#94a3b8", border:"none", borderRadius:12, fontSize:16, fontWeight:800, cursor: checkTermos ? "pointer" : "default", fontFamily:"system-ui,sans-serif", marginTop:12, opacity:authLoading?0.6:1, boxShadow: checkTermos ? "0 4px 16px rgba(255,107,53,.4)" : "none", transition:"all .2s" }}
+          disabled={authLoading || !checkTermos} onClick={handleEmailSignup}>
+          {authLoading ? "Criando conta..." : checkTermos ? "Criar conta grátis →" : "Marque a caixa acima para continuar"}
         </button>
       </div>
 
       <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:14, marginTop:20, cursor:"pointer" }} onClick={() => { setAuthError(""); setTela("login"); }}>
         Já tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Entrar</span>
       </p>
+
+      {/* Modal de Termos completo (acessível do cadastro) */}
+      {mostrarTermos && (
+        <div style={{ position:"fixed", inset:0, background:"#fff", zIndex:9999, overflowY:"auto", fontFamily:"system-ui,sans-serif" }}>
+          <div style={{ position:"sticky", top:0, background:"#fff", borderBottom:"1px solid #e2e8f0", padding:"16px 20px", display:"flex", alignItems:"center", gap:12, zIndex:1 }}>
+            <button aria-label="Fechar termos" style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
+            <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
+          </div>
+          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
+            {[
+              { titulo:"1. Apresentação", body:`O DiáriaJá conecta contratantes, empresas e profissionais autônomos para serviços por diária em Campo Grande/MS. Ao se cadastrar, você declara ter lido e aceito este Termo.\n\nObserva: LGPD (Lei nº 13.709/2018), Marco Civil da Internet, CDC e LC nº 150/2015.` },
+              { titulo:"2. Natureza da Plataforma", body:`Somos um canal de conexão — não prestamos serviços, não somos empregador e não garantimos qualidade ou pagamento externo. A relação entre as partes é de responsabilidade exclusiva delas.` },
+              { titulo:"3. Cadastro e Conta", body:`O cadastro exige dados verdadeiros. É proibido criar perfis falsos, usar CPF de terceiros ou duplicar contas. O usuário deve ser maior de 18 anos e capaz de praticar atos civis.` },
+              { titulo:"4. Dados Pessoais e Privacidade (LGPD)", body:`Tratamos nome, e-mail, foto, CPF/CNPJ (privado), geolocalização e histórico de diárias. CPF nunca é exibido publicamente. Para exclusão de dados: suporte@diariaja.com.br.` },
+              { titulo:"5. Pagamentos", body:`Quando habilitado, o pagamento ocorre via Mercado Pago diretamente pelo app. A plataforma não se responsabiliza por acordos realizados fora da plataforma.` },
+              { titulo:"6. Condutas Proibidas", body:`São proibidas: fraude, discriminação, assédio, atividades ilícitas, spam e conteúdo ofensivo. O descumprimento pode resultar em exclusão da conta e comunicação às autoridades.` },
+              { titulo:"7. Limitação de Responsabilidade", body:`O DiáriaJá não se responsabiliza por informações falsas de usuários, descumprimento de acordos, inadimplemento, acidentes ou falhas de conexão.` },
+              { titulo:"8. Informações", body:`DiáriaJá · Beta 1.0 · Campo Grande/MS\nsuporte@diariaja.com.br · diariaja.vercel.app\nForo: domicílio do consumidor (CDC).` },
+            ].map(({ titulo, body }) => (
+              <div key={titulo} style={{ marginBottom:24 }}>
+                <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", marginBottom:8, paddingBottom:6, borderBottom:"2px solid #FF6B35" }}>{titulo}</div>
+                {body.split("\n\n").map((p, i) => (
+                  <p key={i} style={{ fontSize:13, color:"#475569", lineHeight:1.7, marginBottom:10 }}>{p}</p>
+                ))}
+              </div>
+            ))}
+            <button
+              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:8 }}
+              onClick={() => { setMostrarTermos(false); setCheckTermos(true); }}>
+              ✅ Entendido — Aceitar os Termos
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 
