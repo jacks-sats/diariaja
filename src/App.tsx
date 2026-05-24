@@ -286,6 +286,12 @@ export default function App() {
   const [modalIndicar, setModalIndicar] = useState(false);
   const [modalQuemSomos, setModalQuemSomos] = useState(false);
 
+  // Mostrar/ocultar senha nos campos de login e cadastro
+  const [mostrarSenha, setMostrarSenha] = useState(false);
+  const [mostrarSenhaCadastro, setMostrarSenhaCadastro] = useState(false);
+  const [resetSenhaEnviado, setResetSenhaEnviado] = useState(false);
+  const [resetSenhaLoading, setResetSenhaLoading] = useState(false);
+
   // Configurações / Conta
   const [senhaAtual, setSenhaAtual] = useState("");
   const [novaSenha, setNovaSenha] = useState("");
@@ -1167,8 +1173,8 @@ export default function App() {
   const traduzirErroAuth = (msg: string): string => {
     const m = msg.toLowerCase();
     if (m.includes("missing email") || m.includes("missing email or phone")) return "Informe seu e-mail.";
-    if (m.includes("invalid login credentials") || m.includes("invalid credentials")) return "E-mail ou senha incorretos.";
-    if (m.includes("email not confirmed")) return "Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada.";
+    if (m.includes("invalid login credentials") || m.includes("invalid credentials")) return "E-mail ou senha incorretos. Verifique seus dados ou use 'Esqueci minha senha'.";
+    if (m.includes("email not confirmed")) return "⚠️ Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada (inclusive o spam).";
     if (m.includes("user already registered") || m.includes("already registered")) return "Este e-mail já está cadastrado. Faça login.";
     if (m.includes("password should be at least")) return "A senha deve ter pelo menos 6 caracteres.";
     if (m.includes("invalid email")) return "E-mail inválido. Verifique e tente novamente.";
@@ -1199,6 +1205,14 @@ export default function App() {
     const { error } = await supabase.auth.signUp({ email: form.email, password: form.senha });
     if (error) setAuthError(traduzirErroAuth(error.message));
     setAuthLoading(false);
+  };
+
+  const handleResetSenha = async () => {
+    if (!form.email.trim()) { setAuthError("Informe seu e-mail para redefinir a senha."); return; }
+    setResetSenhaLoading(true); setAuthError("");
+    const { error } = await supabase.auth.resetPasswordForEmail(form.email.trim(), { redirectTo: window.location.origin });
+    setResetSenhaLoading(false);
+    if (error) { setAuthError(traduzirErroAuth(error.message)); } else { setResetSenhaEnviado(true); }
   };
 
   const handleGoogleLogin = async () => {
@@ -2200,7 +2214,7 @@ export default function App() {
   // ── SUPORTE FAQ (chatbot automático) ─────────────────────────────────────
   const SUPORTE_FAQ = [
     { keys: ["cancelar","cancel"], resp: "Para cancelar uma diária, abra a diária na aba 'Diárias' e toque em '✕ Cancelar'. Informe um motivo — o diarista/contratante será notificado automaticamente. ⚠️ Cancelamentos frequentes afetam sua reputação." },
-    { keys: ["pagar","pagamento","pix","dinheiro"], resp: "O pagamento é feito diretamente entre vocês (o app recomenda PIX). Após conclusão, vá na diária concluída e toque em '🧾 Recibo' para gerar o comprovante." },
+    { keys: ["pagar","pagamento","pix","dinheiro"], resp: "O pagamento é combinado entre contratante e profissional, diretamente via PIX. Não há intermediação financeira. Após a conclusão, acesse a diária e toque em '🏦 PIX' para ver a chave do profissional ou em '🧾 Recibo' para gerar o comprovante." },
     { keys: ["avalia","nota","star","estrela"], resp: "Após a conclusão da diária, ambos podem se avaliar. A avaliação aparece no perfil e ajuda a construir reputação. Seja justo! ⭐" },
     { keys: ["conta","perfil","editar","foto"], resp: "Para editar seu perfil, vá na aba 'Perfil' e toque em '✏️ Editar'. Você pode atualizar foto, bio, função e muito mais." },
     { keys: ["convite","convidar"], resp: "Empregadores podem enviar convites diretos a diaristas específicos. Acesse o perfil do diarista e toque em '📨 Convidar para diária'." },
@@ -2542,8 +2556,30 @@ export default function App() {
         </div>
       </div>
 
+      {/* ── Seção de Confiança ── */}
+      <div style={{ padding:"16px 24px 0" }}>
+        <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"16px 18px" }}>
+          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, fontWeight:800, textTransform:"uppercase" as const, letterSpacing:0.8, textAlign:"center", marginBottom:12 }}>
+            🛡️ Como protegemos os dois lados
+          </p>
+          <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+            {[
+              { icon:"✅", txt:"Perfis verificados por CPF/CNPJ" },
+              { icon:"⭐", txt:"Sistema de avaliações mútuas" },
+              { icon:"📋", txt:"Termos de uso claros e transparentes" },
+              { icon:"🔒", txt:"Dados protegidos pela LGPD" },
+            ].map(item => (
+              <div key={item.txt} style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:14, flexShrink:0 }}>{item.icon}</span>
+                <span style={{ color:"#cbd5e1", fontSize:12, fontWeight:500 }}>{item.txt}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Spacer flexível */}
-      <div style={{ flex:1, minHeight:16 }} />
+      <div style={{ flex:1, minHeight:12 }} />
 
       {/* ── Botões ── */}
       <div style={{ padding:"0 24px 44px", display:"flex", flexDirection:"column", gap:12 }}>
@@ -2680,11 +2716,33 @@ export default function App() {
         <input style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
 
-        <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
-        <input style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:4 }}
-          placeholder="Sua senha" type="password" value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+          <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>Senha</label>
+        </div>
+        <div style={{ position:"relative" as const }}>
+          <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none" }}
+            placeholder="Sua senha" type={mostrarSenha ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
+          <button type="button" style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
+            onClick={() => setMostrarSenha(p => !p)}>
+            {mostrarSenha ? "🙈" : "👁️"}
+          </button>
+        </div>
 
         {authError && <p style={{ color:"#f87171", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>{authError}</p>}
+
+        {resetSenhaEnviado ? (
+          <p style={{ color:"#4ade80", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>
+            ✅ Link enviado! Verifique seu e-mail (inclusive o spam).
+          </p>
+        ) : (
+          <p style={{ textAlign:"right", marginTop:8, marginBottom:0 }}>
+            <span
+              style={{ color:"#94a3b8", fontSize:12, cursor:"pointer", textDecoration:"underline" }}
+              onClick={handleResetSenha}>
+              {resetSenhaLoading ? "Enviando..." : "Esqueci minha senha"}
+            </span>
+          </p>
+        )}
 
         <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:16, opacity:authLoading?0.6:1, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
           disabled={authLoading} onClick={handleEmailLogin}>
@@ -2716,8 +2774,8 @@ export default function App() {
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:12 }}>
         {[
-          { key:"empregador", icone:"🏢", label:"Empregador", desc:"Restaurante, mercado, obra..." },
-          { key:"diarista",   icone:"👷", label:"Diarista",   desc:"Quero encontrar trabalho" },
+          { key:"empregador", icone:"🏢", label:"Quero contratar", desc:"Negócio, restaurante, obra..." },
+          { key:"diarista",   icone:"👷", label:"Quero trabalhar", desc:"Encontrar vagas próximas" },
         ].map(t => (
           <div key={t.key}
             style={{ background: tipo===t.key ? "rgba(255,107,53,.15)" : "rgba(255,255,255,.06)", border: tipo===t.key ? "2px solid #FF6B35" : "1.5px solid rgba(255,255,255,.1)", borderRadius:20, padding:"24px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:10, cursor:"pointer" }}
@@ -2733,8 +2791,8 @@ export default function App() {
         style={{ background: tipo==="empresa" ? "rgba(58,134,255,.18)" : "rgba(255,255,255,.06)", border: tipo==="empresa" ? "2px solid #3A86FF" : "1.5px solid rgba(255,255,255,.1)", borderRadius:20, padding:"18px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:8, cursor:"pointer", marginBottom:24 }}
         onClick={() => setTipo("empresa")}>
         <span style={{ fontSize:36 }}>🏢</span>
-        <span style={{ fontWeight:800, fontSize:15, color:tipo==="empresa"?"#3A86FF":"#f1f5f9" }}>Sou Empresa / CNPJ</span>
-        <span style={{ fontSize:11, color:"var(--text-2,#64748b)", textAlign:"center" as const }}>Empresa com CNPJ — CNPJ obrigatório</span>
+        <span style={{ fontWeight:800, fontSize:15, color:tipo==="empresa"?"#3A86FF":"#f1f5f9" }}>Empresa com CNPJ</span>
+        <span style={{ fontSize:11, color:"var(--text-2,#64748b)", textAlign:"center" as const }}>Pessoa jurídica — CNPJ obrigatório</span>
       </div>
 
       <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", opacity:tipo?1:0.35, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
@@ -2769,6 +2827,22 @@ export default function App() {
           <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
         <p style={{ color:"var(--text-3,#94a3b8)", fontSize:14, marginTop:6 }}>Crie sua conta grátis</p>
+        {/* Microcopy contextual baseado no tipo de perfil */}
+        {tipo === "empregador" && (
+          <p style={{ color:"#FF6B35", fontSize:13, fontWeight:600, marginTop:6, textAlign:"center" }}>
+            👔 Em poucos minutos você publica sua primeira vaga.
+          </p>
+        )}
+        {tipo === "diarista" && (
+          <p style={{ color:"#4ade80", fontSize:13, fontWeight:600, marginTop:6, textAlign:"center" }}>
+            💼 Cadastre-se e comece a receber propostas de trabalho.
+          </p>
+        )}
+        {tipo === "empresa" && (
+          <p style={{ color:"#60a5fa", fontSize:13, fontWeight:600, marginTop:6, textAlign:"center" }}>
+            🏢 Você precisará do CNPJ da empresa no próximo passo.
+          </p>
+        )}
       </div>
 
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
@@ -2787,8 +2861,14 @@ export default function App() {
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
-        <input style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:4 }}
-          placeholder="Mínimo 6 caracteres" type="password" value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
+        <div style={{ position:"relative" as const }}>
+          <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none" }}
+            placeholder="Mínimo 6 caracteres" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
+          <button type="button" style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
+            onClick={() => setMostrarSenhaCadastro(p => !p)}>
+            {mostrarSenhaCadastro ? "🙈" : "👁️"}
+          </button>
+        </div>
 
         {authError && <p style={{ color:"#f87171", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>{authError}</p>}
 
@@ -5277,6 +5357,9 @@ export default function App() {
                   <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>Pagar via PIX</div>
                   <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:4 }}>
                     Serviço: <strong>{modalPix.funcao || modalPix.segmento}</strong>
+                  </div>
+                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:6, background:"var(--bg-surface,#f8fafc)", borderRadius:8, padding:"4px 10px", display:"inline-block" }}>
+                    Pagamento direto • sem intermediação
                   </div>
                 </div>
 
