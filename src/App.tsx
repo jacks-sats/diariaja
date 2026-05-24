@@ -1965,7 +1965,7 @@ export default function App() {
     setCriandoAssinatura(true);
     try {
       const resp = await fetch(
-        "https://rpszebrrrasoijfdvner.supabase.co/functions/v1/create-subscription",
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-subscription`,
         {
           method: "POST",
           headers: {
@@ -1997,7 +1997,7 @@ export default function App() {
     setCriandoPagamento(true);
     try {
       const resp = await fetch(
-        `https://rpszebrrrasoijfdvner.supabase.co/functions/v1/create-payment`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment`,
         {
           method: "POST",
           headers: {
@@ -7018,7 +7018,8 @@ export default function App() {
           const mesAtual = new Date().toISOString().slice(0,7);
           const ganhoMes = diariasConc.filter(d => d.data.slice(0,7) === mesAtual).reduce((s,d)=>s+d.valor,0);
           const mpConectado = !!profile?.mp_user_id;
-          const oauthUrl = `https://auth.mercadopago.com.br/authorization?client_id=SEU_CLIENT_ID_AQUI&response_type=code&platform_id=mp&state=${session?.user?.id}&redirect_uri=https://rpszebrrrasoijfdvner.supabase.co/functions/v1/mp-oauth`;
+          const mpClientId = import.meta.env.VITE_MP_CLIENT_ID as string;
+          const oauthUrl = `https://auth.mercadopago.com.br/authorization?client_id=${mpClientId}&response_type=code&platform_id=mp&state=${session?.user?.id}&redirect_uri=${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mp-oauth`;
           return (
           <>
             {/* Barra de boas-vindas + ⚙️ */}
@@ -7179,8 +7180,12 @@ export default function App() {
                   <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{mpConectado ? "Receba pagamentos automáticos." : "Receba suas diárias diretamente."}</div>
                 </div>
                 {!mpConectado && (
-                  <button style={{ background:"#009ee3", color:"#fff", border:"none", borderRadius:10, padding:"8px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0 }}
-                    onClick={() => { window.location.href = oauthUrl; }}>Conectar</button>
+                  mpClientId && mpClientId !== "SEU_CLIENT_ID_AQUI" ? (
+                    <button style={{ background:"#009ee3", color:"#fff", border:"none", borderRadius:10, padding:"8px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0 }}
+                      onClick={() => { window.location.href = oauthUrl; }}>Conectar</button>
+                  ) : (
+                    <span style={{ fontSize:11, color:"#92400e", background:"#fef3c7", borderRadius:8, padding:"4px 8px" }}>Em breve</span>
+                  )
                 )}
               </div>
             </div>
