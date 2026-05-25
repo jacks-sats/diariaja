@@ -164,6 +164,31 @@ export function formatarTempo(min: number | null | undefined): string {
   return `${h}h${String(m).padStart(2, "0")}`;
 }
 
+// ── Tempo relativo curto pt-BR ("agora", "há 12min", "há 2h", "ontem") ───────
+// Usado nos cards do feed pra mostrar há quanto tempo a vaga foi publicada.
+export function formatTempoRelativo(
+  data: string | Date | null | undefined,
+  agora: Date = new Date(),
+): string {
+  if (!data) return "";
+  const d = typeof data === "string" ? new Date(data) : data;
+  if (Number.isNaN(d.getTime())) return "";
+  const diffMs = agora.getTime() - d.getTime();
+  if (diffMs < 0) return "agora";
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return "agora mesmo";
+  if (min < 60) return `há ${min}min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `há ${h}h`;
+  const dias = Math.floor(h / 24);
+  if (dias === 1) return "ontem";
+  if (dias < 7) return `há ${dias} dias`;
+  // Acima de 7 dias mostra a data abreviada DD/MM
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}`;
+}
+
 // ── Vaga expirada: data + horario_fim já passou e nada foi confirmado ────────
 // Recebe os campos crus do banco; retorna true se a vaga deveria sair do feed.
 export function vagaExpirou(
