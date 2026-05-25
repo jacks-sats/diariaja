@@ -3,11 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 // Prioriza variáveis de ambiente (Vercel / .env.local).
 // Fallback para os valores de produção — a chave 'anon' é pública por design
 // (Supabase a chama de "publishable key"); o RLS do banco protege os dados.
-const SUPABASE_URL =
+export const SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL ||
   "https://rpszebrrrasoijfdvner.supabase.co";
 
-const SUPABASE_ANON_KEY =
+export const SUPABASE_ANON_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
   "sb_publishable_3mVVT4hR6PFU0jbjr6hsvA_eXSbOvST";
 
