@@ -118,3 +118,29 @@ export interface AnalyticsEvento {
   user_type?: string;
   propriedades?: Record<string, unknown>;
 }
+
+export interface FeedbackVagaExpirada {
+  id: string;
+  diaria_id: string;
+  empregador_id: string;
+  motivo_categoria:
+    | "sem_candidatos"
+    | "valor_baixo"
+    | "data_passou"
+    | "desisti"
+    | "contratei_fora"
+    | "outro";
+  motivo_texto?: string;
+  created_at: string;
+}
+
+export interface FeedbackPosConclusao {
+  id: string;
+  diaria_id: string;
+  empregador_id: string;
+  chegou_no_horario: boolean;
+  nota_qualidade: number; // 1–5
+  recomendaria: boolean;
+  comentario?: string;
+  created_at: string;
+}

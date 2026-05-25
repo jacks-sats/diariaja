@@ -9,11 +9,12 @@ import {
   FUNCOES_DELIVERY, CATEGORIAS_NEGOCIO, MEDIAS_CAMPO_GRANDE,
   PLANOS_EMPREGADOR, PLANOS_DIARISTA,
   DIAS, DIAS_LABEL, MAX_INTERESSADOS, avatarColors, TODAS_AS_FUNCOES,
+  MOTIVOS_VAGA_EXPIRADA,
 } from "./constants";
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, maskCPF, maskCNPJ, haversineKm,
-  validarTituloDiaria, validarEmail, validarTelefone,
+  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -262,6 +263,20 @@ export default function App() {
   const [motivoDenuncia, setMotivoDenuncia] = useState("");
   const [enviandoDenuncia, setEnviandoDenuncia] = useState(false);
 
+  // Fila de vagas expiradas sem feedback (empregador é forçado a responder)
+  const [vagasExpFeedback, setVagasExpFeedback] = useState<Diaria[]>([]);
+  const [motivoExpSelecionado, setMotivoExpSelecionado] = useState<string>("");
+  const [motivoExpTexto, setMotivoExpTexto] = useState("");
+  const [enviandoFeedbackExp, setEnviandoFeedbackExp] = useState(false);
+
+  // Fila de diárias concluídas sem pesquisa pós (empregador responde)
+  const [diariasPosFeedback, setDiariasPosFeedback] = useState<Diaria[]>([]);
+  const [posChegouHorario, setPosChegouHorario] = useState<boolean | null>(null);
+  const [posNotaQualidade, setPosNotaQualidade] = useState(0);
+  const [posRecomendaria, setPosRecomendaria] = useState<boolean | null>(null);
+  const [posComentario, setPosComentario] = useState("");
+  const [enviandoFeedbackPos, setEnviandoFeedbackPos] = useState(false);
+
   // Não tenho interesse — IDs de vagas ocultas pelo diarista
   const [vagasIgnoradas, setVagasIgnoradas] = useState<Set<string>>(() => {
     try {
@@ -469,7 +484,41 @@ export default function App() {
         .neq("status", "cancelada")
         .order("created_at", { ascending: false });
       if (data) {
+        // ── Auto-expira vagas que passaram do horário_fim ──────────────────
+        const venceram = data.filter((d: any) => vagaExpirou(d));
+        if (venceram.length > 0) {
+          await supabase
+            .from("diarias")
+            .update({ status: "expirada" })
+            .in("id", venceram.map((d: any) => d.id))
+            .eq("empregador_id", session.user!.id);
+          venceram.forEach((d: any) => { d.status = "expirada"; });
+        }
+
         setDiarias(data);
+
+        // ── Monta as filas de feedback pendente ────────────────────────────
+        const expiradas = data.filter((d: any) => d.status === "expirada");
+        const concluidas = data.filter((d: any) => d.status === "concluida");
+
+        if (expiradas.length > 0) {
+          const { data: jaResp } = await supabase
+            .from("feedback_vaga_expirada")
+            .select("diaria_id")
+            .in("diaria_id", expiradas.map((d: any) => d.id));
+          const respondidas = new Set((jaResp ?? []).map((r: any) => r.diaria_id));
+          setVagasExpFeedback(expiradas.filter((d: any) => !respondidas.has(d.id)));
+        }
+
+        if (concluidas.length > 0) {
+          const { data: jaResp } = await supabase
+            .from("feedback_pos_conclusao")
+            .select("diaria_id")
+            .in("diaria_id", concluidas.map((d: any) => d.id));
+          const respondidas = new Set((jaResp ?? []).map((r: any) => r.diaria_id));
+          setDiariasPosFeedback(concluidas.filter((d: any) => !respondidas.has(d.id)));
+        }
+
         // Carrega candidaturas das diárias do empregador
         const ids = data.map((d:any) => d.id);
         if (ids.length > 0) {
@@ -486,6 +535,59 @@ export default function App() {
       }
     })();
   }, [tela, session?.user?.id]);
+
+  // ── Envio de feedback de vaga expirada (modal obrigatório) ──────────────────
+  const enviarFeedbackVagaExpirada = async () => {
+    if (!session?.user || vagasExpFeedback.length === 0 || !motivoExpSelecionado) return;
+    if (motivoExpSelecionado === "outro" && !motivoExpTexto.trim()) {
+      setToastError("Descreva brevemente o motivo.");
+      return;
+    }
+    const vaga = vagasExpFeedback[0];
+    setEnviandoFeedbackExp(true);
+    const { error } = await supabase.from("feedback_vaga_expirada").insert({
+      diaria_id:        vaga.id,
+      empregador_id:    session.user.id,
+      motivo_categoria: motivoExpSelecionado,
+      motivo_texto:     motivoExpTexto.trim() || null,
+    });
+    setEnviandoFeedbackExp(false);
+    if (error) { setToastError("Erro: " + error.message); return; }
+    trackEvento("feedback_vaga_expirada", session.user.id, "empregador", {
+      diaria_id: vaga.id, motivo: motivoExpSelecionado,
+    });
+    setVagasExpFeedback(prev => prev.slice(1));
+    setMotivoExpSelecionado("");
+    setMotivoExpTexto("");
+  };
+
+  // ── Envio de pesquisa pós-conclusão (modal obrigatório) ─────────────────────
+  const enviarFeedbackPosConclusao = async () => {
+    if (!session?.user || diariasPosFeedback.length === 0) return;
+    if (posChegouHorario === null) { setToastError("Informe se o profissional chegou no horário."); return; }
+    if (posNotaQualidade === 0)    { setToastError("Dê uma nota de qualidade (1 a 5)."); return; }
+    if (posRecomendaria === null)  { setToastError("Informe se você recomendaria o profissional."); return; }
+    const diaria = diariasPosFeedback[0];
+    setEnviandoFeedbackPos(true);
+    const { error } = await supabase.from("feedback_pos_conclusao").insert({
+      diaria_id:         diaria.id,
+      empregador_id:     session.user.id,
+      chegou_no_horario: posChegouHorario,
+      nota_qualidade:    posNotaQualidade,
+      recomendaria:      posRecomendaria,
+      comentario:        posComentario.trim() || null,
+    });
+    setEnviandoFeedbackPos(false);
+    if (error) { setToastError("Erro: " + error.message); return; }
+    trackEvento("feedback_pos_conclusao", session.user.id, "empregador", {
+      diaria_id: diaria.id, nota: posNotaQualidade, recomendaria: posRecomendaria, no_horario: posChegouHorario,
+    });
+    setDiariasPosFeedback(prev => prev.slice(1));
+    setPosChegouHorario(null);
+    setPosNotaQualidade(0);
+    setPosRecomendaria(null);
+    setPosComentario("");
+  };
 
   // Carrega diárias reais publicadas por empregadores para o diarista ver
   // Filtra vagas que já têm 5 ou mais candidatos (lotadas)
@@ -5628,6 +5730,165 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* ── Modal obrigatório: feedback de vaga expirada (sem aceite) ── */}
+        {vagasExpFeedback.length > 0 && (() => {
+          const vaga = vagasExpFeedback[0];
+          const fila = vagasExpFeedback.length;
+          return (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 22px", width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}>
+                <div style={{ fontSize:36, textAlign:"center", marginBottom:8 }}>⏰</div>
+                <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
+                  Vaga expirou sem ninguém aceitar
+                </div>
+                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:16, lineHeight:1.5 }}>
+                  Sua vaga de <strong>{vaga.funcao || vaga.segmento}</strong> em{" "}
+                  <strong>{new Date(vaga.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong> passou do horário.
+                  <br /><br />
+                  Nos conte rapidinho o que aconteceu — ajuda muito a gente a melhorar.
+                </div>
+                {fila > 1 && (
+                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginBottom:10 }}>
+                    {fila - 1} outra{fila > 2 ? "s" : ""} vaga{fila > 2 ? "s" : ""} aguardando feedback
+                  </div>
+                )}
+                <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
+                  {MOTIVOS_VAGA_EXPIRADA.map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => setMotivoExpSelecionado(m.id)}
+                      style={{
+                        display:"flex", alignItems:"center", gap:10,
+                        padding:"12px 14px", borderRadius:12, cursor:"pointer", fontFamily:"system-ui,sans-serif",
+                        background: motivoExpSelecionado === m.id ? "#fff4ec" : "var(--bg-subtle,#f8fafc)",
+                        border: motivoExpSelecionado === m.id ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                        color: motivoExpSelecionado === m.id ? "#9a4218" : "var(--text-1,#0f172a)",
+                        fontSize:13, fontWeight:700, textAlign:"left" as const,
+                      }}>
+                      <span style={{ fontSize:18 }}>{m.emoji}</span>
+                      <span>{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+                {motivoExpSelecionado === "outro" && (
+                  <textarea
+                    value={motivoExpTexto}
+                    onChange={e => setMotivoExpTexto(e.target.value)}
+                    placeholder="Conta um pouco mais (mínimo 10 caracteres)..."
+                    maxLength={500}
+                    style={{ width:"100%", minHeight:80, padding:12, borderRadius:12, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", resize:"vertical" as const, marginBottom:14, background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
+                  />
+                )}
+                <button
+                  onClick={enviarFeedbackVagaExpirada}
+                  disabled={!motivoExpSelecionado || enviandoFeedbackExp || (motivoExpSelecionado === "outro" && motivoExpTexto.trim().length < 10)}
+                  style={{
+                    width:"100%", padding:"14px",
+                    background: !motivoExpSelecionado || enviandoFeedbackExp ? "#cbd5e1" : "#FF6B35",
+                    color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:900,
+                    cursor: !motivoExpSelecionado || enviandoFeedbackExp ? "not-allowed" : "pointer",
+                    fontFamily:"system-ui,sans-serif",
+                  }}>
+                  {enviandoFeedbackExp ? "Enviando..." : "Enviar e continuar"}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── Modal obrigatório: pesquisa pós-conclusão ── */}
+        {vagasExpFeedback.length === 0 && diariasPosFeedback.length > 0 && (() => {
+          const diaria = diariasPosFeedback[0];
+          const fila = diariasPosFeedback.length;
+          return (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 22px", width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}>
+                <div style={{ fontSize:36, textAlign:"center", marginBottom:8 }}>⭐</div>
+                <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
+                  Como foi a diária?
+                </div>
+                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:18, lineHeight:1.5 }}>
+                  <strong>{diaria.funcao || diaria.segmento}</strong> em{" "}
+                  <strong>{new Date(diaria.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong>
+                </div>
+                {fila > 1 && (
+                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginBottom:10 }}>
+                    {fila - 1} outra{fila > 2 ? "s" : ""} diária{fila > 2 ? "s" : ""} aguardando avaliação
+                  </div>
+                )}
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  O profissional chegou no horário?
+                </div>
+                <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+                  {[{v:true,t:"Sim, chegou"}, {v:false,t:"Não chegou no horário"}].map(o => (
+                    <button key={String(o.v)} onClick={() => setPosChegouHorario(o.v)}
+                      style={{
+                        flex:1, padding:"12px 8px", borderRadius:12, cursor:"pointer", fontFamily:"system-ui,sans-serif",
+                        background: posChegouHorario === o.v ? "#fff4ec" : "var(--bg-subtle,#f8fafc)",
+                        border: posChegouHorario === o.v ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                        color: posChegouHorario === o.v ? "#9a4218" : "var(--text-1,#0f172a)",
+                        fontSize:12, fontWeight:700,
+                      }}>{o.t}</button>
+                  ))}
+                </div>
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  Qualidade do serviço
+                </div>
+                <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:16 }}>
+                  {[1,2,3,4,5].map(n => (
+                    <button key={n} onClick={() => setPosNotaQualidade(n)}
+                      style={{
+                        width:44, height:44, fontSize:24, cursor:"pointer", border:"none",
+                        background: "transparent", padding:0, lineHeight:1,
+                        opacity: posNotaQualidade >= n ? 1 : 0.3,
+                        color: posNotaQualidade >= n ? "#f59e0b" : "#94a3b8",
+                      }}>★</button>
+                  ))}
+                </div>
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  Recomendaria esse profissional?
+                </div>
+                <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+                  {[{v:true,t:"👍 Sim"}, {v:false,t:"👎 Não"}].map(o => (
+                    <button key={String(o.v)} onClick={() => setPosRecomendaria(o.v)}
+                      style={{
+                        flex:1, padding:"12px 8px", borderRadius:12, cursor:"pointer", fontFamily:"system-ui,sans-serif",
+                        background: posRecomendaria === o.v ? "#fff4ec" : "var(--bg-subtle,#f8fafc)",
+                        border: posRecomendaria === o.v ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                        color: posRecomendaria === o.v ? "#9a4218" : "var(--text-1,#0f172a)",
+                        fontSize:13, fontWeight:700,
+                      }}>{o.t}</button>
+                  ))}
+                </div>
+
+                <textarea
+                  value={posComentario}
+                  onChange={e => setPosComentario(e.target.value)}
+                  placeholder="Quer deixar um comentário? (opcional)"
+                  maxLength={500}
+                  style={{ width:"100%", minHeight:60, padding:12, borderRadius:12, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", resize:"vertical" as const, marginBottom:14, background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
+                />
+
+                <button
+                  onClick={enviarFeedbackPosConclusao}
+                  disabled={enviandoFeedbackPos || posChegouHorario === null || posNotaQualidade === 0 || posRecomendaria === null}
+                  style={{
+                    width:"100%", padding:"14px",
+                    background: enviandoFeedbackPos || posChegouHorario === null || posNotaQualidade === 0 || posRecomendaria === null ? "#cbd5e1" : "#FF6B35",
+                    color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:900,
+                    cursor: enviandoFeedbackPos ? "not-allowed" : "pointer",
+                    fontFamily:"system-ui,sans-serif",
+                  }}>
+                  {enviandoFeedbackPos ? "Enviando..." : "Enviar avaliação"}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Modal: Diarista aceitou a vaga ── */}
         {alertaAceite && (

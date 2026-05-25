@@ -135,6 +135,22 @@ export function validarTelefone(telefone: string): boolean {
   return true;
 }
 
+// ── Vaga expirada: data + horario_fim já passou e nada foi confirmado ────────
+// Recebe os campos crus do banco; retorna true se a vaga deveria sair do feed.
+export function vagaExpirou(
+  diaria: { data: string; horario_fim: string; status: string },
+  agora: Date = new Date(),
+): boolean {
+  if (!diaria.data || !diaria.horario_fim) return false;
+  if (!["aberta", "pendente"].includes(diaria.status)) return false;
+  // horario_fim pode vir como "HH:MM" ou "HH:MM:SS"
+  const [h, m] = diaria.horario_fim.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return false;
+  // Trata como horário local (sem timezone) — vagas são locais ao usuário
+  const fim = new Date(`${diaria.data}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+  return agora.getTime() > fim.getTime();
+}
+
 // ── Distância geográfica (fórmula de Haversine) ───────────────────────────────
 export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;

@@ -212,3 +212,13 @@ export const avatarColors: [string, string][] = [
 export const TODAS_AS_FUNCOES = ["Todos", ...Array.from(new Set(
   Object.values(CATEGORIAS_NEGOCIO).flatMap(cat => [...cat.funcoes])
 )).sort()];
+
+// ── Motivos de vaga expirada (oferecidos no modal de feedback) ───────────────
+export const MOTIVOS_VAGA_EXPIRADA: { id: string; label: string; emoji: string }[] = [
+  { id: "sem_candidatos", label: "Ninguém se candidatou",                 emoji: "🦗" },
+  { id: "valor_baixo",    label: "Acho que o valor estava baixo",         emoji: "💸" },
+  { id: "data_passou",    label: "Esqueci de selecionar a tempo",         emoji: "⏰" },
+  { id: "desisti",        label: "Desisti de contratar dessa vez",        emoji: "🤷" },
+  { id: "contratei_fora", label: "Acabei contratando alguém fora do app", emoji: "🚪" },
+  { id: "outro",          label: "Outro motivo (descrever)",              emoji: "✏️"  },
+];

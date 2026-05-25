@@ -11,6 +11,7 @@ import {
   haversineKm,
   validarEmail,
   validarTelefone,
+  vagaExpirou,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -371,5 +372,50 @@ describe("validarTelefone", () => {
 
   it("rejeita string com letras", () => {
     expect(validarTelefone("abcdefghijk")).toBe(false);
+  });
+});
+
+// ── vagaExpirou ───────────────────────────────────────────────────────────────
+describe("vagaExpirou", () => {
+  const agora = new Date("2026-05-25T15:00:00");
+
+  it("expirou: data anterior, status aberta", () => {
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "18:00", status: "aberta" }, agora)).toBe(true);
+  });
+
+  it("expirou: mesmo dia, horário_fim antes de agora", () => {
+    expect(vagaExpirou({ data: "2026-05-25", horario_fim: "12:00", status: "aberta" }, agora)).toBe(true);
+  });
+
+  it("não expirou: mesmo dia, horário_fim depois de agora", () => {
+    expect(vagaExpirou({ data: "2026-05-25", horario_fim: "18:00", status: "aberta" }, agora)).toBe(false);
+  });
+
+  it("não expirou: data futura", () => {
+    expect(vagaExpirou({ data: "2026-05-26", horario_fim: "08:00", status: "aberta" }, agora)).toBe(false);
+  });
+
+  it("não expirou: status já é concluida (não deve expirar)", () => {
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "18:00", status: "concluida" }, agora)).toBe(false);
+  });
+
+  it("não expirou: status é cancelada", () => {
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "18:00", status: "cancelada" }, agora)).toBe(false);
+  });
+
+  it("não expirou: status é em_andamento (já começou, não pode expirar)", () => {
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "18:00", status: "em_andamento" }, agora)).toBe(false);
+  });
+
+  it("expirou: status pendente também caduca", () => {
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "18:00", status: "pendente" }, agora)).toBe(true);
+  });
+
+  it("aceita horario_fim com segundos (HH:MM:SS)", () => {
+    expect(vagaExpirou({ data: "2026-05-25", horario_fim: "12:00:00", status: "aberta" }, agora)).toBe(true);
+  });
+
+  it("retorna false se data está vazia", () => {
+    expect(vagaExpirou({ data: "", horario_fim: "18:00", status: "aberta" }, agora)).toBe(false);
   });
 });
