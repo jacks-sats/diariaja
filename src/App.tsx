@@ -4,7 +4,7 @@ import { Session } from "@supabase/supabase-js";
 import MapComponent from "./MapComponent";
 import { QRCodeSVG } from "qrcode.react";
 // ── Separação de concerns ────────────────────────────────────────────────────
-import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite } from "./types";
+import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite, ReputacaoEmpregador } from "./types";
 import {
   FUNCOES_DELIVERY, CATEGORIAS_NEGOCIO, MEDIAS_CAMPO_GRANDE,
   PLANOS_EMPREGADOR, PLANOS_DIARISTA,
@@ -276,6 +276,17 @@ export default function App() {
   const [posRecomendaria, setPosRecomendaria] = useState<boolean | null>(null);
   const [posComentario, setPosComentario] = useState("");
   const [enviandoFeedbackPos, setEnviandoFeedbackPos] = useState(false);
+
+  // Fila de diárias concluídas que o diarista ainda não avaliou o empregador
+  const [diariasAvaliarEmp, setDiariasAvaliarEmp] = useState<Diaria[]>([]);
+  const [avalEmpNota, setAvalEmpNota]                 = useState(0);
+  const [avalEmpPagou, setAvalEmpPagou]               = useState<boolean | null>(null);
+  const [avalEmpCumpriu, setAvalEmpCumpriu]           = useState<boolean | null>(null);
+  const [avalEmpComentario, setAvalEmpComentario]     = useState("");
+  const [enviandoAvalEmpOb, setEnviandoAvalEmpOb]     = useState(false);
+
+  // Reputação dos empregadores indexada por id (cache para os cards de vaga)
+  const [reputacaoEmp, setReputacaoEmp] = useState<Record<string, ReputacaoEmpregador>>({});
 
   // Não tenho interesse — IDs de vagas ocultas pelo diarista
   const [vagasIgnoradas, setVagasIgnoradas] = useState<Set<string>>(() => {
@@ -626,6 +637,16 @@ export default function App() {
             emps.forEach((p: any) => { m[p.id] = p; });
             setEmpregadoresProfiles(prev => ({ ...prev, ...m }));
           }
+          // Reputação pública dos empregadores (média + % pagou/cumpriu)
+          const { data: reps } = await supabase
+            .from("reputacao_empregadores")
+            .select("*")
+            .in("empregador_id", empIds);
+          if (reps) {
+            const rm: Record<string, ReputacaoEmpregador> = {};
+            reps.forEach((r: any) => { rm[r.empregador_id] = r; });
+            setReputacaoEmp(prev => ({ ...prev, ...rm }));
+          }
         }
       }
     })();
@@ -666,9 +687,65 @@ export default function App() {
         .from("avaliacoes_empregador")
         .select("diaria_id")
         .eq("diarista_id", session.user!.id);
-      if (jaAvaliou) setAvaliadosDiarias(new Set(jaAvaliou.map((r: any) => r.diaria_id)));
+      const idsAvaliados = new Set((jaAvaliou ?? []).map((r: any) => r.diaria_id));
+      if (jaAvaliou) setAvaliadosDiarias(idsAvaliados);
+
+      // ── Fila obrigatória: avaliar empregador em diárias concluídas ────────
+      if (data) {
+        const aAvaliar = data.filter(
+          (d: any) => d.status === "concluida" && !idsAvaliados.has(d.id),
+        );
+        setDiariasAvaliarEmp(aAvaliar);
+
+        // ── Notifica diárias em que o diarista foi selecionado e expiraram ──
+        const expiradasMinhas = data.filter((d: any) => d.status === "expirada");
+        if (expiradasMinhas.length > 0) {
+          const chave = "diariaja_exp_avisadas";
+          let avisadas: string[] = [];
+          try { avisadas = JSON.parse(localStorage.getItem(chave) || "[]"); } catch {}
+          const novas = expiradasMinhas.filter((d: any) => !avisadas.includes(d.id));
+          if (novas.length > 0) {
+            setToastError(
+              novas.length === 1
+                ? `⏰ Sua vaga em ${novas[0].nome_negocio || novas[0].segmento} expirou — o empregador não confirmou sua chegada.`
+                : `⏰ ${novas.length} vagas suas expiraram — empregadores não confirmaram chegada.`,
+            );
+            try { localStorage.setItem(chave, JSON.stringify([...avisadas, ...novas.map((d: any) => d.id)])); } catch {}
+          }
+        }
+      }
     })();
   }, [tela, session?.user?.id]);
+
+  // ── Envia a avaliação obrigatória do empregador (modal full-screen) ────────
+  const enviarAvaliacaoEmpObrigatoria = async () => {
+    if (!session?.user || diariasAvaliarEmp.length === 0) return;
+    if (avalEmpNota === 0)           { setToastError("Dê uma nota de 1 a 5 estrelas."); return; }
+    if (avalEmpPagou === null)       { setToastError("Informe se o empregador pagou o combinado."); return; }
+    if (avalEmpCumpriu === null)     { setToastError("Informe se o empregador cumpriu o combinado."); return; }
+    const diaria = diariasAvaliarEmp[0];
+    setEnviandoAvalEmpOb(true);
+    const { error } = await supabase.from("avaliacoes_empregador").insert({
+      diarista_id:       session.user.id,
+      empregador_id:     diaria.empregador_id,
+      diaria_id:         diaria.id,
+      nota:              avalEmpNota,
+      pagou_combinado:   avalEmpPagou,
+      cumpriu_combinado: avalEmpCumpriu,
+      comentario:        avalEmpComentario.trim() || null,
+    });
+    setEnviandoAvalEmpOb(false);
+    if (error) { setToastError("Erro: " + error.message); return; }
+    trackEvento("avaliacao_enviada", session.user.id, "diarista", {
+      tipo: "empregador", nota: avalEmpNota, pagou: avalEmpPagou, cumpriu: avalEmpCumpriu,
+    });
+    setAvaliadosDiarias(prev => new Set([...prev, diaria.id]));
+    setDiariasAvaliarEmp(prev => prev.slice(1));
+    setAvalEmpNota(0);
+    setAvalEmpPagou(null);
+    setAvalEmpCumpriu(null);
+    setAvalEmpComentario("");
+  };
 
   // Carrega avaliações do diarista real ao abrir o perfil dele
   // E também recarrega os convites enviados para garantir status atualizado
@@ -6698,6 +6775,42 @@ export default function App() {
                               <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>
                                 {dia.nome_negocio || dia.segmento}
                               </div>
+                              {/* Reputação pública do empregador — só aparece com >=1 avaliação */}
+                              {(() => {
+                                const rep = reputacaoEmp[dia.empregador_id];
+                                if (!rep || !rep.total_avaliacoes) {
+                                  return (
+                                    <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:600, marginTop:3 }}>
+                                      🆕 Contratante novo (sem avaliações)
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:3, flexWrap:"wrap" }}>
+                                    <span style={{ display:"inline-flex", alignItems:"center", gap:2, fontSize:12, fontWeight:800, color:"#d97706" }}>
+                                      ★ {rep.nota_media?.toFixed?.(1) ?? rep.nota_media}
+                                    </span>
+                                    <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>
+                                      ({rep.total_avaliacoes})
+                                    </span>
+                                    {typeof rep.pct_pagou_combinado === "number" && rep.pct_pagou_combinado >= 80 && (
+                                      <span title="Paga o combinado" style={{ background:"#dcfce7", color:"#16a34a", borderRadius:10, padding:"2px 7px", fontSize:10, fontWeight:800 }}>
+                                        💰 Paga certo
+                                      </span>
+                                    )}
+                                    {typeof rep.pct_cumpriu_combinado === "number" && rep.pct_cumpriu_combinado >= 80 && (
+                                      <span title="Cumpre o combinado" style={{ background:"#dbeafe", color:"#1d4ed8", borderRadius:10, padding:"2px 7px", fontSize:10, fontWeight:800 }}>
+                                        ✅ Cumpre
+                                      </span>
+                                    )}
+                                    {typeof rep.pct_pagou_combinado === "number" && rep.pct_pagou_combinado < 50 && (
+                                      <span title="Histórico de não pagamento" style={{ background:"#fee2e2", color:"#dc2626", borderRadius:10, padding:"2px 7px", fontSize:10, fontWeight:800 }}>
+                                        ⚠️ Atenção
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                               <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5, flexWrap:"wrap" }}>
                                 {dia.funcao && (
                                   <span style={{ background:funcCor+"18", color:funcCor, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, border:`1px solid ${funcCor}30` }}>
@@ -7813,6 +7926,58 @@ export default function App() {
                           </div>
                         );
                       })()}
+                      {/* Bloco de reputação do contratante */}
+                      {(() => {
+                        const rep = reputacaoEmp[vagaConfirm.empregador_id];
+                        if (!rep || !rep.total_avaliacoes) {
+                          return (
+                            <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:12, color:"var(--text-2,#64748b)" }}>
+                              🆕 <strong>Contratante novo</strong> — ainda não tem avaliações de outros diaristas.
+                            </div>
+                          );
+                        }
+                        const alerta = (typeof rep.pct_pagou_combinado === "number" && rep.pct_pagou_combinado < 50)
+                                     || (typeof rep.pct_cumpriu_combinado === "number" && rep.pct_cumpriu_combinado < 50);
+                        return (
+                          <div style={{
+                            background: alerta ? "#fef2f2" : "#fff4ec",
+                            border: alerta ? "1.5px solid #fecaca" : "1.5px solid #fed7aa",
+                            borderRadius:12, padding:"12px 14px", marginBottom:14,
+                          }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                              <strong style={{ fontSize:13, color: alerta ? "#991b1b" : "#9a4218" }}>
+                                Reputação do contratante
+                              </strong>
+                              <span style={{ fontSize:14, fontWeight:900, color: alerta ? "#991b1b" : "#d97706" }}>
+                                ★ {rep.nota_media?.toFixed?.(1) ?? rep.nota_media} <span style={{ color:"var(--text-3,#94a3b8)", fontSize:11, fontWeight:600 }}>· {rep.total_avaliacoes} avaliações</span>
+                              </span>
+                            </div>
+                            <div style={{ display:"flex", flexDirection:"column", gap:6, fontSize:12 }}>
+                              {typeof rep.pct_pagou_combinado === "number" && (
+                                <div style={{ display:"flex", justifyContent:"space-between" }}>
+                                  <span style={{ color:"var(--text-2,#64748b)" }}>💰 Paga o combinado</span>
+                                  <strong style={{ color: rep.pct_pagou_combinado >= 80 ? "#16a34a" : rep.pct_pagou_combinado >= 50 ? "#d97706" : "#dc2626" }}>
+                                    {rep.pct_pagou_combinado}%
+                                  </strong>
+                                </div>
+                              )}
+                              {typeof rep.pct_cumpriu_combinado === "number" && (
+                                <div style={{ display:"flex", justifyContent:"space-between" }}>
+                                  <span style={{ color:"var(--text-2,#64748b)" }}>✅ Cumpre o combinado</span>
+                                  <strong style={{ color: rep.pct_cumpriu_combinado >= 80 ? "#16a34a" : rep.pct_cumpriu_combinado >= 50 ? "#d97706" : "#dc2626" }}>
+                                    {rep.pct_cumpriu_combinado}%
+                                  </strong>
+                                </div>
+                              )}
+                            </div>
+                            {alerta && (
+                              <div style={{ marginTop:10, fontSize:11, color:"#991b1b", fontWeight:700, lineHeight:1.4 }}>
+                                ⚠️ Outros diaristas relataram problemas — leia as avaliações antes de aceitar.
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                       <p style={S.modalText}>
                         Ao demonstrar interesse, o contratante receberá seu perfil e poderá te selecionar para a vaga.
                       </p>
@@ -7888,6 +8053,99 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* ── Modal obrigatório: diarista avalia o empregador (pós-conclusão) ── */}
+        {diariasAvaliarEmp.length > 0 && (() => {
+          const diaria = diariasAvaliarEmp[0];
+          const empNome = empregadoresProfiles[diaria.empregador_id]?.nome || diaria.nome_negocio || diaria.segmento || "o empregador";
+          const fila = diariasAvaliarEmp.length;
+          return (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 22px", width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}>
+                <div style={{ fontSize:36, textAlign:"center", marginBottom:8 }}>⭐</div>
+                <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
+                  Como foi trabalhar com {empNome}?
+                </div>
+                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:18, lineHeight:1.5 }}>
+                  Sua avaliação ajuda outros diaristas a decidirem se aceitam vagas desse contratante.
+                </div>
+                {fila > 1 && (
+                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginBottom:10 }}>
+                    {fila - 1} outra{fila > 2 ? "s" : ""} diária{fila > 2 ? "s" : ""} aguardando avaliação
+                  </div>
+                )}
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  Nota geral
+                </div>
+                <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:18 }}>
+                  {[1,2,3,4,5].map(n => (
+                    <button key={n} onClick={() => setAvalEmpNota(n)}
+                      style={{
+                        width:44, height:44, fontSize:24, cursor:"pointer", border:"none",
+                        background: "transparent", padding:0, lineHeight:1,
+                        opacity: avalEmpNota >= n ? 1 : 0.3,
+                        color: avalEmpNota >= n ? "#f59e0b" : "#94a3b8",
+                      }}>★</button>
+                  ))}
+                </div>
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  Pagou o valor combinado?
+                </div>
+                <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+                  {[{v:true,t:"💰 Sim, pagou certo"}, {v:false,t:"😕 Não pagou"}].map(o => (
+                    <button key={String(o.v)} onClick={() => setAvalEmpPagou(o.v)}
+                      style={{
+                        flex:1, padding:"12px 8px", borderRadius:12, cursor:"pointer", fontFamily:"system-ui,sans-serif",
+                        background: avalEmpPagou === o.v ? "#fff4ec" : "var(--bg-subtle,#f8fafc)",
+                        border: avalEmpPagou === o.v ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                        color: avalEmpPagou === o.v ? "#9a4218" : "var(--text-1,#0f172a)",
+                        fontSize:12, fontWeight:700,
+                      }}>{o.t}</button>
+                  ))}
+                </div>
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  Cumpriu o que combinou? (horário, escopo, tratamento)
+                </div>
+                <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+                  {[{v:true,t:"✅ Sim, cumpriu"}, {v:false,t:"❌ Não cumpriu"}].map(o => (
+                    <button key={String(o.v)} onClick={() => setAvalEmpCumpriu(o.v)}
+                      style={{
+                        flex:1, padding:"12px 8px", borderRadius:12, cursor:"pointer", fontFamily:"system-ui,sans-serif",
+                        background: avalEmpCumpriu === o.v ? "#fff4ec" : "var(--bg-subtle,#f8fafc)",
+                        border: avalEmpCumpriu === o.v ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                        color: avalEmpCumpriu === o.v ? "#9a4218" : "var(--text-1,#0f172a)",
+                        fontSize:12, fontWeight:700,
+                      }}>{o.t}</button>
+                  ))}
+                </div>
+
+                <textarea
+                  value={avalEmpComentario}
+                  onChange={e => setAvalEmpComentario(e.target.value)}
+                  placeholder="Quer deixar um comentário público? (opcional)"
+                  maxLength={500}
+                  style={{ width:"100%", minHeight:60, padding:12, borderRadius:12, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", resize:"vertical" as const, marginBottom:14, background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
+                />
+
+                <button
+                  onClick={enviarAvaliacaoEmpObrigatoria}
+                  disabled={enviandoAvalEmpOb || avalEmpNota === 0 || avalEmpPagou === null || avalEmpCumpriu === null}
+                  style={{
+                    width:"100%", padding:"14px",
+                    background: enviandoAvalEmpOb || avalEmpNota === 0 || avalEmpPagou === null || avalEmpCumpriu === null ? "#cbd5e1" : "#FF6B35",
+                    color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:900,
+                    cursor: enviandoAvalEmpOb ? "not-allowed" : "pointer",
+                    fontFamily:"system-ui,sans-serif",
+                  }}>
+                  {enviandoAvalEmpOb ? "Enviando..." : "Enviar avaliação"}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Modal Avaliar Empregador ── */}
         {modalAvalEmp && (

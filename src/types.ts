@@ -144,3 +144,11 @@ export interface FeedbackPosConclusao {
   comentario?: string;
   created_at: string;
 }
+
+export interface ReputacaoEmpregador {
+  empregador_id: string;
+  total_avaliacoes: number;
+  nota_media: number | null;        // 1.0–5.0
+  pct_pagou_combinado: number | null;   // 0–100, null se ninguém respondeu ainda
+  pct_cumpriu_combinado: number | null;
+}
