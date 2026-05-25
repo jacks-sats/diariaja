@@ -385,6 +385,9 @@ export default function App() {
   const [mostrarSenhaCadastro, setMostrarSenhaCadastro] = useState(false);
   const [resetSenhaEnviado, setResetSenhaEnviado] = useState(false);
   const [resetSenhaLoading, setResetSenhaLoading] = useState(false);
+  // Modo de login: por email ou por CPF/CNPJ
+  const [modoLogin, setModoLogin] = useState<"email"|"cpf">("email");
+  const [loginCpfInput, setLoginCpfInput] = useState("");
 
   // Configurações / Conta
   const [senhaAtual, setSenhaAtual] = useState("");
@@ -1627,6 +1630,57 @@ export default function App() {
       setAuthError(traduzirErroAuth(error.message));
     } else {
       trackEvento("login_sucesso", loginData?.user?.id, undefined);
+    }
+    setAuthLoading(false);
+  };
+
+  // Login por CPF/CNPJ: primeiro descobre o e-mail via edge function, depois loga normal
+  const handleCPFLogin = async () => {
+    setAuthError(""); setAuthLoading(true);
+    const digits = loginCpfInput.replace(/\D/g, "");
+    // Validação client-side básica (a edge function valida de novo)
+    if (digits.length !== 11 && digits.length !== 14) {
+      setAuthError("CPF deve ter 11 dígitos ou CNPJ 14.");
+      setAuthLoading(false);
+      return;
+    }
+    if (digits.length === 11 && !validarCPF(digits)) {
+      setAuthError("CPF inválido. Confira os dígitos.");
+      setAuthLoading(false);
+      return;
+    }
+    if (!form.senha) {
+      setAuthError("Informe sua senha.");
+      setAuthLoading(false);
+      return;
+    }
+    try {
+      // Edge function devolve o e-mail (genérica em caso de erro, pra não vazar info)
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/lookup-by-cpf`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify(digits.length === 11 ? { cpf: digits } : { cnpj: digits }),
+      });
+      const json = await resp.json().catch(() => ({} as any));
+      if (!resp.ok || !json.email) {
+        setAuthError(json.error || "CPF/CNPJ ou senha incorretos.");
+        setAuthLoading(false);
+        return;
+      }
+      // Login com email recuperado + a senha que o usuário forneceu
+      const { data: loginData, error } = await supabase.auth.signInWithPassword({ email: json.email, password: form.senha });
+      if (error) {
+        // Mesma mensagem genérica pra não dar pista se o CPF existe ou não
+        setAuthError("CPF/CNPJ ou senha incorretos.");
+      } else {
+        trackEvento("login_sucesso", loginData?.user?.id, undefined, { metodo: "cpf" });
+      }
+    } catch {
+      setAuthError("Erro de conexão. Tente novamente.");
     }
     setAuthLoading(false);
   };
@@ -3230,18 +3284,62 @@ export default function App() {
 
         <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
           <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou com e-mail</span>
+          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou</span>
           <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
         </div>
 
-        <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
-        <input
-          id="login-email"
-          aria-label="E-mail"
-          type="email"
-          autoComplete="email"
-          style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
-          placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
+        {/* Toggle entre login por e-mail e por CPF/CNPJ */}
+        <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,.05)", borderRadius:10, padding:3, marginBottom:14 }}>
+          {([
+            { id: "email", label: "E-mail" },
+            { id: "cpf",   label: "CPF / CNPJ" },
+          ] as const).map(opt => {
+            const ativo = modoLogin === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => { setAuthError(""); setModoLogin(opt.id); }}
+                style={{
+                  flex:1, padding:"8px 10px", border:"none", borderRadius:8,
+                  background: ativo ? "#FF6B35" : "transparent",
+                  color: ativo ? "#fff" : "var(--text-3,#94a3b8)",
+                  fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif",
+                }}>
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {modoLogin === "email" ? (
+          <>
+            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
+            <input
+              id="login-email"
+              aria-label="E-mail"
+              type="email"
+              autoComplete="email"
+              style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+              placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
+          </>
+        ) : (
+          <>
+            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>CPF ou CNPJ</label>
+            <input
+              id="login-cpf"
+              aria-label="CPF ou CNPJ"
+              inputMode="numeric"
+              autoComplete="off"
+              style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12, letterSpacing:0.5 }}
+              placeholder="000.000.000-00"
+              value={loginCpfInput}
+              onChange={e => {
+                const d = e.target.value.replace(/\D/g, "").slice(0, 14);
+                setLoginCpfInput(d.length <= 11 ? maskCPF(d) : maskCNPJ(d));
+              }} />
+          </>
+        )}
 
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
           <label htmlFor="login-senha" style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>Senha</label>
@@ -3261,7 +3359,11 @@ export default function App() {
 
         {authError && <p style={{ color:"#f87171", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>{authError}</p>}
 
-        {resetSenhaEnviado ? (
+        {modoLogin === "cpf" ? (
+          <p style={{ color:"#94a3b8", fontSize:11, marginTop:8, textAlign:"center" as const, lineHeight:1.5 }}>
+            Esqueceu a senha? Volte pro login por <strong style={{ color:"#fff", cursor:"pointer" }} onClick={() => { setAuthError(""); setModoLogin("email"); }}>e-mail</strong> pra recuperar.
+          </p>
+        ) : resetSenhaEnviado ? (
           <p style={{ color:"#4ade80", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>
             ✅ Link enviado! Verifique seu e-mail (inclusive o spam).
           </p>
@@ -3276,7 +3378,7 @@ export default function App() {
         )}
 
         <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:16, opacity:authLoading?0.6:1, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
-          disabled={authLoading} onClick={handleEmailLogin}>
+          disabled={authLoading} onClick={modoLogin === "email" ? handleEmailLogin : handleCPFLogin}>
           {authLoading ? "Entrando..." : "Entrar"}
         </button>
       </div>
