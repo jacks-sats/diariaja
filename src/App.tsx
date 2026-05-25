@@ -1,3 +1,9 @@
+/**
+ * DiáriaJá — Marketplace de diárias.
+ * Copyright (c) 2025–2026 Jackson dos Santos da Silva. Todos os direitos reservados.
+ * Uso, cópia, modificação ou distribuição sem autorização escrita é proibido.
+ * Lei 9.609/98 e Lei 9.610/98. Contato: suporte@diariaja.com.br
+ */
 import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import { Session } from "@supabase/supabase-js";

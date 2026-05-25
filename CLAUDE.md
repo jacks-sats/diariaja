@@ -2,6 +2,13 @@
 
 Guide for AI assistants (Claude Code, etc.) working in this repository.
 
+## Propriedade
+
+**Copyright (c) 2025–2026 Jackson dos Santos da Silva. Todos os direitos
+reservados.** Software protegido pelas Leis 9.609/98 e 9.610/98 (Brasil).
+Veja `LICENSE` na raiz. Não use, copie, modifique ou distribua sem
+autorização escrita. Contato: suporte@diariaja.com.br
+
 ## Project: DiáriaJá (a.k.a. Trampojá)
 
 Marketplace mobile-first (PWA + Capacitor/Android) connecting **empregadores**
