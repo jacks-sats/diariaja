@@ -1435,6 +1435,26 @@ export default function App() {
 
     // ── Retorno do MP após desbloqueio de contato (R$ 1) ───────────────────
     const urlParams = new URLSearchParams(window.location.search);
+
+    // ── Recuperação de senha (fallback) ─────────────────────────────────────
+    // O fluxo principal é o evento PASSWORD_RECOVERY do onAuthStateChange.
+    // Este aqui é só rede de segurança: se a URL chega com ?recovery=1 e o
+    // hash tem o token, força a tela de troca de senha.
+    const hashHasRecovery = window.location.hash.includes("type=recovery");
+    if (urlParams.get("recovery") === "1" || hashHasRecovery) {
+      // Limpa o query string (mas mantém o hash, que o Supabase processa)
+      window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+      // O onAuthStateChange vai disparar PASSWORD_RECOVERY em seguida — esse
+      // handler é o que de fato troca a tela. Mas pra cobrir o caso de o
+      // evento não chegar, marca aqui também.
+      setTimeout(() => {
+        if (window.location.hash.includes("type=recovery") || urlParams.get("recovery") === "1") {
+          setTela("alterar-senha");
+          setLoading(false);
+        }
+      }, 1500);
+    }
+
     if (urlParams.get("contato_desbloqueado") === "sucesso") {
       try {
         const chave = "diariaja_contatos_desblo_" + new Date().toISOString().slice(0, 7);
@@ -1471,6 +1491,15 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // Ignora eventos que não mudam estado (ex: TOKEN_REFRESHED quando já estava logado)
       if (event === "TOKEN_REFRESHED") return;
+      // ── Recuperação de senha: o Supabase dispara PASSWORD_RECOVERY quando
+      //    o usuário abre o link do e-mail. Manda direto pra tela de trocar
+      //    senha — pula todo o resto do fluxo de login.
+      if (event === "PASSWORD_RECOVERY") {
+        setSession(session);
+        setLoading(false);
+        setTela("alterar-senha");
+        return;
+      }
       setSession(session);
       if (session) {
         (async () => {
@@ -1706,8 +1735,13 @@ export default function App() {
 
   const handleResetSenha = async () => {
     if (!form.email.trim()) { setAuthError("Informe seu e-mail para redefinir a senha."); return; }
+    if (!validarEmail(form.email)) { setAuthError("E-mail inválido. Confira e tente novamente."); return; }
     setResetSenhaLoading(true); setAuthError("");
-    const { error } = await supabase.auth.resetPasswordForEmail(form.email.trim(), { redirectTo: window.location.origin });
+    // Manda o usuário direto pra uma URL marcada — o app detecta ?recovery=1
+    // como fallback caso o evento PASSWORD_RECOVERY não dispare na hora.
+    const { error } = await supabase.auth.resetPasswordForEmail(form.email.trim(), {
+      redirectTo: `${window.location.origin}/?recovery=1`,
+    });
     setResetSenhaLoading(false);
     if (error) { setAuthError(traduzirErroAuth(error.message)); } else { setResetSenhaEnviado(true); }
   };
@@ -3825,12 +3859,22 @@ export default function App() {
   // ALTERAR SENHA
   if (tela === "alterar-senha") {
     const voltarHome = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    // Detecta se chegou aqui via link de recuperação (URL com type=recovery
+    // no hash ou ?recovery=1 no query) ou se veio de Configurações
+    const veioDeRecovery =
+      typeof window !== "undefined" &&
+      (window.location.hash.includes("type=recovery") ||
+       window.location.search.includes("recovery=1"));
     return (
       <div style={S.page}>
-        <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
-        <h2 style={S.pageTitle}>🔑 Alterar senha</h2>
+        {!veioDeRecovery && (
+          <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+        )}
+        <h2 style={S.pageTitle}>🔑 {veioDeRecovery ? "Defina sua nova senha" : "Alterar senha"}</h2>
         <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
-          Digite sua nova senha. Ela deve ter pelo menos 6 caracteres.
+          {veioDeRecovery
+            ? "Você abriu o link de recuperação. Crie uma nova senha de pelo menos 6 caracteres pra entrar."
+            : "Digite sua nova senha. Ela deve ter pelo menos 6 caracteres."}
         </p>
 
         <label style={S.label}>Nova senha</label>
@@ -3856,7 +3900,13 @@ export default function App() {
             else {
               setToastSuccess("✅ Senha alterada com sucesso!");
               setNovaSenha(""); setConfirmSenha("");
-              setTela("configuracoes");
+              // Limpa marcadores de recovery da URL pra próxima visita ser normal
+              if (veioDeRecovery) {
+                try { window.history.replaceState({}, "", window.location.pathname); } catch {}
+                setTela(voltarHome);
+              } else {
+                setTela("configuracoes");
+              }
             }
           }}>
           {alterandoSenha ? "Alterando..." : "Salvar nova senha"}
