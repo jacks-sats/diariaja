@@ -115,6 +115,71 @@ export const maskCNPJ = (v: string): string => {
   return v;
 };
 
+// ── Validação de e-mail (formato básico, espelha a checagem do Supabase) ─────
+export function validarEmail(email: string): boolean {
+  const e = email.trim();
+  if (e.length < 5 || e.length > 254) return false;
+  // local@dominio.tld — sem espaços, com pelo menos um ponto no domínio
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
+// ── Validação de telefone brasileiro (10 ou 11 dígitos, com ou sem máscara) ──
+// 10 dígitos: fixo (XX XXXX-XXXX); 11 dígitos: celular (XX 9XXXX-XXXX).
+export function validarTelefone(telefone: string): boolean {
+  const t = telefone.replace(/\D/g, "");
+  if (t.length !== 10 && t.length !== 11) return false;
+  // DDD válido (11 a 99); 11 dígitos exige 9 no primeiro dígito após o DDD
+  const ddd = parseInt(t.slice(0, 2), 10);
+  if (ddd < 11 || ddd > 99) return false;
+  if (t.length === 11 && t[2] !== "9") return false;
+  return true;
+}
+
+// ── Formata distância em km para exibição consistente ───────────────────────
+// Antes: "0.3 km", "1.2 km", "12.34567 km" misturados pelo app.
+// Agora: "menos de 1 km" / "X,X km" (1 casa, vírgula PT-BR) / "X km" (inteiro).
+export function formatarDistancia(km: number | null | undefined): string {
+  if (km === null || km === undefined || Number.isNaN(km)) return "";
+  if (km < 1) return "menos de 1 km";
+  if (km < 10) return `${km.toFixed(1).replace(".", ",")} km`;
+  return `${Math.round(km)} km`;
+}
+
+// ── Tempo estimado de moto/carro (rota terrestre ~30% maior + 30km/h média) ──
+// Heurística simples: não consulta serviço de roteamento, só estima a partir
+// da distância em linha reta. Bom o suficiente pra "10 min", "1h" no card.
+export function tempoEstimadoMin(km: number | null | undefined): number | null {
+  if (km === null || km === undefined || Number.isNaN(km) || km <= 0) return null;
+  const kmRota = km * 1.3;        // sinuosidade média urbana
+  const velKmh = 30;              // moto/carro em CG (mistura semáforos + avenidas)
+  return Math.max(1, Math.round((kmRota / velKmh) * 60));
+}
+
+export function formatarTempo(min: number | null | undefined): string {
+  if (min === null || min === undefined) return "";
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (m === 0) return `${h}h`;
+  return `${h}h${String(m).padStart(2, "0")}`;
+}
+
+// ── Vaga expirada: data + horario_fim já passou e nada foi confirmado ────────
+// Recebe os campos crus do banco; retorna true se a vaga deveria sair do feed.
+export function vagaExpirou(
+  diaria: { data: string; horario_fim: string; status: string },
+  agora: Date = new Date(),
+): boolean {
+  if (!diaria.data || !diaria.horario_fim) return false;
+  if (!["aberta", "pendente"].includes(diaria.status)) return false;
+  // horario_fim pode vir como "HH:MM" ou "HH:MM:SS"
+  const [h, m] = diaria.horario_fim.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return false;
+  // Trata como horário local (sem timezone) — vagas são locais ao usuário
+  const fim = new Date(`${diaria.data}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+  return agora.getTime() > fim.getTime();
+}
+
 // ── Distância geográfica (fórmula de Haversine) ───────────────────────────────
 export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;

@@ -1,4 +1,10 @@
 <!DOCTYPE html>
+<!--
+  DiáriaJá — Marketplace de diárias para empregadores e diaristas.
+  Copyright (c) 2025–2026 Jackson dos Santos da Silva. Todos os direitos reservados.
+  Lei 9.609/98 (Software) e Lei 9.610/98 (Direitos Autorais).
+  Contato: suporte@diariaja.com.br
+-->
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
@@ -15,7 +21,14 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: system-ui, sans-serif; background: var(--bg-app, #f0f2f5); transition: background .3s; }
+      body {
+        font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg-app, #f0f2f5);
+        transition: background .3s;
+        font-feature-settings: "cv11", "ss01"; /* numerais e detalhes mais modernos */
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
 
       /* ── Variáveis padrão (light mode) ── */
       :root {

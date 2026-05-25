@@ -28,6 +28,21 @@ const BAR_CSS = `
 #${BAR_ID}.visible {
   animation: loadingSlide 1.4s linear infinite;
 }
+
+/* ── Skeleton loader compartilhado ─────────────────────────────────────── */
+@keyframes diariaja-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.dj-skel {
+  background: linear-gradient(90deg,
+    var(--bg-subtle,#f1f5f9) 0%,
+    var(--bg-card,#fff) 50%,
+    var(--bg-subtle,#f1f5f9) 100%);
+  background-size: 200% 100%;
+  animation: diariaja-shimmer 1.4s linear infinite;
+  border-radius: 8px;
+}
 `;
 
 function ensureBar(): HTMLElement {

@@ -1,19 +1,41 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+/**
+ * DiáriaJá — Marketplace de diárias.
+ * Copyright (c) 2025–2026 Jackson dos Santos da Silva. Todos os direitos reservados.
+ * Uso, cópia, modificação ou distribuição sem autorização escrita é proibido.
+ * Lei 9.609/98 e Lei 9.610/98. Contato: suporte@diariaja.com.br
+ */
+import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import { Session } from "@supabase/supabase-js";
 import MapComponent from "./MapComponent";
-import { QRCodeSVG } from "qrcode.react";
+// ── Ícones (Lucide React — outline moderno, tree-shaken) ─────────────────────
+import {
+  Home, Briefcase, MessageCircle, User, Plus, ArrowLeft,
+  Star, CheckCircle2, AlertTriangle, MapPin, Camera, QrCode,
+  Heart, Bell, LogOut, Settings, Search, Filter, X, Send,
+  Wallet, ShieldCheck, ThumbsUp, ThumbsDown, Clock, Trash2,
+  Eye, EyeOff, ChevronRight, Inbox, Loader2,
+} from "lucide-react";
+// QRCodeSVG é carregado sob demanda — economiza ~117KB gzip no startup
+const QRCodeSVG = React.lazy(() =>
+  import("qrcode.react").then(m => ({ default: m.QRCodeSVG })),
+);
+
+// ── Helper de haptic feedback (vibração curta nos toques importantes) ───────
+const hapticTick = () => { try { navigator.vibrate?.(8); } catch {} };
 // ── Separação de concerns ────────────────────────────────────────────────────
-import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite } from "./types";
+import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite, ReputacaoEmpregador } from "./types";
 import {
   FUNCOES_DELIVERY, CATEGORIAS_NEGOCIO, MEDIAS_CAMPO_GRANDE,
   PLANOS_EMPREGADOR, PLANOS_DIARISTA,
   DIAS, DIAS_LABEL, MAX_INTERESSADOS, avatarColors, TODAS_AS_FUNCOES,
+  MOTIVOS_VAGA_EXPIRADA,
 } from "./constants";
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, maskCPF, maskCNPJ, haversineKm,
-  validarTituloDiaria,
+  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
+  formatarDistancia, tempoEstimadoMin, formatarTempo,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -104,10 +126,6 @@ export default function App() {
   const [disponivelAgora, setDisponivel]  = useState(false);
   const [filtroFuncao, setFiltroFuncao]   = useState("Todos");
   const [filtroDisp, setFiltroDisp]       = useState(false);
-  const [avaliacoes, setAvaliacoes]       = useState<{id:string, empregador_id:string, nota:number, comentario:string, created_at:string}[]>([]);
-  const [notaForm, setNotaForm]           = useState(0);
-  const [comentarioForm, setComentarioForm] = useState("");
-  const [enviandoAvaliacao, setEnviandoAvaliacao] = useState(false);
   const [diarias, setDiarias]                     = useState<Diaria[]>([]);
   const [formDiaria, setFormDiaria]               = useState({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"" });
   const [buscandoCEP, setBuscandoCEP]             = useState(false);
@@ -265,6 +283,38 @@ export default function App() {
   const [modalDenunciar, setModalDenunciar] = useState<{tipo:"vaga"|"usuario"; id:string; nome:string} | null>(null);
   const [motivoDenuncia, setMotivoDenuncia] = useState("");
   const [enviandoDenuncia, setEnviandoDenuncia] = useState(false);
+
+  // Fila de vagas expiradas sem feedback (empregador é forçado a responder)
+  const [vagasExpFeedback, setVagasExpFeedback] = useState<Diaria[]>([]);
+  const [motivoExpSelecionado, setMotivoExpSelecionado] = useState<string>("");
+  const [motivoExpTexto, setMotivoExpTexto] = useState("");
+  const [enviandoFeedbackExp, setEnviandoFeedbackExp] = useState(false);
+
+  // Fila de diárias concluídas sem pesquisa pós (empregador responde)
+  const [diariasPosFeedback, setDiariasPosFeedback] = useState<Diaria[]>([]);
+  const [posChegouHorario, setPosChegouHorario] = useState<boolean | null>(null);
+  const [posNotaQualidade, setPosNotaQualidade] = useState(0);
+  const [posRecomendaria, setPosRecomendaria] = useState<boolean | null>(null);
+  const [posComentario, setPosComentario] = useState("");
+  const [enviandoFeedbackPos, setEnviandoFeedbackPos] = useState(false);
+
+  // Fila de diárias concluídas que o diarista ainda não avaliou o empregador
+  const [diariasAvaliarEmp, setDiariasAvaliarEmp] = useState<Diaria[]>([]);
+  const [avalEmpNota, setAvalEmpNota]                 = useState(0);
+  const [avalEmpPagou, setAvalEmpPagou]               = useState<boolean | null>(null);
+  const [avalEmpCumpriu, setAvalEmpCumpriu]           = useState<boolean | null>(null);
+  const [avalEmpComentario, setAvalEmpComentario]     = useState("");
+  const [enviandoAvalEmpOb, setEnviandoAvalEmpOb]     = useState(false);
+
+  // Reputação dos empregadores indexada por id (cache para os cards de vaga)
+  const [reputacaoEmp, setReputacaoEmp] = useState<Record<string, ReputacaoEmpregador>>({});
+
+  // Perfil do empregador aberto pelo diarista (tela "perfil-empregador")
+  const [empregadorAberto, setEmpregadorAberto] = useState<UserProfile | null>(null);
+  const [avaliacoesEmpAbertas, setAvaliacoesEmpAbertas] = useState<
+    { id: string; nota: number; comentario?: string; pagou_combinado?: boolean | null; cumpriu_combinado?: boolean | null; created_at: string; diarista_nome?: string }[]
+  >([]);
+  const [carregandoEmpAberto, setCarregandoEmpAberto] = useState(false);
 
   // Não tenho interesse — IDs de vagas ocultas pelo diarista
   const [vagasIgnoradas, setVagasIgnoradas] = useState<Set<string>>(() => {
@@ -473,7 +523,41 @@ export default function App() {
         .neq("status", "cancelada")
         .order("created_at", { ascending: false });
       if (data) {
+        // ── Auto-expira vagas que passaram do horário_fim ──────────────────
+        const venceram = data.filter((d: any) => vagaExpirou(d));
+        if (venceram.length > 0) {
+          await supabase
+            .from("diarias")
+            .update({ status: "expirada" })
+            .in("id", venceram.map((d: any) => d.id))
+            .eq("empregador_id", session.user!.id);
+          venceram.forEach((d: any) => { d.status = "expirada"; });
+        }
+
         setDiarias(data);
+
+        // ── Monta as filas de feedback pendente ────────────────────────────
+        const expiradas = data.filter((d: any) => d.status === "expirada");
+        const concluidas = data.filter((d: any) => d.status === "concluida");
+
+        if (expiradas.length > 0) {
+          const { data: jaResp } = await supabase
+            .from("feedback_vaga_expirada")
+            .select("diaria_id")
+            .in("diaria_id", expiradas.map((d: any) => d.id));
+          const respondidas = new Set((jaResp ?? []).map((r: any) => r.diaria_id));
+          setVagasExpFeedback(expiradas.filter((d: any) => !respondidas.has(d.id)));
+        }
+
+        if (concluidas.length > 0) {
+          const { data: jaResp } = await supabase
+            .from("feedback_pos_conclusao")
+            .select("diaria_id")
+            .in("diaria_id", concluidas.map((d: any) => d.id));
+          const respondidas = new Set((jaResp ?? []).map((r: any) => r.diaria_id));
+          setDiariasPosFeedback(concluidas.filter((d: any) => !respondidas.has(d.id)));
+        }
+
         // Carrega candidaturas das diárias do empregador
         const ids = data.map((d:any) => d.id);
         if (ids.length > 0) {
@@ -490,6 +574,59 @@ export default function App() {
       }
     })();
   }, [tela, session?.user?.id]);
+
+  // ── Envio de feedback de vaga expirada (modal obrigatório) ──────────────────
+  const enviarFeedbackVagaExpirada = async () => {
+    if (!session?.user || vagasExpFeedback.length === 0 || !motivoExpSelecionado) return;
+    if (motivoExpSelecionado === "outro" && !motivoExpTexto.trim()) {
+      setToastError("Descreva brevemente o motivo.");
+      return;
+    }
+    const vaga = vagasExpFeedback[0];
+    setEnviandoFeedbackExp(true);
+    const { error } = await supabase.from("feedback_vaga_expirada").insert({
+      diaria_id:        vaga.id,
+      empregador_id:    session.user.id,
+      motivo_categoria: motivoExpSelecionado,
+      motivo_texto:     motivoExpTexto.trim() || null,
+    });
+    setEnviandoFeedbackExp(false);
+    if (error) { setToastError("Erro: " + error.message); return; }
+    trackEvento("feedback_vaga_expirada", session.user.id, "empregador", {
+      diaria_id: vaga.id, motivo: motivoExpSelecionado,
+    });
+    setVagasExpFeedback(prev => prev.slice(1));
+    setMotivoExpSelecionado("");
+    setMotivoExpTexto("");
+  };
+
+  // ── Envio de pesquisa pós-conclusão (modal obrigatório) ─────────────────────
+  const enviarFeedbackPosConclusao = async () => {
+    if (!session?.user || diariasPosFeedback.length === 0) return;
+    if (posChegouHorario === null) { setToastError("Informe se o profissional chegou no horário."); return; }
+    if (posNotaQualidade === 0)    { setToastError("Dê uma nota de qualidade (1 a 5)."); return; }
+    if (posRecomendaria === null)  { setToastError("Informe se você recomendaria o profissional."); return; }
+    const diaria = diariasPosFeedback[0];
+    setEnviandoFeedbackPos(true);
+    const { error } = await supabase.from("feedback_pos_conclusao").insert({
+      diaria_id:         diaria.id,
+      empregador_id:     session.user.id,
+      chegou_no_horario: posChegouHorario,
+      nota_qualidade:    posNotaQualidade,
+      recomendaria:      posRecomendaria,
+      comentario:        posComentario.trim() || null,
+    });
+    setEnviandoFeedbackPos(false);
+    if (error) { setToastError("Erro: " + error.message); return; }
+    trackEvento("feedback_pos_conclusao", session.user.id, "empregador", {
+      diaria_id: diaria.id, nota: posNotaQualidade, recomendaria: posRecomendaria, no_horario: posChegouHorario,
+    });
+    setDiariasPosFeedback(prev => prev.slice(1));
+    setPosChegouHorario(null);
+    setPosNotaQualidade(0);
+    setPosRecomendaria(null);
+    setPosComentario("");
+  };
 
   // Carrega diárias reais publicadas por empregadores para o diarista ver
   // Filtra vagas que já têm 5 ou mais candidatos (lotadas)
@@ -527,6 +664,16 @@ export default function App() {
             const m: Record<string, any> = {};
             emps.forEach((p: any) => { m[p.id] = p; });
             setEmpregadoresProfiles(prev => ({ ...prev, ...m }));
+          }
+          // Reputação pública dos empregadores (média + % pagou/cumpriu)
+          const { data: reps } = await supabase
+            .from("reputacao_empregadores")
+            .select("*")
+            .in("empregador_id", empIds);
+          if (reps) {
+            const rm: Record<string, ReputacaoEmpregador> = {};
+            reps.forEach((r: any) => { rm[r.empregador_id] = r; });
+            setReputacaoEmp(prev => ({ ...prev, ...rm }));
           }
         }
       }
@@ -568,9 +715,131 @@ export default function App() {
         .from("avaliacoes_empregador")
         .select("diaria_id")
         .eq("diarista_id", session.user!.id);
-      if (jaAvaliou) setAvaliadosDiarias(new Set(jaAvaliou.map((r: any) => r.diaria_id)));
+      const idsAvaliados = new Set((jaAvaliou ?? []).map((r: any) => r.diaria_id));
+      if (jaAvaliou) setAvaliadosDiarias(idsAvaliados);
+
+      // ── Fila obrigatória: avaliar empregador em diárias concluídas ────────
+      if (data) {
+        const aAvaliar = data.filter(
+          (d: any) => d.status === "concluida" && !idsAvaliados.has(d.id),
+        );
+        setDiariasAvaliarEmp(aAvaliar);
+
+        // ── Notifica diárias em que o diarista foi selecionado e expiraram ──
+        const expiradasMinhas = data.filter((d: any) => d.status === "expirada");
+        if (expiradasMinhas.length > 0) {
+          const chave = "diariaja_exp_avisadas";
+          let avisadas: string[] = [];
+          try { avisadas = JSON.parse(localStorage.getItem(chave) || "[]"); } catch {}
+          const novas = expiradasMinhas.filter((d: any) => !avisadas.includes(d.id));
+          if (novas.length > 0) {
+            setToastError(
+              novas.length === 1
+                ? `⏰ Sua vaga em ${novas[0].nome_negocio || novas[0].segmento} expirou — o empregador não confirmou sua chegada.`
+                : `⏰ ${novas.length} vagas suas expiraram — empregadores não confirmaram chegada.`,
+            );
+            try { localStorage.setItem(chave, JSON.stringify([...avisadas, ...novas.map((d: any) => d.id)])); } catch {}
+          }
+        }
+      }
     })();
   }, [tela, session?.user?.id]);
+
+  // ── Carrega avaliações detalhadas quando o diarista abre o perfil do empregador
+  useEffect(() => {
+    if (tela !== "perfil-empregador" || !empregadorAberto) return;
+    setCarregandoEmpAberto(true);
+    (async () => {
+      // Avaliações com nome do diarista que avaliou (sem revelar contato)
+      const { data: avs } = await supabase
+        .from("avaliacoes_empregador")
+        .select("id, nota, comentario, pagou_combinado, cumpriu_combinado, created_at, diarista_id")
+        .eq("empregador_id", empregadorAberto.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (avs) {
+        // Busca nomes dos diaristas que avaliaram
+        const dids = [...new Set(avs.map((a: any) => a.diarista_id).filter(Boolean))];
+        let nomes: Record<string, string> = {};
+        if (dids.length > 0) {
+          const { data: profs } = await supabase
+            .from("user_profiles")
+            .select("id, nome")
+            .in("id", dids);
+          (profs ?? []).forEach((p: any) => { nomes[p.id] = p.nome; });
+        }
+        setAvaliacoesEmpAbertas(
+          avs.map((a: any) => ({ ...a, diarista_nome: nomes[a.diarista_id] || "Diarista" })),
+        );
+      }
+      // Carrega reputação agregada se ainda não estiver em cache
+      if (!reputacaoEmp[empregadorAberto.id]) {
+        const { data: rep } = await supabase
+          .from("reputacao_empregadores")
+          .select("*")
+          .eq("empregador_id", empregadorAberto.id)
+          .maybeSingle();
+        if (rep) setReputacaoEmp(prev => ({ ...prev, [empregadorAberto.id]: rep }));
+      }
+      setCarregandoEmpAberto(false);
+    })();
+  }, [tela, empregadorAberto?.id]);
+
+  // Abre a tela do perfil do empregador (diarista clica num card de vaga)
+  const abrirPerfilEmpregador = async (empregadorId: string) => {
+    if (!empregadorId) return;
+    showLoadingBar();
+    const cache = empregadoresProfiles[empregadorId];
+    if (cache && cache.nome) {
+      setEmpregadorAberto(cache as UserProfile);
+      setTela("perfil-empregador");
+      hideLoadingBar();
+      return;
+    }
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .eq("id", empregadorId)
+      .maybeSingle();
+    hideLoadingBar();
+    if (data) {
+      setEmpregadoresProfiles(prev => ({ ...prev, [empregadorId]: data }));
+      setEmpregadorAberto(data);
+      setTela("perfil-empregador");
+    } else {
+      setToastError("Não foi possível carregar o perfil do contratante.");
+    }
+  };
+
+  // ── Envia a avaliação obrigatória do empregador (modal full-screen) ────────
+  const enviarAvaliacaoEmpObrigatoria = async () => {
+    if (!session?.user || diariasAvaliarEmp.length === 0) return;
+    if (avalEmpNota === 0)           { setToastError("Dê uma nota de 1 a 5 estrelas."); return; }
+    if (avalEmpPagou === null)       { setToastError("Informe se o empregador pagou o combinado."); return; }
+    if (avalEmpCumpriu === null)     { setToastError("Informe se o empregador cumpriu o combinado."); return; }
+    const diaria = diariasAvaliarEmp[0];
+    setEnviandoAvalEmpOb(true);
+    const { error } = await supabase.from("avaliacoes_empregador").insert({
+      diarista_id:       session.user.id,
+      empregador_id:     diaria.empregador_id,
+      diaria_id:         diaria.id,
+      nota:              avalEmpNota,
+      pagou_combinado:   avalEmpPagou,
+      cumpriu_combinado: avalEmpCumpriu,
+      comentario:        avalEmpComentario.trim() || null,
+    });
+    setEnviandoAvalEmpOb(false);
+    if (error) { setToastError("Erro: " + error.message); return; }
+    trackEvento("avaliacao_enviada", session.user.id, "diarista", {
+      tipo: "empregador", nota: avalEmpNota, pagou: avalEmpPagou, cumpriu: avalEmpCumpriu,
+    });
+    setAvaliadosDiarias(prev => new Set([...prev, diaria.id]));
+    setDiariasAvaliarEmp(prev => prev.slice(1));
+    setAvalEmpNota(0);
+    setAvalEmpPagou(null);
+    setAvalEmpCumpriu(null);
+    setAvalEmpComentario("");
+  };
 
   // Carrega avaliações do diarista real ao abrir o perfil dele
   // E também recarrega os convites enviados para garantir status atualizado
@@ -1123,6 +1392,11 @@ export default function App() {
       setAgenda(data.agenda || []);
       setFotoUrl(data.foto_url || null);
       setCategorias(data.categorias || []);
+      // Portfólio agora vem do banco — sobrevive a troca de aparelho
+      if (Array.isArray(data.portfolio_urls)) {
+        setPortfolioUrls(data.portfolio_urls);
+        try { localStorage.setItem("diariaja_portfolio", JSON.stringify(data.portfolio_urls)); } catch {}
+      }
       // Carrega assinatura ativa
       supabase.from("assinaturas").select("*").eq("user_id", userId).eq("status", "ativo").maybeSingle()
         .then(({ data: sub }) => setAssinatura(sub || null));
@@ -1130,7 +1404,8 @@ export default function App() {
       const modoSalvo = localStorage.getItem("diariaja_modo") as "empregador"|"diarista" | null;
       const telaSalva = (() => { try { return localStorage.getItem("diariaja_tela") || ""; } catch { return ""; } })();
       // Telas que NÃO devem ser restauradas (requerem autenticação/fluxo limpo)
-      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao"]);
+      // Telas que dependem de seleção em memória (não restaurar do localStorage)
+      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat"]);
       const podeRestaurar = (t: string) => t && !TELAS_AUTH.has(t);
 
       if (data.user_type === "diarista") {
@@ -1155,13 +1430,19 @@ export default function App() {
 
   const saveProfile = async (updates: Partial<UserProfile>) => {
     if (!session?.user) return false;
+    const telefoneFinal = updates.telefone ?? profile?.telefone ?? form.telefone;
+    // Telefone só é validado se foi preenchido (alguns fluxos salvam sem ele)
+    if (telefoneFinal && telefoneFinal.trim() && !validarTelefone(telefoneFinal)) {
+      setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX.");
+      return false;
+    }
     setSalvandoPerfil(true);
     const full: UserProfile = {
       id: session.user.id,
       user_type: updates.user_type ?? tipo ?? profile?.user_type ?? "",
       // Usa dados do profile como fallback para não sobrescrever com campos vazios
       nome: updates.nome ?? profile?.nome ?? form.nome,
-      telefone: updates.telefone ?? profile?.telefone ?? form.telefone,
+      telefone: telefoneFinal,
       nome_negocio: updates.nome_negocio ?? profile?.nome_negocio ?? form.nomeNegocio ?? "",
       segmento: updates.segmento ?? profile?.segmento ?? negocioSelecionado ?? "",
       funcao: updates.funcao ?? profile?.funcao ?? form.funcao ?? "",
@@ -1220,6 +1501,8 @@ export default function App() {
 
   const handleEmailSignup = async () => {
     if (!checkTermos) { setAuthError("Você precisa aceitar os Termos de Uso para criar uma conta."); return; }
+    if (!validarEmail(form.email)) { setAuthError("E-mail inválido. Confira e tente novamente."); return; }
+    if (form.senha.length < 6) { setAuthError("A senha deve ter pelo menos 6 caracteres."); return; }
     setAuthError(""); setAuthLoading(true);
     const { error } = await supabase.auth.signUp({ email: form.email, password: form.senha });
     if (error) {
@@ -1997,6 +2280,10 @@ export default function App() {
   const handlePortfolioUpload = async (file: File) => {
     if (!session?.user) return;
     if (portfolioUrls.length >= 3) { setToastError("Máximo de 3 fotos no portfólio."); return; }
+    if (file.size > 5 * 1024 * 1024) {
+      setToastError("❌ Foto muito grande. Use uma imagem menor que 5 MB.");
+      return;
+    }
     setUploadingPortfolio(true);
     const idx = portfolioUrls.length;
     const path = `${session.user.id}_portfolio_${idx}_${Date.now()}.jpg`;
@@ -2005,15 +2292,31 @@ export default function App() {
     const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
     const novas = [...portfolioUrls, urlData.publicUrl];
     setPortfolioUrls(novas);
-    localStorage.setItem("diariaja_portfolio", JSON.stringify(novas));
+    localStorage.setItem("diariaja_portfolio", JSON.stringify(novas)); // cache local
+    const { error: upErr } = await supabase
+      .from("user_profiles")
+      .update({ portfolio_urls: novas })
+      .eq("id", session.user.id);
+    if (upErr) setToastError("Foto subida, mas falhou ao sincronizar com o banco.");
     setUploadingPortfolio(false);
-    setToastSuccess("📸 Foto adicionada ao portfólio!");
+    if (!upErr) setToastSuccess("📸 Foto adicionada ao portfólio!");
   };
 
-  const removerFotoPortfolio = (idx: number) => {
+  const removerFotoPortfolio = async (idx: number) => {
+    if (!session?.user) return;
+    const urlAntiga = portfolioUrls[idx];
     const novas = portfolioUrls.filter((_, i) => i !== idx);
     setPortfolioUrls(novas);
     localStorage.setItem("diariaja_portfolio", JSON.stringify(novas));
+    await supabase
+      .from("user_profiles")
+      .update({ portfolio_urls: novas })
+      .eq("id", session.user.id);
+    // Tenta apagar do Storage também (a URL termina em ".../object/public/avatars/<path>")
+    try {
+      const match = urlAntiga?.match(/\/avatars\/(.+)$/);
+      if (match?.[1]) await supabase.storage.from("avatars").remove([match[1]]);
+    } catch { /* silencioso — o registro no banco já saiu */ }
   };
 
   const aceitarVaga = async (diaria: Diaria) => {
@@ -2174,26 +2477,82 @@ export default function App() {
   };
 
   // Busca endereço pelo CEP via ViaCEP
-  // ── Geocodifica um CEP via Nominatim (OpenStreetMap) → retorna {lat, lng} ──
-  // Usada para calcular distâncias sem depender de GPS do dispositivo
-  const geocodificarCEP = async (cep: string, cidade?: string, uf?: string): Promise<{lat:number, lng:number}|null> => {
+  // ── Geocoding com cache em localStorage + BrasilAPI → Nominatim ────────────
+  // Precisão > Nominatim sozinho (BrasilAPI conhece coordenadas de muitos CEPs
+  // brasileiros direto da Receita; Nominatim cai no centróide do bairro).
+  // Cache local com TTL de 30d evita repetir lookup do mesmo CEP.
+  const GEOCACHE_KEY = "diariaja_geocache_v1";
+  const GEOCACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  type GeoCacheEntry = { lat: number; lng: number; ts: number };
+
+  const lerGeoCache = (): Record<string, GeoCacheEntry> => {
+    try { return JSON.parse(localStorage.getItem(GEOCACHE_KEY) || "{}"); } catch { return {}; }
+  };
+  const escreverGeoCache = (cep: string, lat: number, lng: number) => {
     try {
-      // Tenta CEP + cidade para maior precisão
-      const query = encodeURIComponent(`${cep}${cidade ? ", " + cidade : ""}${uf ? ", " + uf : ""}, Brasil`);
+      const cache = lerGeoCache();
+      cache[cep] = { lat, lng, ts: Date.now() };
+      // Limita a 200 entradas (LRU simples — remove as mais antigas)
+      const entries = Object.entries(cache);
+      if (entries.length > 200) {
+        entries.sort((a, b) => a[1].ts - b[1].ts);
+        entries.slice(0, entries.length - 200).forEach(([k]) => { delete cache[k]; });
+      }
+      localStorage.setItem(GEOCACHE_KEY, JSON.stringify(cache));
+    } catch { /* localStorage cheio — ignora */ }
+  };
+
+  const geocodificarCEP = async (cep: string, cidade?: string, uf?: string): Promise<{lat:number, lng:number}|null> => {
+    const cepNorm = cep.replace(/\D/g, "");
+    if (cepNorm.length !== 8) return null;
+
+    // 1. Cache local (instantâneo)
+    const cache = lerGeoCache();
+    const hit = cache[cepNorm];
+    if (hit && Date.now() - hit.ts < GEOCACHE_TTL_MS) {
+      return { lat: hit.lat, lng: hit.lng };
+    }
+
+    // 2. BrasilAPI v2 — retorna lat/lng quando disponível (mais preciso pra BR)
+    try {
+      const r = await fetch(`https://brasilapi.com.br/api/cep/v2/${cepNorm}`);
+      if (r.ok) {
+        const j = await r.json();
+        const lat = parseFloat(j?.location?.coordinates?.latitude);
+        const lng = parseFloat(j?.location?.coordinates?.longitude);
+        if (!Number.isNaN(lat) && !Number.isNaN(lng) && (lat !== 0 || lng !== 0)) {
+          escreverGeoCache(cepNorm, lat, lng);
+          return { lat, lng };
+        }
+      }
+    } catch { /* tenta o fallback */ }
+
+    // 3. Fallback: Nominatim com CEP + cidade + UF (centróide do bairro)
+    try {
+      const query = encodeURIComponent(`${cepNorm}${cidade ? ", " + cidade : ""}${uf ? ", " + uf : ""}, Brasil`);
       const res = await fetch(
         `https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1&addressdetails=0`,
-        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Trampojakapp/1.0" } }
+        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
       );
       const data = await res.json();
-      if (data?.length > 0) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-      // Fallback: só o CEP
+      if (data?.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lng = parseFloat(data[0].lon);
+        escreverGeoCache(cepNorm, lat, lng);
+        return { lat, lng };
+      }
       const res2 = await fetch(
-        `https://nominatim.openstreetmap.org/search?postalcode=${cep}&country=Brazil&format=json&limit=1`,
-        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Trampojakapp/1.0" } }
+        `https://nominatim.openstreetmap.org/search?postalcode=${cepNorm}&country=Brazil&format=json&limit=1`,
+        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
       );
       const data2 = await res2.json();
-      if (data2?.length > 0) return { lat: parseFloat(data2[0].lat), lng: parseFloat(data2[0].lon) };
-    } catch { /* sem internet ou erro — ok, continua sem coordenadas */ }
+      if (data2?.length > 0) {
+        const lat = parseFloat(data2[0].lat);
+        const lng = parseFloat(data2[0].lon);
+        escreverGeoCache(cepNorm, lat, lng);
+        return { lat, lng };
+      }
+    } catch { /* sem internet ou erro — segue sem coordenadas */ }
     return null;
   };
 
@@ -2327,24 +2686,6 @@ export default function App() {
     }
   };
 
-  // Envia avaliação de um diarista
-  const enviarAvaliacao = async (diaristaId: number) => {
-    if (!session?.user || notaForm === 0) return;
-    setEnviandoAvaliacao(true);
-    const { data, error } = await supabase
-      .from("avaliacoes")
-      .insert({ empregador_id: session.user.id, diarista_id: diaristaId, nota: notaForm, comentario: comentarioForm.trim() })
-      .select("id, empregador_id, nota, comentario, created_at")
-      .single();
-    if (error) { setAuthError("Erro ao enviar avaliação: " + error.message); setEnviandoAvaliacao(false); return; }
-    if (data) {
-      setAvaliacoes(prev => [data, ...prev]);
-      setNotaForm(0);
-      setComentarioForm("");
-    }
-    setEnviandoAvaliacao(false);
-  };
-
   // Salva disponibilidade no banco ao clicar no toggle
   const handleToggleDisponivel = async () => {
     const novoValor = !disponivelAgora;
@@ -2392,7 +2733,7 @@ export default function App() {
         <p style={{ color:"var(--text-2,#64748b)", fontSize:15, marginTop:8 }}>Carregando...</p>
         <p style={{ color:"var(--text-label,#475569)", fontSize:12, marginTop:4 }}>Se demorar, verifique sua conexão</p>
         <button
-          style={{ marginTop:8, background:"none", border:"1px solid #334155", color:"var(--text-3,#94a3b8)", borderRadius:10, padding:"8px 20px", fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+          style={{ marginTop:8, background:"none", border:"1px solid #334155", color:"var(--text-3,#94a3b8)", borderRadius:10, padding:"8px 20px", fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
           onClick={() => { setLoading(false); setTela("splash"); }}>
           Ir para o início
         </button>
@@ -2403,7 +2744,7 @@ export default function App() {
   // ── MODAL DE TERMOS COMPLETO (acessível de qualquer tela) ───────────
   // (gate removido: landing é mostrada primeiro, consent ocorre no cadastro)
   {mostrarTermos && (
-        <div style={{ position:"fixed", inset:0, background:"#fff", zIndex:999, overflowY:"auto", fontFamily:"system-ui,sans-serif" }}>
+        <div style={{ position:"fixed", inset:0, background:"#fff", zIndex:999, overflowY:"auto", fontFamily:"Inter, system-ui, sans-serif" }}>
           <div style={{ position:"sticky", top:0, background:"#fff", borderBottom:"1px solid #e2e8f0", padding:"16px 20px", display:"flex", alignItems:"center", gap:12, zIndex:1 }}>
             <button style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
             <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
@@ -2436,7 +2777,7 @@ export default function App() {
               </div>
             ))}
             <button
-              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:8 }}
+              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:8 }}
               onClick={() => { setMostrarTermos(false); setCheckTermos(true); }}>
               ✅ Entendido — Aceitar os Termos
             </button>
@@ -2447,7 +2788,7 @@ export default function App() {
 
   // SPLASH
   if (tela === "splash") return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", position:"relative", overflow:"hidden" }}>
+    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", position:"relative", overflow:"hidden" }}>
 
       {/* Brilho de fundo centralizado */}
       <div style={{ position:"absolute", top:"8%", left:"50%", transform:"translateX(-50%)", width:320, height:320, background:"radial-gradient(circle,rgba(255,107,53,.2) 0%,transparent 70%)", pointerEvents:"none" }} />
@@ -2597,14 +2938,14 @@ export default function App() {
 
         {/* Entrar — laranja sólido */}
         <button
-          style={{ width:"100%", padding:"16px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:17, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 6px 24px rgba(255,107,53,.55)", letterSpacing:0.3 }}
+          style={{ width:"100%", padding:"16px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:17, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 6px 24px rgba(255,107,53,.55)", letterSpacing:0.3 }}
           onClick={() => setTela("login")}>
           Entrar
         </button>
 
         {/* Cadastrar — fundo branco quase opaco, texto laranja: contraste máximo */}
         <button
-          style={{ width:"100%", padding:"15px", background:"rgba(255,255,255,.93)", color:"#FF6B35", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", letterSpacing:0.2 }}
+          style={{ width:"100%", padding:"15px", background:"rgba(255,255,255,.93)", color:"#FF6B35", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", letterSpacing:0.2 }}
           onClick={() => setTela("cadastro-tipo")}>
           Cadastrar agora
         </button>
@@ -2684,7 +3025,7 @@ export default function App() {
             </div>
 
             <button
-              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
               onClick={() => setModalQuemSomos(false)}>
               Entendi
             </button>
@@ -2696,9 +3037,9 @@ export default function App() {
 
   // LOGIN
   if (tela === "login") return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px" }}>
+    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px" }}>
 
-      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => { setAuthError(""); setTela("splash"); }}>
+      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => { setAuthError(""); setTela("splash"); }}>
         ← Voltar
       </button>
 
@@ -2713,7 +3054,7 @@ export default function App() {
 
       {/* Card de login */}
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
-        <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
+        <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
           {GoogleSVG} Entrar com Google
         </button>
 
@@ -2729,7 +3070,7 @@ export default function App() {
           aria-label="E-mail"
           type="email"
           autoComplete="email"
-          style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+          style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
 
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
@@ -2740,7 +3081,7 @@ export default function App() {
             id="login-senha"
             aria-label="Senha"
             autoComplete="current-password"
-            style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none" }}
+            style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none" }}
             placeholder="Sua senha" type={mostrarSenha ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
           <button type="button" aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"} style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
             onClick={() => setMostrarSenha(p => !p)}>
@@ -2764,7 +3105,7 @@ export default function App() {
           </p>
         )}
 
-        <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:16, opacity:authLoading?0.6:1, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
+        <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:16, opacity:authLoading?0.6:1, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
           disabled={authLoading} onClick={handleEmailLogin}>
           {authLoading ? "Entrando..." : "Entrar"}
         </button>
@@ -2778,9 +3119,9 @@ export default function App() {
 
   // CADASTRO TIPO
   if (tela === "cadastro-tipo") return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
+    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
 
-      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => setTela("splash")}>
+      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setTela("splash")}>
         ← Voltar
       </button>
 
@@ -2815,7 +3156,7 @@ export default function App() {
         <span style={{ fontSize:11, color:"var(--text-2,#64748b)", textAlign:"center" as const }}>Pessoa jurídica — CNPJ obrigatório</span>
       </div>
 
-      <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", opacity:tipo?1:0.35, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
+      <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity:tipo?1:0.35, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
         disabled={!tipo}
         onClick={() => {
           if (tipo === "empresa") {
@@ -2835,9 +3176,9 @@ export default function App() {
 
   // CADASTRO AUTH (email/senha + Google)
   if (tela === "cadastro-auth") return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
+    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
 
-      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"system-ui,sans-serif" }} onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
+      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
         ← Voltar
       </button>
 
@@ -2866,7 +3207,7 @@ export default function App() {
       </div>
 
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
-        <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
+        <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
           {GoogleSVG} Cadastrar com Google
         </button>
 
@@ -2877,12 +3218,12 @@ export default function App() {
         </div>
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
-        <input id="cad-email" aria-label="E-mail" type="email" autoComplete="email" style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+        <input id="cad-email" aria-label="E-mail" type="email" autoComplete="email" style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
         <div style={{ position:"relative" as const }}>
-          <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none" }}
+          <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none" }}
             id="cad-senha" aria-label="Senha" autoComplete="new-password" placeholder="Mínimo 6 caracteres" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
           <button type="button" aria-label={mostrarSenhaCadastro ? "Ocultar senha" : "Mostrar senha"} style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
             onClick={() => setMostrarSenhaCadastro(p => !p)}>
@@ -2913,7 +3254,7 @@ export default function App() {
         </label>
 
         <button
-          style={{ width:"100%", padding:"15px", background: checkTermos ? "#FF6B35" : "#cbd5e1", color: checkTermos ? "#fff" : "#94a3b8", border:"none", borderRadius:12, fontSize:16, fontWeight:800, cursor: checkTermos ? "pointer" : "default", fontFamily:"system-ui,sans-serif", marginTop:12, opacity:authLoading?0.6:1, boxShadow: checkTermos ? "0 4px 16px rgba(255,107,53,.4)" : "none", transition:"all .2s" }}
+          style={{ width:"100%", padding:"15px", background: checkTermos ? "#FF6B35" : "#cbd5e1", color: checkTermos ? "#fff" : "#94a3b8", border:"none", borderRadius:12, fontSize:16, fontWeight:800, cursor: checkTermos ? "pointer" : "default", fontFamily:"Inter, system-ui, sans-serif", marginTop:12, opacity:authLoading?0.6:1, boxShadow: checkTermos ? "0 4px 16px rgba(255,107,53,.4)" : "none", transition:"all .2s" }}
           disabled={authLoading || !checkTermos} onClick={handleEmailSignup}>
           {authLoading ? "Criando conta..." : checkTermos ? "Criar conta grátis →" : "Marque a caixa acima para continuar"}
         </button>
@@ -2925,7 +3266,7 @@ export default function App() {
 
       {/* Modal de Termos completo (acessível do cadastro) */}
       {mostrarTermos && (
-        <div style={{ position:"fixed", inset:0, background:"#fff", zIndex:9999, overflowY:"auto", fontFamily:"system-ui,sans-serif" }}>
+        <div style={{ position:"fixed", inset:0, background:"#fff", zIndex:9999, overflowY:"auto", fontFamily:"Inter, system-ui, sans-serif" }}>
           <div style={{ position:"sticky", top:0, background:"#fff", borderBottom:"1px solid #e2e8f0", padding:"16px 20px", display:"flex", alignItems:"center", gap:12, zIndex:1 }}>
             <button aria-label="Fechar termos" style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
             <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
@@ -2949,7 +3290,7 @@ export default function App() {
               </div>
             ))}
             <button
-              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:8 }}
+              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:8 }}
               onClick={() => { setMostrarTermos(false); setCheckTermos(true); }}>
               ✅ Entendido — Aceitar os Termos
             </button>
@@ -2963,9 +3304,9 @@ export default function App() {
   if (tela === "configuracoes") {
     const voltarHome = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
-          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
+          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:48, height:48, background:"rgba(255,255,255,.1)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>⚙️</div>
             <div>
@@ -3017,7 +3358,7 @@ export default function App() {
                   <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>Aparência do aplicativo</div>
                 </div>
               </div>
-              <div style={{ width:52, height:28, borderRadius:14, background:darkMode?"#5D5FEF":"#e2e8f0", position:"relative", cursor:"pointer", transition:"background .2s" }} onClick={() => setDarkMode(p => !p)}>
+              <div style={{ width:52, height:28, borderRadius:14, background:darkMode?"#FF6B35":"#e2e8f0", position:"relative", cursor:"pointer", transition:"background .2s" }} onClick={() => setDarkMode(p => !p)}>
                 <div style={{ position:"absolute", top:3, left:darkMode?26:3, width:22, height:22, borderRadius:11, background:"var(--bg-card,#fff)", transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" }} />
               </div>
             </div>
@@ -3084,7 +3425,7 @@ export default function App() {
                 Esta ação é <strong>permanente</strong> e não pode ser desfeita. Todos os seus dados, histórico e avaliações serão removidos.
               </div>
               <button
-                style={{ width:"100%", padding:"14px", background: deletandoConta ? "#e2e8f0" : "#dc2626", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: deletandoConta ? "default" : "pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+                style={{ width:"100%", padding:"14px", background: deletandoConta ? "#e2e8f0" : "#dc2626", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: deletandoConta ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
                 disabled={deletandoConta}
                 onClick={async () => {
                   setDeletandoConta(true);
@@ -3126,7 +3467,7 @@ export default function App() {
                 {deletandoConta ? "Excluindo..." : "Confirmar exclusão"}
               </button>
               <button
-                style={{ width:"100%", padding:"14px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ width:"100%", padding:"14px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => setConfirmDeleteConta(false)}>
                 Cancelar
               </button>
@@ -3313,10 +3654,10 @@ export default function App() {
     ];
     const [secaoAberta, setSecaoAberta] = useState<number | null>(null);
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:60 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:60 }}>
         {/* Header */}
         <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 28px" }}>
-          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:0, marginBottom:16 }}
+          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
             onClick={() => setTela("configuracoes")}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🔒</div>
@@ -3387,11 +3728,11 @@ export default function App() {
     // faqAberta já está no topo do componente (BUG-C1 fix)
     return (
       <>
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
 
         {/* Header */}
         <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px", position:"relative" }}>
-          <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
+          <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
             ← Voltar
           </button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -3454,7 +3795,7 @@ export default function App() {
         <div style={{ margin:"20px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px", border:"1px solid var(--border,#e2e8f0)" }}>
           <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:10 }}>📄 Documentos legais</div>
           <button
-            style={{ width:"100%", textAlign:"left" as const, background:"none", border:"none", padding:"10px 0", fontSize:13, color:"#FF6B35", fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", borderBottom:"1px solid var(--border-sub,#f1f5f9)", display:"flex", justifyContent:"space-between" }}
+            style={{ width:"100%", textAlign:"left" as const, background:"none", border:"none", padding:"10px 0", fontSize:13, color:"#FF6B35", fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", borderBottom:"1px solid var(--border-sub,#f1f5f9)", display:"flex", justifyContent:"space-between" }}
             onClick={() => setMostrarTermos(true)}>
             Termos de Uso e Política de Privacidade <span>→</span>
           </button>
@@ -3474,7 +3815,7 @@ export default function App() {
 
       {/* Tela de Termos completa (acessível aqui também) */}
       {mostrarTermos && (
-        <div style={{ position:"fixed", inset:0, background:"var(--bg-card,#fff)", zIndex:999, overflowY:"auto", fontFamily:"system-ui,sans-serif" }}>
+        <div style={{ position:"fixed", inset:0, background:"var(--bg-card,#fff)", zIndex:999, overflowY:"auto", fontFamily:"Inter, system-ui, sans-serif" }}>
           <div style={{ position:"sticky", top:0, background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border,#e2e8f0)", padding:"16px 20px", display:"flex", alignItems:"center", gap:12, zIndex:1 }}>
             <button style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
             <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)" }}>Termos de Uso — DiáriaJá</div>
@@ -3503,7 +3844,7 @@ export default function App() {
               </div>
             ))}
             <button
-              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:8 }}
+              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:8 }}
               onClick={() => setMostrarTermos(false)}>
               ← Voltar
             </button>
@@ -3729,7 +4070,7 @@ export default function App() {
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:8 }}>
         {([["M","Masculino"],["F","Feminino"],["N","Não informar"]] as const).map(([val,label]) => (
           <button key={val}
-            style={{ padding:"10px 6px", border:form.sexo===val?"2px solid #FF6B35":"1.5px solid #e2e8f0", borderRadius:12, background:form.sexo===val?"#fff7f3":"#f8fafc", color:form.sexo===val?"#FF6B35":"#475569", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+            style={{ padding:"10px 6px", border:form.sexo===val?"2px solid #FF6B35":"1.5px solid #e2e8f0", borderRadius:12, background:form.sexo===val?"#fff7f3":"#f8fafc", color:form.sexo===val?"#FF6B35":"#475569", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
             onClick={() => setForm({...form,sexo:val})}>
             {label}
           </button>
@@ -3751,7 +4092,7 @@ export default function App() {
       )}
       {/* Botão expandir/recolher habilidades */}
       <button
-        style={{ width:"100%", padding:"11px 14px", borderRadius:12, border:"2px dashed #e2e8f0", background:"var(--bg-surface,#f8fafc)", color:"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}
+        style={{ width:"100%", padding:"11px 14px", borderRadius:12, border:"2px dashed #e2e8f0", background:"var(--bg-surface,#f8fafc)", color:"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}
         onClick={() => setHabilidadesExpandidas(prev => !prev)}>
         <span>{habilidadesExpandidas ? "🔼 Recolher habilidades" : "🔽 Ver todas as habilidades"}</span>
         <span style={{ background:"#FF6B35", color:"#fff", borderRadius:20, padding:"2px 10px", fontSize:11 }}>{habilidadesExpandidas ? "−" : "+"}</span>
@@ -3766,7 +4107,7 @@ export default function App() {
                 <button key={f}
                   style={{ padding:"7px 14px", borderRadius:20, border:`2px solid ${sel?"#FF6B35":"#e2e8f0"}`,
                     background:sel?"#FF6B35":"#fff", color:sel?"#fff":"#475569",
-                    fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", position:"relative" as const }}
+                    fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", position:"relative" as const }}
                   onClick={() => setCategorias(prev => sel ? prev.filter(x=>x!==f) : [...prev, f])}>
                   {f}{sel && idx === 0 ? " ⭐" : ""}
                 </button>
@@ -3846,9 +4187,9 @@ export default function App() {
       void responderSuporte(txt);
     };
     return (
-      <div style={{ position:"fixed", inset:0, background:"var(--bg-app,#f0f2f5)", zIndex:300, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", fontFamily:"system-ui,sans-serif" }}>
+      <div style={{ position:"fixed", inset:0, background:"var(--bg-app,#f0f2f5)", zIndex:300, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", fontFamily:"Inter, system-ui, sans-serif" }}>
         {/* Header */}
-        <div style={{ background:"linear-gradient(135deg,#8338EC,#5D5FEF)", padding:"20px 16px 14px", display:"flex", alignItems:"center", gap:12 }}>
+        <div style={{ background:"linear-gradient(135deg,#8338EC,#FF6B35)", padding:"20px 16px 14px", display:"flex", alignItems:"center", gap:12 }}>
           <button style={{ background:"rgba(255,255,255,.2)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", width:36, height:36, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={() => setChatSuporte(false)}>←</button>
           {/* Avatar Jájá */}
           <div style={{ width:44, height:44, borderRadius:22, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0, boxShadow:"0 2px 8px rgba(0,0,0,.25)" }}>🤖</div>
@@ -3870,7 +4211,7 @@ export default function App() {
               "Como cancelar uma diária? ❌",
             ].map(s => (
               <button key={s}
-                style={{ background:"#fff", border:"1.5px solid #8338EC", color:"#8338EC", borderRadius:20, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ background:"#fff", border:"1.5px solid #8338EC", color:"#8338EC", borderRadius:20, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => {
                   setMsgsSuporte(prev => [...prev, { de:"user", texto:s }]);
                   void responderSuporte(s);
@@ -3911,7 +4252,7 @@ export default function App() {
         {/* Input */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)" }}>
           <input
-            style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none", background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
+            style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none", background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
             placeholder={suporteDigitando ? "Jájá está digitando..." : "Pergunte qualquer coisa..."}
             value={inputSuporte}
             disabled={suporteDigitando}
@@ -3934,7 +4275,7 @@ export default function App() {
     const { diaria, diaristaId } = modalTermoCiencia;
     const dp = candidatosProfiles[diaristaId];
     return (
-      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
+      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" }}>
         <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
           <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
           <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>📋 Antes de confirmar...</h3>
@@ -3959,13 +4300,13 @@ export default function App() {
             <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Entendi e quero selecionar este profissional</span>
           </label>
           <button
-            style={{ width:"100%", padding:"15px", background:termoCienciaCheck?"#FF6B35":"#e2e8f0", color:termoCienciaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoCienciaCheck && !selecionando?"pointer":"default", fontFamily:"system-ui,sans-serif", marginBottom:10, opacity: selecionando ? 0.7 : 1 }}
+            style={{ width:"100%", padding:"15px", background:termoCienciaCheck?"#FF6B35":"#e2e8f0", color:termoCienciaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoCienciaCheck && !selecionando?"pointer":"default", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, opacity: selecionando ? 0.7 : 1 }}
             disabled={!termoCienciaCheck || selecionando}
             onClick={() => { if (termoCienciaCheck && !selecionando) void executarSelecaoCandidato(diaria, diaristaId); }}>
             {selecionando ? "⏳ Confirmando..." : "✅ Confirmar seleção"}
           </button>
           <button
-            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
             onClick={() => { setModalTermoCiencia(null); setTermoCienciaCheck(false); }}>
             Cancelar
           </button>
@@ -3978,7 +4319,7 @@ export default function App() {
   if (modalTermoDiarista) {
     const d = modalTermoDiarista;
     return (
-      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
+      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" }}>
         <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
           <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
           <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>🤝 Confirmar presença</h3>
@@ -4006,13 +4347,13 @@ export default function App() {
             <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Entendi e confirmo que compareço nessa diária</span>
           </label>
           <button
-            style={{ width:"100%", padding:"15px", background:termoDiaristaCheck?"#22c55e":"#e2e8f0", color:termoDiaristaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoDiaristaCheck?"pointer":"default", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+            style={{ width:"100%", padding:"15px", background:termoDiaristaCheck?"#22c55e":"#e2e8f0", color:termoDiaristaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoDiaristaCheck?"pointer":"default", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
             disabled={!termoDiaristaCheck || confirmando}
             onClick={() => { if (termoDiaristaCheck) executarConfirmarPresenca(d); }}>
             {confirmando ? "Confirmando..." : "✅ Confirmar minha presença"}
           </button>
           <button
-            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
             onClick={() => { setModalTermoDiarista(null); setTermoDiaristaCheck(false); }}>
             Cancelar
           </button>
@@ -4029,7 +4370,7 @@ export default function App() {
     const totalMinR = (h2r * 60 + m2r) - (h1r * 60 + m1r);
     const horasR = totalMinR > 0 ? `${Math.floor(totalMinR/60)}h${totalMinR%60>0?String(totalMinR%60).padStart(2,"0")+"min":""}` : "";
     return (
-      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.85)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"system-ui,sans-serif" }}>
+      <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.85)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"Inter, system-ui, sans-serif" }}>
         <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px 32px", width:"100%", maxWidth:420 }}>
           <div style={{ textAlign:"center", marginBottom:20 }}>
             <div style={{ fontSize:48, marginBottom:8 }}>🧾</div>
@@ -4055,7 +4396,7 @@ export default function App() {
             </div>
           </div>
           <button
-            style={{ width:"100%", padding:"13px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+            style={{ width:"100%", padding:"13px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
             onClick={() => {
               const texto = `🧾 RECIBO DE SERVIÇO - DiáriaJá\n\nServiço: ${d.funcao||d.descricao}\nLocal: ${d.nome_negocio||d.segmento}\nData: ${new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")}\nHorário: ${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}\nTotal: R$ ${d.valor_diarista ?? d.valor}\n\nGerado em: ${new Date().toLocaleString("pt-BR")}`;
               if (navigator.share) { navigator.share({ title:"Recibo DiáriaJá", text:texto }).catch(()=>{}); }
@@ -4064,7 +4405,7 @@ export default function App() {
             📤 Compartilhar recibo
           </button>
           <button
-            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+            style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
             onClick={() => setModalReciboDiarista(null)}>
             Fechar
           </button>
@@ -4244,7 +4585,7 @@ export default function App() {
                       Ainda não há diaristas cadastrados na sua região. Convide um amigo e ajude a plataforma a crescer!
                     </div>
                     <button
-                      style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:14, padding:"12px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:`0 4px 14px ${negocio.cor}55` }}
+                      style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:14, padding:"12px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 14px ${negocio.cor}55` }}
                       onClick={() => {
                         if (navigator.share) {
                           navigator.share({ title:"DiáriaJá", text:"Cadastre-se como diarista no DiáriaJá e ganhe dinheiro!", url:"https://diariaja.vercel.app" });
@@ -4290,7 +4631,7 @@ export default function App() {
                                 </div>
                               </div>
                               <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:2, flexShrink:0 }}>
-                                <div style={{ fontWeight:900, fontSize:22, color:"#5D5FEF", lineHeight:1 }}>R$ {d.valor_diaria}</div>
+                                <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>R$ {d.valor_diaria}</div>
                                 <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/dia</div>
                                 <button
                                   style={{ background:"none", border:"none", padding:"2px 0", cursor:"pointer", fontSize:13, color:"#cbd5e1", lineHeight:1 }}
@@ -4313,7 +4654,7 @@ export default function App() {
                                 )}
                               </div>
                               <button
-                                style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"9px 18px", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:`0 4px 10px ${negocio.cor}44` }}
+                                style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"9px 18px", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 10px ${negocio.cor}44` }}
                                 onClick={e => { e.stopPropagation(); setDiaristaSelecionadaReal(d); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }}>
                                 Ver perfil
                               </button>
@@ -4342,7 +4683,7 @@ export default function App() {
             <div style={{ padding:"20px 16px" }}>
               {/* Botão escanear QR */}
               <button
-                style={{ width:"100%", padding:"14px", background:"#0f172a", color:"#fff", border:"none", borderRadius:16, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:16, boxShadow:"0 4px 14px rgba(0,0,0,.2)" }}
+                style={{ width:"100%", padding:"14px", background:"#0f172a", color:"#fff", border:"none", borderRadius:16, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:16, boxShadow:"0 4px 14px rgba(0,0,0,.2)" }}
                 onClick={() => { setScannerAberto(true); setScanMsg(null); }}>
                 📷 Escanear QR Code do diarista
               </button>
@@ -4382,7 +4723,7 @@ export default function App() {
                           <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
                             {jaLiberado ? (
                               <button
-                                style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                                style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                                 onClick={async () => {
                                   const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
                                   if (dp) { setDiaristaSelecionadaReal(dp); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
@@ -4391,13 +4732,13 @@ export default function App() {
                               </button>
                             ) : (
                               <button
-                                style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                                style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                                 onClick={() => { setModalPix(c as any); setContatosLiberados(prev => new Set([...prev, c.id])); }}>
                                 💳 Pagar{c.valor ? ` R$ ${c.valor}` : ""} e liberar contato
                               </button>
                             )}
                             <button
-                              style={{ width:"100%", padding:"9px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                              style={{ width:"100%", padding:"9px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                               onClick={async () => {
                                 const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
                                 if (dp) { setDiaristaSelecionadaReal(dp); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
@@ -4438,8 +4779,8 @@ export default function App() {
                             {confirmCancelarConvite === c.id ? (
                               <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:10, padding:"8px 12px" }}>
                                 <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Cancelar este convite?</span>
-                                <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => cancelarConvite(c.id)}>Sim</button>
-                                <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
+                                <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => cancelarConvite(c.id)}>Sim</button>
+                                <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
                               </div>
                             ) : (
                               <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, cursor:"pointer", textDecoration:"underline", padding:0 }} onClick={() => setConfirmCancelarConvite(c.id)}>
@@ -4483,12 +4824,12 @@ export default function App() {
                           {confirmCancelarConvite === c.id ? (
                             <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:10, padding:"8px 12px" }}>
                               <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Confirmar exclusão?</span>
-                              <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => cancelarConvite(c.id)}>Excluir</button>
-                              <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Cancelar</button>
+                              <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => cancelarConvite(c.id)}>Excluir</button>
+                              <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Cancelar</button>
                             </div>
                           ) : (
                             <button
-                              style={{ width:"100%", padding:"9px", background:"#fee2e2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                              style={{ width:"100%", padding:"9px", background:"#fee2e2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                               onClick={() => setConfirmCancelarConvite(c.id)}>
                               🗑️ Confirmar e excluir
                             </button>
@@ -4557,7 +4898,7 @@ export default function App() {
                                   🧾
                                 </button>
                                 <button
-                                  style={{ background:"#f0fdf4", color:"#16a34a", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", lineHeight:1 }}
+                                  style={{ background:"#f0fdf4", color:"#16a34a", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1 }}
                                   title="Pagar via PIX"
                                   onClick={e => { e.stopPropagation(); setModalPix(dia); }}>
                                   PIX
@@ -4566,7 +4907,7 @@ export default function App() {
                             )}
                             {dia.status !== "em_andamento" && dia.status !== "concluida" && (
                               <button
-                                style={{ background:"#fee2e2", color:"#ef4444", border:"none", borderRadius:8, padding:"4px 9px", fontSize:14, cursor:"pointer", fontFamily:"system-ui,sans-serif", lineHeight:1 }}
+                                style={{ background:"#fee2e2", color:"#ef4444", border:"none", borderRadius:8, padding:"4px 9px", fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1 }}
                                 title="Excluir diária"
                                 onClick={e => { e.stopPropagation(); setModalExcluir(dia); }}>
                                 🗑️
@@ -4590,7 +4931,7 @@ export default function App() {
                             {/* Chat — liberado após pagamento */}
                             {((dia.status === "aceita" && dia.pagamento_status === "pago") || dia.status === "em_andamento") && dia.diarista_aceite_id && (
                               <button
-                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#eff6ff", color:"#3A86FF", border:"1.5px solid #bfdbfe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#eff6ff", color:"#3A86FF", border:"1.5px solid #bfdbfe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                 onClick={() => { setChatDiariaAtiva(dia); setTabEmpregador("chat"); setMsgNaoLidas(0); }}>
                                 💬 Chat
                               </button>
@@ -4598,7 +4939,7 @@ export default function App() {
                             {/* Pagar via MP — só depois que o diarista confirmou (status "aceita") */}
                             {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && dia.status === "aceita" && (
                               <button
-                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                 onClick={e => { e.stopPropagation(); setModalPagamentoMP(dia); setAuthError(""); }}>
                                 💳 Pagar
                               </button>
@@ -4608,7 +4949,7 @@ export default function App() {
                               const cands = candidaturas.filter(c => c.diaria_id === dia.id && c.status === "pendente");
                               return cands.length > 0 ? (
                                 <button
-                                  style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f5f3ff", color:"#7c3aed", border:"1.5px solid #ddd6fe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                  style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f5f3ff", color:"#7c3aed", border:"1.5px solid #ddd6fe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                   onClick={() => setModalCandidatos(dia)}>
                                   👥 {cands.length} candidato{cands.length>1?"s":""}
                                 </button>
@@ -4624,7 +4965,7 @@ export default function App() {
                             {/* Editar */}
                             {(dia.status === "aberta" || dia.status === "pendente") && (
                               <button
-                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#fef3c7", color:"#92400e", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#fef3c7", color:"#92400e", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                 onClick={() => { setModalEditarDiaria(dia); setFormEditarDiaria({ descricao:dia.descricao, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); }}>
                                 ✏️ Editar
                               </button>
@@ -4632,7 +4973,7 @@ export default function App() {
                             {/* Cancelar */}
                             {dia.status !== "concluida" && dia.status !== "cancelada" && (
                               <button
-                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#fef2f2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#fef2f2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                 onClick={() => { setModalCancelar(dia); setMotivoCancelamento(""); }}>
                                 ✕ Cancelar
                               </button>
@@ -4640,7 +4981,7 @@ export default function App() {
                             {/* Recibo (concluída) */}
                             {dia.status === "concluida" && (
                               <button
-                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f0fdf4", color:"#15803d", border:"1.5px solid #bbf7d0", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f0fdf4", color:"#15803d", border:"1.5px solid #bbf7d0", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                 onClick={() => setModalRecibo(dia)}>
                                 🧾 Recibo
                               </button>
@@ -4658,7 +4999,7 @@ export default function App() {
                         {/* Botão pagar via MP — só depois que o diarista confirmou (status "aceita") */}
                         {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && dia.status === "aceita" && (
                           <button
-                            style={{ width:"100%", padding:"13px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:10, boxShadow:"0 4px 16px rgba(0,158,227,.4)", opacity: criandoPagamento ? 0.7 : 1 }}
+                            style={{ width:"100%", padding:"13px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:10, boxShadow:"0 4px 16px rgba(0,158,227,.4)", opacity: criandoPagamento ? 0.7 : 1 }}
                             disabled={criandoPagamento}
                             onClick={e => { e.stopPropagation(); setModalPagamentoMP(dia); setAuthError(""); }}>
                             <svg width="20" height="20" viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="10" fill="#fff"/><text x="50%" y="60%" dominantBaseline="middle" textAnchor="middle" fontSize="28" fontWeight="900" fill="#009ee3">$</text></svg>
@@ -4675,7 +5016,7 @@ export default function App() {
                             ? haversineKm(profile.lat!, profile.lng!, dp.lat!, dp.lng!)
                             : null;
                           const distAceitoTxt = distAceito !== null
-                            ? (distAceito < 1 ? `${Math.round(distAceito*1000)} m de você` : `${distAceito.toFixed(1)} km de você`)
+                            ? `${formatarDistancia(distAceito)} · ~${formatarTempo(tempoEstimadoMin(distAceito))} de moto`
                             : null;
                           return (
                             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
@@ -4706,7 +5047,7 @@ export default function App() {
                                   }
                                 </div>
                                 <button
-                                  style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"9px 14px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0 }}
+                                  style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"9px 14px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
                                   onClick={e => { e.stopPropagation(); setChatDiariaAtiva(dia); setTabEmpregador("chat"); setMsgNaoLidas(0); }}>
                                   💬 Chat
                                 </button>
@@ -4715,7 +5056,7 @@ export default function App() {
                                 🟣 Diarista confirmou presença! <strong>Escaneie o QR Code</strong> dele acima quando ele chegar.
                               </div>
                               <button
-                                style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
+                                style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
                                 onClick={e => { e.stopPropagation(); setModalCancelar(dia); setMotivoCancelamento(""); }}>
                                 Cancelar diária
                               </button>
@@ -4766,7 +5107,7 @@ export default function App() {
                             <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:8 }}>
                               {cands.length > 0 ? (
                                 <button
-                                  style={{ width:"100%", padding:"11px", background:"#5D5FEF", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 12px rgba(93,95,239,.35)" }}
+                                  style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(93,95,239,.35)" }}
                                   onClick={e => { e.stopPropagation(); setModalCandidatos(dia); }}>
                                   👥 Ver {cands.length} candidato{cands.length > 1 ? "s" : ""} interessado{cands.length > 1 ? "s" : ""}
                                 </button>
@@ -4776,7 +5117,7 @@ export default function App() {
                                 </div>
                               )}
                               <button
-                                style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
+                                style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
                                 onClick={e => { e.stopPropagation(); setModalCancelar(dia); setMotivoCancelamento(""); }}>
                                 Cancelar publicação
                               </button>
@@ -4792,7 +5133,7 @@ export default function App() {
                         {/* Botão concluir */}
                         {dia.status === "em_andamento" && (
                           <button
-                            style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 12px rgba(34,197,94,.4)" }}
+                            style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(34,197,94,.4)" }}
                             onClick={e => { e.stopPropagation(); concluirDiaria(dia.id); }}>
                             ✅ Marcar como concluída
                           </button>
@@ -4806,7 +5147,7 @@ export default function App() {
                               <div style={{ textAlign:"center", fontSize:12, color:"#d97706", fontWeight:700 }}>⭐ Avaliação enviada!</div>
                             ) : dia.diarista_aceite_id ? (
                               <button
-                                style={{ width:"100%", padding:"10px", background:"#fef3c7", color:"#d97706", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                                style={{ width:"100%", padding:"10px", background:"#fef3c7", color:"#d97706", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                                 onClick={() => { setModalAvalDiaristaReal(dia); setNotaDiaristaReal(0); setComentarioDiaristaReal(""); }}>
                                 ⭐ Avaliar o diarista
                               </button>
@@ -4830,8 +5171,8 @@ export default function App() {
                           {confirmExcluirDiariaCancelada === dia.id ? (
                             <div style={{ display:"flex", gap:6, alignItems:"center" }}>
                               <span style={{ fontSize:12, color:"#dc2626", fontWeight:700 }}>Excluir permanentemente?</span>
-                              <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => excluirDiariaJaCancelada(dia.id)}>Sim</button>
-                              <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmExcluirDiariaCancelada(null)}>Não</button>
+                              <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => excluirDiariaJaCancelada(dia.id)}>Sim</button>
+                              <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setConfirmExcluirDiariaCancelada(null)}>Não</button>
                             </div>
                           ) : (
                             <button
@@ -4887,18 +5228,18 @@ export default function App() {
                 </div>
               )}
               <textarea
-                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none", boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:90 }}
+                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", resize:"none", boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:90 }}
                 placeholder="Deixe um comentário (opcional)..."
                 value={comentarioDiaristaReal}
                 onChange={e => setComentarioDiaristaReal(e.target.value)}
               />
               <button
-                style={{ width:"100%", padding:"14px", background: notaDiaristaReal===0 ? "#e2e8f0" : negocio?.cor || "#FF6B35", color: notaDiaristaReal===0 ? "#94a3b8" : "#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: notaDiaristaReal===0 ? "default" : "pointer", fontFamily:"system-ui,sans-serif", marginBottom:10, opacity: enviandoAvalMutua ? 0.6 : 1 }}
+                style={{ width:"100%", padding:"14px", background: notaDiaristaReal===0 ? "#e2e8f0" : negocio?.cor || "#FF6B35", color: notaDiaristaReal===0 ? "#94a3b8" : "#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: notaDiaristaReal===0 ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, opacity: enviandoAvalMutua ? 0.6 : 1 }}
                 disabled={notaDiaristaReal===0 || enviandoAvalMutua}
                 onClick={enviarAvaliacaoDiaristaReal}>
                 {enviandoAvalMutua ? "Enviando..." : "Enviar avaliação"}
               </button>
-              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => setModalAvalDiaristaReal(null)}>
                 Cancelar
               </button>
@@ -4915,19 +5256,19 @@ export default function App() {
                 Informe o motivo do cancelamento. O diarista será notificado.
               </div>
               <textarea
-                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:120 }}
+                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", resize:"none" as const, boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:120 }}
                 placeholder="Ex: Não precisarei mais do serviço nesta data..."
                 value={motivoCancelamento}
                 onChange={e => setMotivoCancelamento(e.target.value)}
               />
               <button
-                style={{ width:"100%", padding:"14px", background: motivoCancelamento.trim() ? "#ef4444" : "#e2e8f0", color: motivoCancelamento.trim() ? "#fff" : "#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: motivoCancelamento.trim() ? "pointer" : "default", fontFamily:"system-ui,sans-serif", marginBottom:10, opacity: cancelando ? 0.6 : 1 }}
+                style={{ width:"100%", padding:"14px", background: motivoCancelamento.trim() ? "#ef4444" : "#e2e8f0", color: motivoCancelamento.trim() ? "#fff" : "#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: motivoCancelamento.trim() ? "pointer" : "default", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, opacity: cancelando ? 0.6 : 1 }}
                 disabled={!motivoCancelamento.trim() || cancelando}
                 onClick={cancelarDiaria}>
                 {cancelando ? "Cancelando..." : "Confirmar cancelamento"}
               </button>
               <button
-                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { setModalCancelar(null); setMotivoCancelamento(""); }}>
                 Voltar
               </button>
@@ -4966,7 +5307,7 @@ export default function App() {
                       ? haversineKm(profile.lat!, profile.lng!, latD, lngD)
                       : null;
                     const distCandTxt = distCand !== null
-                      ? (distCand < 1 ? `${Math.round(distCand*1000)} m de você` : `${distCand.toFixed(1)} km de você`)
+                      ? `${formatarDistancia(distCand)} · ~${formatarTempo(tempoEstimadoMin(distCand))} de moto`
                       : null;
                     // Foto: prioridade → perfil carregado → info embutida → Storage pela URL do ID
                     const fotoStorageUrl = supabase.storage.from("avatars").getPublicUrl(`${c.diarista_id}.jpg`).data.publicUrl;
@@ -5001,7 +5342,7 @@ export default function App() {
                           }
                         </div>
                         <button
-                          style={{ background:"#22c55e", color:"#fff", border:"none", borderRadius:12, padding:"10px 16px", fontSize:13, fontWeight:800, cursor: selecionando ? "default" : "pointer", fontFamily:"system-ui,sans-serif", flexShrink:0, opacity:selecionando?0.6:1 }}
+                          style={{ background:"#22c55e", color:"#fff", border:"none", borderRadius:12, padding:"10px 16px", fontSize:13, fontWeight:800, cursor: selecionando ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0, opacity:selecionando?0.6:1 }}
                           disabled={selecionando}
                           onClick={e => { e.stopPropagation(); selecionarCandidato(modalCandidatos, c.diarista_id); }}>
                           {selecionando ? "…" : "Selecionar"}
@@ -5015,7 +5356,7 @@ export default function App() {
                   </div>
                 )}
                 <button
-                  style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:4 }}
+                  style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:4 }}
                   onClick={() => setModalCandidatos(null)}>
                   Fechar
                 </button>
@@ -5052,7 +5393,7 @@ export default function App() {
                         onClick={() => setPerfilCandidato(null)}>✕</button>
                       <div style={{ display:"flex", alignItems:"center", gap:16 }}>
                         <div style={{ position:"relative", width:80, height:80, flexShrink:0 }}>
-                          <div style={{ width:80, height:80, borderRadius:40, background:"#5D5FEF", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:26 }}>{iniciais}</div>
+                          <div style={{ width:80, height:80, borderRadius:40, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:26 }}>{iniciais}</div>
                           <img
                             src={dp.foto_url || supabase.storage.from("avatars").getPublicUrl(`${dp.id}.jpg`).data.publicUrl}
                             alt=""
@@ -5126,7 +5467,7 @@ export default function App() {
                           <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8 }}>
                             {(dp.categorias||[]).map(f => {
                               const ce = Object.entries(CATEGORIAS_NEGOCIO).find(([,info])=>(info.funcoes as readonly string[]).includes(f));
-                              const c = ce ? ce[1].cor : "#5D5FEF";
+                              const c = ce ? ce[1].cor : "#FF6B35";
                               return <span key={f} style={{ background:c+"20", color:c, padding:"5px 12px", borderRadius:20, fontSize:12, fontWeight:700 }}>{f}</span>;
                             })}
                           </div>
@@ -5139,7 +5480,7 @@ export default function App() {
                           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📅 Disponibilidade semanal</div>
                           <div style={{ display:"flex", gap:6, flexWrap:"wrap" as const }}>
                             {DIAS.map(dia => (
-                              <div key={dia} style={{ padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, background: dp.agenda?.includes(dia) ? "#5D5FEF" : "#e2e8f0", color: dp.agenda?.includes(dia) ? "#fff" : "#94a3b8" }}>
+                              <div key={dia} style={{ padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, background: dp.agenda?.includes(dia) ? "#FF6B35" : "#e2e8f0", color: dp.agenda?.includes(dia) ? "#fff" : "#94a3b8" }}>
                                 {DIAS_LABEL[dia]}
                               </div>
                             ))}
@@ -5191,14 +5532,14 @@ export default function App() {
                       {/* Botão selecionar */}
                       {candDesta && (
                         <button
-                          style={{ width:"100%", padding:"15px", background:"#22c55e", color:"#fff", border:"none", borderRadius:16, fontSize:15, fontWeight:800, cursor: selecionando ? "default" : "pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 14px rgba(34,197,94,.4)", opacity:selecionando?0.6:1 }}
+                          style={{ width:"100%", padding:"15px", background:"#22c55e", color:"#fff", border:"none", borderRadius:16, fontSize:15, fontWeight:800, cursor: selecionando ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 14px rgba(34,197,94,.4)", opacity:selecionando?0.6:1 }}
                           disabled={selecionando}
                           onClick={() => { selecionarCandidato(modalCandidatos!, dp.id); setPerfilCandidato(null); }}>
                           {selecionando ? "Selecionando…" : `✅ Selecionar ${dp.nome.split(" ")[0]}`}
                         </button>
                       )}
                       <button
-                        style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                         onClick={() => setPerfilCandidato(null)}>
                         ← Voltar à lista
                       </button>
@@ -5228,20 +5569,20 @@ export default function App() {
                 Motivo da exclusão *
               </label>
               <textarea
-                style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"system-ui,sans-serif", resize:"none", height:72, outline:"none", color:"var(--text-1,#0f172a)", lineHeight:1.5, boxSizing:"border-box", marginBottom:16 }}
+                style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"none", height:72, outline:"none", color:"var(--text-1,#0f172a)", lineHeight:1.5, boxSizing:"border-box", marginBottom:16 }}
                 placeholder="Ex: Contratei por outro canal, adiamos o evento..."
                 value={motivoExclusao}
                 onChange={e => setMotivoExclusao(e.target.value)}
               />
               {authError && <p style={{ color:"#dc2626", fontSize:12, marginBottom:8, textAlign:"center" }}>{authError}</p>}
               <button
-                style={{ width:"100%", padding:"14px", background: (excluindo || !motivoExclusao.trim()) ? "#e2e8f0" : "#ef4444", color: (excluindo || !motivoExclusao.trim()) ? "#94a3b8" : "#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: (excluindo || !motivoExclusao.trim()) ? "default" : "pointer", fontFamily:"system-ui,sans-serif", marginBottom:10, opacity: (excluindo || !motivoExclusao.trim()) ? 0.6 : 1 }}
+                style={{ width:"100%", padding:"14px", background: (excluindo || !motivoExclusao.trim()) ? "#e2e8f0" : "#ef4444", color: (excluindo || !motivoExclusao.trim()) ? "#94a3b8" : "#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: (excluindo || !motivoExclusao.trim()) ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, opacity: (excluindo || !motivoExclusao.trim()) ? 0.6 : 1 }}
                 disabled={excluindo || !motivoExclusao.trim()}
                 onClick={excluirDiaria}>
                 {excluindo ? "Excluindo..." : "Sim, excluir e notificar"}
               </button>
               <button
-                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { setModalExcluir(null); setMotivoExclusao(""); setAuthError(""); }}>
                 Cancelar
               </button>
@@ -5257,37 +5598,37 @@ export default function App() {
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16 }}>{modalEditarDiaria.funcao} · {new Date(modalEditarDiaria.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
               <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:6 }}>Descrição</label>
               <textarea
-                style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"system-ui,sans-serif", resize:"none", height:72, outline:"none", color:"var(--text-1,#0f172a)", lineHeight:1.5, boxSizing:"border-box", marginBottom:14 }}
+                style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"none", height:72, outline:"none", color:"var(--text-1,#0f172a)", lineHeight:1.5, boxSizing:"border-box", marginBottom:14 }}
                 value={formEditarDiaria.descricao}
                 onChange={e => setFormEditarDiaria(p => ({...p, descricao:e.target.value}))}
               />
               <div style={{ display:"flex", gap:10, marginBottom:14 }}>
                 <div style={{ flex:1 }}>
                   <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:4 }}>Início</label>
-                  <input type="time" style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" }}
+                  <input type="time" style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" }}
                     value={formEditarDiaria.horario_inicio}
                     onChange={e => setFormEditarDiaria(p => ({...p, horario_inicio:e.target.value}))} />
                 </div>
                 <div style={{ flex:1 }}>
                   <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:4 }}>Fim</label>
-                  <input type="time" style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" }}
+                  <input type="time" style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" }}
                     value={formEditarDiaria.horario_fim}
                     onChange={e => setFormEditarDiaria(p => ({...p, horario_fim:e.target.value}))} />
                 </div>
               </div>
               <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:4 }}>Valor (R$)</label>
-              <input type="number" style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"system-ui,sans-serif", boxSizing:"border-box", marginBottom:16 }}
+              <input type="number" style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box", marginBottom:16 }}
                 value={formEditarDiaria.valor}
                 onChange={e => setFormEditarDiaria(p => ({...p, valor:e.target.value}))} />
               {authError && <p style={{ color:"#dc2626", fontSize:12, marginBottom:8 }}>{authError}</p>}
               <button
-                style={{ width:"100%", padding:"14px", background: salvandoEdicao ? "#e2e8f0" : negocio?.cor || "#FF6B35", color: salvandoEdicao ? "#94a3b8" : "#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: salvandoEdicao ? "default" : "pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+                style={{ width:"100%", padding:"14px", background: salvandoEdicao ? "#e2e8f0" : negocio?.cor || "#FF6B35", color: salvandoEdicao ? "#94a3b8" : "#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: salvandoEdicao ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
                 disabled={salvandoEdicao}
                 onClick={salvarEdicaoDiaria}>
                 {salvandoEdicao ? "Salvando..." : "✅ Salvar alterações"}
               </button>
               <button
-                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { setModalEditarDiaria(null); setAuthError(""); }}>
                 Cancelar
               </button>
@@ -5333,7 +5674,7 @@ export default function App() {
                   ⚠️ Este recibo não substitui documentos fiscais. Guarde como comprovante informal de prestação de serviço.
                 </div>
                 <button
-                  style={{ width:"100%", padding:"13px", background:"#0f172a", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+                  style={{ width:"100%", padding:"13px", background:"#0f172a", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
                   onClick={() => {
                     const texto = `🧾 RECIBO DE SERVIÇO - DiáriaJá\n\nServiço: ${modalRecibo.funcao||modalRecibo.descricao}\nData: ${new Date(modalRecibo.data+"T12:00:00").toLocaleDateString("pt-BR")}\nHorário: ${modalRecibo.horario_inicio.slice(0,5)} – ${modalRecibo.horario_fim.slice(0,5)}\nLocal: ${modalRecibo.nome_negocio||modalRecibo.segmento}\nProfissional: ${dp?.nome||"—"}\nValor: R$ ${modalRecibo.valor}\n\nGerado em: ${new Date().toLocaleString("pt-BR")}`;
                     if (navigator.share) { navigator.share({ title:"Recibo DiáriaJá", text:texto }); }
@@ -5342,7 +5683,7 @@ export default function App() {
                   📤 Compartilhar recibo
                 </button>
                 <button
-                  style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => setModalRecibo(null)}>
                   Fechar
                 </button>
@@ -5405,13 +5746,13 @@ export default function App() {
                 {authError && <p style={{ color:"#ef4444", fontSize:13, fontWeight:700, marginBottom:12, textAlign:"center" }}>{authError}</p>}
 
                 <button
-                  style={{ width:"100%", padding:"15px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10, boxShadow:"0 4px 16px rgba(0,158,227,.4)", opacity: criandoPagamento ? 0.7 : 1 }}
+                  style={{ width:"100%", padding:"15px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, boxShadow:"0 4px 16px rgba(0,158,227,.4)", opacity: criandoPagamento ? 0.7 : 1 }}
                   disabled={criandoPagamento}
                   onClick={() => iniciarPagamentoMP(modalPagamentoMP)}>
                   {criandoPagamento ? "Gerando link..." : "💳 Ir para o pagamento"}
                 </button>
                 <button
-                  style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => { setModalPagamentoMP(null); setAuthError(""); }}>
                   Cancelar
                 </button>
@@ -5466,7 +5807,7 @@ export default function App() {
                         <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:4 }}>{dp.nome?.split(" ")[0]}</div>
                       </div>
                       <button
-                        style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:10 }}
+                        style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:10 }}
                         onClick={() => { navigator.clipboard?.writeText(chavePix); setToastSuccess("✅ Chave PIX copiada!"); }}>
                         📋 Copiar chave PIX
                       </button>
@@ -5500,7 +5841,7 @@ export default function App() {
                       <div style={{ fontSize:12, color:"#92400e", marginTop:4 }}>Pagar separado do profissional</div>
                     </div>
                     <button
-                      style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:10 }}
+                      style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:10 }}
                       onClick={() => { navigator.clipboard?.writeText("suporte@diariaja.com.br"); setToastSuccess("✅ Chave PIX DiáriaJá copiada!"); }}>
                       📋 Copiar chave DiáriaJá
                     </button>
@@ -5512,7 +5853,7 @@ export default function App() {
                 </div>
 
                 <button
-                  style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => setModalPix(null)}>
                   Fechar
                 </button>
@@ -5533,12 +5874,12 @@ export default function App() {
               </div>
               <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
                 <button
-                  style={{ padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
+                  style={{ padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
                   onClick={() => { setModalLimiteVagas(false); setTela("planos"); }}>
                   Ver planos →
                 </button>
                 <button
-                  style={{ padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  style={{ padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => setModalLimiteVagas(false)}>
                   Agora não
                 </button>
@@ -5567,7 +5908,7 @@ export default function App() {
                   Pague R$ 1 via Mercado Pago (cartão, PIX ou saldo) para selecionar mais um candidato agora.
                 </div>
                 <button
-                  style={{ width:"100%", padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: desbloqueandoContato ? "default" : "pointer", fontFamily:"system-ui,sans-serif", opacity: desbloqueandoContato ? 0.6 : 1 }}
+                  style={{ width:"100%", padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: desbloqueandoContato ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.6 : 1 }}
                   disabled={desbloqueandoContato}
                   onClick={desbloquearContato}>
                   {desbloqueandoContato ? "Aguarde..." : "Pagar R$ 1,00 e selecionar →"}
@@ -5581,14 +5922,14 @@ export default function App() {
                   Seleções ilimitadas + vagas em destaque + badge verificado. Ideal para restaurantes, eventos e comércios.
                 </div>
                 <button
-                  style={{ width:"100%", padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  style={{ width:"100%", padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => { setModalLimiteContato(false); setTela("planos"); }}>
                   Ver planos →
                 </button>
               </div>
 
               <button
-                style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => setModalLimiteContato(false)}>
                 Agora não
               </button>
@@ -5616,7 +5957,7 @@ export default function App() {
                 ).map(motivo => (
                   <button
                     key={motivo}
-                    style={{ padding:"11px 14px", borderRadius:12, border:`1.5px solid ${motivoDenuncia===motivo?"#ef4444":"#e2e8f0"}`, background:motivoDenuncia===motivo?"#fef2f2":"#f8fafc", color:motivoDenuncia===motivo?"#dc2626":"#475569", fontSize:13, fontWeight:motivoDenuncia===motivo?800:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", textAlign:"left" as const }}
+                    style={{ padding:"11px 14px", borderRadius:12, border:`1.5px solid ${motivoDenuncia===motivo?"#ef4444":"#e2e8f0"}`, background:motivoDenuncia===motivo?"#fef2f2":"#f8fafc", color:motivoDenuncia===motivo?"#dc2626":"#475569", fontSize:13, fontWeight:motivoDenuncia===motivo?800:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
                     onClick={() => setMotivoDenuncia(motivo)}>
                     {motivoDenuncia === motivo ? "● " : "○ "}{motivo}
                   </button>
@@ -5624,13 +5965,13 @@ export default function App() {
               </div>
               <div style={{ display:"flex", gap:10 }}>
                 <button
-                  style={{ flex:1, padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                  style={{ flex:1, padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => { setModalDenunciar(null); setMotivoDenuncia(""); }}>
                   Cancelar
                 </button>
                 <button
                   disabled={!motivoDenuncia || enviandoDenuncia}
-                  style={{ flex:1, padding:"13px", background: motivoDenuncia?"#ef4444":"#fca5a5", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor: motivoDenuncia?"pointer":"default", fontFamily:"system-ui,sans-serif", opacity: enviandoDenuncia ? 0.7 : 1 }}
+                  style={{ flex:1, padding:"13px", background: motivoDenuncia?"#ef4444":"#fca5a5", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor: motivoDenuncia?"pointer":"default", fontFamily:"Inter, system-ui, sans-serif", opacity: enviandoDenuncia ? 0.7 : 1 }}
                   onClick={enviarDenuncia}>
                   {enviandoDenuncia ? "Enviando..." : "Enviar denúncia"}
                 </button>
@@ -5638,6 +5979,165 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* ── Modal obrigatório: feedback de vaga expirada (sem aceite) ── */}
+        {vagasExpFeedback.length > 0 && (() => {
+          const vaga = vagasExpFeedback[0];
+          const fila = vagasExpFeedback.length;
+          return (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 22px", width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}>
+                <div style={{ fontSize:36, textAlign:"center", marginBottom:8 }}>⏰</div>
+                <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
+                  Vaga expirou sem ninguém aceitar
+                </div>
+                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:16, lineHeight:1.5 }}>
+                  Sua vaga de <strong>{vaga.funcao || vaga.segmento}</strong> em{" "}
+                  <strong>{new Date(vaga.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong> passou do horário.
+                  <br /><br />
+                  Nos conte rapidinho o que aconteceu — ajuda muito a gente a melhorar.
+                </div>
+                {fila > 1 && (
+                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginBottom:10 }}>
+                    {fila - 1} outra{fila > 2 ? "s" : ""} vaga{fila > 2 ? "s" : ""} aguardando feedback
+                  </div>
+                )}
+                <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
+                  {MOTIVOS_VAGA_EXPIRADA.map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => setMotivoExpSelecionado(m.id)}
+                      style={{
+                        display:"flex", alignItems:"center", gap:10,
+                        padding:"12px 14px", borderRadius:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif",
+                        background: motivoExpSelecionado === m.id ? "#fff4ec" : "var(--bg-subtle,#f8fafc)",
+                        border: motivoExpSelecionado === m.id ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                        color: motivoExpSelecionado === m.id ? "#9a4218" : "var(--text-1,#0f172a)",
+                        fontSize:13, fontWeight:700, textAlign:"left" as const,
+                      }}>
+                      <span style={{ fontSize:18 }}>{m.emoji}</span>
+                      <span>{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+                {motivoExpSelecionado === "outro" && (
+                  <textarea
+                    value={motivoExpTexto}
+                    onChange={e => setMotivoExpTexto(e.target.value)}
+                    placeholder="Conta um pouco mais (mínimo 10 caracteres)..."
+                    maxLength={500}
+                    style={{ width:"100%", minHeight:80, padding:12, borderRadius:12, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"vertical" as const, marginBottom:14, background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
+                  />
+                )}
+                <button
+                  onClick={enviarFeedbackVagaExpirada}
+                  disabled={!motivoExpSelecionado || enviandoFeedbackExp || (motivoExpSelecionado === "outro" && motivoExpTexto.trim().length < 10)}
+                  style={{
+                    width:"100%", padding:"14px",
+                    background: !motivoExpSelecionado || enviandoFeedbackExp ? "#cbd5e1" : "#FF6B35",
+                    color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:900,
+                    cursor: !motivoExpSelecionado || enviandoFeedbackExp ? "not-allowed" : "pointer",
+                    fontFamily:"Inter, system-ui, sans-serif",
+                  }}>
+                  {enviandoFeedbackExp ? "Enviando..." : "Enviar e continuar"}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── Modal obrigatório: pesquisa pós-conclusão ── */}
+        {vagasExpFeedback.length === 0 && diariasPosFeedback.length > 0 && (() => {
+          const diaria = diariasPosFeedback[0];
+          const fila = diariasPosFeedback.length;
+          return (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 22px", width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}>
+                <div style={{ fontSize:36, textAlign:"center", marginBottom:8 }}>⭐</div>
+                <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
+                  Como foi a diária?
+                </div>
+                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:18, lineHeight:1.5 }}>
+                  <strong>{diaria.funcao || diaria.segmento}</strong> em{" "}
+                  <strong>{new Date(diaria.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong>
+                </div>
+                {fila > 1 && (
+                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginBottom:10 }}>
+                    {fila - 1} outra{fila > 2 ? "s" : ""} diária{fila > 2 ? "s" : ""} aguardando avaliação
+                  </div>
+                )}
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  O profissional chegou no horário?
+                </div>
+                <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+                  {[{v:true,t:"Sim, chegou"}, {v:false,t:"Não chegou no horário"}].map(o => (
+                    <button key={String(o.v)} onClick={() => setPosChegouHorario(o.v)}
+                      style={{
+                        flex:1, padding:"12px 8px", borderRadius:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif",
+                        background: posChegouHorario === o.v ? "#fff4ec" : "var(--bg-subtle,#f8fafc)",
+                        border: posChegouHorario === o.v ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                        color: posChegouHorario === o.v ? "#9a4218" : "var(--text-1,#0f172a)",
+                        fontSize:12, fontWeight:700,
+                      }}>{o.t}</button>
+                  ))}
+                </div>
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  Qualidade do serviço
+                </div>
+                <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:16 }}>
+                  {[1,2,3,4,5].map(n => (
+                    <button key={n} onClick={() => setPosNotaQualidade(n)}
+                      style={{
+                        width:44, height:44, fontSize:24, cursor:"pointer", border:"none",
+                        background: "transparent", padding:0, lineHeight:1,
+                        opacity: posNotaQualidade >= n ? 1 : 0.3,
+                        color: posNotaQualidade >= n ? "#f59e0b" : "#94a3b8",
+                      }}>★</button>
+                  ))}
+                </div>
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  Recomendaria esse profissional?
+                </div>
+                <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+                  {[{v:true,t:"👍 Sim"}, {v:false,t:"👎 Não"}].map(o => (
+                    <button key={String(o.v)} onClick={() => setPosRecomendaria(o.v)}
+                      style={{
+                        flex:1, padding:"12px 8px", borderRadius:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif",
+                        background: posRecomendaria === o.v ? "#fff4ec" : "var(--bg-subtle,#f8fafc)",
+                        border: posRecomendaria === o.v ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                        color: posRecomendaria === o.v ? "#9a4218" : "var(--text-1,#0f172a)",
+                        fontSize:13, fontWeight:700,
+                      }}>{o.t}</button>
+                  ))}
+                </div>
+
+                <textarea
+                  value={posComentario}
+                  onChange={e => setPosComentario(e.target.value)}
+                  placeholder="Quer deixar um comentário? (opcional)"
+                  maxLength={500}
+                  style={{ width:"100%", minHeight:60, padding:12, borderRadius:12, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"vertical" as const, marginBottom:14, background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
+                />
+
+                <button
+                  onClick={enviarFeedbackPosConclusao}
+                  disabled={enviandoFeedbackPos || posChegouHorario === null || posNotaQualidade === 0 || posRecomendaria === null}
+                  style={{
+                    width:"100%", padding:"14px",
+                    background: enviandoFeedbackPos || posChegouHorario === null || posNotaQualidade === 0 || posRecomendaria === null ? "#cbd5e1" : "#FF6B35",
+                    color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:900,
+                    cursor: enviandoFeedbackPos ? "not-allowed" : "pointer",
+                    fontFamily:"Inter, system-ui, sans-serif",
+                  }}>
+                  {enviandoFeedbackPos ? "Enviando..." : "Enviar avaliação"}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Modal: Diarista aceitou a vaga ── */}
         {alertaAceite && (
@@ -5655,12 +6155,12 @@ export default function App() {
                 Peça ao profissional o QR Code e escaneie para confirmar a chegada.
               </div>
               <button
-                style={{ width:"100%", padding:"15px", background:negocio?.cor || "#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:15, fontWeight:900, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10, boxShadow:`0 4px 14px ${negocio?.cor || "#FF6B35"}55` }}
+                style={{ width:"100%", padding:"15px", background:negocio?.cor || "#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:15, fontWeight:900, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, boxShadow:`0 4px 14px ${negocio?.cor || "#FF6B35"}55` }}
                 onClick={() => { setTabEmpregador("diarias"); setAlertaAceite(null); }}>
                 📋 Ver diária
               </button>
               <button
-                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => setAlertaAceite(null)}>
                 Fechar
               </button>
@@ -5675,7 +6175,7 @@ export default function App() {
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4, textAlign:"center" as const }}>📷 Escanear QR Code</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:16 }}>Aponte a câmera traseira para o QR Code do diarista</div>
               <QRScannerComponent onResult={confirmarInicio} onError={(msg) => setScanMsg({ ok:false, txt:msg })} onClose={() => setScannerAberto(false)} />
-              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:14 }}
+              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:14 }}
                 onClick={() => setScannerAberto(false)}>
                 Cancelar
               </button>
@@ -5706,8 +6206,8 @@ export default function App() {
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
                     : <div style={{ display:"flex", gap:6, alignItems:"center" }}>
                         <span style={{ fontSize:12, color:"#dc2626", fontWeight:700 }}>Excluir?</span>
-                        <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => excluirChat(chatDiariaAtiva.id)}>Sim</button>
-                        <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmExcluirChat(false)}>Não</button>
+                        <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => excluirChat(chatDiariaAtiva.id)}>Sim</button>
+                        <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setConfirmExcluirChat(false)}>Não</button>
                       </div>
                   }
                 </div>
@@ -5734,7 +6234,7 @@ export default function App() {
                 {/* Input */}
                 <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
                   <input
-                    style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none" }}
+                    style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
                     placeholder="Digite uma mensagem..."
                     value={msgInputReal}
                     onChange={e => setMsgInputReal(e.target.value)}
@@ -5756,11 +6256,11 @@ export default function App() {
                       <div style={{ fontSize:13, color:"#475569", textAlign:"center", lineHeight:1.6, marginBottom:20 }}>
                         Por segurança, <strong>não compartilhe telefones, WhatsApp ou contatos externos</strong> no chat. Todo acerto deve ser feito dentro do app para sua proteção.
                       </div>
-                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
                         onClick={() => { setAntiExitAviso(false); setMsgInputReal(""); }}>
                         Entendi, vou apagar a mensagem
                       </button>
-                      <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#475569", border:"none", borderRadius:14, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                      <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#475569", border:"none", borderRadius:14, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                         onClick={async () => {
                           setAntiExitAviso(false);
                           // Envia mesmo assim (contorna o filtro)
@@ -5785,7 +6285,7 @@ export default function App() {
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
               {/* Suporte DiáriaJá — sempre no topo */}
               <div
-                style={{ background:"linear-gradient(135deg,#8338EC,#5D5FEF)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 4px 14px rgba(131,56,236,.3)", cursor:"pointer", marginBottom:10 }}
+                style={{ background:"linear-gradient(135deg,#8338EC,#FF6B35)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 4px 14px rgba(131,56,236,.3)", cursor:"pointer", marginBottom:10 }}
                 onClick={() => { setChatSuporte(true); }}>
                 <div style={{ width:50, height:50, borderRadius:25, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>💬</div>
                 <div style={{ flex:1, minWidth:0 }}>
@@ -5834,7 +6334,7 @@ export default function App() {
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
               <button
-                style={{ background:"var(--bg-subtle,#f1f5f9)", border:"none", borderRadius:12, padding:"8px 14px", fontSize:14, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", gap:6 }}
+                style={{ background:"var(--bg-subtle,#f1f5f9)", border:"none", borderRadius:12, padding:"8px 14px", fontSize:14, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:6 }}
                 onClick={() => setTela("configuracoes")}>
                 ⚙️ <span style={{ fontSize:12 }}>Config.</span>
               </button>
@@ -5885,12 +6385,12 @@ export default function App() {
               </div>
               {editandoBio ? (
                 <>
-                  <textarea style={{ width:"100%", border:`1.5px solid ${negocio.cor}`, borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, minHeight:80, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
+                  <textarea style={{ width:"100%", border:`1.5px solid ${negocio.cor}`, borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, minHeight:80, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
                     value={bioDraft} onChange={e => setBioDraft(e.target.value)} placeholder="Fale sobre seu negócio..." autoFocus />
                   <div style={{ display:"flex", gap:8, marginTop:8 }}>
-                    <button style={{ flex:1, background:negocio.cor, color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    <button style={{ flex:1, background:negocio.cor, color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                       onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); } }}>Salvar</button>
-                    <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                       onClick={() => setEditandoBio(false)}>Cancelar</button>
                   </div>
                 </>
@@ -5922,7 +6422,7 @@ export default function App() {
                         </div>
                       )}
                     </div>
-                    <button style={{ padding:"8px 14px", background: planoAtivo === "gratis" ? "#FF6B35" : "rgba(255,255,255,.25)", color:"#fff", border:"none", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    <button style={{ padding:"8px 14px", background: planoAtivo === "gratis" ? "#FF6B35" : "rgba(255,255,255,.25)", color:"#fff", border:"none", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                       onClick={() => setTela("planos")}>
                       {planoAtivo === "gratis" ? "Upgrade →" : "Ver planos"}
                     </button>
@@ -5971,7 +6471,7 @@ export default function App() {
                 {editandoBio ? (
                   <>
                     <textarea
-                      style={{ width:"100%", border:"1.5px solid #5D5FEF", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, minHeight:80 }}
+                      style={{ width:"100%", border:"1.5px solid #FF6B35", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, minHeight:80 }}
                       value={bioDraft}
                       onChange={e => setBioDraft(e.target.value)}
                       placeholder="Escreva uma apresentação..."
@@ -5979,12 +6479,12 @@ export default function App() {
                     />
                     <div style={{ display:"flex", gap:8, marginTop:8 }}>
                       <button
-                        style={{ flex:1, background:"#5D5FEF", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                         onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); setModalInfoPerfil(false); } }}>
                         Salvar
                       </button>
                       <button
-                        style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                         onClick={() => setEditandoBio(false)}>
                         Cancelar
                       </button>
@@ -5994,7 +6494,7 @@ export default function App() {
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                     <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0, flex:1 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
                     <button
-                      style={{ background:"none", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, color:"#5D5FEF", cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0 }}
+                      style={{ background:"none", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, color:"#FF6B35", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
                       onClick={() => setEditandoBio(true)}>
                       ✏️ Editar
                     </button>
@@ -6007,34 +6507,34 @@ export default function App() {
 
         {/* ── Bottom nav — 5 abas ── */}
         <div style={S.bottomNav}>
-          <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="inicio"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>setTabEmpregador("inicio")}>
-            <span style={{ fontSize:22 }}>🏠</span>
+          <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="inicio"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>{ hapticTick(); setTabEmpregador("inicio"); }}>
+            <Home size={22} strokeWidth={tabEmpregador==="inicio"?2.5:2} />
             <span>Home</span>
           </button>
-          <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="diarias"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>setTabEmpregador("diarias")}>
-            <span style={{ fontSize:22 }}>📋</span>
+          <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="diarias"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>{ hapticTick(); setTabEmpregador("diarias"); }}>
+            <Briefcase size={22} strokeWidth={tabEmpregador==="diarias"?2.5:2} />
             <span>Diárias</span>
           </button>
           <button style={{ ...S.bottomNavBtn, position:"relative" }}>
             <div style={{ width:52, height:52, borderRadius:26, background:negocio.cor, display:"flex", alignItems:"center", justifyContent:"center", marginTop:-20, boxShadow:`0 4px 14px ${negocio.cor}66`, border:"3px solid #f0f2f5" }}
-              onClick={() => { setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); }}>
-              <span style={{ fontSize:24, color:"#fff", lineHeight:1 }}>+</span>
+              onClick={() => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); }}>
+              <Plus size={26} color="#fff" strokeWidth={2.8} />
             </div>
             <span style={{ marginTop:2 }}>Publicar</span>
           </button>
-          <button style={{ ...S.bottomNavBtn, position:"relative", ...(tabEmpregador==="chat"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>{ setTabEmpregador("chat"); setMsgNaoLidas(0); }}>
-            <span style={{ position:"relative", display:"inline-block", fontSize:22 }}>
-              💬
+          <button style={{ ...S.bottomNavBtn, position:"relative", ...(tabEmpregador==="chat"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>{ hapticTick(); setTabEmpregador("chat"); setMsgNaoLidas(0); }}>
+            <span style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
+              <MessageCircle size={22} strokeWidth={tabEmpregador==="chat"?2.5:2} />
               {msgNaoLidas > 0 && (
-                <span style={{ position:"absolute", top:-4, right:-8, background:"#ef4444", color:"#fff", borderRadius:"50%", width:16, height:16, fontSize:10, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", lineHeight:"16px", fontFamily:"system-ui,sans-serif" }}>
+                <span style={{ position:"absolute", top:-6, right:-10, background:"#ef4444", color:"#fff", borderRadius:"50%", minWidth:16, height:16, padding:"0 4px", fontSize:10, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", lineHeight:"16px" }}>
                   {msgNaoLidas > 9 ? "9+" : msgNaoLidas}
                 </span>
               )}
             </span>
             <span>Chat</span>
           </button>
-          <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="perfil"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>setTabEmpregador("perfil")}>
-            <span style={{ fontSize:22 }}>👤</span>
+          <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="perfil"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>{ hapticTick(); setTabEmpregador("perfil"); }}>
+            <User size={22} strokeWidth={tabEmpregador==="perfil"?2.5:2} />
             <span>Perfil</span>
           </button>
         </div>
@@ -6075,7 +6575,7 @@ export default function App() {
                 </div>
               )}
               {listaNotif.length > 0 && (
-                <button style={{ width:"100%", marginTop:16, padding:"10px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, color:"var(--text-2,#64748b)", fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                <button style={{ width:"100%", marginTop:16, padding:"10px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, color:"var(--text-2,#64748b)", fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => { setListaNotif([]); setModalNotif(false); }}>
                   🗑️ Limpar notificações
                 </button>
@@ -6114,7 +6614,7 @@ export default function App() {
                   </div>
                 ) : (
                   <button
-                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:16, padding:"14px 16px", cursor:"pointer", fontFamily:"system-ui,sans-serif", textAlign:"left" as const }}
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:16, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
                     onClick={() => {
                       setMenuTrocarPerfil(false);
                       setAuthError("");
@@ -6211,7 +6711,7 @@ export default function App() {
                   <span style={{ color:"#FF6B35", cursor:"pointer" }} onClick={() => { setModalInfoPerfil(true); setBioDraft(profile?.bio || ""); }}>{primeiroNome}!</span> 👋
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
-                  <span style={{ background:"#5D5FEF15", color:"#5D5FEF", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>👷 Diarista</span>
+                  <span style={{ background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>👷 Diarista</span>
                 </div>
               </div>
             </div>
@@ -6306,12 +6806,12 @@ export default function App() {
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
                   <button
-                    style={{ flex:1, background:"#dcfce7", color:"#16a34a", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    style={{ flex:1, background:"#dcfce7", color:"#16a34a", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                     onClick={() => responderConvite(c.id, "aceito")}>
                     ✅ Aceitar
                   </button>
                   <button
-                    style={{ flex:1, background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    style={{ flex:1, background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                     onClick={() => responderConvite(c.id, "recusado")}>
                     ❌ Recusar
                   </button>
@@ -6361,7 +6861,7 @@ export default function App() {
                     <div style={{ fontSize:10, color:"rgba(255,255,255,.4)", marginTop:2 }}>ganhos do mês</div>
                   </div>
                   {meuRank >= 0 && (
-                    <div style={{ flex:1, background:"linear-gradient(135deg,#7c3aed,#5D5FEF)", borderRadius:14, padding:"12px 14px" }}>
+                    <div style={{ flex:1, background:"linear-gradient(135deg,#7c3aed,#FF6B35)", borderRadius:14, padding:"12px 14px" }}>
                       <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Ranking CG</div>
                       <div style={{ fontWeight:900, fontSize:16, color:"#fbbf24", marginTop:2 }}>#{meuRank+1}</div>
                       <div style={{ fontSize:10, color:"rgba(255,255,255,.4)", marginTop:2 }}>na cidade</div>
@@ -6379,7 +6879,7 @@ export default function App() {
                   {categoriasSelecionadas.length > 0 ? ` · ${categoriasSelecionadas.length} filtro${categoriasSelecionadas.length > 1 ? "s" : ""} ativo${categoriasSelecionadas.length > 1 ? "s" : ""}` : ""}
                 </div>
               </div>
-              <button style={{ display:"flex", alignItems:"center", gap:6, background: (sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50) ? "#FF6B35" : "#fff", border:`1.5px solid ${(sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50)?"#FF6B35":"#e2e8f0"}`, borderRadius:10, padding:"8px 14px", fontSize:12, fontWeight:700, color:(sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50)?"#fff":"#475569", cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
+              <button style={{ display:"flex", alignItems:"center", gap:6, background: (sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50) ? "#FF6B35" : "#fff", border:`1.5px solid ${(sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50)?"#FF6B35":"#e2e8f0"}`, borderRadius:10, padding:"8px 14px", fontSize:12, fontWeight:700, color:(sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50)?"#fff":"#475569", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
                 onClick={() => setModalFiltro(true)}>
                 Filtrar <span style={{ fontSize:14 }}>⚙️</span>
               </button>
@@ -6388,13 +6888,15 @@ export default function App() {
             <div style={{ padding:"0 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
               {vagasFiltradas.length === 0 ? (
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"36px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
-                  <div style={{ fontSize:56, marginBottom:12 }}>📭</div>
+                  <div style={{ width:80, height:80, borderRadius:40, background:"var(--bg-subtle,#f1f5f9)", display:"inline-flex", alignItems:"center", justifyContent:"center", marginBottom:12 }}>
+                    <Inbox size={36} color="var(--text-3,#94a3b8)" strokeWidth={1.5} />
+                  </div>
                   <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Nenhuma vaga no momento</div>
                   <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:16 }}>
                     Ainda não há vagas para sua especialidade por aqui. Indique a plataforma para empregadores da sua cidade!
                   </div>
                   <button
-                    style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, padding:"12px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 14px rgba(255,107,53,.4)" }}
+                    style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, padding:"12px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 14px rgba(255,107,53,.4)" }}
                     onClick={() => {
                       if (navigator.share) {
                         navigator.share({ title:"DiáriaJá", text:"Encontre mão de obra qualificada no DiáriaJá!", url:"https://diariaja.vercel.app" });
@@ -6431,13 +6933,16 @@ export default function App() {
                           const fotoEmpStorage = supabase.storage.from("avatars").getPublicUrl(`${dia.empregador_id}.jpg`).data.publicUrl;
                           const fotoEmpSrc = emp?.foto_url || fotoEmpStorage;
                           return (
-                            <div style={{ position:"relative", width:60, height:60, flexShrink:0 }}>
+                            <button
+                              aria-label={`Ver perfil de ${emp?.nome || dia.nome_negocio || "contratante"}`}
+                              onClick={e => { e.stopPropagation(); abrirPerfilEmpregador(dia.empregador_id); }}
+                              style={{ position:"relative", width:60, height:60, flexShrink:0, padding:0, background:"transparent", border:"none", cursor:"pointer", borderRadius:30 }}>
                               <div style={{ width:60, height:60, borderRadius:30, background:cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:iniciais.length > 2 ? 18 : 22, boxShadow:`0 4px 12px ${cor}55`, letterSpacing:"-1px" }}>
                                 {iniciais}
                               </div>
                               <img src={fotoEmpSrc} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }}
                                 style={{ position:"absolute", inset:0, width:60, height:60, borderRadius:30, objectFit:"cover" as const, border:`3px solid ${cor}` }} />
-                            </div>
+                            </button>
                           );
                         })()}
 
@@ -6447,6 +6952,42 @@ export default function App() {
                               <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>
                                 {dia.nome_negocio || dia.segmento}
                               </div>
+                              {/* Reputação pública do empregador — só aparece com >=1 avaliação */}
+                              {(() => {
+                                const rep = reputacaoEmp[dia.empregador_id];
+                                if (!rep || !rep.total_avaliacoes) {
+                                  return (
+                                    <div style={{ display:"inline-flex", alignItems:"center", gap:4, fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:600, marginTop:3 }}>
+                                      <Clock size={11} /> Contratante novo
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:3, flexWrap:"wrap" }}>
+                                    <span style={{ display:"inline-flex", alignItems:"center", gap:3, fontSize:12, fontWeight:800, color:"#d97706" }}>
+                                      <Star size={12} fill="#d97706" strokeWidth={0} /> {rep.nota_media?.toFixed?.(1) ?? rep.nota_media}
+                                    </span>
+                                    <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>
+                                      ({rep.total_avaliacoes})
+                                    </span>
+                                    {typeof rep.pct_pagou_combinado === "number" && rep.pct_pagou_combinado >= 80 && (
+                                      <span title="Paga o combinado" style={{ display:"inline-flex", alignItems:"center", gap:3, background:"#dcfce7", color:"#16a34a", borderRadius:10, padding:"2px 7px", fontSize:10, fontWeight:800 }}>
+                                        <Wallet size={10} /> Paga certo
+                                      </span>
+                                    )}
+                                    {typeof rep.pct_cumpriu_combinado === "number" && rep.pct_cumpriu_combinado >= 80 && (
+                                      <span title="Cumpre o combinado" style={{ display:"inline-flex", alignItems:"center", gap:3, background:"#dbeafe", color:"#1d4ed8", borderRadius:10, padding:"2px 7px", fontSize:10, fontWeight:800 }}>
+                                        <CheckCircle2 size={10} /> Cumpre
+                                      </span>
+                                    )}
+                                    {typeof rep.pct_pagou_combinado === "number" && rep.pct_pagou_combinado < 50 && (
+                                      <span title="Histórico de não pagamento" style={{ display:"inline-flex", alignItems:"center", gap:3, background:"#fee2e2", color:"#dc2626", borderRadius:10, padding:"2px 7px", fontSize:10, fontWeight:800 }}>
+                                        <AlertTriangle size={10} /> Atenção
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                               <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5, flexWrap:"wrap" }}>
                                 {dia.funcao && (
                                   <span style={{ background:funcCor+"18", color:funcCor, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, border:`1px solid ${funcCor}30` }}>
@@ -6474,7 +7015,7 @@ export default function App() {
                               const localHint = partes.length >= 3 ? partes.slice(2, 4).join(", ").split(" — ")[0] : "";
                               if (profile?.lat && profile?.lng && dia.lat && dia.lng) {
                                 const km = haversineKm(profile.lat!, profile.lng!, dia.lat!, dia.lng!);
-                                const distTxt = km < 1 ? `${Math.round(km*1000)} m de você` : `${km.toFixed(1)} km de você`;
+                                const distTxt = `${formatarDistancia(km)} · ~${formatarTempo(tempoEstimadoMin(km))} de moto`;
                                 return (
                                   <span>
                                     <span style={{ fontWeight:800, color:"#FF6B35" }}>{distTxt}</span>
@@ -6515,7 +7056,7 @@ export default function App() {
                                     ✅ Interesse enviado
                                   </div>
                                   <button
-                                    style={{ background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                                    style={{ background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                                     title="Retirar candidatura"
                                     onClick={e => { e.stopPropagation(); retirarInteresse(dia.id); }}>
                                     Desistir
@@ -6524,7 +7065,7 @@ export default function App() {
                               );
                               if (st === "selecionado") return (
                                 <button
-                                  style={{ width:"100%", background:"linear-gradient(135deg,#FF6B35,#f59e0b)", color:"#fff", border:"none", borderRadius:12, padding:"12px 18px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
+                                  style={{ width:"100%", background:"linear-gradient(135deg,#FF6B35,#f59e0b)", color:"#fff", border:"none", borderRadius:12, padding:"12px 18px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
                                   onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); }}>
                                   🎯 Confirmar presença!
                                 </button>
@@ -6543,18 +7084,18 @@ export default function App() {
                               return (
                                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                                   <button
-                                    style={{ width:"100%", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"12px 22px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
+                                    style={{ width:"100%", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"12px 22px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
                                     onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); }}>
                                     ✋ Tenho interesse
                                   </button>
                                   <div style={{ display:"flex", gap:8 }}>
                                     <button
-                                      style={{ flex:1, background:"#f1f5f9", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"9px 10px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}
+                                      style={{ flex:1, background:"#f1f5f9", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"9px 10px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}
                                       onClick={e => { e.stopPropagation(); marcarNaoInteresse(dia.id); }}>
                                       👎 Não tenho interesse
                                     </button>
                                     <button
-                                      style={{ background:"#fef2f2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, padding:"9px 12px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", gap:4, flexShrink:0 }}
+                                      style={{ background:"#fef2f2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, padding:"9px 12px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, flexShrink:0 }}
                                       onClick={e => { e.stopPropagation(); setModalDenunciar({ tipo:"vaga", id:dia.id, nome: dia.nome_negocio || dia.segmento }); setMotivoDenuncia(""); }}>
                                       ⚑ Denunciar
                                     </button>
@@ -6634,7 +7175,7 @@ export default function App() {
                     </div>
                   </div>
                   <div style={{ textAlign:"right", flexShrink:0 }}>
-                    <div style={{ fontWeight:900, fontSize:20, color: dia.status==="concluida" ? "#22c55e" : "#5D5FEF", lineHeight:1 }}>R$ {dia.valor}</div>
+                    <div style={{ fontWeight:900, fontSize:20, color: dia.status==="concluida" ? "#22c55e" : "#FF6B35", lineHeight:1 }}>R$ {dia.valor}</div>
                     <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/dia</div>
                   </div>
                 </div>
@@ -6666,13 +7207,13 @@ export default function App() {
                 {mostrarQR && (
                   <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                     <button
-                      style={{ width:"100%", padding:"11px", background:"#0f172a", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
+                      style={{ width:"100%", padding:"11px", background:"#0f172a", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
                       onClick={e => { e.stopPropagation(); setQrDiaria(dia); }}>
                       📲 Mostrar QR Code para o empregador
                     </button>
                     {dia.status === "aceita" && (
                       <button
-                        style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
+                        style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
                         onClick={e => { e.stopPropagation(); setModalDesistir(dia); setMotivoDesistencia(""); }}>
                         Cancelar diária
                       </button>
@@ -6699,7 +7240,7 @@ export default function App() {
                 {dia.status === "concluida" && (
                   <>
                     <button
-                      style={{ width:"100%", padding:"10px", background:"#f0fdf4", color:"#16a34a", border:"1.5px solid #86efac", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:4, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                      style={{ width:"100%", padding:"10px", background:"#f0fdf4", color:"#16a34a", border:"1.5px solid #86efac", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:4, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                       onClick={e => { e.stopPropagation(); setModalReciboDiarista(dia); }}>
                       🧾 Meu Recibo
                     </button>
@@ -6707,7 +7248,7 @@ export default function App() {
                       <div style={{ textAlign:"center", fontSize:12, color:"#16a34a", fontWeight:700, marginTop:4 }}>⭐ Avaliação enviada!</div>
                     ) : (
                       <button
-                        style={{ width:"100%", padding:"10px", background:"#fef3c7", color:"#d97706", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:4 }}
+                        style={{ width:"100%", padding:"10px", background:"#fef3c7", color:"#d97706", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:4 }}
                         onClick={e => { e.stopPropagation(); setModalAvalEmp(dia); setNotaEmp(0); setComentarioEmp(""); }}>
                         ⭐ Avaliar o empregador
                       </button>
@@ -6778,7 +7319,7 @@ export default function App() {
                         </div>
                         <div style={{ fontWeight:900, fontSize:18, color:"#FF6B35", marginBottom:12 }}>R$ {d.valor}/dia</div>
                         <button
-                          style={{ width:"100%", padding:"13px", background:"#22c55e", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:"0 4px 12px rgba(34,197,94,.4)", opacity:confirmando?0.6:1 }}
+                          style={{ width:"100%", padding:"13px", background:"#22c55e", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(34,197,94,.4)", opacity:confirmando?0.6:1 }}
                           disabled={confirmando}
                           onClick={() => confirmarPresenca(d)}>
                           {confirmando ? "Confirmando..." : "✅ Confirmar minha presença"}
@@ -6982,9 +7523,9 @@ export default function App() {
                                 </div>
                               )}
                               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
-                                <span style={{ fontWeight:900, fontSize:15, color:"#5D5FEF" }}>R$ {dia.valor}<span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:400 }}>/dia</span></span>
+                                <span style={{ fontWeight:900, fontSize:15, color:"#FF6B35" }}>R$ {dia.valor}<span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:400 }}>/dia</span></span>
                                 <button
-                                  style={{ background:"#0f172a", color:"#fff", border:"none", borderRadius:10, padding:"6px 12px", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                                  style={{ background:"#0f172a", color:"#fff", border:"none", borderRadius:10, padding:"6px 12px", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                                   onClick={() => setQrDiaria(dia)}>
                                   📲 QR Code
                                 </button>
@@ -6992,7 +7533,7 @@ export default function App() {
                               {/* Botão Desistir — só para diárias ainda não iniciadas */}
                               {dia.status === "aceita" && (
                                 <button
-                                  style={{ width:"100%", marginTop:10, padding:"9px", background:"var(--bg-card,#fff)", color:"#ef4444", border:"1.5px solid #fca5a5", borderRadius:10, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                                  style={{ width:"100%", marginTop:10, padding:"9px", background:"var(--bg-card,#fff)", color:"#ef4444", border:"1.5px solid #fca5a5", borderRadius:10, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                                   onClick={() => { setModalDesistir(dia); setMotivoDesistencia(""); }}>
                                   🚪 Desistir desta diária
                                 </button>
@@ -7028,8 +7569,8 @@ export default function App() {
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
                     : <div style={{ display:"flex", gap:6, alignItems:"center" }}>
                         <span style={{ fontSize:12, color:"#dc2626", fontWeight:700 }}>Excluir?</span>
-                        <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => excluirChat(chatDiariaAtiva.id)}>Sim</button>
-                        <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmExcluirChat(false)}>Não</button>
+                        <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => excluirChat(chatDiariaAtiva.id)}>Sim</button>
+                        <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setConfirmExcluirChat(false)}>Não</button>
                       </div>
                   }
                 </div>
@@ -7056,7 +7597,7 @@ export default function App() {
                 {/* Input */}
                 <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
                   <input
-                    style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none" }}
+                    style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
                     placeholder="Digite uma mensagem..."
                     value={msgInputReal}
                     onChange={e => setMsgInputReal(e.target.value)}
@@ -7077,11 +7618,11 @@ export default function App() {
                       <div style={{ fontSize:13, color:"#475569", textAlign:"center", lineHeight:1.6, marginBottom:20 }}>
                         Por segurança, <strong>não compartilhe telefones, WhatsApp ou contatos externos</strong> no chat. Todo acerto deve ser feito dentro do app para sua proteção.
                       </div>
-                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:10 }}
+                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
                         onClick={() => { setAntiExitAviso(false); setMsgInputReal(""); }}>
                         Entendi, vou apagar a mensagem
                       </button>
-                      <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#475569", border:"none", borderRadius:14, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                      <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#475569", border:"none", borderRadius:14, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                         onClick={async () => {
                           setAntiExitAviso(false);
                           if (!session?.user || !chatDiariaAtiva) return;
@@ -7160,7 +7701,7 @@ export default function App() {
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
               <button
-                style={{ background:"var(--bg-subtle,#f1f5f9)", border:"none", borderRadius:12, padding:"8px 14px", fontSize:14, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", gap:6 }}
+                style={{ background:"var(--bg-subtle,#f1f5f9)", border:"none", borderRadius:12, padding:"8px 14px", fontSize:14, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:6 }}
                 onClick={() => setTela("configuracoes")}>
                 ⚙️ <span style={{ fontSize:12 }}>Config.</span>
               </button>
@@ -7185,10 +7726,10 @@ export default function App() {
                 onChange={e => e.target.files?.[0] && handleFotoUpload(e.target.files[0])} />
               <div style={{ position:"relative", cursor:"pointer", marginBottom:10 }} onClick={() => fotoInputRef.current?.click()}>
                 {fotoUrl
-                  ? <img src={fotoUrl} alt="foto" style={{ width:88, height:88, borderRadius:44, objectFit:"cover", border:"3px solid #5D5FEF", display:"block" }} />
-                  : <div style={{ ...S.perfilAvatar, background:"#0f172a", color:"#fff", border:"3px dashed #5D5FEF", width:88, height:88 }}>{iniciaisNome}</div>
+                  ? <img src={fotoUrl} alt="foto" style={{ width:88, height:88, borderRadius:44, objectFit:"cover", border:"3px solid #FF6B35", display:"block" }} />
+                  : <div style={{ ...S.perfilAvatar, background:"#0f172a", color:"#fff", border:"3px dashed #FF6B35", width:88, height:88 }}>{iniciaisNome}</div>
                 }
-                <div style={{ position:"absolute", bottom:0, right:0, background:"#5D5FEF", borderRadius:12, padding:"3px 8px", fontSize:11, color:"#fff", fontWeight:700 }}>
+                <div style={{ position:"absolute", bottom:0, right:0, background:"#FF6B35", borderRadius:12, padding:"3px 8px", fontSize:11, color:"#fff", fontWeight:700 }}>
                   {uploadingFoto ? "⏳" : "📷"}
                 </div>
               </div>
@@ -7251,13 +7792,13 @@ export default function App() {
               {editandoBio ? (
                 <>
                   <textarea
-                    style={{ width:"100%", border:"1.5px solid #5D5FEF", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, minHeight:80, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
+                    style={{ width:"100%", border:"1.5px solid #FF6B35", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, minHeight:80, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
                     value={bioDraft} onChange={e => setBioDraft(e.target.value)}
                     placeholder="Ex: Sou diarista com 5 anos de experiência, pontual e dedicado..." autoFocus />
                   <div style={{ display:"flex", gap:8, marginTop:8 }}>
-                    <button style={{ flex:1, background:"#5D5FEF", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    <button style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                       onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); } }}>Salvar</button>
-                    <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                       onClick={() => setEditandoBio(false)}>Cancelar</button>
                   </div>
                 </>
@@ -7279,7 +7820,7 @@ export default function App() {
                       <div style={{ fontSize:11, fontWeight:700, color: planoAtivo === "gratis" ? "var(--text-3,#94a3b8)" : "rgba(255,255,255,.75)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>Plano atual</div>
                       <div style={{ fontSize:15, fontWeight:900, color: planoAtivo === "gratis" ? "var(--text-1,#0f172a)" : "#fff" }}>{planoInfo?.nome || "Grátis"}</div>
                     </div>
-                    <button style={{ padding:"8px 14px", background: planoAtivo === "gratis" ? "#FF6B35" : "rgba(255,255,255,.25)", color:"#fff", border:"none", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    <button style={{ padding:"8px 14px", background: planoAtivo === "gratis" ? "#FF6B35" : "rgba(255,255,255,.25)", color:"#fff", border:"none", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                       onClick={() => setTela("planos")}>
                       {planoAtivo === "gratis" ? "Fazer upgrade →" : "Ver planos"}
                     </button>
@@ -7402,7 +7943,7 @@ export default function App() {
                     {valorHora && (
                       <div style={{ textAlign:"right" }}>
                         <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:600 }}>Equivale a</div>
-                        <div style={{ fontWeight:800, fontSize:15, color:"#5D5FEF" }}>R$ {valorHora}/h</div>
+                        <div style={{ fontWeight:800, fontSize:15, color:"#FF6B35" }}>R$ {valorHora}/h</div>
                       </div>
                     )}
                   </div>
@@ -7562,6 +8103,69 @@ export default function App() {
                           </div>
                         );
                       })()}
+                      {/* Bloco de reputação do contratante */}
+                      {(() => {
+                        const rep = reputacaoEmp[vagaConfirm.empregador_id];
+                        if (!rep || !rep.total_avaliacoes) {
+                          return (
+                            <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:12, color:"var(--text-2,#64748b)" }}>
+                              🆕 <strong>Contratante novo</strong> — ainda não tem avaliações de outros diaristas.
+                            </div>
+                          );
+                        }
+                        const alerta = (typeof rep.pct_pagou_combinado === "number" && rep.pct_pagou_combinado < 50)
+                                     || (typeof rep.pct_cumpriu_combinado === "number" && rep.pct_cumpriu_combinado < 50);
+                        return (
+                          <div style={{
+                            background: alerta ? "#fef2f2" : "#fff4ec",
+                            border: alerta ? "1.5px solid #fecaca" : "1.5px solid #fed7aa",
+                            borderRadius:12, padding:"12px 14px", marginBottom:14,
+                          }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                              <strong style={{ fontSize:13, color: alerta ? "#991b1b" : "#9a4218" }}>
+                                Reputação do contratante
+                              </strong>
+                              <span style={{ fontSize:14, fontWeight:900, color: alerta ? "#991b1b" : "#d97706" }}>
+                                ★ {rep.nota_media?.toFixed?.(1) ?? rep.nota_media} <span style={{ color:"var(--text-3,#94a3b8)", fontSize:11, fontWeight:600 }}>· {rep.total_avaliacoes} avaliações</span>
+                              </span>
+                            </div>
+                            <div style={{ display:"flex", flexDirection:"column", gap:6, fontSize:12 }}>
+                              {typeof rep.pct_pagou_combinado === "number" && (
+                                <div style={{ display:"flex", justifyContent:"space-between" }}>
+                                  <span style={{ color:"var(--text-2,#64748b)" }}>💰 Paga o combinado</span>
+                                  <strong style={{ color: rep.pct_pagou_combinado >= 80 ? "#16a34a" : rep.pct_pagou_combinado >= 50 ? "#d97706" : "#dc2626" }}>
+                                    {rep.pct_pagou_combinado}%
+                                  </strong>
+                                </div>
+                              )}
+                              {typeof rep.pct_cumpriu_combinado === "number" && (
+                                <div style={{ display:"flex", justifyContent:"space-between" }}>
+                                  <span style={{ color:"var(--text-2,#64748b)" }}>✅ Cumpre o combinado</span>
+                                  <strong style={{ color: rep.pct_cumpriu_combinado >= 80 ? "#16a34a" : rep.pct_cumpriu_combinado >= 50 ? "#d97706" : "#dc2626" }}>
+                                    {rep.pct_cumpriu_combinado}%
+                                  </strong>
+                                </div>
+                              )}
+                            </div>
+                            {alerta && (
+                              <div style={{ marginTop:10, fontSize:11, color:"#991b1b", fontWeight:700, lineHeight:1.4 }}>
+                                ⚠️ Outros diaristas relataram problemas — leia as avaliações antes de aceitar.
+                              </div>
+                            )}
+                            <button
+                              onClick={() => { setVagaConfirm(null); abrirPerfilEmpregador(vagaConfirm.empregador_id); }}
+                              style={{
+                                marginTop:10, width:"100%", padding:"10px",
+                                background:"transparent",
+                                border: alerta ? "1.5px solid #fecaca" : "1.5px solid #fed7aa",
+                                color: alerta ? "#991b1b" : "#9a4218",
+                                borderRadius:10, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif",
+                              }}>
+                              👤 Ver perfil completo do contratante
+                            </button>
+                          </div>
+                        );
+                      })()}
                       <p style={S.modalText}>
                         Ao demonstrar interesse, o contratante receberá seu perfil e poderá te selecionar para a vaga.
                       </p>
@@ -7572,7 +8176,7 @@ export default function App() {
                       {/* Distância até a vaga */}
                       {profile?.lat && profile?.lng && vagaConfirm.lat && vagaConfirm.lng && (() => {
                         const km = haversineKm(profile.lat!, profile.lng!, vagaConfirm.lat!, vagaConfirm.lng!);
-                        const txt = km < 1 ? `${Math.round(km*1000)} m de você` : `${km.toFixed(1)} km de você`;
+                        const txt = `${formatarDistancia(km)} · ~${formatarTempo(tempoEstimadoMin(km))} de moto`;
                         return (
                           <div style={S.modalRow}><span>Distância</span><strong style={{ color:"#FF6B35" }}>📍 {txt}</strong></div>
                         );
@@ -7599,7 +8203,7 @@ export default function App() {
                   <div style={{ fontSize:52 }}>🙌</div>
                   <h3 style={S.modalTitle}>Interesse registrado!</h3>
                   <p style={S.modalText}>O contratante receberá seu perfil. Se ele te selecionar, você será notificado para confirmar a presença.</p>
-                  <button style={{ ...S.btnPrimary, background:"#5D5FEF" }}
+                  <button style={{ ...S.btnPrimary, background:"#FF6B35" }}
                     onClick={() => { setVagaConfirm(null); setVagaConfirmada(false); setAuthError(""); }}>
                     Entendido 👍
                   </button>
@@ -7618,25 +8222,118 @@ export default function App() {
                 Informe o motivo para <strong>{modalCancelar.nome_negocio || modalCancelar.segmento}</strong>. O contratante será notificado.
               </div>
               <textarea
-                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:120 }}
+                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", resize:"none" as const, boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:120 }}
                 placeholder="Ex: Tive um imprevisto e não poderei comparecer..."
                 value={motivoCancelamento}
                 onChange={e => setMotivoCancelamento(e.target.value)}
               />
               <button
-                style={{ width:"100%", padding:"14px", background: motivoCancelamento.trim() ? "#ef4444" : "#e2e8f0", color: motivoCancelamento.trim() ? "#fff" : "#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: motivoCancelamento.trim() ? "pointer" : "default", fontFamily:"system-ui,sans-serif", marginBottom:10, opacity: cancelando ? 0.6 : 1 }}
+                style={{ width:"100%", padding:"14px", background: motivoCancelamento.trim() ? "#ef4444" : "#e2e8f0", color: motivoCancelamento.trim() ? "#fff" : "#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: motivoCancelamento.trim() ? "pointer" : "default", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, opacity: cancelando ? 0.6 : 1 }}
                 disabled={!motivoCancelamento.trim() || cancelando}
                 onClick={cancelarDiaria}>
                 {cancelando ? "Cancelando..." : "Confirmar cancelamento"}
               </button>
               <button
-                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { setModalCancelar(null); setMotivoCancelamento(""); }}>
                 Voltar
               </button>
             </div>
           </div>
         )}
+
+        {/* ── Modal obrigatório: diarista avalia o empregador (pós-conclusão) ── */}
+        {diariasAvaliarEmp.length > 0 && (() => {
+          const diaria = diariasAvaliarEmp[0];
+          const empNome = empregadoresProfiles[diaria.empregador_id]?.nome || diaria.nome_negocio || diaria.segmento || "o empregador";
+          const fila = diariasAvaliarEmp.length;
+          return (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 22px", width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}>
+                <div style={{ fontSize:36, textAlign:"center", marginBottom:8 }}>⭐</div>
+                <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
+                  Como foi trabalhar com {empNome}?
+                </div>
+                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:18, lineHeight:1.5 }}>
+                  Sua avaliação ajuda outros diaristas a decidirem se aceitam vagas desse contratante.
+                </div>
+                {fila > 1 && (
+                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginBottom:10 }}>
+                    {fila - 1} outra{fila > 2 ? "s" : ""} diária{fila > 2 ? "s" : ""} aguardando avaliação
+                  </div>
+                )}
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  Nota geral
+                </div>
+                <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:18 }}>
+                  {[1,2,3,4,5].map(n => (
+                    <button key={n} onClick={() => setAvalEmpNota(n)}
+                      style={{
+                        width:44, height:44, fontSize:24, cursor:"pointer", border:"none",
+                        background: "transparent", padding:0, lineHeight:1,
+                        opacity: avalEmpNota >= n ? 1 : 0.3,
+                        color: avalEmpNota >= n ? "#f59e0b" : "#94a3b8",
+                      }}>★</button>
+                  ))}
+                </div>
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  Pagou o valor combinado?
+                </div>
+                <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+                  {[{v:true,t:"💰 Sim, pagou certo"}, {v:false,t:"😕 Não pagou"}].map(o => (
+                    <button key={String(o.v)} onClick={() => setAvalEmpPagou(o.v)}
+                      style={{
+                        flex:1, padding:"12px 8px", borderRadius:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif",
+                        background: avalEmpPagou === o.v ? "#fff4ec" : "var(--bg-subtle,#f8fafc)",
+                        border: avalEmpPagou === o.v ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                        color: avalEmpPagou === o.v ? "#9a4218" : "var(--text-1,#0f172a)",
+                        fontSize:12, fontWeight:700,
+                      }}>{o.t}</button>
+                  ))}
+                </div>
+
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-label,#475569)", marginBottom:8 }}>
+                  Cumpriu o que combinou? (horário, escopo, tratamento)
+                </div>
+                <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+                  {[{v:true,t:"✅ Sim, cumpriu"}, {v:false,t:"❌ Não cumpriu"}].map(o => (
+                    <button key={String(o.v)} onClick={() => setAvalEmpCumpriu(o.v)}
+                      style={{
+                        flex:1, padding:"12px 8px", borderRadius:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif",
+                        background: avalEmpCumpriu === o.v ? "#fff4ec" : "var(--bg-subtle,#f8fafc)",
+                        border: avalEmpCumpriu === o.v ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                        color: avalEmpCumpriu === o.v ? "#9a4218" : "var(--text-1,#0f172a)",
+                        fontSize:12, fontWeight:700,
+                      }}>{o.t}</button>
+                  ))}
+                </div>
+
+                <textarea
+                  value={avalEmpComentario}
+                  onChange={e => setAvalEmpComentario(e.target.value)}
+                  placeholder="Quer deixar um comentário público? (opcional)"
+                  maxLength={500}
+                  style={{ width:"100%", minHeight:60, padding:12, borderRadius:12, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"vertical" as const, marginBottom:14, background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)" }}
+                />
+
+                <button
+                  onClick={enviarAvaliacaoEmpObrigatoria}
+                  disabled={enviandoAvalEmpOb || avalEmpNota === 0 || avalEmpPagou === null || avalEmpCumpriu === null}
+                  style={{
+                    width:"100%", padding:"14px",
+                    background: enviandoAvalEmpOb || avalEmpNota === 0 || avalEmpPagou === null || avalEmpCumpriu === null ? "#cbd5e1" : "#FF6B35",
+                    color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:900,
+                    cursor: enviandoAvalEmpOb ? "not-allowed" : "pointer",
+                    fontFamily:"Inter, system-ui, sans-serif",
+                  }}>
+                  {enviandoAvalEmpOb ? "Enviando..." : "Enviar avaliação"}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Modal Avaliar Empregador ── */}
         {modalAvalEmp && (
@@ -7659,18 +8356,18 @@ export default function App() {
                 </div>
               )}
               <textarea
-                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none", boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:90 }}
+                style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", resize:"none", boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:90 }}
                 placeholder="Deixe um comentário (opcional)..."
                 value={comentarioEmp}
                 onChange={e => setComentarioEmp(e.target.value)}
               />
               <button
-                style={{ width:"100%", padding:"14px", background: notaEmp===0 ? "#e2e8f0" : "#FF6B35", color: notaEmp===0 ? "#94a3b8" : "#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: notaEmp===0 ? "default" : "pointer", fontFamily:"system-ui,sans-serif", marginBottom:10, opacity: enviandoAvalMutua ? 0.6 : 1 }}
+                style={{ width:"100%", padding:"14px", background: notaEmp===0 ? "#e2e8f0" : "#FF6B35", color: notaEmp===0 ? "#94a3b8" : "#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: notaEmp===0 ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, opacity: enviandoAvalMutua ? 0.6 : 1 }}
                 disabled={notaEmp===0 || enviandoAvalMutua}
                 onClick={enviarAvaliacaoEmpregador}>
                 {enviandoAvalMutua ? "Enviando..." : "Enviar avaliação"}
               </button>
-              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => setModalAvalEmp(null)}>
                 Cancelar
               </button>
@@ -7690,13 +8387,15 @@ export default function App() {
               </div>
               {/* QR */}
               <div style={{ display:"flex", justifyContent:"center", background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:20, marginBottom:16 }}>
-                <QRCodeSVG
-                  value={`DIARIAJA:${qrDiaria.id}`}
-                  size={200}
-                  bgColor="#f8fafc"
-                  fgColor="#0f172a"
-                  level="H"
-                />
+                <Suspense fallback={<div style={{ width:200, height:200, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--text-3,#94a3b8)", fontSize:13 }}>Carregando QR…</div>}>
+                  <QRCodeSVG
+                    value={`DIARIAJA:${qrDiaria.id}`}
+                    size={200}
+                    bgColor="#f8fafc"
+                    fgColor="#0f172a"
+                    level="H"
+                  />
+                </Suspense>
               </div>
               {/* Info da diária */}
               <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px", marginBottom:16, textAlign:"left" }}>
@@ -7709,7 +8408,7 @@ export default function App() {
                   🔄 Diária em andamento — aguardando conclusão pelo empregador
                 </div>
               )}
-              <button style={{ width:"100%", padding:"12px", background:"#0f172a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+              <button style={{ width:"100%", padding:"12px", background:"#0f172a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => setQrDiaria(null)}>
                 Fechar
               </button>
@@ -7742,7 +8441,7 @@ export default function App() {
                 {editandoBio ? (
                   <>
                     <textarea
-                      style={{ width:"100%", border:"1.5px solid #FF6B35", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, minHeight:80 }}
+                      style={{ width:"100%", border:"1.5px solid #FF6B35", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, minHeight:80 }}
                       value={bioDraft}
                       onChange={e => setBioDraft(e.target.value)}
                       placeholder="Escreva uma apresentação..."
@@ -7750,12 +8449,12 @@ export default function App() {
                     />
                     <div style={{ display:"flex", gap:8, marginTop:8 }}>
                       <button
-                        style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                         onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); setModalInfoPerfil(false); } }}>
                         Salvar
                       </button>
                       <button
-                        style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                         onClick={() => setEditandoBio(false)}>
                         Cancelar
                       </button>
@@ -7765,7 +8464,7 @@ export default function App() {
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                     <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0, flex:1 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
                     <button
-                      style={{ background:"none", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, color:"#FF6B35", cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0 }}
+                      style={{ background:"none", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, color:"#FF6B35", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
                       onClick={() => setEditandoBio(true)}>
                       ✏️ Editar
                     </button>
@@ -7778,31 +8477,31 @@ export default function App() {
 
         {/* ── Bottom nav — 5 abas ── */}
         <div style={S.bottomNav}>
-          <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="inicio"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>setTabDiarista("inicio")}>
-            <span style={{ fontSize:22 }}>🏠</span>
+          <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="inicio"?{ ...S.bottomNavAtivo, borderTop:"2px solid #FF6B35" }:{}) }} onClick={()=>{ hapticTick(); setTabDiarista("inicio"); }}>
+            <Home size={22} strokeWidth={tabDiarista==="inicio"?2.5:2} />
             <span>Home</span>
           </button>
-          <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="vagas"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>setTabDiarista("vagas")}>
-            <span style={{ fontSize:22 }}>📋</span>
+          <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="vagas"?{ ...S.bottomNavAtivo, borderTop:"2px solid #FF6B35" }:{}) }} onClick={()=>{ hapticTick(); setTabDiarista("vagas"); }}>
+            <Briefcase size={22} strokeWidth={tabDiarista==="vagas"?2.5:2} />
             <span>Diárias</span>
           </button>
-          <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="agenda"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>setTabDiarista("agenda")}>
-            <span style={{ fontSize:22 }}>📅</span>
+          <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="agenda"?{ ...S.bottomNavAtivo, borderTop:"2px solid #FF6B35" }:{}) }} onClick={()=>{ hapticTick(); setTabDiarista("agenda"); }}>
+            <Clock size={22} strokeWidth={tabDiarista==="agenda"?2.5:2} />
             <span>Agenda</span>
           </button>
-          <button style={{ ...S.bottomNavBtn, position:"relative", ...(tabDiarista==="chat"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>{ setTabDiarista("chat"); setMsgNaoLidas(0); }}>
-            <span style={{ position:"relative", display:"inline-block", fontSize:22 }}>
-              💬
+          <button style={{ ...S.bottomNavBtn, position:"relative", ...(tabDiarista==="chat"?{ ...S.bottomNavAtivo, borderTop:"2px solid #FF6B35" }:{}) }} onClick={()=>{ hapticTick(); setTabDiarista("chat"); setMsgNaoLidas(0); }}>
+            <span style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
+              <MessageCircle size={22} strokeWidth={tabDiarista==="chat"?2.5:2} />
               {msgNaoLidas > 0 && (
-                <span style={{ position:"absolute", top:-4, right:-8, background:"#ef4444", color:"#fff", borderRadius:"50%", width:16, height:16, fontSize:10, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", lineHeight:"16px", fontFamily:"system-ui,sans-serif" }}>
+                <span style={{ position:"absolute", top:-6, right:-10, background:"#ef4444", color:"#fff", borderRadius:"50%", minWidth:16, height:16, padding:"0 4px", fontSize:10, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", lineHeight:"16px" }}>
                   {msgNaoLidas > 9 ? "9+" : msgNaoLidas}
                 </span>
               )}
             </span>
             <span>Chat</span>
           </button>
-          <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="perfil"?{ color:"#5D5FEF", borderTop:"2px solid #5D5FEF" }:{}) }} onClick={()=>setTabDiarista("perfil")}>
-            <span style={{ fontSize:22 }}>👤</span>
+          <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="perfil"?{ ...S.bottomNavAtivo, borderTop:"2px solid #FF6B35" }:{}) }} onClick={()=>{ hapticTick(); setTabDiarista("perfil"); }}>
+            <User size={22} strokeWidth={tabDiarista==="perfil"?2.5:2} />
             <span>Perfil</span>
           </button>
         </div>
@@ -7829,7 +8528,7 @@ export default function App() {
               <div style={{ padding:"16px 20px" }}>
                 <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:12 }}>Trocar para</div>
                 <button
-                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:16, padding:"14px 16px", cursor:"pointer", fontFamily:"system-ui,sans-serif", textAlign:"left" as const }}
+                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:16, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
                   onClick={() => {
                     setMenuTrocarPerfil(false);
                     setAuthError("");
@@ -7894,7 +8593,7 @@ export default function App() {
                 </div>
               )}
               {listaNotif.length > 0 && (
-                <button style={{ width:"100%", marginTop:16, padding:"10px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, color:"var(--text-2,#64748b)", fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                <button style={{ width:"100%", marginTop:16, padding:"10px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, color:"var(--text-2,#64748b)", fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => { setListaNotif([]); setModalNotif(false); }}>
                   🗑️ Limpar notificações
                 </button>
@@ -7913,7 +8612,7 @@ export default function App() {
               <div style={{ display:"flex", gap:8, marginBottom:20 }}>
                 {(["todas","hoje","amanha"] as const).map(v => (
                   <button key={v}
-                    style={{ flex:1, padding:"9px 4px", borderRadius:10, border:`2px solid ${filtroDataVaga===v?"#FF6B35":"#e2e8f0"}`, background:filtroDataVaga===v?"#FF6B35":"#fff", color:filtroDataVaga===v?"#fff":"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    style={{ flex:1, padding:"9px 4px", borderRadius:10, border:`2px solid ${filtroDataVaga===v?"#FF6B35":"#e2e8f0"}`, background:filtroDataVaga===v?"#FF6B35":"#fff", color:filtroDataVaga===v?"#fff":"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                     onClick={() => setFiltroDataVaga(v)}>
                     {v==="todas"?"Todas":v==="hoje"?"Hoje":"Amanhã"}
                   </button>
@@ -7928,7 +8627,7 @@ export default function App() {
                   ["maior_valor","💰 Maior valor"],
                 ] as const).map(([v,l]) => (
                   <button key={v}
-                    style={{ padding:"11px 16px", borderRadius:12, border:`2px solid ${sortVagas===v?"#FF6B35":"#e2e8f0"}`, background:sortVagas===v?"#FF6B3518":"#fff", color:sortVagas===v?"#FF6B35":"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", textAlign:"left" as const }}
+                    style={{ padding:"11px 16px", borderRadius:12, border:`2px solid ${sortVagas===v?"#FF6B35":"#e2e8f0"}`, background:sortVagas===v?"#FF6B3518":"#fff", color:sortVagas===v?"#FF6B35":"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
                     onClick={() => setSortVagas(v)}>
                     {l} {sortVagas===v ? "✓" : ""}
                   </button>
@@ -7950,11 +8649,11 @@ export default function App() {
                 </>
               )}
               <div style={{ display:"flex", gap:10 }}>
-                <button style={{ flex:1, padding:"11px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, fontWeight:700, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                <button style={{ flex:1, padding:"11px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, fontWeight:700, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => { setSortVagas("recentes"); setFiltroDataVaga("todas"); setFiltroRaioKm(50); }}>
                   Limpar filtros
                 </button>
-                <button style={{ flex:2, padding:"11px", background:"#FF6B35", border:"none", borderRadius:12, fontSize:13, fontWeight:800, color:"#fff", cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                <button style={{ flex:2, padding:"11px", background:"#FF6B35", border:"none", borderRadius:12, fontSize:13, fontWeight:800, color:"#fff", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => setModalFiltro(false)}>
                   ✓ Aplicar
                 </button>
@@ -7987,7 +8686,7 @@ export default function App() {
           </div>
         </div>
         <button
-          style={{ marginTop:10, background:"none", border:"1.5px solid #FF6B35", borderRadius:20, padding:"6px 20px", fontSize:13, fontWeight:700, color:"#FF6B35", cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+          style={{ marginTop:10, background:"none", border:"1.5px solid #FF6B35", borderRadius:20, padding:"6px 20px", fontSize:13, fontWeight:700, color:"#FF6B35", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
           onClick={() => fotoInputRef.current?.click()}>
           {uploadingFoto ? "Enviando..." : fotoUrl ? "📷 Trocar foto" : "📷 Adicionar foto"}
         </button>
@@ -8012,7 +8711,7 @@ export default function App() {
           <button key={v}
             style={{ flex:1, padding:"10px 4px", borderRadius:10, border:`2px solid ${form.sexo===v?"#FF6B35":"#e2e8f0"}`,
               background:form.sexo===v?"#FF6B35":"#fff", color:form.sexo===v?"#fff":"#475569",
-              fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+              fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
             onClick={()=>setForm({...form,sexo:v})}>{l}</button>
         ))}
       </div>
@@ -8029,7 +8728,7 @@ export default function App() {
         </p>
       )}
       <button
-        style={{ width:"100%", padding:"11px 14px", borderRadius:12, border:"2px dashed #e2e8f0", background:"var(--bg-surface,#f8fafc)", color:"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}
+        style={{ width:"100%", padding:"11px 14px", borderRadius:12, border:"2px dashed #e2e8f0", background:"var(--bg-surface,#f8fafc)", color:"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}
         onClick={() => setHabilidadesExpandidas(prev => !prev)}>
         <span>{habilidadesExpandidas ? "🔼 Recolher habilidades" : "🔽 Ver todas as habilidades"}</span>
         <span style={{ background:"#FF6B35", color:"#fff", borderRadius:20, padding:"2px 10px", fontSize:11 }}>{habilidadesExpandidas ? "−" : "+"}</span>
@@ -8044,7 +8743,7 @@ export default function App() {
                 <button key={f}
                   style={{ padding:"7px 14px", borderRadius:20, border:`2px solid ${sel ? "#FF6B35" : "#e2e8f0"}`,
                     background: sel ? "#FF6B35" : "#fff", color: sel ? "#fff" : "#475569",
-                    fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                    fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => setCategorias(prev => sel ? prev.filter(x=>x!==f) : [...prev, f])}>
                   {f}{sel && idx === 0 ? " ⭐" : ""}
                 </button>
@@ -8095,7 +8794,7 @@ export default function App() {
           }}
         />
         <button
-          style={{ padding:"0 18px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0, opacity: buscandoCEPPerfil ? 0.6 : 1 }}
+          style={{ padding:"0 18px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0, opacity: buscandoCEPPerfil ? 0.6 : 1 }}
           disabled={buscandoCEPPerfil}
           onClick={() => buscarCEPPerfil(form.cep)}>
           {buscandoCEPPerfil ? "…" : "Buscar"}
@@ -8221,7 +8920,7 @@ export default function App() {
               }}
             />
             <button
-              style={{ padding:"0 18px", background: corTela, color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", flexShrink:0, opacity: buscandoCEPPerfil ? 0.6 : 1 }}
+              style={{ padding:"0 18px", background: corTela, color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0, opacity: buscandoCEPPerfil ? 0.6 : 1 }}
               disabled={buscandoCEPPerfil}
               onClick={handleSalvarCEP}>
               {buscandoCEPPerfil ? "..." : "Buscar"}
@@ -8247,6 +8946,174 @@ export default function App() {
           <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, textAlign:"center", marginTop:8, lineHeight:1.5 }}>
             Você pode atualizar o CEP a qualquer momento no seu perfil.
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // PERFIL DO EMPREGADOR (diarista vê quem está contratando, com reputação e
+  // comentários de outros diaristas que já trabalharam com ele)
+  if (tela === "perfil-empregador" && empregadorAberto) {
+    const emp = empregadorAberto;
+    const rep = reputacaoEmp[emp.id];
+    const corE = negocio?.cor || "#FF6B35";
+    const iniciaisEmp = (emp.nome || "?").split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase();
+    const fotoStorageEmp = supabase.storage.from("avatars").getPublicUrl(`${emp.id}.jpg`).data.publicUrl;
+    const fotoEmp = emp.foto_url || fotoStorageEmp;
+    const alerta = !!(rep && (
+      (typeof rep.pct_pagou_combinado === "number" && rep.pct_pagou_combinado < 50) ||
+      (typeof rep.pct_cumpriu_combinado === "number" && rep.pct_cumpriu_combinado < 50)
+    ));
+    return (
+      <div style={S.appShell}>
+        <div style={{ padding:"12px 16px 0" }}>
+          <button style={S.back} onClick={() => { setEmpregadorAberto(null); setAvaliacoesEmpAbertas([]); setTela("home-diarista"); }}>← Voltar</button>
+        </div>
+
+        <div style={{ padding:"12px 18px 100px" }}>
+          {/* Cabeçalho */}
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"22px 18px", boxShadow:"0 2px 12px rgba(0,0,0,.07)", textAlign:"center" as const }}>
+            <div style={{ position:"relative", width:88, height:88, margin:"0 auto 12px" }}>
+              <div style={{ width:88, height:88, borderRadius:44, background:corE, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:28, boxShadow:`0 6px 18px ${corE}55` }}>
+                {iniciaisEmp}
+              </div>
+              <img src={fotoEmp} alt={`Foto de ${emp.nome}`} onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                style={{ position:"absolute", inset:0, width:88, height:88, borderRadius:44, objectFit:"cover" as const, border:`3px solid ${corE}` }} />
+            </div>
+            <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>{emp.nome}</div>
+            {emp.segmento && (
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:4 }}>{emp.segmento}</div>
+            )}
+            {emp.plano_ativo && emp.plano_ativo !== "gratis" && (
+              <div style={{ display:"inline-block", marginTop:8, background:"#dbeafe", color:"#1d4ed8", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800 }}>
+                ✅ Contratante verificado
+              </div>
+            )}
+          </div>
+
+          {/* Bloco de reputação */}
+          <div style={{
+            background: rep ? (alerta ? "#fef2f2" : "#fff4ec") : "var(--bg-card,#fff)",
+            border: rep ? (alerta ? "1.5px solid #fecaca" : "1.5px solid #fed7aa") : "1px solid var(--border,#e2e8f0)",
+            borderRadius:18, padding:"16px 18px", marginTop:14,
+          }}>
+            <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:10 }}>
+              Reputação
+            </div>
+            {!rep || !rep.total_avaliacoes ? (
+              <div style={{ display:"flex", gap:8, alignItems:"flex-start", fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+                <Clock size={16} style={{ flexShrink:0, marginTop:2 }} />
+                <span>Contratante novo — nenhuma avaliação ainda. Vá com cautela e combine tudo por escrito antes.</span>
+              </div>
+            ) : (
+              <>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:12 }}>
+                  <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:28, fontWeight:900, color: alerta ? "#991b1b" : "#d97706" }}>
+                    <Star size={24} fill={alerta ? "#991b1b" : "#d97706"} strokeWidth={0} />
+                    {rep.nota_media?.toFixed?.(1) ?? rep.nota_media}
+                  </span>
+                  <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>
+                    {rep.total_avaliacoes} avaliaç{rep.total_avaliacoes === 1 ? "ão" : "ões"}
+                  </span>
+                </div>
+                {typeof rep.pct_pagou_combinado === "number" && (
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontSize:13, padding:"6px 0", borderTop:"1px solid rgba(0,0,0,.05)" }}>
+                    <span style={{ display:"inline-flex", alignItems:"center", gap:6, color:"var(--text-2,#64748b)" }}>
+                      <Wallet size={14} /> Paga o combinado
+                    </span>
+                    <strong style={{ color: rep.pct_pagou_combinado >= 80 ? "#16a34a" : rep.pct_pagou_combinado >= 50 ? "#d97706" : "#dc2626" }}>
+                      {rep.pct_pagou_combinado}%
+                    </strong>
+                  </div>
+                )}
+                {typeof rep.pct_cumpriu_combinado === "number" && (
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontSize:13, padding:"6px 0", borderTop:"1px solid rgba(0,0,0,.05)" }}>
+                    <span style={{ display:"inline-flex", alignItems:"center", gap:6, color:"var(--text-2,#64748b)" }}>
+                      <CheckCircle2 size={14} /> Cumpre o combinado
+                    </span>
+                    <strong style={{ color: rep.pct_cumpriu_combinado >= 80 ? "#16a34a" : rep.pct_cumpriu_combinado >= 50 ? "#d97706" : "#dc2626" }}>
+                      {rep.pct_cumpriu_combinado}%
+                    </strong>
+                  </div>
+                )}
+                {alerta && (
+                  <div style={{ display:"flex", gap:8, alignItems:"flex-start", marginTop:10, fontSize:12, color:"#991b1b", fontWeight:700, lineHeight:1.4 }}>
+                    <AlertTriangle size={14} style={{ flexShrink:0, marginTop:2 }} />
+                    <span>Outros diaristas relataram problemas. Leia os comentários abaixo antes de aceitar.</span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Comentários */}
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"16px 18px", marginTop:14, boxShadow:"0 2px 12px rgba(0,0,0,.07)" }}>
+            <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:10 }}>
+              Comentários de outros diaristas
+            </div>
+            {carregandoEmpAberto ? (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }} aria-busy="true" aria-label="Carregando avaliações">
+                {[0,1,2].map(i => (
+                  <div key={i} style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"10px 12px" }}>
+                    <div className="dj-skel" style={{ width:120, height:12, marginBottom:8 }} />
+                    <div className="dj-skel" style={{ width:"100%", height:10, marginBottom:6 }} />
+                    <div className="dj-skel" style={{ width:"80%", height:10 }} />
+                  </div>
+                ))}
+              </div>
+            ) : avaliacoesEmpAbertas.length === 0 ? (
+              <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", textAlign:"center" as const, padding:"12px 0" }}>
+                Nenhum comentário ainda.
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {avaliacoesEmpAbertas.map(av => (
+                  <div key={av.id} style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"10px 12px" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                        <span style={{ color:"#d97706", fontWeight:900, fontSize:13 }}>
+                          {"★".repeat(av.nota)}{"☆".repeat(5 - av.nota)}
+                        </span>
+                        <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:700 }}>
+                          {av.diarista_nome?.split(" ")[0]}
+                        </span>
+                      </div>
+                      <span style={{ fontSize:10, color:"var(--text-3,#94a3b8)" }}>
+                        {new Date(av.created_at).toLocaleDateString("pt-BR")}
+                      </span>
+                    </div>
+                    {(av.pagou_combinado !== null && av.pagou_combinado !== undefined) || (av.cumpriu_combinado !== null && av.cumpriu_combinado !== undefined) ? (
+                      <div style={{ display:"flex", gap:6, marginBottom:6, flexWrap:"wrap" }}>
+                        {av.pagou_combinado !== null && av.pagou_combinado !== undefined && (
+                          <span style={{
+                            fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:10,
+                            background: av.pagou_combinado ? "#dcfce7" : "#fee2e2",
+                            color: av.pagou_combinado ? "#16a34a" : "#dc2626",
+                          }}>
+                            {av.pagou_combinado ? "💰 Pagou" : "💸 Não pagou"}
+                          </span>
+                        )}
+                        {av.cumpriu_combinado !== null && av.cumpriu_combinado !== undefined && (
+                          <span style={{
+                            fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:10,
+                            background: av.cumpriu_combinado ? "#dbeafe" : "#fee2e2",
+                            color: av.cumpriu_combinado ? "#1d4ed8" : "#dc2626",
+                          }}>
+                            {av.cumpriu_combinado ? "✅ Cumpriu" : "❌ Não cumpriu"}
+                          </span>
+                        )}
+                      </div>
+                    ) : null}
+                    {av.comentario && (
+                      <div style={{ fontSize:12, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>
+                        "{av.comentario}"
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -8411,8 +9278,8 @@ export default function App() {
                   confirmCancelarConvite === conviteAtivo.id ? (
                     <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:12, padding:"10px 14px" }}>
                       <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Confirmar cancelamento?</span>
-                      <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => cancelarConvite(conviteAtivo.id)}>Sim</button>
-                      <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
+                      <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => cancelarConvite(conviteAtivo.id)}>Sim</button>
+                      <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
                     </div>
                   ) : (
                     <button
@@ -8540,7 +9407,7 @@ export default function App() {
                           placeholder="00000-000"
                           inputMode="numeric"
                           maxLength={9}
-                          style={{ width:"100%", padding:"10px 12px", paddingRight: buscandoCEPConvite ? 110 : 12, borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                          style={{ width:"100%", padding:"10px 12px", paddingRight: buscandoCEPConvite ? 110 : 12, borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }}
                         />
                         {buscandoCEPConvite && (
                           <span style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"#FF6B35", fontWeight:700 }}>Buscando...</span>
@@ -8553,22 +9420,22 @@ export default function App() {
                         <div style={{ display:"grid", gridTemplateColumns:"3fr 1fr", gap:8 }}>
                           <div>
                             <label style={{ fontSize:11, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:3 }}>Rua</label>
-                            <input value={formConvite.rua} onChange={e => setFormConvite(p => ({ ...p, rua: e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                            <input value={formConvite.rua} onChange={e => setFormConvite(p => ({ ...p, rua: e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }} />
                           </div>
                           <div>
                             <label style={{ fontSize:11, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:3 }}>Nº *</label>
-                            <input value={formConvite.numero} onChange={e => setFormConvite(p => ({ ...p, numero: e.target.value }))} placeholder="Ex: 42" style={{ width:"100%", padding:"9px 10px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                            <input value={formConvite.numero} onChange={e => setFormConvite(p => ({ ...p, numero: e.target.value }))} placeholder="Ex: 42" style={{ width:"100%", padding:"9px 10px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }} />
                           </div>
                         </div>
-                        <input value={formConvite.complemento} onChange={e => setFormConvite(p => ({ ...p, complemento: e.target.value }))} placeholder="Complemento (apto, bloco...)" style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                        <input value={formConvite.complemento} onChange={e => setFormConvite(p => ({ ...p, complemento: e.target.value }))} placeholder="Complemento (apto, bloco...)" style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }} />
                         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                           <div>
                             <label style={{ fontSize:11, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:3 }}>Bairro</label>
-                            <input value={formConvite.bairro} onChange={e => setFormConvite(p => ({ ...p, bairro: e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                            <input value={formConvite.bairro} onChange={e => setFormConvite(p => ({ ...p, bairro: e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }} />
                           </div>
                           <div>
                             <label style={{ fontSize:11, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:3 }}>Cidade</label>
-                            <input value={formConvite.cidade} onChange={e => setFormConvite(p => ({ ...p, cidade: e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                            <input value={formConvite.cidade} onChange={e => setFormConvite(p => ({ ...p, cidade: e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }} />
                           </div>
                         </div>
                       </div>
@@ -8579,7 +9446,7 @@ export default function App() {
                           value={formConvite.endereco}
                           onChange={e => setFormConvite(p => ({ ...p, endereco: e.target.value }))}
                           placeholder="Ou digite o endereço completo"
-                          style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                          style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }}
                         />
                       </div>
                     )}
@@ -8591,7 +9458,7 @@ export default function App() {
                           value={formConvite.data}
                           min={new Date().toISOString().split("T")[0]}
                           onChange={e => setFormConvite(p => ({ ...p, data: e.target.value }))}
-                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }}
                         />
                       </div>
                       <div>
@@ -8600,7 +9467,7 @@ export default function App() {
                           type="time"
                           value={formConvite.horario}
                           onChange={e => setFormConvite(p => ({ ...p, horario: e.target.value }))}
-                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }}
                         />
                       </div>
                     </div>
@@ -8609,7 +9476,7 @@ export default function App() {
                       <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
                         {["4", "6", "8", "10", "12"].map(h => (
                           <button key={h}
-                            style={{ background: formConvite.cargaHoraria === h ? cor : "#f1f5f9", color: formConvite.cargaHoraria === h ? "#fff" : "#475569", border:"none", borderRadius:10, padding:"8px 16px", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                            style={{ background: formConvite.cargaHoraria === h ? cor : "#f1f5f9", color: formConvite.cargaHoraria === h ? "#fff" : "#475569", border:"none", borderRadius:10, padding:"8px 16px", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                             onClick={() => setFormConvite(p => ({ ...p, cargaHoraria: h }))}>
                             {h}h
                           </button>
@@ -8619,7 +9486,7 @@ export default function App() {
                           value={!["4","6","8","10","12"].includes(formConvite.cargaHoraria) ? formConvite.cargaHoraria : ""}
                           onChange={e => setFormConvite(p => ({ ...p, cargaHoraria: e.target.value }))}
                           placeholder="Outro"
-                          style={{ width:70, padding:"8px 10px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }}
+                          style={{ width:70, padding:"8px 10px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }}
                         />
                       </div>
                     </div>
@@ -8630,7 +9497,7 @@ export default function App() {
                         onChange={e => setFormConvite(p => ({ ...p, observacoes: e.target.value }))}
                         placeholder="Materiais necessários, tarefas específicas, etc."
                         rows={3}
-                        style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const }}
+                        style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", resize:"none" as const, boxSizing:"border-box" as const }}
                       />
                     </div>
                   </div>
@@ -8909,7 +9776,7 @@ export default function App() {
         <div style={{ display:"flex", gap:8, marginBottom:16 }}>
           {([["nao","Uma vez"],["semanal","Semanal"],["quinzenal","Quinzenal"]] as const).map(([v,l]) => (
             <button key={v}
-              style={{ flex:1, padding:"10px 4px", borderRadius:10, border:`2px solid ${dirariaRepetir===v?cor:"#e2e8f0"}`, background:dirariaRepetir===v?cor:"#fff", color:dirariaRepetir===v?"#fff":"#475569", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+              style={{ flex:1, padding:"10px 4px", borderRadius:10, border:`2px solid ${dirariaRepetir===v?cor:"#e2e8f0"}`, background:dirariaRepetir===v?cor:"#fff", color:dirariaRepetir===v?"#fff":"#475569", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
               onClick={() => setDiariaRepetir(v)}>{l}</button>
           ))}
         </div>
@@ -9184,7 +10051,7 @@ export default function App() {
             style={{ flex:1, padding:"12px 8px", borderRadius:12, border:`2px solid ${form.pessoaTipo===v?(negocio?.cor||"#FF6B35"):"#e2e8f0"}`,
               background:form.pessoaTipo===v?(negocio?.cor||"#FF6B35"):"#fff",
               color:form.pessoaTipo===v?"#fff":"#475569",
-              fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+              fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
             onClick={()=>setForm({...form,pessoaTipo:v})}>{l}</button>
         ))}
       </div>
@@ -9280,7 +10147,7 @@ export default function App() {
   // ── COMUNIDADE ──────────────────────────────────────────────────────────────
   if (tela === "comunidade") {
     const isAdmin = !!profile?.is_admin;
-    const corAcento = modoAtual === "empregador" ? (negocio?.cor || "#FF6B35") : "#5D5FEF";
+    const corAcento = modoAtual === "empregador" ? (negocio?.cor || "#FF6B35") : "#FF6B35";
     const CATS = [
       { key:"todos",      label:"Todos",      icone:"🌐" },
       { key:"geral",      label:"Geral",       icone:"💬" },
@@ -9315,7 +10182,7 @@ export default function App() {
               <div>
                 <span style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{topicoAtivo.autor_nome}</span>
                 <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginLeft:6 }}>• {agoraStr(topicoAtivo.created_at)}</span>
-                {topicoAtivo.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#5D5FEF15", color:"#5D5FEF", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Diarista</span>}
+                {topicoAtivo.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Diarista</span>}
                 {topicoAtivo.autor_tipo === "empregador" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Contratante</span>}
               </div>
               {isAdmin && (
@@ -9329,7 +10196,7 @@ export default function App() {
             </div>
             <p style={{ color:"#334155", fontSize:14, lineHeight:1.7, margin:0, whiteSpace:"pre-wrap" as const }}>{topicoAtivo.conteudo}</p>
             <div style={{ display:"flex", alignItems:"center", gap:16, marginTop:14, paddingTop:10, borderTop:"1px solid var(--border-sub,#f1f5f9)" }}>
-              <button style={{ background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", gap:4, color:"var(--text-2,#64748b)", fontSize:13, fontWeight:700, fontFamily:"system-ui,sans-serif" }}
+              <button style={{ background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", gap:4, color:"var(--text-2,#64748b)", fontSize:13, fontWeight:700, fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => curtirTopico(topicoAtivo.id)}>
                 ❤️ {topicoAtivo.likes}
               </button>
@@ -9348,7 +10215,7 @@ export default function App() {
                 <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
                   <div>
                     <span style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{c.autor_nome}</span>
-                    {c.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#5D5FEF15", color:"#5D5FEF", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Diarista</span>}
+                    {c.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Diarista</span>}
                     {c.autor_tipo === "empregador" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Contratante</span>}
                     {isAdmin && <span style={{ marginLeft:6, background:"#fef3c715", color:"#d97706", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>👑 Admin</span>}
                     <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginLeft:6 }}>• {agoraStr(c.created_at)}</span>
@@ -9368,11 +10235,11 @@ export default function App() {
               value={novoComentario}
               onChange={e => setNovoComentario(e.target.value)}
               placeholder="Escreva um comentário..."
-              style={{ flex:1, padding:"10px 14px", borderRadius:24, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", outline:"none" }}
+              style={{ flex:1, padding:"10px 14px", borderRadius:24, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); criarComentario(); } }}
             />
             <button
-              style={{ background:corAcento, color:"#fff", border:"none", borderRadius:24, padding:"10px 18px", fontWeight:800, fontSize:14, cursor:"pointer", opacity: enviandoComentario ? 0.7 : 1, fontFamily:"system-ui,sans-serif" }}
+              style={{ background:corAcento, color:"#fff", border:"none", borderRadius:24, padding:"10px 18px", fontWeight:800, fontSize:14, cursor:"pointer", opacity: enviandoComentario ? 0.7 : 1, fontFamily:"Inter, system-ui, sans-serif" }}
               onClick={criarComentario} disabled={enviandoComentario}>
               {enviandoComentario ? "..." : "→"}
             </button>
@@ -9398,7 +10265,7 @@ export default function App() {
           <div style={{ display:"flex", gap:8, overflowX:"auto" as const, paddingBottom:4 }}>
             {CATS.map(c => (
               <button key={c.key}
-                style={{ background: filtroComunidade === c.key ? "#fff" : "rgba(255,255,255,.2)", color: filtroComunidade === c.key ? corAcento : "#fff", border:"none", borderRadius:20, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" as const, fontFamily:"system-ui,sans-serif", flexShrink:0 }}
+                style={{ background: filtroComunidade === c.key ? "#fff" : "rgba(255,255,255,.2)", color: filtroComunidade === c.key ? corAcento : "#fff", border:"none", borderRadius:20, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" as const, fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
                 onClick={async () => { setFiltroComunidade(c.key); await carregarTopicos(c.key); }}>
                 {c.icone} {c.label}
               </button>
@@ -9453,7 +10320,7 @@ export default function App() {
 
         {/* FAB: novo tópico */}
         <button
-          style={{ position:"fixed", bottom:84, right:"calc(50% - 228px)", background:corAcento, color:"#fff", border:"none", borderRadius:28, padding:"14px 20px", fontSize:14, fontWeight:800, cursor:"pointer", boxShadow:`0 4px 20px ${corAcento}66`, display:"flex", alignItems:"center", gap:8, fontFamily:"system-ui,sans-serif", zIndex:40 }}
+          style={{ position:"fixed", bottom:84, right:"calc(50% - 228px)", background:corAcento, color:"#fff", border:"none", borderRadius:28, padding:"14px 20px", fontSize:14, fontWeight:800, cursor:"pointer", boxShadow:`0 4px 20px ${corAcento}66`, display:"flex", alignItems:"center", gap:8, fontFamily:"Inter, system-ui, sans-serif", zIndex:40 }}
           onClick={() => { setModalNovoTopico(true); setFormTopico({ titulo:"", conteudo:"", categoria:"geral" }); }}>
           ✏️ Novo tópico
         </button>
@@ -9469,7 +10336,7 @@ export default function App() {
                   <div style={{ display:"flex", flexWrap:"wrap" as const, gap:6 }}>
                     {CATS.filter(c => c.key !== "todos").map(c => (
                       <button key={c.key}
-                        style={{ background: formTopico.categoria === c.key ? corAcento : "#f1f5f9", color: formTopico.categoria === c.key ? "#fff" : "#475569", border:"none", borderRadius:20, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+                        style={{ background: formTopico.categoria === c.key ? corAcento : "#f1f5f9", color: formTopico.categoria === c.key ? "#fff" : "#475569", border:"none", borderRadius:20, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                         onClick={() => setFormTopico(p => ({ ...p, categoria: c.key }))}>
                         {c.icone} {c.label}
                       </button>
@@ -9480,13 +10347,13 @@ export default function App() {
                   <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>Título *</label>
                   <input value={formTopico.titulo} onChange={e => setFormTopico(p => ({ ...p, titulo: e.target.value }))}
                     placeholder="Sobre o que é este tópico?" maxLength={120}
-                    style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const }} />
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }} />
                 </div>
                 <div>
                   <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>Conteúdo *</label>
                   <textarea value={formTopico.conteudo} onChange={e => setFormTopico(p => ({ ...p, conteudo: e.target.value }))}
                     placeholder="Escreva com detalhes. Quanto mais claro, melhor!" rows={5}
-                    style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"system-ui,sans-serif", resize:"none" as const, boxSizing:"border-box" as const }} />
+                    style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", resize:"none" as const, boxSizing:"border-box" as const }} />
                 </div>
               </div>
               <button style={{ ...S.btnPrimary, background:corAcento, marginTop:16, opacity: enviandoTopico ? 0.7 : 1 }} onClick={criarTopico} disabled={enviandoTopico}>
@@ -9507,11 +10374,11 @@ export default function App() {
     const planoAtivo = assinatura?.plano || "gratis";
 
     return (
-      <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 80%)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 80%)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
 
         {/* Header */}
         <div style={{ padding:"52px 24px 0" }}>
-          <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginBottom:24, padding:0 }}
+          <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:24, padding:0 }}
             onClick={() => setTela(isEmp ? "home-empregador" : "home-diarista")}>← Voltar</button>
           <div style={{ textAlign:"center", marginBottom:32 }}>
             <div style={{ fontSize:44, marginBottom:10 }}>🚀</div>
@@ -9578,7 +10445,7 @@ export default function App() {
                 {/* Botão de ação */}
                 {p.valor > 0 && !ativo && (
                   <button
-                    style={{ width:"100%", padding:"14px", background:p.cor, color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif", boxShadow:`0 4px 16px ${p.cor}44`, opacity: criandoAssinatura ? 0.7 : 1 }}
+                    style={{ width:"100%", padding:"14px", background:p.cor, color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 16px ${p.cor}44`, opacity: criandoAssinatura ? 0.7 : 1 }}
                     disabled={criandoAssinatura}
                     onClick={() => { setAuthError(""); iniciarAssinatura(p.id); }}>
                     {criandoAssinatura ? "Aguarde..." : `Assinar ${p.nome} — R$ ${p.valor}/mês`}
@@ -9620,13 +10487,13 @@ export default function App() {
 
   // Fallback de segurança: se nenhuma tela encaixar, mostra splash em vez de tela branca
   return (
-    <div style={{ minHeight:"100vh", background:"#0f172a", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"system-ui,sans-serif" }}>
+    <div style={{ minHeight:"100vh", background:"#0f172a", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" }}>
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16, padding:32 }}>
         <div style={{ fontSize:48 }}>⚡</div>
         <div style={{ fontSize:28, fontWeight:900, color:"#fff" }}>Diária<span style={{ color:"#FF6B35" }}>Já</span></div>
         <p style={{ color:"var(--text-2,#64748b)", fontSize:14 }}>Algo deu errado. Toque para voltar ao início.</p>
         <button
-          style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"12px 28px", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" }}
+          style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"12px 28px", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
           onClick={() => { setProfile(null); setTela("splash"); setLoading(false); }}>
           Voltar ao início
         </button>
@@ -9636,21 +10503,21 @@ export default function App() {
 }
 
 const S: Record<string, React.CSSProperties> = {
-  splash:           { minHeight:"100vh", background:"#0f172a", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"system-ui,sans-serif" },
+  splash:           { minHeight:"100vh", background:"#0f172a", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" },
   splashInner:      { display:"flex", flexDirection:"column", alignItems:"center", gap:20, padding:32 },
   logo:             { display:"flex", alignItems:"center", gap:10 },
   logoIcon:         { fontSize:40 },
   logoText:         { fontSize:42, fontWeight:900, color:"#FF6B35", letterSpacing:-1 },
   splashSub:        { color:"var(--text-3,#94a3b8)", fontSize:20, textAlign:"center", lineHeight:1.5, margin:"8px 0 24px" },
-  page:             { minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", padding:"24px 20px", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" },
+  page:             { minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", padding:"24px 20px", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" },
   pageTitle:        { fontSize:26, fontWeight:900, color:"var(--text-1,#0f172a)", margin:"16px 0 8px" },
   subTexto:         { color:"var(--text-2,#64748b)", fontSize:14, marginBottom:20 },
-  back:             { background:"none", border:"none", color:"#FF6B35", fontSize:16, cursor:"pointer", padding:0, marginBottom:8, fontFamily:"system-ui,sans-serif" },
+  back:             { background:"none", border:"none", color:"#FF6B35", fontSize:16, cursor:"pointer", padding:0, marginBottom:8, fontFamily:"Inter, system-ui, sans-serif" },
   label:            { fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", marginBottom:4, marginTop:12, textTransform:"uppercase", letterSpacing:0.5 },
-  input:            { width:"100%", padding:"13px 16px", border:"2px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:16, background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)", fontFamily:"system-ui,sans-serif", boxSizing:"border-box", marginBottom:4, outline:"none" },
-  btnPrimary:       { width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", marginTop:8 },
-  btnSecondary:     { width:"100%", padding:"13px", background:"transparent", color:"#FF6B35", border:"2px solid #FF6B35", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif" },
-  btnGoogle:        { width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"2px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginTop:4 },
+  input:            { width:"100%", padding:"13px 16px", border:"2px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:16, background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box", marginBottom:4, outline:"none" },
+  btnPrimary:       { width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:8 },
+  btnSecondary:     { width:"100%", padding:"13px", background:"transparent", color:"#FF6B35", border:"2px solid #FF6B35", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" },
+  btnGoogle:        { width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"2px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginTop:4 },
   divider:          { display:"flex", alignItems:"center", gap:10, margin:"16px 0 8px" },
   dividerLine:      { flex:1, height:1, background:"var(--border,#e2e8f0)" },
   dividerText:      { color:"var(--text-3,#94a3b8)", fontSize:13, whiteSpace:"nowrap" },
@@ -9668,25 +10535,25 @@ const S: Record<string, React.CSSProperties> = {
   negocioLabel:     { fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" },
   negocioFuncoes:   { fontSize:10, color:"var(--text-3,#94a3b8)", textAlign:"center", lineHeight:1.4 },
   diasRow:          { display:"flex", gap:8, flexWrap:"wrap", margin:"8px 0" },
-  diaBtn:           { padding:"8px 11px", borderRadius:8, border:"2px solid var(--border,#e2e8f0)", background:"var(--bg-card,#fff)", fontSize:12, fontWeight:700, cursor:"pointer", color:"var(--text-label,#475569)", fontFamily:"system-ui,sans-serif" },
+  diaBtn:           { padding:"8px 11px", borderRadius:8, border:"2px solid var(--border,#e2e8f0)", background:"var(--bg-card,#fff)", fontSize:12, fontWeight:700, cursor:"pointer", color:"var(--text-label,#475569)", fontFamily:"Inter, system-ui, sans-serif" },
   diaBtnAtivo:      { background:"#FF6B35", color:"#fff", border:"2px solid #FF6B35" },
   switchRow:        { display:"flex", alignItems:"center", justifyContent:"space-between", margin:"12px 0" },
   toggle:           { width:48, height:28, borderRadius:14, background:"var(--border,#e2e8f0)", cursor:"pointer", position:"relative", transition:"background .2s" },
   toggleAtivo:      { background:"#FF6B35" },
   toggleThumb:      { width:22, height:22, borderRadius:11, background:"var(--bg-card,#fff)", position:"absolute", top:3, left:3, transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" },
   toggleThumbAtivo: { left:23 },
-  appShell:         { minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:32 },
+  appShell:         { minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:32 },
   header:           { padding:"20px 20px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" },
   headerSub:        { color:"rgba(255,255,255,0.75)", fontSize:11, textTransform:"uppercase", letterSpacing:1 },
   headerTitle:      { color:"#fff", fontSize:20, fontWeight:900 },
-  headerBack:       { background:"rgba(255,255,255,0.2)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", width:36, height:36, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"system-ui,sans-serif" },
-  logoutBtn:        { background:"rgba(255,255,255,0.15)", border:"none", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", padding:"6px 14px", borderRadius:8, fontFamily:"system-ui,sans-serif" },
+  headerBack:       { background:"rgba(255,255,255,0.2)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", width:36, height:36, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" },
+  logoutBtn:        { background:"rgba(255,255,255,0.15)", border:"none", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", padding:"6px 14px", borderRadius:8, fontFamily:"Inter, system-ui, sans-serif" },
   avatar:           { width:40, height:40, borderRadius:20, background:"rgba(255,255,255,0.2)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:900, fontSize:14 },
   tabs:             { display:"flex", background:"var(--bg-card,#fff)", borderBottom:"2px solid var(--border,#e2e8f0)" },
-  tab:              { flex:1, padding:"13px", borderTopWidth:0, borderLeftWidth:0, borderRightWidth:0, borderBottomWidth:3, borderBottomStyle:"solid", borderBottomColor:"transparent", background:"none", fontSize:14, fontWeight:700, color:"var(--text-3,#94a3b8)", cursor:"pointer", fontFamily:"system-ui,sans-serif" },
+  tab:              { flex:1, padding:"13px", borderTopWidth:0, borderLeftWidth:0, borderRightWidth:0, borderBottomWidth:3, borderBottomStyle:"solid", borderBottomColor:"transparent", background:"none", fontSize:14, fontWeight:700, color:"var(--text-3,#94a3b8)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" },
   tabAtivo:         { borderBottomWidth:3, borderBottomStyle:"solid", borderBottomColor:"#FF6B35", color:"#FF6B35" },
   filtrosRow:       { display:"flex", gap:8, padding:"10px 16px", overflowX:"auto", background:"var(--bg-card,#fff)" },
-  filtroBtn:        { whiteSpace:"nowrap", padding:"6px 13px", borderRadius:20, border:"2px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)", fontSize:12, fontWeight:700, cursor:"pointer", color:"var(--text-label,#475569)", fontFamily:"system-ui,sans-serif" },
+  filtroBtn:        { whiteSpace:"nowrap", padding:"6px 13px", borderRadius:20, border:"2px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)", fontSize:12, fontWeight:700, cursor:"pointer", color:"var(--text-label,#475569)", fontFamily:"Inter, system-ui, sans-serif" },
   filtroBtnAtivo:   { background:"var(--text-1,#0f172a)", color:"#fff", border:"2px solid var(--text-1,#0f172a)" },
   lista:            { padding:"12px 16px", display:"flex", flexDirection:"column", gap:12 },
   vazio:            { textAlign:"center", color:"var(--text-3,#94a3b8)", padding:"32px 0", fontSize:15 },
@@ -9714,7 +10581,7 @@ const S: Record<string, React.CSSProperties> = {
   sectionTitle:     { fontWeight:800, fontSize:11, color:"var(--text-3,#94a3b8)", textTransform:"uppercase", letterSpacing:1, marginBottom:10 },
   valorGrande:      { fontSize:30, fontWeight:900, color:"var(--text-1,#0f172a)" },
   avaliacaoItem:    { display:"flex", alignItems:"center", padding:"7px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" },
-  modalOverlay:     { position:"fixed", inset:0, background:"rgba(15,23,42,0.7)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:100 },
+  modalOverlay:     { position:"fixed", inset:0, background:"rgba(15,23,42,0.55)", backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:100 },
   modal:            { background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 36px", width:"100%", maxWidth:480 },
   modalTitle:       { fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:10 },
   modalText:        { color:"var(--text-label,#475569)", fontSize:14, marginBottom:18 },
@@ -9726,11 +10593,11 @@ const S: Record<string, React.CSSProperties> = {
   dashLabel:        { fontSize:10, color:"var(--text-3,#94a3b8)", marginTop:3 },
   propostaCard:     { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" },
   btnAceitar:       { background:"#dcfce7", color:"#16a34a", border:"none", borderRadius:8, padding:"6px 12px", fontWeight:700, fontSize:12, cursor:"pointer" },
-  btnEditarPerfil:  { background:"var(--btn-edit-bg,#f1f5f9)", border:"none", borderRadius:10, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", color:"var(--btn-edit-cl,#475569)", fontFamily:"system-ui,sans-serif" },
+  btnEditarPerfil:  { background:"var(--btn-edit-bg,#f1f5f9)", border:"none", borderRadius:10, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", color:"var(--btn-edit-cl,#475569)", fontFamily:"Inter, system-ui, sans-serif" },
   perfilInfoRow:    { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" },
   perfilInfoLabel:  { fontSize:12, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 },
   perfilInfoVal:    { fontSize:14, color:"var(--text-1,#0f172a)", fontWeight:600 },
   bottomNav:        { position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderTop:"1px solid var(--border,#e2e8f0)", display:"flex", zIndex:50 },
-  bottomNavBtn:     { flex:1, padding:"10px 0", border:"none", background:"none", display:"flex", flexDirection:"column" as const, alignItems:"center", gap:2, fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", cursor:"pointer", fontFamily:"system-ui,sans-serif" },
+  bottomNavBtn:     { flex:1, padding:"10px 0", border:"none", background:"none", display:"flex", flexDirection:"column" as const, alignItems:"center", gap:2, fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" },
   bottomNavAtivo:   { color:"#FF6B35" },
 };

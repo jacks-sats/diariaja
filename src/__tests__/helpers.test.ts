@@ -9,6 +9,12 @@ import {
   maskCPF,
   maskCNPJ,
   haversineKm,
+  validarEmail,
+  validarTelefone,
+  vagaExpirou,
+  formatarDistancia,
+  tempoEstimadoMin,
+  formatarTempo,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -287,5 +293,202 @@ describe("haversineKm", () => {
     // Dois pontos em Campo Grande
     const dist = haversineKm(-20.4697, -54.6201, -20.4800, -54.6300);
     expect(dist).toBeLessThan(5);
+  });
+});
+
+// ── validarEmail ──────────────────────────────────────────────────────────────
+describe("validarEmail", () => {
+  it("aceita email válido", () => {
+    expect(validarEmail("joao@example.com")).toBe(true);
+  });
+
+  it("aceita email com subdomínio", () => {
+    expect(validarEmail("joao.silva@mail.example.com.br")).toBe(true);
+  });
+
+  it("aceita email com + tag", () => {
+    expect(validarEmail("joao+filtro@example.com")).toBe(true);
+  });
+
+  it("rejeita string sem @", () => {
+    expect(validarEmail("joao.example.com")).toBe(false);
+  });
+
+  it("rejeita string sem domínio", () => {
+    expect(validarEmail("joao@")).toBe(false);
+  });
+
+  it("rejeita string sem TLD", () => {
+    expect(validarEmail("joao@example")).toBe(false);
+  });
+
+  it("rejeita email com espaços", () => {
+    expect(validarEmail("joao @example.com")).toBe(false);
+  });
+
+  it("rejeita string vazia", () => {
+    expect(validarEmail("")).toBe(false);
+  });
+
+  it("ignora espaços no início e fim (trim)", () => {
+    expect(validarEmail("  joao@example.com  ")).toBe(true);
+  });
+});
+
+// ── validarTelefone ───────────────────────────────────────────────────────────
+describe("validarTelefone", () => {
+  it("aceita celular válido (11 dígitos)", () => {
+    expect(validarTelefone("67999887766")).toBe(true);
+  });
+
+  it("aceita celular válido com máscara", () => {
+    expect(validarTelefone("(67) 99988-7766")).toBe(true);
+  });
+
+  it("aceita fixo válido (10 dígitos)", () => {
+    expect(validarTelefone("6733332222")).toBe(true);
+  });
+
+  it("rejeita celular com 11 dígitos sem 9 no início", () => {
+    expect(validarTelefone("67899887766")).toBe(false);
+  });
+
+  it("rejeita telefone com 9 dígitos (curto)", () => {
+    expect(validarTelefone("799887766")).toBe(false);
+  });
+
+  it("rejeita telefone com 12 dígitos (longo)", () => {
+    expect(validarTelefone("679998877661")).toBe(false);
+  });
+
+  it("rejeita DDD inválido (00)", () => {
+    expect(validarTelefone("00999887766")).toBe(false);
+  });
+
+  it("rejeita DDD inválido (10)", () => {
+    expect(validarTelefone("10999887766")).toBe(false);
+  });
+
+  it("rejeita string vazia", () => {
+    expect(validarTelefone("")).toBe(false);
+  });
+
+  it("rejeita string com letras", () => {
+    expect(validarTelefone("abcdefghijk")).toBe(false);
+  });
+});
+
+// ── vagaExpirou ───────────────────────────────────────────────────────────────
+describe("vagaExpirou", () => {
+  const agora = new Date("2026-05-25T15:00:00");
+
+  it("expirou: data anterior, status aberta", () => {
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "18:00", status: "aberta" }, agora)).toBe(true);
+  });
+
+  it("expirou: mesmo dia, horário_fim antes de agora", () => {
+    expect(vagaExpirou({ data: "2026-05-25", horario_fim: "12:00", status: "aberta" }, agora)).toBe(true);
+  });
+
+  it("não expirou: mesmo dia, horário_fim depois de agora", () => {
+    expect(vagaExpirou({ data: "2026-05-25", horario_fim: "18:00", status: "aberta" }, agora)).toBe(false);
+  });
+
+  it("não expirou: data futura", () => {
+    expect(vagaExpirou({ data: "2026-05-26", horario_fim: "08:00", status: "aberta" }, agora)).toBe(false);
+  });
+
+  it("não expirou: status já é concluida (não deve expirar)", () => {
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "18:00", status: "concluida" }, agora)).toBe(false);
+  });
+
+  it("não expirou: status é cancelada", () => {
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "18:00", status: "cancelada" }, agora)).toBe(false);
+  });
+
+  it("não expirou: status é em_andamento (já começou, não pode expirar)", () => {
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "18:00", status: "em_andamento" }, agora)).toBe(false);
+  });
+
+  it("expirou: status pendente também caduca", () => {
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "18:00", status: "pendente" }, agora)).toBe(true);
+  });
+
+  it("aceita horario_fim com segundos (HH:MM:SS)", () => {
+    expect(vagaExpirou({ data: "2026-05-25", horario_fim: "12:00:00", status: "aberta" }, agora)).toBe(true);
+  });
+
+  it("retorna false se data está vazia", () => {
+    expect(vagaExpirou({ data: "", horario_fim: "18:00", status: "aberta" }, agora)).toBe(false);
+  });
+});
+
+// ── formatarDistancia ─────────────────────────────────────────────────────────
+describe("formatarDistancia", () => {
+  it("retorna string vazia para null/undefined/NaN", () => {
+    expect(formatarDistancia(null)).toBe("");
+    expect(formatarDistancia(undefined)).toBe("");
+    expect(formatarDistancia(NaN)).toBe("");
+  });
+
+  it("menos de 1 km", () => {
+    expect(formatarDistancia(0.3)).toBe("menos de 1 km");
+    expect(formatarDistancia(0.99)).toBe("menos de 1 km");
+  });
+
+  it("entre 1 e 10 km: 1 casa decimal com vírgula", () => {
+    expect(formatarDistancia(1)).toBe("1,0 km");
+    expect(formatarDistancia(2.5)).toBe("2,5 km");
+    expect(formatarDistancia(9.87)).toBe("9,9 km");
+  });
+
+  it(">= 10 km: inteiro", () => {
+    expect(formatarDistancia(10)).toBe("10 km");
+    expect(formatarDistancia(12.4)).toBe("12 km");
+    expect(formatarDistancia(196)).toBe("196 km");
+  });
+});
+
+// ── tempoEstimadoMin ──────────────────────────────────────────────────────────
+describe("tempoEstimadoMin", () => {
+  it("retorna null para 0/negativo/NaN", () => {
+    expect(tempoEstimadoMin(0)).toBeNull();
+    expect(tempoEstimadoMin(-5)).toBeNull();
+    expect(tempoEstimadoMin(NaN)).toBeNull();
+    expect(tempoEstimadoMin(null)).toBeNull();
+  });
+
+  it("retorna pelo menos 1 minuto mesmo para distância mínima", () => {
+    expect(tempoEstimadoMin(0.1)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("calcula ~13 min para 5 km (5×1.3/30×60 = 13)", () => {
+    expect(tempoEstimadoMin(5)).toBe(13);
+  });
+
+  it("calcula ~26 min para 10 km", () => {
+    expect(tempoEstimadoMin(10)).toBe(26);
+  });
+});
+
+// ── formatarTempo ─────────────────────────────────────────────────────────────
+describe("formatarTempo", () => {
+  it("min < 60: \"X min\"", () => {
+    expect(formatarTempo(15)).toBe("15 min");
+    expect(formatarTempo(59)).toBe("59 min");
+  });
+
+  it("min === 60 exato: \"1h\"", () => {
+    expect(formatarTempo(60)).toBe("1h");
+    expect(formatarTempo(120)).toBe("2h");
+  });
+
+  it("min > 60 com resto: \"Xh0Y\"", () => {
+    expect(formatarTempo(75)).toBe("1h15");
+    expect(formatarTempo(150)).toBe("2h30");
+  });
+
+  it("retorna string vazia para null", () => {
+    expect(formatarTempo(null)).toBe("");
   });
 });

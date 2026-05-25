@@ -69,6 +69,7 @@ export interface UserProfile {
   mp_access_token?: string;
   plano_ativo?: string;       // 'gratis' | 'destaque'
   is_admin?: boolean;
+  portfolio_urls?: string[];  // até 3 fotos do trabalho (diarista)
 }
 
 export interface Topico {
@@ -117,4 +118,38 @@ export interface AnalyticsEvento {
   user_id?: string;
   user_type?: string;
   propriedades?: Record<string, unknown>;
+}
+
+export interface FeedbackVagaExpirada {
+  id: string;
+  diaria_id: string;
+  empregador_id: string;
+  motivo_categoria:
+    | "sem_candidatos"
+    | "valor_baixo"
+    | "data_passou"
+    | "desisti"
+    | "contratei_fora"
+    | "outro";
+  motivo_texto?: string;
+  created_at: string;
+}
+
+export interface FeedbackPosConclusao {
+  id: string;
+  diaria_id: string;
+  empregador_id: string;
+  chegou_no_horario: boolean;
+  nota_qualidade: number; // 1–5
+  recomendaria: boolean;
+  comentario?: string;
+  created_at: string;
+}
+
+export interface ReputacaoEmpregador {
+  empregador_id: string;
+  total_avaliacoes: number;
+  nota_media: number | null;        // 1.0–5.0
+  pct_pagou_combinado: number | null;   // 0–100, null se ninguém respondeu ainda
+  pct_cumpriu_combinado: number | null;
 }

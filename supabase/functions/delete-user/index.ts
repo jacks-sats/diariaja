@@ -57,6 +57,9 @@ serve(async (req) => {
     await supabaseAdmin.from("candidaturas").delete().eq("diarista_id", userId);
     await supabaseAdmin.from("avaliacoes_diarista").delete().or(`avaliado_id.eq.${userId},avaliador_id.eq.${userId}`);
     await supabaseAdmin.from("avaliacoes_empregador").delete().or(`avaliado_id.eq.${userId},avaliador_id.eq.${userId}`);
+    // Desliga o diarista de diárias passadas onde ele foi selecionado — caso
+    // contrário a FK pode bloquear o delete (RESTRICT) ou orfanar histórico.
+    await supabaseAdmin.from("diarias").update({ diarista_aceite_id: null }).eq("diarista_aceite_id", userId);
     await supabaseAdmin.from("diarias").delete().eq("empregador_id", userId);
     await supabaseAdmin.from("user_profiles").delete().eq("id", userId);
 

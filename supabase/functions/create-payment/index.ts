@@ -9,10 +9,11 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const MP_TOKEN     = Deno.env.get("MP_ACCESS_TOKEN")!;
-const APP_URL      = Deno.env.get("APP_URL") ?? "https://diariaja.vercel.app";
+const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+const MP_TOKEN          = Deno.env.get("MP_ACCESS_TOKEN")!;
+const APP_URL           = Deno.env.get("APP_URL") ?? "https://diariaja.vercel.app";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -25,10 +26,24 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // ── Auth: confirma que o chamador é mesmo o empregador_id alegado ──
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return json({ error: "Não autorizado." }, 401);
+
+    const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user }, error: authErr } = await supabaseUser.auth.getUser();
+    if (authErr || !user) return json({ error: "Token inválido ou expirado." }, 401);
+
     const { diaria_id, empregador_id } = await req.json();
 
     if (!diaria_id || !empregador_id) {
       return json({ error: "diaria_id e empregador_id são obrigatórios" }, 400);
+    }
+
+    if (user.id !== empregador_id) {
+      return json({ error: "Não autorizado para este empregador." }, 403);
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
