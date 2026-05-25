@@ -416,11 +416,23 @@ export default function App() {
   const [confirmExcluirChat, setConfirmExcluirChat] = useState(false);
   const [confirmExcluirDiariaCancelada, setConfirmExcluirDiariaCancelada] = useState<string | null>(null);
   const [confirmCancelarConvite, setConfirmCancelarConvite] = useState<string | null>(null); // convite ID
-  const [mensagensReais, setMensagensReais] = useState<{id:string,diaria_id:string,remetente_id:string,destinatario_id:string,conteudo:string,created_at:string}[]>([]);
+  const [mensagensReais, setMensagensReais] = useState<{id:string,diaria_id:string,remetente_id:string,destinatario_id:string,conteudo:string,created_at:string,lida_em?:string|null}[]>([]);
   const [msgInputReal, setMsgInputReal] = useState("");
   const [enviandoMsgReal, setEnviandoMsgReal] = useState(false);
   const mensagensEndRef = useRef<HTMLDivElement>(null);
   const fotoInputRef = useRef<HTMLInputElement>(null); // ref para o input de foto de perfil
+
+  // ── Chat v2: digitando + não-lidas por conversa ────────────────────────────
+  // outroDigitando: true se o outro lado está digitando agora (broadcast)
+  const [outroDigitando, setOutroDigitando] = useState(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const lastTypingBroadcastRef = useRef<number>(0);
+  // Não-lidas indexado por diaria_id (carregado e atualizado em tempo real)
+  const [naoLidasPorDiaria, setNaoLidasPorDiaria] = useState<Record<string, number>>({});
+  // Ref pra closures lerem o chat ativo atual sem causar re-subscribe
+  const chatDiariaAtivaRef = useRef<Diaria | null>(null);
+  useEffect(() => { chatDiariaAtivaRef.current = chatDiariaAtiva; }, [chatDiariaAtiva]);
 
   // Auto-dismiss dos toasts
   useEffect(() => {
@@ -962,15 +974,12 @@ export default function App() {
         { event: "INSERT", schema: "public", table: "mensagens" },
         (payload: any) => {
           const msg = payload.new;
-          // Tabela mensagens tem: diaria_id, remetente_id, destinatario_id, conteudo
-          const paraMin = msg.destinatario_id === userId;
-          if (!paraMin) return;
+          const paraMim = msg.destinatario_id === userId;
+          if (!paraMim) return;
           setMsgNaoLidas(prev => prev + 1);
-          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            new Notification("💬 Nova mensagem!", {
-              body: (msg.content as string)?.slice(0, 100) || "Você recebeu uma mensagem",
-              icon: "/vite.svg",
-            });
+          // Não-lidas por conversa — só conta se a conversa NÃO está aberta
+          if (msg.diaria_id && msg.diaria_id !== chatDiariaAtivaRef.current?.id) {
+            setNaoLidasPorDiaria(prev => ({ ...prev, [msg.diaria_id]: (prev[msg.diaria_id] || 0) + 1 }));
           }
         }
       )
@@ -1299,38 +1308,118 @@ export default function App() {
       });
   }, [modalPix]);
 
-  // Carrega mensagens do chat ativo
+  // Carrega mensagens do chat ativo + marca como lidas as do destinatário=eu
   useEffect(() => {
     if (!chatDiariaAtiva || !session?.user) return;
+    const userId = session.user.id;
+    const diariaId = chatDiariaAtiva.id;
     (async () => {
       const { data } = await supabase
         .from("mensagens")
         .select("*")
-        .eq("diaria_id", chatDiariaAtiva.id)
+        .eq("diaria_id", diariaId)
         .order("created_at", { ascending: true });
       if (data) setMensagensReais(data);
       setTimeout(() => mensagensEndRef.current?.scrollIntoView(), 100);
-    })();
-  }, [chatDiariaAtiva?.id]);
 
-  // Realtime: novas mensagens no chat ativo
+      // Marca como lidas todas as que eu recebi nessa conversa
+      await supabase
+        .from("mensagens")
+        .update({ lida_em: new Date().toISOString() })
+        .eq("diaria_id", diariaId)
+        .eq("destinatario_id", userId)
+        .is("lida_em", null);
+      // Zera contagem local dessa conversa
+      setNaoLidasPorDiaria(prev => {
+        if (!prev[diariaId]) return prev;
+        const next = { ...prev }; delete next[diariaId];
+        return next;
+      });
+    })();
+  }, [chatDiariaAtiva?.id, session?.user?.id]);
+
+  // Realtime: novas mensagens no chat ativo + UPDATE de lida_em (✓✓)
   useEffect(() => {
     if (!chatDiariaAtiva || !session?.user) return;
+    const userId = session.user.id;
     const channel = supabase
       .channel(`mensagens-${chatDiariaAtiva.id}`)
       .on("postgres_changes" as any,
         { event: "INSERT", schema: "public", table: "mensagens", filter: `diaria_id=eq.${chatDiariaAtiva.id}` },
         (payload: any) => {
           const nova = payload.new;
-          // BUG-M7 fix: ignora mensagens enviadas pelo próprio usuário (já adicionadas otimisticamente)
-          if (nova.remetente_id === session?.user?.id) return;
+          if (nova.remetente_id === userId) return; // já adicionada otimisticamente
           setMensagensReais(prev => [...prev, nova]);
           setTimeout(() => mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-        }
+          // Como o chat está aberto, marca a recebida como lida na hora
+          supabase.from("mensagens").update({ lida_em: new Date().toISOString() }).eq("id", nova.id);
+        },
+      )
+      .on("postgres_changes" as any,
+        { event: "UPDATE", schema: "public", table: "mensagens", filter: `diaria_id=eq.${chatDiariaAtiva.id}` },
+        (payload: any) => {
+          const upd = payload.new;
+          // Atualiza lida_em na minha mensagem (mostra ✓✓ do meu lado)
+          setMensagensReais(prev => prev.map(m => m.id === upd.id ? { ...m, lida_em: upd.lida_em } : m));
+        },
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [chatDiariaAtiva?.id]);
+  }, [chatDiariaAtiva?.id, session?.user?.id]);
+
+  // ── Realtime: canal de "digitando..." (broadcast presence-style) ────────────
+  useEffect(() => {
+    if (!chatDiariaAtiva || !session?.user) return;
+    const userId = session.user.id;
+    const channel = supabase
+      .channel(`typing-${chatDiariaAtiva.id}`, { config: { broadcast: { self: false } } })
+      .on("broadcast", { event: "typing" }, (msg: any) => {
+        if (msg.payload?.user_id === userId) return;
+        setOutroDigitando(true);
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => setOutroDigitando(false), 2800);
+      })
+      .subscribe();
+    typingChannelRef.current = channel;
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      supabase.removeChannel(channel);
+      typingChannelRef.current = null;
+      setOutroDigitando(false);
+    };
+  }, [chatDiariaAtiva?.id, session?.user?.id]);
+
+  // Helper chamado no onChange do input — emite "typing" no máx 1×/2s
+  const sinalizarDigitando = useCallback(() => {
+    if (!chatDiariaAtiva || !session?.user || !typingChannelRef.current) return;
+    const agora = Date.now();
+    if (agora - lastTypingBroadcastRef.current < 2000) return;
+    lastTypingBroadcastRef.current = agora;
+    typingChannelRef.current.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { user_id: session.user.id },
+    });
+  }, [chatDiariaAtiva?.id, session?.user?.id]);
+
+  // ── Carrega contagem de não-lidas POR conversa quando entra na aba chat ─────
+  useEffect(() => {
+    if (!session?.user) return;
+    if (tabEmpregador !== "chat" && tabDiarista !== "chat") return;
+    const userId = session.user.id;
+    (async () => {
+      const { data } = await supabase
+        .from("mensagens")
+        .select("diaria_id")
+        .eq("destinatario_id", userId)
+        .is("lida_em", null);
+      if (data) {
+        const cont: Record<string, number> = {};
+        for (const m of data) cont[m.diaria_id] = (cont[m.diaria_id] || 0) + 1;
+        setNaoLidasPorDiaria(cont);
+      }
+    })();
+  }, [tabEmpregador, tabDiarista, session?.user?.id]);
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -6280,7 +6369,9 @@ export default function App() {
                   }
                   <div style={{ flex:1 }}>
                     <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Diarista"}</div>
-                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)" }}>{chatDiariaAtiva.funcao} · {new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                    <div style={{ fontSize:11, color: outroDigitando ? "#16a34a" : "var(--text-2,#64748b)", fontWeight: outroDigitando ? 700 : 400 }}>
+                      {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
+                    </div>
                   </div>
                   {!confirmExcluirChat
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
@@ -6302,8 +6393,13 @@ export default function App() {
                       <div key={m.id} style={{ display:"flex", justifyContent: isMeu ? "flex-end" : "flex-start" }}>
                         <div style={{ background: isMeu ? negocio.cor : "var(--bg-card,#fff)", color: isMeu ? "#fff" : "var(--text-1,#0f172a)", borderRadius: isMeu ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding:"10px 14px", maxWidth:"75%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
                           {m.conteudo}
-                          <div style={{ fontSize:10, opacity:.6, marginTop:4, textAlign:"right" }}>
-                            {new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
+                          <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:4, fontSize:10, opacity:.7, marginTop:4 }}>
+                            <span>{new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}</span>
+                            {isMeu && (
+                              m.lida_em
+                                ? <span title="Lida" style={{ display:"inline-flex", color:"#bbf7d0", fontSize:11, fontWeight:800 }}>✓✓</span>
+                                : <span title="Enviada" style={{ display:"inline-flex", color:"#fff", opacity:.6, fontSize:11, fontWeight:800 }}>✓</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -6317,14 +6413,15 @@ export default function App() {
                     style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
                     placeholder="Digite uma mensagem..."
                     value={msgInputReal}
-                    onChange={e => setMsgInputReal(e.target.value)}
+                    onChange={e => { setMsgInputReal(e.target.value); sinalizarDigitando(); }}
                     onKeyDown={e => e.key === "Enter" && !e.shiftKey && enviarMensagemReal()}
                   />
                   <button
-                    style={{ width:44, height:44, borderRadius:22, background: msgInputReal.trim() ? negocio.cor : "#e2e8f0", border:"none", color:"#fff", fontSize:20, cursor: msgInputReal.trim() ? "pointer" : "default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
+                    aria-label="Enviar mensagem"
+                    style={{ width:44, height:44, borderRadius:22, background: msgInputReal.trim() ? negocio.cor : "#e2e8f0", border:"none", color:"#fff", cursor: msgInputReal.trim() ? "pointer" : "default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
                     disabled={!msgInputReal.trim() || enviandoMsgReal}
                     onClick={enviarMensagemReal}>
-                    ➤
+                    <Send size={18} />
                   </button>
                 </div>
                 {/* Anti-exit aviso */}
@@ -6385,19 +6482,25 @@ export default function App() {
                   {conversas.map(dia => {
                     const dp = dia.diarista_aceite_id ? diaristasAceites[dia.diarista_aceite_id] : null;
                     const iniciais = dp?.nome?.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() || "?";
+                    const nLidas = naoLidasPorDiaria[dia.id] || 0;
                     return (
                       <div key={dia.id}
                         style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
-                        onClick={() => setChatDiariaAtiva(dia)}>
+                        onClick={() => { hapticTick(); setChatDiariaAtiva(dia); }}>
                         {dp?.foto_url
                           ? <img src={dp.foto_url} style={{ width:50, height:50, borderRadius:25, objectFit:"cover", flexShrink:0 }} alt="" />
                           : <div style={{ width:50, height:50, borderRadius:25, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>{iniciais}</div>
                         }
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Diarista"}</div>
-                          <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                          <div style={{ fontWeight: nLidas > 0 ? 900 : 800, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Diarista"}</div>
+                          <div style={{ fontSize:12, color: nLidas > 0 ? "var(--text-1,#0f172a)" : "var(--text-2,#64748b)", marginTop:2, fontWeight: nLidas > 0 ? 700 : 400 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
                         </div>
-                        <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                        {nLidas > 0 && (
+                          <span style={{ background:"#FF6B35", color:"#fff", borderRadius:11, minWidth:22, height:22, padding:"0 7px", fontSize:11, fontWeight:900, display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
+                            {nLidas > 9 ? "9+" : nLidas}
+                          </span>
+                        )}
+                        <ChevronRight size={18} color="var(--text-3,#94a3b8)" />
                       </div>
                     );
                   })}
@@ -7777,7 +7880,9 @@ export default function App() {
                   </div>
                   <div style={{ flex:1 }}>
                     <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{chatDiariaAtiva.nome_negocio || chatDiariaAtiva.segmento}</div>
-                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)" }}>{chatDiariaAtiva.funcao} · {new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                    <div style={{ fontSize:11, color: outroDigitando ? "#16a34a" : "var(--text-2,#64748b)", fontWeight: outroDigitando ? 700 : 400 }}>
+                      {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
+                    </div>
                   </div>
                   {!confirmExcluirChat
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
@@ -7799,8 +7904,13 @@ export default function App() {
                       <div key={m.id} style={{ display:"flex", justifyContent: isMeu ? "flex-end" : "flex-start" }}>
                         <div style={{ background: isMeu ? "#FF6B35" : "var(--bg-card,#fff)", color: isMeu ? "#fff" : "var(--text-1,#0f172a)", borderRadius: isMeu ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding:"10px 14px", maxWidth:"75%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
                           {m.conteudo}
-                          <div style={{ fontSize:10, opacity:.6, marginTop:4, textAlign:"right" }}>
-                            {new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
+                          <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:4, fontSize:10, opacity:.7, marginTop:4 }}>
+                            <span>{new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}</span>
+                            {isMeu && (
+                              m.lida_em
+                                ? <span title="Lida" style={{ display:"inline-flex", color:"#bbf7d0", fontSize:11, fontWeight:800 }}>✓✓</span>
+                                : <span title="Enviada" style={{ display:"inline-flex", color:"#fff", opacity:.6, fontSize:11, fontWeight:800 }}>✓</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -7814,14 +7924,15 @@ export default function App() {
                     style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
                     placeholder="Digite uma mensagem..."
                     value={msgInputReal}
-                    onChange={e => setMsgInputReal(e.target.value)}
+                    onChange={e => { setMsgInputReal(e.target.value); sinalizarDigitando(); }}
                     onKeyDown={e => e.key === "Enter" && !e.shiftKey && enviarMensagemReal()}
                   />
                   <button
-                    style={{ width:44, height:44, borderRadius:22, background: msgInputReal.trim() ? "#FF6B35" : "#e2e8f0", border:"none", color:"#fff", fontSize:20, cursor: msgInputReal.trim() ? "pointer" : "default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
+                    aria-label="Enviar mensagem"
+                    style={{ width:44, height:44, borderRadius:22, background: msgInputReal.trim() ? "#FF6B35" : "#e2e8f0", border:"none", color:"#fff", cursor: msgInputReal.trim() ? "pointer" : "default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
                     disabled={!msgInputReal.trim() || enviandoMsgReal}
                     onClick={enviarMensagemReal}>
-                    ➤
+                    <Send size={18} />
                   </button>
                 </div>
                 {antiExitAviso && (
@@ -7876,20 +7987,28 @@ export default function App() {
                 </div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                  {conversas.map(dia => (
-                    <div key={dia.id}
-                      style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
-                      onClick={() => setChatDiariaAtiva(dia)}>
-                      <div style={{ width:50, height:50, borderRadius:25, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>
-                        {(dia.nome_negocio || dia.segmento).slice(0,2).toUpperCase()}
+                  {conversas.map(dia => {
+                    const nLidas = naoLidasPorDiaria[dia.id] || 0;
+                    return (
+                      <div key={dia.id}
+                        style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
+                        onClick={() => { hapticTick(); setChatDiariaAtiva(dia); }}>
+                        <div style={{ width:50, height:50, borderRadius:25, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>
+                          {(dia.nome_negocio || dia.segmento).slice(0,2).toUpperCase()}
+                        </div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontWeight: nLidas > 0 ? 900 : 800, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dia.nome_negocio || dia.segmento}</div>
+                          <div style={{ fontSize:12, color: nLidas > 0 ? "var(--text-1,#0f172a)" : "var(--text-2,#64748b)", marginTop:2, fontWeight: nLidas > 0 ? 700 : 400 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                        </div>
+                        {nLidas > 0 && (
+                          <span style={{ background:"#FF6B35", color:"#fff", borderRadius:11, minWidth:22, height:22, padding:"0 7px", fontSize:11, fontWeight:900, display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
+                            {nLidas > 9 ? "9+" : nLidas}
+                          </span>
+                        )}
+                        <ChevronRight size={18} color="var(--text-3,#94a3b8)" />
                       </div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dia.nome_negocio || dia.segmento}</div>
-                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
-                      </div>
-                      <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
