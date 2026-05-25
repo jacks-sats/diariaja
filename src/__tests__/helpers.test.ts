@@ -9,6 +9,8 @@ import {
   maskCPF,
   maskCNPJ,
   haversineKm,
+  validarEmail,
+  validarTelefone,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -287,5 +289,87 @@ describe("haversineKm", () => {
     // Dois pontos em Campo Grande
     const dist = haversineKm(-20.4697, -54.6201, -20.4800, -54.6300);
     expect(dist).toBeLessThan(5);
+  });
+});
+
+// ── validarEmail ──────────────────────────────────────────────────────────────
+describe("validarEmail", () => {
+  it("aceita email válido", () => {
+    expect(validarEmail("joao@example.com")).toBe(true);
+  });
+
+  it("aceita email com subdomínio", () => {
+    expect(validarEmail("joao.silva@mail.example.com.br")).toBe(true);
+  });
+
+  it("aceita email com + tag", () => {
+    expect(validarEmail("joao+filtro@example.com")).toBe(true);
+  });
+
+  it("rejeita string sem @", () => {
+    expect(validarEmail("joao.example.com")).toBe(false);
+  });
+
+  it("rejeita string sem domínio", () => {
+    expect(validarEmail("joao@")).toBe(false);
+  });
+
+  it("rejeita string sem TLD", () => {
+    expect(validarEmail("joao@example")).toBe(false);
+  });
+
+  it("rejeita email com espaços", () => {
+    expect(validarEmail("joao @example.com")).toBe(false);
+  });
+
+  it("rejeita string vazia", () => {
+    expect(validarEmail("")).toBe(false);
+  });
+
+  it("ignora espaços no início e fim (trim)", () => {
+    expect(validarEmail("  joao@example.com  ")).toBe(true);
+  });
+});
+
+// ── validarTelefone ───────────────────────────────────────────────────────────
+describe("validarTelefone", () => {
+  it("aceita celular válido (11 dígitos)", () => {
+    expect(validarTelefone("67999887766")).toBe(true);
+  });
+
+  it("aceita celular válido com máscara", () => {
+    expect(validarTelefone("(67) 99988-7766")).toBe(true);
+  });
+
+  it("aceita fixo válido (10 dígitos)", () => {
+    expect(validarTelefone("6733332222")).toBe(true);
+  });
+
+  it("rejeita celular com 11 dígitos sem 9 no início", () => {
+    expect(validarTelefone("67899887766")).toBe(false);
+  });
+
+  it("rejeita telefone com 9 dígitos (curto)", () => {
+    expect(validarTelefone("799887766")).toBe(false);
+  });
+
+  it("rejeita telefone com 12 dígitos (longo)", () => {
+    expect(validarTelefone("679998877661")).toBe(false);
+  });
+
+  it("rejeita DDD inválido (00)", () => {
+    expect(validarTelefone("00999887766")).toBe(false);
+  });
+
+  it("rejeita DDD inválido (10)", () => {
+    expect(validarTelefone("10999887766")).toBe(false);
+  });
+
+  it("rejeita string vazia", () => {
+    expect(validarTelefone("")).toBe(false);
+  });
+
+  it("rejeita string com letras", () => {
+    expect(validarTelefone("abcdefghijk")).toBe(false);
   });
 });

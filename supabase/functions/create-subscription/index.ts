@@ -6,10 +6,11 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const MP_TOKEN     = Deno.env.get("MP_ACCESS_TOKEN")!;
-const APP_URL      = Deno.env.get("APP_URL") ?? "https://trampojaapp.com.br";
+const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+const MP_TOKEN          = Deno.env.get("MP_ACCESS_TOKEN")!;
+const APP_URL           = Deno.env.get("APP_URL") ?? "https://diariaja.vercel.app";
 
 // Definição dos planos (espelho do frontend)
 const PLANOS: Record<string, { valor: number; nome: string }> = {
@@ -24,10 +25,24 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // ── Auth: confirma que o chamador é mesmo o user_id alegado ──
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return json({ error: "Não autorizado." }, 401);
+
+    const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user }, error: authErr } = await supabaseUser.auth.getUser();
+    if (authErr || !user) return json({ error: "Token inválido ou expirado." }, 401);
+
     const { plano, user_id, user_type, payer_email } = await req.json();
 
     if (!plano || !user_id || !user_type || !payer_email) {
       return json({ error: "Campos obrigatórios: plano, user_id, user_type, payer_email" }, 400);
+    }
+
+    if (user.id !== user_id) {
+      return json({ error: "Não autorizado para este usuário." }, 403);
     }
 
     const planoDef = PLANOS[plano];
@@ -88,15 +103,8 @@ Deno.serve(async (req) => {
 
     if (dbErr) console.error("DB assinaturas error:", dbErr);
 
-    // Atualiza plano_ativo no perfil do usuário (otimista — webhook confirma)
-    // Para diaristas, o campo plano_ativo é usado para ordenação no feed
-    if (user_type === "diarista") {
-      const { error: profErr } = await supabase
-        .from("user_profiles")
-        .update({ plano_ativo: plano })
-        .eq("id", user_id);
-      if (profErr) console.error("DB user_profiles error:", profErr);
-    }
+    // plano_ativo só é atualizado pelo webhook do MP quando o pagamento é
+    // efetivamente autorizado — evita conceder plano por checkout abandonado.
 
     return json({
       checkout_url:      mpData.init_point,

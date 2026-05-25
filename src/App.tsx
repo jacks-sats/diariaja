@@ -13,7 +13,7 @@ import {
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, maskCPF, maskCNPJ, haversineKm,
-  validarTituloDiaria,
+  validarTituloDiaria, validarEmail, validarTelefone,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -104,10 +104,6 @@ export default function App() {
   const [disponivelAgora, setDisponivel]  = useState(false);
   const [filtroFuncao, setFiltroFuncao]   = useState("Todos");
   const [filtroDisp, setFiltroDisp]       = useState(false);
-  const [avaliacoes, setAvaliacoes]       = useState<{id:string, empregador_id:string, nota:number, comentario:string, created_at:string}[]>([]);
-  const [notaForm, setNotaForm]           = useState(0);
-  const [comentarioForm, setComentarioForm] = useState("");
-  const [enviandoAvaliacao, setEnviandoAvaliacao] = useState(false);
   const [diarias, setDiarias]                     = useState<Diaria[]>([]);
   const [formDiaria, setFormDiaria]               = useState({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"" });
   const [buscandoCEP, setBuscandoCEP]             = useState(false);
@@ -1155,13 +1151,19 @@ export default function App() {
 
   const saveProfile = async (updates: Partial<UserProfile>) => {
     if (!session?.user) return false;
+    const telefoneFinal = updates.telefone ?? profile?.telefone ?? form.telefone;
+    // Telefone só é validado se foi preenchido (alguns fluxos salvam sem ele)
+    if (telefoneFinal && telefoneFinal.trim() && !validarTelefone(telefoneFinal)) {
+      setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX.");
+      return false;
+    }
     setSalvandoPerfil(true);
     const full: UserProfile = {
       id: session.user.id,
       user_type: updates.user_type ?? tipo ?? profile?.user_type ?? "",
       // Usa dados do profile como fallback para não sobrescrever com campos vazios
       nome: updates.nome ?? profile?.nome ?? form.nome,
-      telefone: updates.telefone ?? profile?.telefone ?? form.telefone,
+      telefone: telefoneFinal,
       nome_negocio: updates.nome_negocio ?? profile?.nome_negocio ?? form.nomeNegocio ?? "",
       segmento: updates.segmento ?? profile?.segmento ?? negocioSelecionado ?? "",
       funcao: updates.funcao ?? profile?.funcao ?? form.funcao ?? "",
@@ -1220,6 +1222,8 @@ export default function App() {
 
   const handleEmailSignup = async () => {
     if (!checkTermos) { setAuthError("Você precisa aceitar os Termos de Uso para criar uma conta."); return; }
+    if (!validarEmail(form.email)) { setAuthError("E-mail inválido. Confira e tente novamente."); return; }
+    if (form.senha.length < 6) { setAuthError("A senha deve ter pelo menos 6 caracteres."); return; }
     setAuthError(""); setAuthLoading(true);
     const { error } = await supabase.auth.signUp({ email: form.email, password: form.senha });
     if (error) {
@@ -1997,6 +2001,10 @@ export default function App() {
   const handlePortfolioUpload = async (file: File) => {
     if (!session?.user) return;
     if (portfolioUrls.length >= 3) { setToastError("Máximo de 3 fotos no portfólio."); return; }
+    if (file.size > 5 * 1024 * 1024) {
+      setToastError("❌ Foto muito grande. Use uma imagem menor que 5 MB.");
+      return;
+    }
     setUploadingPortfolio(true);
     const idx = portfolioUrls.length;
     const path = `${session.user.id}_portfolio_${idx}_${Date.now()}.jpg`;
@@ -2325,24 +2333,6 @@ export default function App() {
     } finally {
       setSuporteDigitando(false);
     }
-  };
-
-  // Envia avaliação de um diarista
-  const enviarAvaliacao = async (diaristaId: number) => {
-    if (!session?.user || notaForm === 0) return;
-    setEnviandoAvaliacao(true);
-    const { data, error } = await supabase
-      .from("avaliacoes")
-      .insert({ empregador_id: session.user.id, diarista_id: diaristaId, nota: notaForm, comentario: comentarioForm.trim() })
-      .select("id, empregador_id, nota, comentario, created_at")
-      .single();
-    if (error) { setAuthError("Erro ao enviar avaliação: " + error.message); setEnviandoAvaliacao(false); return; }
-    if (data) {
-      setAvaliacoes(prev => [data, ...prev]);
-      setNotaForm(0);
-      setComentarioForm("");
-    }
-    setEnviandoAvaliacao(false);
   };
 
   // Salva disponibilidade no banco ao clicar no toggle

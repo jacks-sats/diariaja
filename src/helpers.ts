@@ -115,6 +115,26 @@ export const maskCNPJ = (v: string): string => {
   return v;
 };
 
+// ── Validação de e-mail (formato básico, espelha a checagem do Supabase) ─────
+export function validarEmail(email: string): boolean {
+  const e = email.trim();
+  if (e.length < 5 || e.length > 254) return false;
+  // local@dominio.tld — sem espaços, com pelo menos um ponto no domínio
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
+// ── Validação de telefone brasileiro (10 ou 11 dígitos, com ou sem máscara) ──
+// 10 dígitos: fixo (XX XXXX-XXXX); 11 dígitos: celular (XX 9XXXX-XXXX).
+export function validarTelefone(telefone: string): boolean {
+  const t = telefone.replace(/\D/g, "");
+  if (t.length !== 10 && t.length !== 11) return false;
+  // DDD válido (11 a 99); 11 dígitos exige 9 no primeiro dígito após o DDD
+  const ddd = parseInt(t.slice(0, 2), 10);
+  if (ddd < 11 || ddd > 99) return false;
+  if (t.length === 11 && t[2] !== "9") return false;
+  return true;
+}
+
 // ── Distância geográfica (fórmula de Haversine) ───────────────────────────────
 export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
