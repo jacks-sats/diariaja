@@ -15,7 +15,14 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: system-ui, sans-serif; background: var(--bg-app, #f0f2f5); transition: background .3s; }
+      body {
+        font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg-app, #f0f2f5);
+        transition: background .3s;
+        font-feature-settings: "cv11", "ss01"; /* numerais e detalhes mais modernos */
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
 
       /* ── Variáveis padrão (light mode) ── */
       :root {

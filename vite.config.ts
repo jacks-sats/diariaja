@@ -17,6 +17,8 @@ export default defineConfig({
             // (qrcode.react, leve) — ambos já são lazy-loaded no app
             if (id.includes("html5-qrcode")) return "qr-reader";
             if (id.includes("qrcode")) return "qr-gen";
+            // Ícones Lucide em chunk próprio (tree-shaken)
+            if (id.includes("lucide-react")) return "icons";
             // Restante de node_modules
             return "vendor";
           }
