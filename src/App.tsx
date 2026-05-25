@@ -23,6 +23,35 @@ const QRCodeSVG = React.lazy(() =>
 
 // ── Helper de haptic feedback (vibração curta nos toques importantes) ───────
 const hapticTick = () => { try { navigator.vibrate?.(8); } catch {} };
+// Vibração mais forte para confirmações importantes (aceitar diária, etc.)
+const hapticConfirm = () => { try { navigator.vibrate?.([100, 50, 200]); } catch {} };
+
+// ── Wrapper pra disparar push notification via Edge Function send-push ──────
+type PushTipo = "mensagem" | "vaga_proxima" | "candidatura" | "selecionado" | "confirmacao" | "default";
+async function enviarPush(
+  userIds: string[],
+  title: string,
+  body: string,
+  opts: { tipo?: PushTipo; url?: string } = {},
+) {
+  if (!userIds.length) return;
+  try {
+    const { data: { session: sess } } = await supabase.auth.getSession();
+    await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${sess?.access_token ?? SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        user_ids: userIds, title, body,
+        tipo: opts.tipo || "default",
+        url: opts.url || "/",
+      }),
+    });
+  } catch { /* push é best-effort — falhas não interrompem o fluxo */ }
+}
 // ── Separação de concerns ────────────────────────────────────────────────────
 import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite, ReputacaoEmpregador } from "./types";
 import {
@@ -1703,6 +1732,17 @@ export default function App() {
     if (error) { setScanMsg({ ok:false, txt:"Erro: " + error.message }); return; }
     setScanMsg({ ok:true, txt:"✅ Início confirmado! A diária está em andamento." });
     setDiarias(prev => prev.map(d => d.id === diariaId ? { ...d, status:"em_andamento" } : d));
+    hapticConfirm();
+    // Push pro diarista: o empregador confirmou sua chegada
+    const diaria = diarias.find(d => d.id === diariaId);
+    if (diaria?.diarista_aceite_id) {
+      enviarPush(
+        [diaria.diarista_aceite_id],
+        "Chegada confirmada ✅",
+        `${profile?.nome_negocio || "O contratante"} confirmou sua presença. Bom trabalho!`,
+        { tipo: "confirmacao", url: "/" },
+      );
+    }
   };
 
   // Empregador marca diária como concluída
@@ -2053,6 +2093,14 @@ export default function App() {
       setMensagensReais(prev => [...prev, novaMsg]);
       setMsgInputReal("");
       setTimeout(() => mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      // Push pro destinatário
+      const remNome = profile?.nome?.split(" ")[0] || (tipo === "diarista" ? "Diarista" : "Contratante");
+      enviarPush(
+        [destinatario],
+        `Mensagem de ${remNome}`,
+        textoMsg.length > 80 ? textoMsg.slice(0, 80) + "…" : textoMsg,
+        { tipo: "mensagem", url: "/" },
+      );
     }
     setEnviandoMsgReal(false);
   };
@@ -2115,7 +2163,16 @@ export default function App() {
     if (error) { setAuthError("Erro ao registrar interesse: " + error.message); return; }
     trackEvento("candidatura_enviada", session?.user?.id, "diarista", { diaria_id: diaria.id, funcao: diaria.funcao });
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "pendente" }));
-    setVagaConfirmada(true); // reutiliza o estado de feedback
+    setVagaConfirmada(true);
+    hapticConfirm();
+
+    // Push pro empregador: alguém demonstrou interesse na vaga dele
+    enviarPush(
+      [diaria.empregador_id],
+      "Novo interessado na sua vaga",
+      `${profile?.nome?.split(" ")[0] || "Um diarista"} demonstrou interesse em "${diaria.funcao || diaria.segmento}".`,
+      { tipo: "candidatura", url: "/" },
+    );
 
     // Verifica se a vaga atingiu o limite de 5 interessados → some do feed
     const { count } = await supabase
@@ -2159,6 +2216,15 @@ export default function App() {
     // 2. Atualiza candidaturas
     await supabase.from("candidaturas").update({ status: "selecionado" }).eq("diaria_id", diaria.id).eq("diarista_id", diaristaId);
     await supabase.from("candidaturas").update({ status: "rejeitado"  }).eq("diaria_id", diaria.id).neq("diarista_id", diaristaId);
+
+    // 3. Push pro diarista escolhido + pros rejeitados (atualiza a sensação)
+    enviarPush(
+      [diaristaId],
+      "🎯 Você foi escolhido!",
+      `${profile?.nome_negocio || "Um contratante"} te selecionou pra "${diaria.funcao || diaria.segmento}". Abra o app pra confirmar.`,
+      { tipo: "selecionado", url: "/" },
+    );
+    hapticConfirm();
 
     // 3. Atualiza estado local
     setDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "pendente", diarista_aceite_id: diaristaId } : d));
