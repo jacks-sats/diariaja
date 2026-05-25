@@ -1,8 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import { Session } from "@supabase/supabase-js";
 import MapComponent from "./MapComponent";
-import { QRCodeSVG } from "qrcode.react";
+// QRCodeSVG é carregado sob demanda — economiza ~117KB gzip no startup
+const QRCodeSVG = React.lazy(() =>
+  import("qrcode.react").then(m => ({ default: m.QRCodeSVG })),
+);
 // ── Separação de concerns ────────────────────────────────────────────────────
 import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite, ReputacaoEmpregador } from "./types";
 import {
@@ -287,6 +290,13 @@ export default function App() {
 
   // Reputação dos empregadores indexada por id (cache para os cards de vaga)
   const [reputacaoEmp, setReputacaoEmp] = useState<Record<string, ReputacaoEmpregador>>({});
+
+  // Perfil do empregador aberto pelo diarista (tela "perfil-empregador")
+  const [empregadorAberto, setEmpregadorAberto] = useState<UserProfile | null>(null);
+  const [avaliacoesEmpAbertas, setAvaliacoesEmpAbertas] = useState<
+    { id: string; nota: number; comentario?: string; pagou_combinado?: boolean | null; cumpriu_combinado?: boolean | null; created_at: string; diarista_nome?: string }[]
+  >([]);
+  const [carregandoEmpAberto, setCarregandoEmpAberto] = useState(false);
 
   // Não tenho interesse — IDs de vagas ocultas pelo diarista
   const [vagasIgnoradas, setVagasIgnoradas] = useState<Set<string>>(() => {
@@ -716,6 +726,72 @@ export default function App() {
       }
     })();
   }, [tela, session?.user?.id]);
+
+  // ── Carrega avaliações detalhadas quando o diarista abre o perfil do empregador
+  useEffect(() => {
+    if (tela !== "perfil-empregador" || !empregadorAberto) return;
+    setCarregandoEmpAberto(true);
+    (async () => {
+      // Avaliações com nome do diarista que avaliou (sem revelar contato)
+      const { data: avs } = await supabase
+        .from("avaliacoes_empregador")
+        .select("id, nota, comentario, pagou_combinado, cumpriu_combinado, created_at, diarista_id")
+        .eq("empregador_id", empregadorAberto.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (avs) {
+        // Busca nomes dos diaristas que avaliaram
+        const dids = [...new Set(avs.map((a: any) => a.diarista_id).filter(Boolean))];
+        let nomes: Record<string, string> = {};
+        if (dids.length > 0) {
+          const { data: profs } = await supabase
+            .from("user_profiles")
+            .select("id, nome")
+            .in("id", dids);
+          (profs ?? []).forEach((p: any) => { nomes[p.id] = p.nome; });
+        }
+        setAvaliacoesEmpAbertas(
+          avs.map((a: any) => ({ ...a, diarista_nome: nomes[a.diarista_id] || "Diarista" })),
+        );
+      }
+      // Carrega reputação agregada se ainda não estiver em cache
+      if (!reputacaoEmp[empregadorAberto.id]) {
+        const { data: rep } = await supabase
+          .from("reputacao_empregadores")
+          .select("*")
+          .eq("empregador_id", empregadorAberto.id)
+          .maybeSingle();
+        if (rep) setReputacaoEmp(prev => ({ ...prev, [empregadorAberto.id]: rep }));
+      }
+      setCarregandoEmpAberto(false);
+    })();
+  }, [tela, empregadorAberto?.id]);
+
+  // Abre a tela do perfil do empregador (diarista clica num card de vaga)
+  const abrirPerfilEmpregador = async (empregadorId: string) => {
+    if (!empregadorId) return;
+    showLoadingBar();
+    const cache = empregadoresProfiles[empregadorId];
+    if (cache && cache.nome) {
+      setEmpregadorAberto(cache as UserProfile);
+      setTela("perfil-empregador");
+      hideLoadingBar();
+      return;
+    }
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .eq("id", empregadorId)
+      .maybeSingle();
+    hideLoadingBar();
+    if (data) {
+      setEmpregadoresProfiles(prev => ({ ...prev, [empregadorId]: data }));
+      setEmpregadorAberto(data);
+      setTela("perfil-empregador");
+    } else {
+      setToastError("Não foi possível carregar o perfil do contratante.");
+    }
+  };
 
   // ── Envia a avaliação obrigatória do empregador (modal full-screen) ────────
   const enviarAvaliacaoEmpObrigatoria = async () => {
@@ -1298,6 +1374,11 @@ export default function App() {
       setAgenda(data.agenda || []);
       setFotoUrl(data.foto_url || null);
       setCategorias(data.categorias || []);
+      // Portfólio agora vem do banco — sobrevive a troca de aparelho
+      if (Array.isArray(data.portfolio_urls)) {
+        setPortfolioUrls(data.portfolio_urls);
+        try { localStorage.setItem("diariaja_portfolio", JSON.stringify(data.portfolio_urls)); } catch {}
+      }
       // Carrega assinatura ativa
       supabase.from("assinaturas").select("*").eq("user_id", userId).eq("status", "ativo").maybeSingle()
         .then(({ data: sub }) => setAssinatura(sub || null));
@@ -1305,7 +1386,8 @@ export default function App() {
       const modoSalvo = localStorage.getItem("diariaja_modo") as "empregador"|"diarista" | null;
       const telaSalva = (() => { try { return localStorage.getItem("diariaja_tela") || ""; } catch { return ""; } })();
       // Telas que NÃO devem ser restauradas (requerem autenticação/fluxo limpo)
-      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao"]);
+      // Telas que dependem de seleção em memória (não restaurar do localStorage)
+      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat"]);
       const podeRestaurar = (t: string) => t && !TELAS_AUTH.has(t);
 
       if (data.user_type === "diarista") {
@@ -2192,15 +2274,31 @@ export default function App() {
     const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
     const novas = [...portfolioUrls, urlData.publicUrl];
     setPortfolioUrls(novas);
-    localStorage.setItem("diariaja_portfolio", JSON.stringify(novas));
+    localStorage.setItem("diariaja_portfolio", JSON.stringify(novas)); // cache local
+    const { error: upErr } = await supabase
+      .from("user_profiles")
+      .update({ portfolio_urls: novas })
+      .eq("id", session.user.id);
+    if (upErr) setToastError("Foto subida, mas falhou ao sincronizar com o banco.");
     setUploadingPortfolio(false);
-    setToastSuccess("📸 Foto adicionada ao portfólio!");
+    if (!upErr) setToastSuccess("📸 Foto adicionada ao portfólio!");
   };
 
-  const removerFotoPortfolio = (idx: number) => {
+  const removerFotoPortfolio = async (idx: number) => {
+    if (!session?.user) return;
+    const urlAntiga = portfolioUrls[idx];
     const novas = portfolioUrls.filter((_, i) => i !== idx);
     setPortfolioUrls(novas);
     localStorage.setItem("diariaja_portfolio", JSON.stringify(novas));
+    await supabase
+      .from("user_profiles")
+      .update({ portfolio_urls: novas })
+      .eq("id", session.user.id);
+    // Tenta apagar do Storage também (a URL termina em ".../object/public/avatars/<path>")
+    try {
+      const match = urlAntiga?.match(/\/avatars\/(.+)$/);
+      if (match?.[1]) await supabase.storage.from("avatars").remove([match[1]]);
+    } catch { /* silencioso — o registro no banco já saiu */ }
   };
 
   const aceitarVaga = async (diaria: Diaria) => {
@@ -6759,13 +6857,16 @@ export default function App() {
                           const fotoEmpStorage = supabase.storage.from("avatars").getPublicUrl(`${dia.empregador_id}.jpg`).data.publicUrl;
                           const fotoEmpSrc = emp?.foto_url || fotoEmpStorage;
                           return (
-                            <div style={{ position:"relative", width:60, height:60, flexShrink:0 }}>
+                            <button
+                              aria-label={`Ver perfil de ${emp?.nome || dia.nome_negocio || "contratante"}`}
+                              onClick={e => { e.stopPropagation(); abrirPerfilEmpregador(dia.empregador_id); }}
+                              style={{ position:"relative", width:60, height:60, flexShrink:0, padding:0, background:"transparent", border:"none", cursor:"pointer", borderRadius:30 }}>
                               <div style={{ width:60, height:60, borderRadius:30, background:cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:iniciais.length > 2 ? 18 : 22, boxShadow:`0 4px 12px ${cor}55`, letterSpacing:"-1px" }}>
                                 {iniciais}
                               </div>
                               <img src={fotoEmpSrc} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }}
                                 style={{ position:"absolute", inset:0, width:60, height:60, borderRadius:30, objectFit:"cover" as const, border:`3px solid ${cor}` }} />
-                            </div>
+                            </button>
                           );
                         })()}
 
@@ -7975,6 +8076,17 @@ export default function App() {
                                 ⚠️ Outros diaristas relataram problemas — leia as avaliações antes de aceitar.
                               </div>
                             )}
+                            <button
+                              onClick={() => { setVagaConfirm(null); abrirPerfilEmpregador(vagaConfirm.empregador_id); }}
+                              style={{
+                                marginTop:10, width:"100%", padding:"10px",
+                                background:"transparent",
+                                border: alerta ? "1.5px solid #fecaca" : "1.5px solid #fed7aa",
+                                color: alerta ? "#991b1b" : "#9a4218",
+                                borderRadius:10, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"system-ui,sans-serif",
+                              }}>
+                              👤 Ver perfil completo do contratante
+                            </button>
                           </div>
                         );
                       })()}
@@ -8199,13 +8311,15 @@ export default function App() {
               </div>
               {/* QR */}
               <div style={{ display:"flex", justifyContent:"center", background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:20, marginBottom:16 }}>
-                <QRCodeSVG
-                  value={`DIARIAJA:${qrDiaria.id}`}
-                  size={200}
-                  bgColor="#f8fafc"
-                  fgColor="#0f172a"
-                  level="H"
-                />
+                <Suspense fallback={<div style={{ width:200, height:200, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--text-3,#94a3b8)", fontSize:13 }}>Carregando QR…</div>}>
+                  <QRCodeSVG
+                    value={`DIARIAJA:${qrDiaria.id}`}
+                    size={200}
+                    bgColor="#f8fafc"
+                    fgColor="#0f172a"
+                    level="H"
+                  />
+                </Suspense>
               </div>
               {/* Info da diária */}
               <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px", marginBottom:16, textAlign:"left" }}>
@@ -8756,6 +8870,159 @@ export default function App() {
           <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, textAlign:"center", marginTop:8, lineHeight:1.5 }}>
             Você pode atualizar o CEP a qualquer momento no seu perfil.
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // PERFIL DO EMPREGADOR (diarista vê quem está contratando, com reputação e
+  // comentários de outros diaristas que já trabalharam com ele)
+  if (tela === "perfil-empregador" && empregadorAberto) {
+    const emp = empregadorAberto;
+    const rep = reputacaoEmp[emp.id];
+    const corE = negocio?.cor || "#FF6B35";
+    const iniciaisEmp = (emp.nome || "?").split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase();
+    const fotoStorageEmp = supabase.storage.from("avatars").getPublicUrl(`${emp.id}.jpg`).data.publicUrl;
+    const fotoEmp = emp.foto_url || fotoStorageEmp;
+    const alerta = !!(rep && (
+      (typeof rep.pct_pagou_combinado === "number" && rep.pct_pagou_combinado < 50) ||
+      (typeof rep.pct_cumpriu_combinado === "number" && rep.pct_cumpriu_combinado < 50)
+    ));
+    return (
+      <div style={S.appShell}>
+        <div style={{ padding:"12px 16px 0" }}>
+          <button style={S.back} onClick={() => { setEmpregadorAberto(null); setAvaliacoesEmpAbertas([]); setTela("home-diarista"); }}>← Voltar</button>
+        </div>
+
+        <div style={{ padding:"12px 18px 100px" }}>
+          {/* Cabeçalho */}
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"22px 18px", boxShadow:"0 2px 12px rgba(0,0,0,.07)", textAlign:"center" as const }}>
+            <div style={{ position:"relative", width:88, height:88, margin:"0 auto 12px" }}>
+              <div style={{ width:88, height:88, borderRadius:44, background:corE, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:28, boxShadow:`0 6px 18px ${corE}55` }}>
+                {iniciaisEmp}
+              </div>
+              <img src={fotoEmp} alt={`Foto de ${emp.nome}`} onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                style={{ position:"absolute", inset:0, width:88, height:88, borderRadius:44, objectFit:"cover" as const, border:`3px solid ${corE}` }} />
+            </div>
+            <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>{emp.nome}</div>
+            {emp.segmento && (
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:4 }}>{emp.segmento}</div>
+            )}
+            {emp.plano_ativo && emp.plano_ativo !== "gratis" && (
+              <div style={{ display:"inline-block", marginTop:8, background:"#dbeafe", color:"#1d4ed8", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800 }}>
+                ✅ Contratante verificado
+              </div>
+            )}
+          </div>
+
+          {/* Bloco de reputação */}
+          <div style={{
+            background: rep ? (alerta ? "#fef2f2" : "#fff4ec") : "var(--bg-card,#fff)",
+            border: rep ? (alerta ? "1.5px solid #fecaca" : "1.5px solid #fed7aa") : "1px solid var(--border,#e2e8f0)",
+            borderRadius:18, padding:"16px 18px", marginTop:14,
+          }}>
+            <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:10 }}>
+              Reputação
+            </div>
+            {!rep || !rep.total_avaliacoes ? (
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+                🆕 Contratante novo — nenhuma avaliação ainda. Vá com cautela e combine tudo por escrito antes.
+              </div>
+            ) : (
+              <>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:12 }}>
+                  <span style={{ fontSize:28, fontWeight:900, color: alerta ? "#991b1b" : "#d97706" }}>
+                    ★ {rep.nota_media?.toFixed?.(1) ?? rep.nota_media}
+                  </span>
+                  <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>
+                    {rep.total_avaliacoes} avaliaç{rep.total_avaliacoes === 1 ? "ão" : "ões"}
+                  </span>
+                </div>
+                {typeof rep.pct_pagou_combinado === "number" && (
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"6px 0", borderTop:"1px solid rgba(0,0,0,.05)" }}>
+                    <span style={{ color:"var(--text-2,#64748b)" }}>💰 Paga o combinado</span>
+                    <strong style={{ color: rep.pct_pagou_combinado >= 80 ? "#16a34a" : rep.pct_pagou_combinado >= 50 ? "#d97706" : "#dc2626" }}>
+                      {rep.pct_pagou_combinado}%
+                    </strong>
+                  </div>
+                )}
+                {typeof rep.pct_cumpriu_combinado === "number" && (
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"6px 0", borderTop:"1px solid rgba(0,0,0,.05)" }}>
+                    <span style={{ color:"var(--text-2,#64748b)" }}>✅ Cumpre o combinado</span>
+                    <strong style={{ color: rep.pct_cumpriu_combinado >= 80 ? "#16a34a" : rep.pct_cumpriu_combinado >= 50 ? "#d97706" : "#dc2626" }}>
+                      {rep.pct_cumpriu_combinado}%
+                    </strong>
+                  </div>
+                )}
+                {alerta && (
+                  <div style={{ marginTop:10, fontSize:12, color:"#991b1b", fontWeight:700, lineHeight:1.4 }}>
+                    ⚠️ Outros diaristas relataram problemas. Leia os comentários abaixo antes de aceitar.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Comentários */}
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"16px 18px", marginTop:14, boxShadow:"0 2px 12px rgba(0,0,0,.07)" }}>
+            <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:10 }}>
+              Comentários de outros diaristas
+            </div>
+            {carregandoEmpAberto ? (
+              <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", textAlign:"center" as const, padding:"12px 0" }}>Carregando…</div>
+            ) : avaliacoesEmpAbertas.length === 0 ? (
+              <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", textAlign:"center" as const, padding:"12px 0" }}>
+                Nenhum comentário ainda.
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {avaliacoesEmpAbertas.map(av => (
+                  <div key={av.id} style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"10px 12px" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                        <span style={{ color:"#d97706", fontWeight:900, fontSize:13 }}>
+                          {"★".repeat(av.nota)}{"☆".repeat(5 - av.nota)}
+                        </span>
+                        <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:700 }}>
+                          {av.diarista_nome?.split(" ")[0]}
+                        </span>
+                      </div>
+                      <span style={{ fontSize:10, color:"var(--text-3,#94a3b8)" }}>
+                        {new Date(av.created_at).toLocaleDateString("pt-BR")}
+                      </span>
+                    </div>
+                    {(av.pagou_combinado !== null && av.pagou_combinado !== undefined) || (av.cumpriu_combinado !== null && av.cumpriu_combinado !== undefined) ? (
+                      <div style={{ display:"flex", gap:6, marginBottom:6, flexWrap:"wrap" }}>
+                        {av.pagou_combinado !== null && av.pagou_combinado !== undefined && (
+                          <span style={{
+                            fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:10,
+                            background: av.pagou_combinado ? "#dcfce7" : "#fee2e2",
+                            color: av.pagou_combinado ? "#16a34a" : "#dc2626",
+                          }}>
+                            {av.pagou_combinado ? "💰 Pagou" : "💸 Não pagou"}
+                          </span>
+                        )}
+                        {av.cumpriu_combinado !== null && av.cumpriu_combinado !== undefined && (
+                          <span style={{
+                            fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:10,
+                            background: av.cumpriu_combinado ? "#dbeafe" : "#fee2e2",
+                            color: av.cumpriu_combinado ? "#1d4ed8" : "#dc2626",
+                          }}>
+                            {av.cumpriu_combinado ? "✅ Cumpriu" : "❌ Não cumpriu"}
+                          </span>
+                        )}
+                      </div>
+                    ) : null}
+                    {av.comentario && (
+                      <div style={{ fontSize:12, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>
+                        "{av.comentario}"
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );

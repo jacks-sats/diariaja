@@ -69,6 +69,7 @@ export interface UserProfile {
   mp_access_token?: string;
   plano_ativo?: string;       // 'gratis' | 'destaque'
   is_admin?: boolean;
+  portfolio_urls?: string[];  // até 3 fotos do trabalho (diarista)
 }
 
 export interface Topico {
