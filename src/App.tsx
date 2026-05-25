@@ -23,7 +23,7 @@ const QRCodeSVG = React.lazy(() =>
 
 // ── Helper de haptic feedback (vibração curta nos toques importantes) ───────
 const hapticTick = () => { try { navigator.vibrate?.(8); } catch {} };
-// Vibração mais forte para confirmações importantes (aceitar diária, etc.)
+// Vibração mais forte para confirmações importantes (verificação, aceite, etc.)
 const hapticConfirm = () => { try { navigator.vibrate?.([100, 50, 200]); } catch {} };
 
 // ── Wrapper pra disparar push notification via Edge Function send-push ──────
@@ -65,6 +65,7 @@ import {
   detectarContatoExterno, validarCPF, maskCPF, maskCNPJ, haversineKm,
   validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
+  calcularNivelConfiabilidade,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -3485,6 +3486,66 @@ export default function App() {
           </div>
         </div>
 
+        {/* ── Painel de Nível de Confiabilidade ──────────────────────────── */}
+        {(() => {
+          const nivelConf = calcularNivelConfiabilidade({
+            telefone_verificado: profile?.telefone_verificado || telefoneVerificado,
+            email_confirmado: !!session?.user?.email_confirmed_at,
+            cpf: profile?.cpf, cnpj: profile?.cnpj,
+            documento_status: profile?.documento_status,
+            mfa_enabled: false,
+          });
+          const pct = (nivelConf.nivel / 4) * 100;
+          return (
+            <div style={{ padding:"16px 16px 4px" }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Confiabilidade</div>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:6 }}>
+                  <div style={{ display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <ShieldCheck size={18} color={nivelConf.cor} />
+                    <strong style={{ fontSize:15, color:"var(--text-1,#0f172a)" }}>Nível {nivelConf.nivel} — {nivelConf.nome}</strong>
+                  </div>
+                  <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{nivelConf.nivel}/4</span>
+                </div>
+                {/* Barra de progresso */}
+                <div style={{ height:6, background:"var(--bg-subtle,#f1f5f9)", borderRadius:3, overflow:"hidden", marginBottom:12 }}>
+                  <div style={{ width:`${pct}%`, height:"100%", background:nivelConf.cor, transition:"width .4s" }} />
+                </div>
+                {/* Pendências */}
+                {nivelConf.pendencias.length > 0 ? (
+                  <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                    {nivelConf.pendencias.map((p, i) => (
+                      <div key={i} style={{ fontSize:12, color:"var(--text-2,#64748b)", display:"flex", alignItems:"center", gap:6 }}>
+                        <span style={{ width:6, height:6, borderRadius:3, background:nivelConf.cor, flexShrink:0 }} />
+                        {p}
+                      </div>
+                    ))}
+                    {/* CTAs específicos */}
+                    {!(profile?.telefone_verificado || telefoneVerificado) && (
+                      <button
+                        style={{ marginTop:10, padding:"10px 14px", background:nivelConf.cor, color:"#fff", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                        onClick={() => { hapticTick(); setTela("verificar-telefone"); }}>
+                        📱 Verificar telefone agora
+                      </button>
+                    )}
+                    {(profile?.telefone_verificado || telefoneVerificado) && !profile?.cpf && !profile?.cnpj && (
+                      <button
+                        style={{ marginTop:10, padding:"10px 14px", background:nivelConf.cor, color:"#fff", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                        onClick={() => { hapticTick(); setTela(modoAtual === "diarista" ? "editar-perfil" : "editar-perfil-empregador"); }}>
+                        🆔 Adicionar CPF / CNPJ
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ fontSize:12, color:"#16a34a", fontWeight:700, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <CheckCircle2 size={14} /> Tudo verificado!
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Conta */}
         <div style={{ padding:"16px 16px 4px" }}>
           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Minha conta</div>
@@ -3704,6 +3765,13 @@ export default function App() {
 
   // VERIFICAR TELEFONE
   if (tela === "verificar-telefone") {
+    // Normaliza telefone BR pra formato E.164 (ex: "67 99988-7766" → "+5567999887766")
+    const formatarE164 = (tel: string): string | null => {
+      const digits = tel.replace(/\D/g, "");
+      if (digits.length === 11) return `+55${digits}`;
+      if (digits.length === 13 && digits.startsWith("55")) return `+${digits}`;
+      return null;
+    };
     return (
       <div style={S.page}>
         <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
@@ -3712,16 +3780,17 @@ export default function App() {
           <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"20px", textAlign:"center" }}>
             <div style={{ fontSize:40, marginBottom:12 }}>✅</div>
             <div style={{ fontWeight:900, fontSize:16, color:"#166534", marginBottom:8 }}>Telefone verificado!</div>
-            <div style={{ fontSize:13, color:"#16a34a", lineHeight:1.5 }}>Seu número foi confirmado. Isso aumenta sua confiabilidade na plataforma.</div>
+            <div style={{ fontSize:13, color:"#16a34a", lineHeight:1.5 }}>Seu número foi confirmado. Você atingiu o Nível Básico de confiabilidade.</div>
           </div>
         ) : (
           <>
             <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
-              Verificar seu número de telefone aumenta seu score de confiança e sua visibilidade para contratantes.
+              Verificar seu telefone é o primeiro passo da progressão de confiabilidade.
+              Receberá um SMS com um código de 6 dígitos.
             </p>
             {etapaVerifTel === "input" ? (
               <>
-                <label style={S.label}>Seu número de WhatsApp</label>
+                <label style={S.label}>Seu número de celular (com DDD)</label>
                 <input style={S.input} type="tel" placeholder="(67) 99999-9999" value={form.telefone}
                   onChange={e => setForm({...form, telefone: e.target.value})} />
                 {authError && <p style={{ color:"#ef4444", fontSize:13, marginBottom:12 }}>{authError}</p>}
@@ -3729,20 +3798,38 @@ export default function App() {
                   disabled={enviandoVerif}
                   onClick={async () => {
                     setAuthError("");
-                    if (!form.telefone.trim()) { setAuthError("Informe seu número de telefone."); return; }
+                    if (!validarTelefone(form.telefone)) {
+                      setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX.");
+                      return;
+                    }
+                    const e164 = formatarE164(form.telefone);
+                    if (!e164) { setAuthError("Não consegui formatar o número."); return; }
                     setEnviandoVerif(true);
-                    // Salva o telefone e marca como "verificação enviada"
+                    // Tenta enviar OTP real via Supabase. Se o provider de SMS
+                    // não estiver configurado no Dashboard, cai no fallback.
+                    const { error } = await supabase.auth.updateUser({ phone: e164 });
+                    setEnviandoVerif(false);
+                    if (error) {
+                      const msg = error.message?.toLowerCase() || "";
+                      if (msg.includes("sms") || msg.includes("phone") || msg.includes("provider")) {
+                        setAuthError("📵 SMS ainda não disponível na plataforma. Em breve liberamos esta verificação. Continue usando o app normalmente.");
+                      } else {
+                        setAuthError("Erro: " + error.message);
+                      }
+                      return;
+                    }
+                    // Salva o telefone e marca aguardando código
                     await saveProfile({ telefone: form.telefone.trim() });
                     setEtapaVerifTel("codigo");
-                    setEnviandoVerif(false);
+                    setToastSuccess("📲 Código enviado por SMS");
                   }}>
-                  {enviandoVerif ? "Enviando..." : "📲 Enviar código de verificação"}
+                  {enviandoVerif ? "Enviando..." : "📲 Enviar código por SMS"}
                 </button>
               </>
             ) : (
               <>
                 <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"14px 16px", marginBottom:16, fontSize:13, color:"#166534", lineHeight:1.5 }}>
-                  📲 Um código foi enviado para <strong>{form.telefone}</strong> via WhatsApp.
+                  📲 Um código foi enviado por SMS para <strong>{form.telefone}</strong>. Pode levar até 1 minuto pra chegar.
                 </div>
                 <label style={S.label}>Código de verificação</label>
                 <input style={{ ...S.input, letterSpacing:8, fontSize:20, textAlign:"center" as const }}
@@ -3754,14 +3841,27 @@ export default function App() {
                   onClick={async () => {
                     setAuthError("");
                     if (codigoVerifInput.length < 6) { setAuthError("Digite o código de 6 dígitos."); return; }
+                    const e164 = formatarE164(form.telefone);
+                    if (!e164) { setAuthError("Erro ao reformatar número."); return; }
                     setEnviandoVerif(true);
-                    // Simulação: aceita qualquer código de 6 dígitos (substituir por validação real)
-                    await new Promise(r => setTimeout(r, 800));
+                    // Valida o OTP de verdade no Supabase
+                    const { error } = await supabase.auth.verifyOtp({
+                      phone: e164,
+                      token: codigoVerifInput,
+                      type: "phone_change",
+                    });
+                    if (error) {
+                      setEnviandoVerif(false);
+                      setAuthError("Código inválido ou expirado. Tente novamente.");
+                      return;
+                    }
+                    // Persiste no perfil: agora é oficialmente verificado
+                    await saveProfile({ telefone: form.telefone.trim(), telefone_verificado: true } as any);
                     setTelefoneVerificado(true);
                     try { localStorage.setItem("diariaja_tel_verif","1"); } catch {}
-                    await saveProfile({ telefone: form.telefone.trim() });
+                    hapticConfirm();
                     setEnviandoVerif(false);
-                    setToastSuccess("✅ Telefone verificado com sucesso!");
+                    setToastSuccess("✅ Telefone verificado — Nível Básico desbloqueado!");
                     setTela("configuracoes");
                   }}>
                   {enviandoVerif ? "Verificando..." : "Confirmar código"}
@@ -8070,13 +8170,31 @@ export default function App() {
               <h2 style={{ ...S.perfilNome, marginBottom:2 }}>{profile?.nome}</h2>
               <div style={S.perfilRamo}>{profile?.funcao}</div>
 
-              {/* Nível */}
+              {/* Nível profissional (Bronze/Prata/Ouro/Elite) */}
               <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}>
                 <span style={{ background:nivel.cor+"22", color:nivel.cor, padding:"4px 14px", borderRadius:20, fontSize:12, fontWeight:800, border:`1px solid ${nivel.cor}44` }}>
                   {nivel.icone} {nivel.nome}
                   {nivel.proximo > 0 && <span style={{ opacity:.7, fontWeight:600 }}> · {totalConc}/{nivel.proximo} diárias</span>}
                 </span>
               </div>
+
+              {/* Nível de confiabilidade (Básico → Premium) */}
+              {(() => {
+                const nivelConf = calcularNivelConfiabilidade({
+                  telefone_verificado: profile?.telefone_verificado || telefoneVerificado,
+                  email_confirmado: !!session?.user?.email_confirmed_at,
+                  cpf: profile?.cpf, cnpj: profile?.cnpj,
+                  documento_status: profile?.documento_status,
+                  mfa_enabled: false, // 2FA ainda não integrado
+                });
+                return (
+                  <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}>
+                    <span style={{ display:"inline-flex", alignItems:"center", gap:4, background: nivelConf.cor+"22", color: nivelConf.cor, padding:"4px 14px", borderRadius:20, fontSize:12, fontWeight:800, border:`1px solid ${nivelConf.cor}44` }}>
+                      <ShieldCheck size={12} /> Nível {nivelConf.nivel} · {nivelConf.nome}
+                    </span>
+                  </div>
+                );
+              })()}
 
               {/* Rating */}
               {mediaAval !== null && (
