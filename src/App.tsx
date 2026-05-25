@@ -25,6 +25,33 @@ const QRCodeSVG = React.lazy(() =>
 const hapticTick = () => { try { navigator.vibrate?.(8); } catch {} };
 // Vibração mais forte para confirmações importantes (verificação, aceite, etc.)
 const hapticConfirm = () => { try { navigator.vibrate?.([100, 50, 200]); } catch {} };
+
+// ── Wrapper pra disparar push notification via Edge Function send-push ──────
+type PushTipo = "mensagem" | "vaga_proxima" | "candidatura" | "selecionado" | "confirmacao" | "default";
+async function enviarPush(
+  userIds: string[],
+  title: string,
+  body: string,
+  opts: { tipo?: PushTipo; url?: string } = {},
+) {
+  if (!userIds.length) return;
+  try {
+    const { data: { session: sess } } = await supabase.auth.getSession();
+    await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${sess?.access_token ?? SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        user_ids: userIds, title, body,
+        tipo: opts.tipo || "default",
+        url: opts.url || "/",
+      }),
+    });
+  } catch { /* push é best-effort — falhas não interrompem o fluxo */ }
+}
 // ── Separação de concerns ────────────────────────────────────────────────────
 import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite, ReputacaoEmpregador } from "./types";
 import {
@@ -37,7 +64,7 @@ import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, maskCPF, maskCNPJ, haversineKm,
   validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
-  formatarDistancia, tempoEstimadoMin, formatarTempo,
+  formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
@@ -228,9 +255,16 @@ export default function App() {
 
   // Filtro/sort de vagas (diarista)
   const [modalFiltro, setModalFiltro] = useState(false);
-  const [sortVagas, setSortVagas] = useState<"recentes"|"proximas"|"menor_valor"|"maior_valor">("recentes");
+  // Default agora é "feed" (distância → recência → valor) — só altera se o
+  // usuário escolher explicitamente no menu de ordenação.
+  const [sortVagas, setSortVagas] = useState<"feed"|"recentes"|"proximas"|"menor_valor"|"maior_valor">("feed");
   const [filtroDataVaga, setFiltroDataVaga] = useState<"todas"|"hoje"|"amanha">("todas");
   const [filtroRaioKm, setFiltroRaioKm] = useState<number>(50); // raio máximo de distância
+  const [filtroValorMin, setFiltroValorMin] = useState<number>(0); // R$ mínimo (chip 0/100/150/200)
+  // Pull-to-refresh — tracking de gesto e estado de loading
+  const [puxando, setPuxando] = useState(0);      // px puxados (0–100)
+  const [recarregandoFeed, setRecarregandoFeed] = useState(false);
+  const ptrStartY = useRef<number | null>(null);
 
   // Dark mode
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -383,11 +417,23 @@ export default function App() {
   const [confirmExcluirChat, setConfirmExcluirChat] = useState(false);
   const [confirmExcluirDiariaCancelada, setConfirmExcluirDiariaCancelada] = useState<string | null>(null);
   const [confirmCancelarConvite, setConfirmCancelarConvite] = useState<string | null>(null); // convite ID
-  const [mensagensReais, setMensagensReais] = useState<{id:string,diaria_id:string,remetente_id:string,destinatario_id:string,conteudo:string,created_at:string}[]>([]);
+  const [mensagensReais, setMensagensReais] = useState<{id:string,diaria_id:string,remetente_id:string,destinatario_id:string,conteudo:string,created_at:string,lida_em?:string|null}[]>([]);
   const [msgInputReal, setMsgInputReal] = useState("");
   const [enviandoMsgReal, setEnviandoMsgReal] = useState(false);
   const mensagensEndRef = useRef<HTMLDivElement>(null);
   const fotoInputRef = useRef<HTMLInputElement>(null); // ref para o input de foto de perfil
+
+  // ── Chat v2: digitando + não-lidas por conversa ────────────────────────────
+  // outroDigitando: true se o outro lado está digitando agora (broadcast)
+  const [outroDigitando, setOutroDigitando] = useState(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const lastTypingBroadcastRef = useRef<number>(0);
+  // Não-lidas indexado por diaria_id (carregado e atualizado em tempo real)
+  const [naoLidasPorDiaria, setNaoLidasPorDiaria] = useState<Record<string, number>>({});
+  // Ref pra closures lerem o chat ativo atual sem causar re-subscribe
+  const chatDiariaAtivaRef = useRef<Diaria | null>(null);
+  useEffect(() => { chatDiariaAtivaRef.current = chatDiariaAtiva; }, [chatDiariaAtiva]);
 
   // Auto-dismiss dos toasts
   useEffect(() => {
@@ -631,17 +677,15 @@ export default function App() {
     setPosComentario("");
   };
 
-  // Carrega diárias reais publicadas por empregadores para o diarista ver
-  // Filtra vagas que já têm 5 ou mais candidatos (lotadas)
-  useEffect(() => {
-    if (tela !== "home-diarista" || !session?.user) return;
-    (async () => {
-      const { data } = await supabase
-        .from("diarias")
-        .select("*")
-        .eq("status", "aberta")
-        .neq("empregador_id", session.user.id) // BUG-M8 fix: usuário "ambos" não vê suas próprias vagas
-        .order("created_at", { ascending: false });
+  // Loader do feed do diarista — extraído pra ser reutilizável pelo pull-to-refresh
+  const carregarFeedVagas = useCallback(async () => {
+    if (!session?.user) return;
+    const { data } = await supabase
+      .from("diarias")
+      .select("*")
+      .eq("status", "aberta")
+      .neq("empregador_id", session.user.id) // BUG-M8 fix: usuário "ambos" não vê suas próprias vagas
+      .order("created_at", { ascending: false });
       if (data) {
         const ids = data.map((d: any) => d.id);
         // Conta candidaturas pendentes por vaga para ocultar vagas lotadas
@@ -680,8 +724,12 @@ export default function App() {
           }
         }
       }
-    })();
-  }, [tela, session?.user?.id]);
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    if (tela !== "home-diarista") return;
+    carregarFeedVagas();
+  }, [tela, carregarFeedVagas]);
 
   // Carrega as diárias aceitas/concluídas do próprio diarista
   useEffect(() => {
@@ -927,15 +975,12 @@ export default function App() {
         { event: "INSERT", schema: "public", table: "mensagens" },
         (payload: any) => {
           const msg = payload.new;
-          // Tabela mensagens tem: diaria_id, remetente_id, destinatario_id, conteudo
-          const paraMin = msg.destinatario_id === userId;
-          if (!paraMin) return;
+          const paraMim = msg.destinatario_id === userId;
+          if (!paraMim) return;
           setMsgNaoLidas(prev => prev + 1);
-          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            new Notification("💬 Nova mensagem!", {
-              body: (msg.content as string)?.slice(0, 100) || "Você recebeu uma mensagem",
-              icon: "/vite.svg",
-            });
+          // Não-lidas por conversa — só conta se a conversa NÃO está aberta
+          if (msg.diaria_id && msg.diaria_id !== chatDiariaAtivaRef.current?.id) {
+            setNaoLidasPorDiaria(prev => ({ ...prev, [msg.diaria_id]: (prev[msg.diaria_id] || 0) + 1 }));
           }
         }
       )
@@ -1264,38 +1309,118 @@ export default function App() {
       });
   }, [modalPix]);
 
-  // Carrega mensagens do chat ativo
+  // Carrega mensagens do chat ativo + marca como lidas as do destinatário=eu
   useEffect(() => {
     if (!chatDiariaAtiva || !session?.user) return;
+    const userId = session.user.id;
+    const diariaId = chatDiariaAtiva.id;
     (async () => {
       const { data } = await supabase
         .from("mensagens")
         .select("*")
-        .eq("diaria_id", chatDiariaAtiva.id)
+        .eq("diaria_id", diariaId)
         .order("created_at", { ascending: true });
       if (data) setMensagensReais(data);
       setTimeout(() => mensagensEndRef.current?.scrollIntoView(), 100);
-    })();
-  }, [chatDiariaAtiva?.id]);
 
-  // Realtime: novas mensagens no chat ativo
+      // Marca como lidas todas as que eu recebi nessa conversa
+      await supabase
+        .from("mensagens")
+        .update({ lida_em: new Date().toISOString() })
+        .eq("diaria_id", diariaId)
+        .eq("destinatario_id", userId)
+        .is("lida_em", null);
+      // Zera contagem local dessa conversa
+      setNaoLidasPorDiaria(prev => {
+        if (!prev[diariaId]) return prev;
+        const next = { ...prev }; delete next[diariaId];
+        return next;
+      });
+    })();
+  }, [chatDiariaAtiva?.id, session?.user?.id]);
+
+  // Realtime: novas mensagens no chat ativo + UPDATE de lida_em (✓✓)
   useEffect(() => {
     if (!chatDiariaAtiva || !session?.user) return;
+    const userId = session.user.id;
     const channel = supabase
       .channel(`mensagens-${chatDiariaAtiva.id}`)
       .on("postgres_changes" as any,
         { event: "INSERT", schema: "public", table: "mensagens", filter: `diaria_id=eq.${chatDiariaAtiva.id}` },
         (payload: any) => {
           const nova = payload.new;
-          // BUG-M7 fix: ignora mensagens enviadas pelo próprio usuário (já adicionadas otimisticamente)
-          if (nova.remetente_id === session?.user?.id) return;
+          if (nova.remetente_id === userId) return; // já adicionada otimisticamente
           setMensagensReais(prev => [...prev, nova]);
           setTimeout(() => mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-        }
+          // Como o chat está aberto, marca a recebida como lida na hora
+          supabase.from("mensagens").update({ lida_em: new Date().toISOString() }).eq("id", nova.id);
+        },
+      )
+      .on("postgres_changes" as any,
+        { event: "UPDATE", schema: "public", table: "mensagens", filter: `diaria_id=eq.${chatDiariaAtiva.id}` },
+        (payload: any) => {
+          const upd = payload.new;
+          // Atualiza lida_em na minha mensagem (mostra ✓✓ do meu lado)
+          setMensagensReais(prev => prev.map(m => m.id === upd.id ? { ...m, lida_em: upd.lida_em } : m));
+        },
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [chatDiariaAtiva?.id]);
+  }, [chatDiariaAtiva?.id, session?.user?.id]);
+
+  // ── Realtime: canal de "digitando..." (broadcast presence-style) ────────────
+  useEffect(() => {
+    if (!chatDiariaAtiva || !session?.user) return;
+    const userId = session.user.id;
+    const channel = supabase
+      .channel(`typing-${chatDiariaAtiva.id}`, { config: { broadcast: { self: false } } })
+      .on("broadcast", { event: "typing" }, (msg: any) => {
+        if (msg.payload?.user_id === userId) return;
+        setOutroDigitando(true);
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => setOutroDigitando(false), 2800);
+      })
+      .subscribe();
+    typingChannelRef.current = channel;
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      supabase.removeChannel(channel);
+      typingChannelRef.current = null;
+      setOutroDigitando(false);
+    };
+  }, [chatDiariaAtiva?.id, session?.user?.id]);
+
+  // Helper chamado no onChange do input — emite "typing" no máx 1×/2s
+  const sinalizarDigitando = useCallback(() => {
+    if (!chatDiariaAtiva || !session?.user || !typingChannelRef.current) return;
+    const agora = Date.now();
+    if (agora - lastTypingBroadcastRef.current < 2000) return;
+    lastTypingBroadcastRef.current = agora;
+    typingChannelRef.current.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { user_id: session.user.id },
+    });
+  }, [chatDiariaAtiva?.id, session?.user?.id]);
+
+  // ── Carrega contagem de não-lidas POR conversa quando entra na aba chat ─────
+  useEffect(() => {
+    if (!session?.user) return;
+    if (tabEmpregador !== "chat" && tabDiarista !== "chat") return;
+    const userId = session.user.id;
+    (async () => {
+      const { data } = await supabase
+        .from("mensagens")
+        .select("diaria_id")
+        .eq("destinatario_id", userId)
+        .is("lida_em", null);
+      if (data) {
+        const cont: Record<string, number> = {};
+        for (const m of data) cont[m.diaria_id] = (cont[m.diaria_id] || 0) + 1;
+        setNaoLidasPorDiaria(cont);
+      }
+    })();
+  }, [tabEmpregador, tabDiarista, session?.user?.id]);
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -1411,14 +1536,18 @@ export default function App() {
       const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat"]);
       const podeRestaurar = (t: string) => t && !TELAS_AUTH.has(t);
 
+      // Sem CEP cadastrado → bloqueia até resolver (feed depende de lat/lng)
+      const semCEP = !data.lat || !data.lng;
+
       if (data.user_type === "diarista") {
         setModoAtual("diarista");
-        // Restaura tela salva se for válida para diarista, senão vai para home
-        setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
+        if (semCEP) { setTela("pedir-localizacao"); }
+        else setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
       } else if (data.user_type === "ambos" && modoSalvo === "diarista" && data.funcao && data.valor_diaria) {
         // Usuário "ambos" que estava no modo diarista → volta para diarista
         setModoAtual("diarista");
-        setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
+        if (semCEP) { setTela("pedir-localizacao"); }
+        else setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
       } else {
         // "empregador" ou "ambos" → home do empregador se tiver segmento
         setModoAtual("empregador");
@@ -1693,6 +1822,17 @@ export default function App() {
     if (error) { setScanMsg({ ok:false, txt:"Erro: " + error.message }); return; }
     setScanMsg({ ok:true, txt:"✅ Início confirmado! A diária está em andamento." });
     setDiarias(prev => prev.map(d => d.id === diariaId ? { ...d, status:"em_andamento" } : d));
+    hapticConfirm();
+    // Push pro diarista: o empregador confirmou sua chegada
+    const diaria = diarias.find(d => d.id === diariaId);
+    if (diaria?.diarista_aceite_id) {
+      enviarPush(
+        [diaria.diarista_aceite_id],
+        "Chegada confirmada ✅",
+        `${profile?.nome_negocio || "O contratante"} confirmou sua presença. Bom trabalho!`,
+        { tipo: "confirmacao", url: "/" },
+      );
+    }
   };
 
   // Empregador marca diária como concluída
@@ -2043,6 +2183,14 @@ export default function App() {
       setMensagensReais(prev => [...prev, novaMsg]);
       setMsgInputReal("");
       setTimeout(() => mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      // Push pro destinatário
+      const remNome = profile?.nome?.split(" ")[0] || (tipo === "diarista" ? "Diarista" : "Contratante");
+      enviarPush(
+        [destinatario],
+        `Mensagem de ${remNome}`,
+        textoMsg.length > 80 ? textoMsg.slice(0, 80) + "…" : textoMsg,
+        { tipo: "mensagem", url: "/" },
+      );
     }
     setEnviandoMsgReal(false);
   };
@@ -2105,7 +2253,16 @@ export default function App() {
     if (error) { setAuthError("Erro ao registrar interesse: " + error.message); return; }
     trackEvento("candidatura_enviada", session?.user?.id, "diarista", { diaria_id: diaria.id, funcao: diaria.funcao });
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "pendente" }));
-    setVagaConfirmada(true); // reutiliza o estado de feedback
+    setVagaConfirmada(true);
+    hapticConfirm();
+
+    // Push pro empregador: alguém demonstrou interesse na vaga dele
+    enviarPush(
+      [diaria.empregador_id],
+      "Novo interessado na sua vaga",
+      `${profile?.nome?.split(" ")[0] || "Um diarista"} demonstrou interesse em "${diaria.funcao || diaria.segmento}".`,
+      { tipo: "candidatura", url: "/" },
+    );
 
     // Verifica se a vaga atingiu o limite de 5 interessados → some do feed
     const { count } = await supabase
@@ -2149,6 +2306,15 @@ export default function App() {
     // 2. Atualiza candidaturas
     await supabase.from("candidaturas").update({ status: "selecionado" }).eq("diaria_id", diaria.id).eq("diarista_id", diaristaId);
     await supabase.from("candidaturas").update({ status: "rejeitado"  }).eq("diaria_id", diaria.id).neq("diarista_id", diaristaId);
+
+    // 3. Push pro diarista escolhido + pros rejeitados (atualiza a sensação)
+    enviarPush(
+      [diaristaId],
+      "🎯 Você foi escolhido!",
+      `${profile?.nome_negocio || "Um contratante"} te selecionou pra "${diaria.funcao || diaria.segmento}". Abra o app pra confirmar.`,
+      { tipo: "selecionado", url: "/" },
+    );
+    hapticConfirm();
 
     // 3. Atualiza estado local
     setDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "pendente", diarista_aceite_id: diaristaId } : d));
@@ -2437,6 +2603,7 @@ export default function App() {
       valor: Number(formDiaria.valor),
       status: "aberta",
       endereco: enderecoComposto,
+      bairro: formDiaria.bairro.trim() || null,
       lat: latDiaria,
       lng: lngDiaria,
       ...(isDelivery && {
@@ -6302,7 +6469,9 @@ export default function App() {
                   }
                   <div style={{ flex:1 }}>
                     <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Diarista"}</div>
-                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)" }}>{chatDiariaAtiva.funcao} · {new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                    <div style={{ fontSize:11, color: outroDigitando ? "#16a34a" : "var(--text-2,#64748b)", fontWeight: outroDigitando ? 700 : 400 }}>
+                      {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
+                    </div>
                   </div>
                   {!confirmExcluirChat
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
@@ -6324,8 +6493,13 @@ export default function App() {
                       <div key={m.id} style={{ display:"flex", justifyContent: isMeu ? "flex-end" : "flex-start" }}>
                         <div style={{ background: isMeu ? negocio.cor : "var(--bg-card,#fff)", color: isMeu ? "#fff" : "var(--text-1,#0f172a)", borderRadius: isMeu ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding:"10px 14px", maxWidth:"75%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
                           {m.conteudo}
-                          <div style={{ fontSize:10, opacity:.6, marginTop:4, textAlign:"right" }}>
-                            {new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
+                          <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:4, fontSize:10, opacity:.7, marginTop:4 }}>
+                            <span>{new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}</span>
+                            {isMeu && (
+                              m.lida_em
+                                ? <span title="Lida" style={{ display:"inline-flex", color:"#bbf7d0", fontSize:11, fontWeight:800 }}>✓✓</span>
+                                : <span title="Enviada" style={{ display:"inline-flex", color:"#fff", opacity:.6, fontSize:11, fontWeight:800 }}>✓</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -6339,14 +6513,15 @@ export default function App() {
                     style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
                     placeholder="Digite uma mensagem..."
                     value={msgInputReal}
-                    onChange={e => setMsgInputReal(e.target.value)}
+                    onChange={e => { setMsgInputReal(e.target.value); sinalizarDigitando(); }}
                     onKeyDown={e => e.key === "Enter" && !e.shiftKey && enviarMensagemReal()}
                   />
                   <button
-                    style={{ width:44, height:44, borderRadius:22, background: msgInputReal.trim() ? negocio.cor : "#e2e8f0", border:"none", color:"#fff", fontSize:20, cursor: msgInputReal.trim() ? "pointer" : "default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
+                    aria-label="Enviar mensagem"
+                    style={{ width:44, height:44, borderRadius:22, background: msgInputReal.trim() ? negocio.cor : "#e2e8f0", border:"none", color:"#fff", cursor: msgInputReal.trim() ? "pointer" : "default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
                     disabled={!msgInputReal.trim() || enviandoMsgReal}
                     onClick={enviarMensagemReal}>
-                    ➤
+                    <Send size={18} />
                   </button>
                 </div>
                 {/* Anti-exit aviso */}
@@ -6407,19 +6582,25 @@ export default function App() {
                   {conversas.map(dia => {
                     const dp = dia.diarista_aceite_id ? diaristasAceites[dia.diarista_aceite_id] : null;
                     const iniciais = dp?.nome?.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() || "?";
+                    const nLidas = naoLidasPorDiaria[dia.id] || 0;
                     return (
                       <div key={dia.id}
                         style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
-                        onClick={() => setChatDiariaAtiva(dia)}>
+                        onClick={() => { hapticTick(); setChatDiariaAtiva(dia); }}>
                         {dp?.foto_url
                           ? <img src={dp.foto_url} style={{ width:50, height:50, borderRadius:25, objectFit:"cover", flexShrink:0 }} alt="" />
                           : <div style={{ width:50, height:50, borderRadius:25, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>{iniciais}</div>
                         }
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Diarista"}</div>
-                          <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                          <div style={{ fontWeight: nLidas > 0 ? 900 : 800, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Diarista"}</div>
+                          <div style={{ fontSize:12, color: nLidas > 0 ? "var(--text-1,#0f172a)" : "var(--text-2,#64748b)", marginTop:2, fontWeight: nLidas > 0 ? 700 : 400 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
                         </div>
-                        <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                        {nLidas > 0 && (
+                          <span style={{ background:"#FF6B35", color:"#fff", borderRadius:11, minWidth:22, height:22, padding:"0 7px", fontSize:11, fontWeight:900, display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
+                            {nLidas > 9 ? "9+" : nLidas}
+                          </span>
+                        )}
+                        <ChevronRight size={18} color="var(--text-3,#94a3b8)" />
                       </div>
                     );
                   })}
@@ -6764,22 +6945,40 @@ export default function App() {
 
     const hojeFmtV = new Date().toISOString().split("T")[0];
     const amanhaFmtV = (() => { const d = new Date(); d.setDate(d.getDate()+1); return d.toISOString().split("T")[0]; })();
+
+    // ── Helper de distância (retorna Infinity se faltar lat/lng) ─────────────
+    const distKm = (d: Diaria): number => {
+      if (!profile?.lat || !profile?.lng || !d.lat || !d.lng) return Infinity;
+      return haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!);
+    };
+
     const vagasFiltradas = vagasReais
       .filter(d => !vagasIgnoradas.has(d.id))   // oculta vagas marcadas como sem interesse
       .filter(d => !d.funcao || categoriasSelecionadas.length === 0 || categoriasSelecionadas.includes(d.funcao))
       .filter(d => filtroDataVaga === "hoje" ? d.data === hojeFmtV : filtroDataVaga === "amanha" ? d.data === amanhaFmtV : true)
-      .filter(d => {
-        // Filtro por raio de distância — só aplica se tiver lat/lng do diarista e da vaga
-        if (!profile?.lat || !profile?.lng || !d.lat || !d.lng) return true;
-        return haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!) <= filtroRaioKm;
-      })
+      .filter(d => Number(d.valor) >= filtroValorMin)
+      .filter(d => distKm(d) <= filtroRaioKm || distKm(d) === Infinity)
       .sort((a, b) => {
+        // Atalhos do menu de ordenação
         if (sortVagas === "menor_valor") return a.valor - b.valor;
         if (sortVagas === "maior_valor") return b.valor - a.valor;
-        if (sortVagas === "proximas" && profile?.lat && profile?.lng && a.lat && a.lng && b.lat && b.lng)
-          return haversineKm(profile.lat!, profile.lng!, a.lat!, a.lng!) - haversineKm(profile.lat!, profile.lng!, b.lat!, b.lng!);
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        if (sortVagas === "recentes")
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        if (sortVagas === "proximas") return distKm(a) - distKm(b);
+        // Default "feed": (1) distância → (2) recência → (3) valor desc
+        const dDist = distKm(a) - distKm(b);
+        if (Math.abs(dDist) > 0.5) return dDist;                           // diferença <500m empata
+        const dRec = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        if (Math.abs(dRec) > 6 * 60 * 60 * 1000) return dRec;              // <6h empata
+        return b.valor - a.valor;                                           // desempate por valor
       });
+
+    // Contador "X novas hoje na sua região" — vagas criadas após 00:00 hoje + dentro do raio
+    const inicioHoje = new Date(); inicioHoje.setHours(0, 0, 0, 0);
+    const novasHoje = vagasReais
+      .filter(d => new Date(d.created_at) >= inicioHoje)
+      .filter(d => distKm(d) <= filtroRaioKm || distKm(d) === Infinity)
+      .length;
 
     const empresaIniciais = (nome: string) =>
       nome.split(" ").filter(Boolean).map(n=>n[0]).join("").slice(0,2).toUpperCase() || "🏢";
@@ -6973,21 +7172,123 @@ export default function App() {
               );
             })()}
 
+            {/* ── Cabeçalho com contador de novas vagas + filtros ── */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 20px 10px" }}>
               <div>
-                <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>💼 Vagas para você</div>
+                <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Vagas pra você</div>
                 <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
-                  {vagasFiltradas.length} {vagasFiltradas.length === 1 ? "vaga encontrada" : "vagas encontradas"}
-                  {categoriasSelecionadas.length > 0 ? ` · ${categoriasSelecionadas.length} filtro${categoriasSelecionadas.length > 1 ? "s" : ""} ativo${categoriasSelecionadas.length > 1 ? "s" : ""}` : ""}
+                  {novasHoje > 0 ? (
+                    <span style={{ color:"#16a34a", fontWeight:800 }}>
+                      {novasHoje === 1 ? "1 nova vaga hoje" : `${novasHoje} novas vagas hoje`} na sua região
+                    </span>
+                  ) : (
+                    `${vagasFiltradas.length} ${vagasFiltradas.length === 1 ? "vaga" : "vagas"}`
+                  )}
                 </div>
               </div>
-              <button style={{ display:"flex", alignItems:"center", gap:6, background: (sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50) ? "#FF6B35" : "#fff", border:`1.5px solid ${(sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50)?"#FF6B35":"#e2e8f0"}`, borderRadius:10, padding:"8px 14px", fontSize:12, fontWeight:700, color:(sortVagas!=="recentes"||filtroDataVaga!=="todas"||filtroRaioKm!==50)?"#fff":"#475569", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
-                onClick={() => setModalFiltro(true)}>
-                Filtrar <span style={{ fontSize:14 }}>⚙️</span>
+              <button
+                aria-label="Abrir filtros avançados"
+                style={{ display:"inline-flex", alignItems:"center", gap:6, background: (sortVagas!=="feed"||filtroDataVaga!=="todas"||filtroRaioKm!==50||filtroValorMin>0) ? "#FF6B35" : "#fff", border:`1.5px solid ${(sortVagas!=="feed"||filtroDataVaga!=="todas"||filtroRaioKm!==50||filtroValorMin>0)?"#FF6B35":"#e2e8f0"}`, borderRadius:10, padding:"8px 14px", fontSize:12, fontWeight:700, color:(sortVagas!=="feed"||filtroDataVaga!=="todas"||filtroRaioKm!==50||filtroValorMin>0)?"#fff":"#475569", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
+                onClick={() => { hapticTick(); setModalFiltro(true); }}>
+                <Filter size={14} /> Filtros
               </button>
             </div>
 
-            <div style={{ padding:"0 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
+            {/* ── Chips de filtros rápidos (scroll horizontal) ── */}
+            <div style={{ padding:"0 16px 8px", display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none" }}>
+              {/* Tipo / função — usa o próprio TODAS_AS_FUNCOES filtrado nas mais comuns */}
+              {["Diarista / Faxineira", "Passadeira", "Cozinheira", "Babá", "Motoboy"].map(f => {
+                const ativo = categoriasSelecionadas.includes(f);
+                return (
+                  <button
+                    key={f}
+                    onClick={() => {
+                      hapticTick();
+                      setCategorias(prev => ativo ? prev.filter(c => c !== f) : [...prev, f]);
+                    }}
+                    style={{
+                      flexShrink:0, padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer",
+                      border: ativo ? "1.5px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                      background: ativo ? "#FF6B35" : "var(--bg-card,#fff)",
+                      color: ativo ? "#fff" : "var(--text-2,#64748b)",
+                      fontFamily:"Inter, system-ui, sans-serif",
+                    }}>
+                    {f}
+                  </button>
+                );
+              })}
+              {/* Distância */}
+              {[1, 5, 15, 50].map(km => {
+                const ativo = filtroRaioKm === km;
+                return (
+                  <button
+                    key={`km${km}`}
+                    onClick={() => { hapticTick(); setFiltroRaioKm(km); }}
+                    style={{
+                      flexShrink:0, padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer",
+                      border: ativo ? "1.5px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                      background: ativo ? "#FF6B35" : "var(--bg-card,#fff)",
+                      color: ativo ? "#fff" : "var(--text-2,#64748b)",
+                      fontFamily:"Inter, system-ui, sans-serif",
+                    }}>
+                    até {km} km
+                  </button>
+                );
+              })}
+              {/* Valor mínimo */}
+              {[0, 100, 150, 200].map(v => {
+                const ativo = filtroValorMin === v;
+                return (
+                  <button
+                    key={`val${v}`}
+                    onClick={() => { hapticTick(); setFiltroValorMin(v); }}
+                    style={{
+                      flexShrink:0, padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer",
+                      border: ativo ? "1.5px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
+                      background: ativo ? "#FF6B35" : "var(--bg-card,#fff)",
+                      color: ativo ? "#fff" : "var(--text-2,#64748b)",
+                      fontFamily:"Inter, system-ui, sans-serif",
+                    }}>
+                    {v === 0 ? "Qualquer valor" : `≥ R$ ${v}`}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div
+              style={{ padding:"0 16px 24px", display:"flex", flexDirection:"column", gap:12, transform:`translateY(${puxando}px)`, transition: puxando === 0 ? "transform .3s" : "none" }}
+              onTouchStart={e => {
+                if (window.scrollY > 0) return;     // só ativa no topo da página
+                ptrStartY.current = e.touches[0].clientY;
+              }}
+              onTouchMove={e => {
+                if (ptrStartY.current === null) return;
+                const dy = e.touches[0].clientY - ptrStartY.current;
+                if (dy > 0 && window.scrollY === 0) {
+                  setPuxando(Math.min(100, dy / 2));   // resistência
+                }
+              }}
+              onTouchEnd={async () => {
+                if (puxando > 60 && !recarregandoFeed) {
+                  hapticTick();
+                  setRecarregandoFeed(true);
+                  await carregarFeedVagas();
+                  setRecarregandoFeed(false);
+                }
+                setPuxando(0);
+                ptrStartY.current = null;
+              }}>
+              {/* Indicador de pull-to-refresh */}
+              {(puxando > 0 || recarregandoFeed) && (
+                <div style={{ position:"absolute", top:-40, left:0, right:0, display:"flex", justifyContent:"center", alignItems:"center", height:36, color:"var(--text-2,#64748b)", fontSize:12, fontWeight:700 }}>
+                  {recarregandoFeed
+                    ? <><Loader2 size={14} style={{ animation:"loadingSlide 1s linear infinite", marginRight:6 }} /> Atualizando…</>
+                    : puxando > 60
+                      ? "↑ Solte para atualizar"
+                      : "Puxe para atualizar"
+                  }
+                </div>
+              )}
               {vagasFiltradas.length === 0 ? (
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"36px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                   <div style={{ width:80, height:80, borderRadius:40, background:"var(--bg-subtle,#f1f5f9)", display:"inline-flex", alignItems:"center", justifyContent:"center", marginBottom:12 }}>
@@ -7053,6 +7354,20 @@ export default function App() {
                             <div style={{ flex:1, minWidth:0 }}>
                               <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>
                                 {dia.nome_negocio || dia.segmento}
+                              </div>
+                              {/* Bairro + tempo desde publicação */}
+                              <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                                {dia.bairro && (
+                                  <span style={{ display:"inline-flex", alignItems:"center", gap:3 }}>
+                                    <MapPin size={11} /> {dia.bairro}
+                                  </span>
+                                )}
+                                {dia.bairro && dia.created_at && <span>·</span>}
+                                {dia.created_at && (
+                                  <span style={{ display:"inline-flex", alignItems:"center", gap:3 }}>
+                                    <Clock size={11} /> {formatTempoRelativo(dia.created_at)}
+                                  </span>
+                                )}
                               </div>
                               {/* Reputação pública do empregador — só aparece com >=1 avaliação */}
                               {(() => {
@@ -7665,7 +7980,9 @@ export default function App() {
                   </div>
                   <div style={{ flex:1 }}>
                     <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{chatDiariaAtiva.nome_negocio || chatDiariaAtiva.segmento}</div>
-                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)" }}>{chatDiariaAtiva.funcao} · {new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                    <div style={{ fontSize:11, color: outroDigitando ? "#16a34a" : "var(--text-2,#64748b)", fontWeight: outroDigitando ? 700 : 400 }}>
+                      {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
+                    </div>
                   </div>
                   {!confirmExcluirChat
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
@@ -7687,8 +8004,13 @@ export default function App() {
                       <div key={m.id} style={{ display:"flex", justifyContent: isMeu ? "flex-end" : "flex-start" }}>
                         <div style={{ background: isMeu ? "#FF6B35" : "var(--bg-card,#fff)", color: isMeu ? "#fff" : "var(--text-1,#0f172a)", borderRadius: isMeu ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding:"10px 14px", maxWidth:"75%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
                           {m.conteudo}
-                          <div style={{ fontSize:10, opacity:.6, marginTop:4, textAlign:"right" }}>
-                            {new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
+                          <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:4, fontSize:10, opacity:.7, marginTop:4 }}>
+                            <span>{new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}</span>
+                            {isMeu && (
+                              m.lida_em
+                                ? <span title="Lida" style={{ display:"inline-flex", color:"#bbf7d0", fontSize:11, fontWeight:800 }}>✓✓</span>
+                                : <span title="Enviada" style={{ display:"inline-flex", color:"#fff", opacity:.6, fontSize:11, fontWeight:800 }}>✓</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -7702,14 +8024,15 @@ export default function App() {
                     style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
                     placeholder="Digite uma mensagem..."
                     value={msgInputReal}
-                    onChange={e => setMsgInputReal(e.target.value)}
+                    onChange={e => { setMsgInputReal(e.target.value); sinalizarDigitando(); }}
                     onKeyDown={e => e.key === "Enter" && !e.shiftKey && enviarMensagemReal()}
                   />
                   <button
-                    style={{ width:44, height:44, borderRadius:22, background: msgInputReal.trim() ? "#FF6B35" : "#e2e8f0", border:"none", color:"#fff", fontSize:20, cursor: msgInputReal.trim() ? "pointer" : "default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
+                    aria-label="Enviar mensagem"
+                    style={{ width:44, height:44, borderRadius:22, background: msgInputReal.trim() ? "#FF6B35" : "#e2e8f0", border:"none", color:"#fff", cursor: msgInputReal.trim() ? "pointer" : "default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
                     disabled={!msgInputReal.trim() || enviandoMsgReal}
                     onClick={enviarMensagemReal}>
-                    ➤
+                    <Send size={18} />
                   </button>
                 </div>
                 {antiExitAviso && (
@@ -7764,20 +8087,28 @@ export default function App() {
                 </div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                  {conversas.map(dia => (
-                    <div key={dia.id}
-                      style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
-                      onClick={() => setChatDiariaAtiva(dia)}>
-                      <div style={{ width:50, height:50, borderRadius:25, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>
-                        {(dia.nome_negocio || dia.segmento).slice(0,2).toUpperCase()}
+                  {conversas.map(dia => {
+                    const nLidas = naoLidasPorDiaria[dia.id] || 0;
+                    return (
+                      <div key={dia.id}
+                        style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
+                        onClick={() => { hapticTick(); setChatDiariaAtiva(dia); }}>
+                        <div style={{ width:50, height:50, borderRadius:25, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>
+                          {(dia.nome_negocio || dia.segmento).slice(0,2).toUpperCase()}
+                        </div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontWeight: nLidas > 0 ? 900 : 800, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dia.nome_negocio || dia.segmento}</div>
+                          <div style={{ fontSize:12, color: nLidas > 0 ? "var(--text-1,#0f172a)" : "var(--text-2,#64748b)", marginTop:2, fontWeight: nLidas > 0 ? 700 : 400 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+                        </div>
+                        {nLidas > 0 && (
+                          <span style={{ background:"#FF6B35", color:"#fff", borderRadius:11, minWidth:22, height:22, padding:"0 7px", fontSize:11, fontWeight:900, display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
+                            {nLidas > 9 ? "9+" : nLidas}
+                          </span>
+                        )}
+                        <ChevronRight size={18} color="var(--text-3,#94a3b8)" />
                       </div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dia.nome_negocio || dia.segmento}</div>
-                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
-                      </div>
-                      <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

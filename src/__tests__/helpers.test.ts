@@ -16,6 +16,7 @@ import {
   tempoEstimadoMin,
   formatarTempo,
   calcularNivelConfiabilidade,
+  formatTempoRelativo,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -568,5 +569,47 @@ describe("calcularNivelConfiabilidade", () => {
     expect(r.nome).toBe("Premium");
     expect(r.pendencias.length).toBe(0);
     expect(r.proximo).toBeUndefined();
+  });
+});
+
+// ── formatTempoRelativo ──────────────────────────────────────────────────────
+describe("formatTempoRelativo", () => {
+  const agora = new Date("2026-05-25T15:00:00");
+
+  it("retorna vazio para null/undefined/data inválida", () => {
+    expect(formatTempoRelativo(null, agora)).toBe("");
+    expect(formatTempoRelativo(undefined, agora)).toBe("");
+    expect(formatTempoRelativo("data-inválida", agora)).toBe("");
+  });
+
+  it("\"agora mesmo\" se < 1 min", () => {
+    const d = new Date("2026-05-25T14:59:45");
+    expect(formatTempoRelativo(d, agora)).toBe("agora mesmo");
+  });
+
+  it("\"há Xmin\" entre 1 e 59 minutos", () => {
+    expect(formatTempoRelativo("2026-05-25T14:48:00", agora)).toBe("há 12min");
+    expect(formatTempoRelativo("2026-05-25T14:01:00", agora)).toBe("há 59min");
+  });
+
+  it("\"há Xh\" entre 1 e 23 horas", () => {
+    expect(formatTempoRelativo("2026-05-25T13:00:00", agora)).toBe("há 2h");
+    expect(formatTempoRelativo("2026-05-24T16:00:00", agora)).toBe("há 23h");
+  });
+
+  it("\"ontem\" para 1 dia atrás", () => {
+    expect(formatTempoRelativo("2026-05-24T10:00:00", agora)).toBe("ontem");
+  });
+
+  it("\"há X dias\" entre 2 e 6 dias", () => {
+    expect(formatTempoRelativo("2026-05-22T15:00:00", agora)).toBe("há 3 dias");
+  });
+
+  it("data DD/MM acima de 7 dias", () => {
+    expect(formatTempoRelativo("2026-04-10T10:00:00", agora)).toBe("10/04");
+  });
+
+  it("data no futuro retorna \"agora\"", () => {
+    expect(formatTempoRelativo("2026-05-25T16:00:00", agora)).toBe("agora");
   });
 });

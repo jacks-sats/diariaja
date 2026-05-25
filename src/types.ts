@@ -40,6 +40,7 @@ export interface Diaria {
   pagamento_mp_id?: string | null;
   taxa_plataforma?: number | null;
   valor_diarista?: number | null;
+  bairro?: string | null;             // bairro do CEP da vaga (preenchido ao publicar)
 }
 
 export interface UserProfile {
