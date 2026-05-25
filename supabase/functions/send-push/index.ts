@@ -110,11 +110,12 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { user_ids, title, body: msgBody, url = "/" } = await req.json() as {
+    const { user_ids, title, body: msgBody, url = "/", tipo = "default" } = await req.json() as {
       user_ids: string[];
       title: string;
       body: string;
       url?: string;
+      tipo?: string;
     };
 
     if (!user_ids?.length) return new Response(JSON.stringify({ sent: 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -135,7 +136,7 @@ serve(async (req) => {
 
     if (!subs?.length) return new Response(JSON.stringify({ sent: 0, reason: "no_subscriptions" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    const payload = JSON.stringify({ title, body: msgBody, url, icon: "/icon-192.png", badge: "/icon-192.png" });
+    const payload = JSON.stringify({ title, body: msgBody, url, tipo, icon: "/icon-192.png", badge: "/icon-192.png" });
     let sent = 0;
 
     await Promise.all(subs.map(async (sub) => {
