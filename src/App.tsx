@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "./supabaseClient";
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import { Session } from "@supabase/supabase-js";
 import MapComponent from "./MapComponent";
 import { QRCodeSVG } from "qrcode.react";
@@ -1165,7 +1165,7 @@ export default function App() {
       nome_negocio: updates.nome_negocio ?? profile?.nome_negocio ?? form.nomeNegocio ?? "",
       segmento: updates.segmento ?? profile?.segmento ?? negocioSelecionado ?? "",
       funcao: updates.funcao ?? profile?.funcao ?? form.funcao ?? "",
-      valor_diaria: updates.valor_diaria ?? profile?.valor_diaria ?? Number(form.valor) ?? 0,
+      valor_diaria: updates.valor_diaria ?? profile?.valor_diaria ?? (Number(form.valor) || 0),
       disponivel: updates.disponivel ?? disponivelAgora,
       agenda: updates.agenda ?? agendaSelecionada,
       bio: updates.bio ?? profile?.bio ?? form.bio ?? "",
@@ -1879,12 +1879,12 @@ export default function App() {
     setDesbloqueandoContato(true);
     try {
       const resp = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-contact-payment`,
+        `${SUPABASE_URL}/functions/v1/create-contact-payment`,
         {
           method: "POST",
           headers: {
             "Content-Type":  "application/json",
-            "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_JWT_ANON}`,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
           },
           body: JSON.stringify({ empregador_id: session.user.id }),
         }
@@ -2034,7 +2034,7 @@ export default function App() {
     setCriandoAssinatura(true);
     try {
       const resp = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-subscription`,
+        `${SUPABASE_URL}/functions/v1/create-subscription`,
         {
           method: "POST",
           headers: {
@@ -2066,7 +2066,7 @@ export default function App() {
     setCriandoPagamento(true);
     try {
       const resp = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment`,
+        `${SUPABASE_URL}/functions/v1/create-payment`,
         {
           method: "POST",
           headers: {
@@ -2296,16 +2296,14 @@ export default function App() {
     setSuporteDigitando(true);
     try {
       const { data: { session: sess } } = await supabase.auth.getSession();
-      // JWT anon key para autenticar a Edge Function (formato eyJ...)
-      const jwtAnon = import.meta.env.VITE_SUPABASE_JWT_ANON as string;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
-        "apikey": jwtAnon,
-        "Authorization": `Bearer ${sess?.access_token ?? jwtAnon}`,
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${sess?.access_token ?? SUPABASE_ANON_KEY}`,
       };
 
       const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-support`,
+        `${SUPABASE_URL}/functions/v1/ai-support`,
         {
           method: "POST",
           headers,
@@ -3094,7 +3092,7 @@ export default function App() {
                     // Chama Edge Function que apaga auth.users via service_role
                     const { data: { session: sess } } = await supabase.auth.getSession();
                     const res = await fetch(
-                      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-user`,
+                      `${SUPABASE_URL}/functions/v1/delete-user`,
                       {
                         method: "POST",
                         headers: {
@@ -7155,7 +7153,7 @@ export default function App() {
           const ganhoMes = diariasConc.filter(d => d.data.slice(0,7) === mesAtual).reduce((s,d)=>s+d.valor,0);
           const mpConectado = !!profile?.mp_user_id;
           const mpClientId = import.meta.env.VITE_MP_CLIENT_ID as string;
-          const oauthUrl = `https://auth.mercadopago.com.br/authorization?client_id=${mpClientId}&response_type=code&platform_id=mp&state=${session?.user?.id}&redirect_uri=${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mp-oauth`;
+          const oauthUrl = `https://auth.mercadopago.com.br/authorization?client_id=${mpClientId}&response_type=code&platform_id=mp&state=${session?.user?.id}&redirect_uri=${SUPABASE_URL}/functions/v1/mp-oauth`;
           return (
           <>
             {/* Barra de boas-vindas + ⚙️ */}

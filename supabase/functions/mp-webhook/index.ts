@@ -69,7 +69,13 @@ Deno.serve(async (req) => {
       return new Response("unauthorized", { status: 401 });
     }
 
-    const body = JSON.parse(rawBody).catch?.() ?? JSON.parse(rawBody);
+    let body: any;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      // Payload inválido — retorna 200 para o MP não retentar indefinidamente
+      return new Response("ok", { status: 200 });
+    }
     if (!body?.data?.id) return new Response("ok", { status: 200 });
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
