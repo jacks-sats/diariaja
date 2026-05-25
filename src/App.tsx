@@ -29,6 +29,7 @@ import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, maskCPF, maskCNPJ, haversineKm,
   validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
+  formatarDistancia, tempoEstimadoMin, formatarTempo,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -2470,26 +2471,82 @@ export default function App() {
   };
 
   // Busca endereço pelo CEP via ViaCEP
-  // ── Geocodifica um CEP via Nominatim (OpenStreetMap) → retorna {lat, lng} ──
-  // Usada para calcular distâncias sem depender de GPS do dispositivo
-  const geocodificarCEP = async (cep: string, cidade?: string, uf?: string): Promise<{lat:number, lng:number}|null> => {
+  // ── Geocoding com cache em localStorage + BrasilAPI → Nominatim ────────────
+  // Precisão > Nominatim sozinho (BrasilAPI conhece coordenadas de muitos CEPs
+  // brasileiros direto da Receita; Nominatim cai no centróide do bairro).
+  // Cache local com TTL de 30d evita repetir lookup do mesmo CEP.
+  const GEOCACHE_KEY = "diariaja_geocache_v1";
+  const GEOCACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  type GeoCacheEntry = { lat: number; lng: number; ts: number };
+
+  const lerGeoCache = (): Record<string, GeoCacheEntry> => {
+    try { return JSON.parse(localStorage.getItem(GEOCACHE_KEY) || "{}"); } catch { return {}; }
+  };
+  const escreverGeoCache = (cep: string, lat: number, lng: number) => {
     try {
-      // Tenta CEP + cidade para maior precisão
-      const query = encodeURIComponent(`${cep}${cidade ? ", " + cidade : ""}${uf ? ", " + uf : ""}, Brasil`);
+      const cache = lerGeoCache();
+      cache[cep] = { lat, lng, ts: Date.now() };
+      // Limita a 200 entradas (LRU simples — remove as mais antigas)
+      const entries = Object.entries(cache);
+      if (entries.length > 200) {
+        entries.sort((a, b) => a[1].ts - b[1].ts);
+        entries.slice(0, entries.length - 200).forEach(([k]) => { delete cache[k]; });
+      }
+      localStorage.setItem(GEOCACHE_KEY, JSON.stringify(cache));
+    } catch { /* localStorage cheio — ignora */ }
+  };
+
+  const geocodificarCEP = async (cep: string, cidade?: string, uf?: string): Promise<{lat:number, lng:number}|null> => {
+    const cepNorm = cep.replace(/\D/g, "");
+    if (cepNorm.length !== 8) return null;
+
+    // 1. Cache local (instantâneo)
+    const cache = lerGeoCache();
+    const hit = cache[cepNorm];
+    if (hit && Date.now() - hit.ts < GEOCACHE_TTL_MS) {
+      return { lat: hit.lat, lng: hit.lng };
+    }
+
+    // 2. BrasilAPI v2 — retorna lat/lng quando disponível (mais preciso pra BR)
+    try {
+      const r = await fetch(`https://brasilapi.com.br/api/cep/v2/${cepNorm}`);
+      if (r.ok) {
+        const j = await r.json();
+        const lat = parseFloat(j?.location?.coordinates?.latitude);
+        const lng = parseFloat(j?.location?.coordinates?.longitude);
+        if (!Number.isNaN(lat) && !Number.isNaN(lng) && (lat !== 0 || lng !== 0)) {
+          escreverGeoCache(cepNorm, lat, lng);
+          return { lat, lng };
+        }
+      }
+    } catch { /* tenta o fallback */ }
+
+    // 3. Fallback: Nominatim com CEP + cidade + UF (centróide do bairro)
+    try {
+      const query = encodeURIComponent(`${cepNorm}${cidade ? ", " + cidade : ""}${uf ? ", " + uf : ""}, Brasil`);
       const res = await fetch(
         `https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1&addressdetails=0`,
-        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Trampojakapp/1.0" } }
+        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
       );
       const data = await res.json();
-      if (data?.length > 0) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-      // Fallback: só o CEP
+      if (data?.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lng = parseFloat(data[0].lon);
+        escreverGeoCache(cepNorm, lat, lng);
+        return { lat, lng };
+      }
       const res2 = await fetch(
-        `https://nominatim.openstreetmap.org/search?postalcode=${cep}&country=Brazil&format=json&limit=1`,
-        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Trampojakapp/1.0" } }
+        `https://nominatim.openstreetmap.org/search?postalcode=${cepNorm}&country=Brazil&format=json&limit=1`,
+        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
       );
       const data2 = await res2.json();
-      if (data2?.length > 0) return { lat: parseFloat(data2[0].lat), lng: parseFloat(data2[0].lon) };
-    } catch { /* sem internet ou erro — ok, continua sem coordenadas */ }
+      if (data2?.length > 0) {
+        const lat = parseFloat(data2[0].lat);
+        const lng = parseFloat(data2[0].lon);
+        escreverGeoCache(cepNorm, lat, lng);
+        return { lat, lng };
+      }
+    } catch { /* sem internet ou erro — segue sem coordenadas */ }
     return null;
   };
 
@@ -4953,7 +5010,7 @@ export default function App() {
                             ? haversineKm(profile.lat!, profile.lng!, dp.lat!, dp.lng!)
                             : null;
                           const distAceitoTxt = distAceito !== null
-                            ? (distAceito < 1 ? `${Math.round(distAceito*1000)} m de você` : `${distAceito.toFixed(1)} km de você`)
+                            ? `${formatarDistancia(distAceito)} · ~${formatarTempo(tempoEstimadoMin(distAceito))} de moto`
                             : null;
                           return (
                             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
@@ -5244,7 +5301,7 @@ export default function App() {
                       ? haversineKm(profile.lat!, profile.lng!, latD, lngD)
                       : null;
                     const distCandTxt = distCand !== null
-                      ? (distCand < 1 ? `${Math.round(distCand*1000)} m de você` : `${distCand.toFixed(1)} km de você`)
+                      ? `${formatarDistancia(distCand)} · ~${formatarTempo(tempoEstimadoMin(distCand))} de moto`
                       : null;
                     // Foto: prioridade → perfil carregado → info embutida → Storage pela URL do ID
                     const fotoStorageUrl = supabase.storage.from("avatars").getPublicUrl(`${c.diarista_id}.jpg`).data.publicUrl;
@@ -6952,7 +7009,7 @@ export default function App() {
                               const localHint = partes.length >= 3 ? partes.slice(2, 4).join(", ").split(" — ")[0] : "";
                               if (profile?.lat && profile?.lng && dia.lat && dia.lng) {
                                 const km = haversineKm(profile.lat!, profile.lng!, dia.lat!, dia.lng!);
-                                const distTxt = km < 1 ? `${Math.round(km*1000)} m de você` : `${km.toFixed(1)} km de você`;
+                                const distTxt = `${formatarDistancia(km)} · ~${formatarTempo(tempoEstimadoMin(km))} de moto`;
                                 return (
                                   <span>
                                     <span style={{ fontWeight:800, color:"#FF6B35" }}>{distTxt}</span>
@@ -8113,7 +8170,7 @@ export default function App() {
                       {/* Distância até a vaga */}
                       {profile?.lat && profile?.lng && vagaConfirm.lat && vagaConfirm.lng && (() => {
                         const km = haversineKm(profile.lat!, profile.lng!, vagaConfirm.lat!, vagaConfirm.lng!);
-                        const txt = km < 1 ? `${Math.round(km*1000)} m de você` : `${km.toFixed(1)} km de você`;
+                        const txt = `${formatarDistancia(km)} · ~${formatarTempo(tempoEstimadoMin(km))} de moto`;
                         return (
                           <div style={S.modalRow}><span>Distância</span><strong style={{ color:"#FF6B35" }}>📍 {txt}</strong></div>
                         );

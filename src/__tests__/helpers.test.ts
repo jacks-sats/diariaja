@@ -12,6 +12,9 @@ import {
   validarEmail,
   validarTelefone,
   vagaExpirou,
+  formatarDistancia,
+  tempoEstimadoMin,
+  formatarTempo,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -417,5 +420,75 @@ describe("vagaExpirou", () => {
 
   it("retorna false se data está vazia", () => {
     expect(vagaExpirou({ data: "", horario_fim: "18:00", status: "aberta" }, agora)).toBe(false);
+  });
+});
+
+// ── formatarDistancia ─────────────────────────────────────────────────────────
+describe("formatarDistancia", () => {
+  it("retorna string vazia para null/undefined/NaN", () => {
+    expect(formatarDistancia(null)).toBe("");
+    expect(formatarDistancia(undefined)).toBe("");
+    expect(formatarDistancia(NaN)).toBe("");
+  });
+
+  it("menos de 1 km", () => {
+    expect(formatarDistancia(0.3)).toBe("menos de 1 km");
+    expect(formatarDistancia(0.99)).toBe("menos de 1 km");
+  });
+
+  it("entre 1 e 10 km: 1 casa decimal com vírgula", () => {
+    expect(formatarDistancia(1)).toBe("1,0 km");
+    expect(formatarDistancia(2.5)).toBe("2,5 km");
+    expect(formatarDistancia(9.87)).toBe("9,9 km");
+  });
+
+  it(">= 10 km: inteiro", () => {
+    expect(formatarDistancia(10)).toBe("10 km");
+    expect(formatarDistancia(12.4)).toBe("12 km");
+    expect(formatarDistancia(196)).toBe("196 km");
+  });
+});
+
+// ── tempoEstimadoMin ──────────────────────────────────────────────────────────
+describe("tempoEstimadoMin", () => {
+  it("retorna null para 0/negativo/NaN", () => {
+    expect(tempoEstimadoMin(0)).toBeNull();
+    expect(tempoEstimadoMin(-5)).toBeNull();
+    expect(tempoEstimadoMin(NaN)).toBeNull();
+    expect(tempoEstimadoMin(null)).toBeNull();
+  });
+
+  it("retorna pelo menos 1 minuto mesmo para distância mínima", () => {
+    expect(tempoEstimadoMin(0.1)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("calcula ~13 min para 5 km (5×1.3/30×60 = 13)", () => {
+    expect(tempoEstimadoMin(5)).toBe(13);
+  });
+
+  it("calcula ~26 min para 10 km", () => {
+    expect(tempoEstimadoMin(10)).toBe(26);
+  });
+});
+
+// ── formatarTempo ─────────────────────────────────────────────────────────────
+describe("formatarTempo", () => {
+  it("min < 60: \"X min\"", () => {
+    expect(formatarTempo(15)).toBe("15 min");
+    expect(formatarTempo(59)).toBe("59 min");
+  });
+
+  it("min === 60 exato: \"1h\"", () => {
+    expect(formatarTempo(60)).toBe("1h");
+    expect(formatarTempo(120)).toBe("2h");
+  });
+
+  it("min > 60 com resto: \"Xh0Y\"", () => {
+    expect(formatarTempo(75)).toBe("1h15");
+    expect(formatarTempo(150)).toBe("2h30");
+  });
+
+  it("retorna string vazia para null", () => {
+    expect(formatarTempo(null)).toBe("");
   });
 });

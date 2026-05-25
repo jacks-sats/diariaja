@@ -135,6 +135,35 @@ export function validarTelefone(telefone: string): boolean {
   return true;
 }
 
+// ── Formata distância em km para exibição consistente ───────────────────────
+// Antes: "0.3 km", "1.2 km", "12.34567 km" misturados pelo app.
+// Agora: "menos de 1 km" / "X,X km" (1 casa, vírgula PT-BR) / "X km" (inteiro).
+export function formatarDistancia(km: number | null | undefined): string {
+  if (km === null || km === undefined || Number.isNaN(km)) return "";
+  if (km < 1) return "menos de 1 km";
+  if (km < 10) return `${km.toFixed(1).replace(".", ",")} km`;
+  return `${Math.round(km)} km`;
+}
+
+// ── Tempo estimado de moto/carro (rota terrestre ~30% maior + 30km/h média) ──
+// Heurística simples: não consulta serviço de roteamento, só estima a partir
+// da distância em linha reta. Bom o suficiente pra "10 min", "1h" no card.
+export function tempoEstimadoMin(km: number | null | undefined): number | null {
+  if (km === null || km === undefined || Number.isNaN(km) || km <= 0) return null;
+  const kmRota = km * 1.3;        // sinuosidade média urbana
+  const velKmh = 30;              // moto/carro em CG (mistura semáforos + avenidas)
+  return Math.max(1, Math.round((kmRota / velKmh) * 60));
+}
+
+export function formatarTempo(min: number | null | undefined): string {
+  if (min === null || min === undefined) return "";
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (m === 0) return `${h}h`;
+  return `${h}h${String(m).padStart(2, "0")}`;
+}
+
 // ── Vaga expirada: data + horario_fim já passou e nada foi confirmado ────────
 // Recebe os campos crus do banco; retorna true se a vaga deveria sair do feed.
 export function vagaExpirou(
