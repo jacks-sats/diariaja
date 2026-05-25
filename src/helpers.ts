@@ -164,6 +164,76 @@ export function formatarTempo(min: number | null | undefined): string {
   return `${h}h${String(m).padStart(2, "0")}`;
 }
 
+// ── Nível de confiabilidade do usuário ───────────────────────────────────────
+// Calcula em qual dos 4 níveis o usuário está com base nos dados preenchidos.
+// É puro: depende só do profile, não bate no banco.
+//
+//   Nível 1 (Básico):     telefone verificado (SMS) OU email confirmado
+//   Nível 2 (Verificado): + CPF (PF) ou CNPJ (PJ)
+//   Nível 3 (Confiável):  + documento (foto/selfie) aprovado por KYC
+//   Nível 4 (Premium):    + 2FA ativado (mfa habilitado no Supabase Auth)
+//
+// "Grandfathering": usuário antigo com email+CPF já vira Nível 2 sem
+// precisar passar pelo OTP de telefone — porque email confirmado conta
+// como verificação base.
+export interface NivelEntrada {
+  telefone_verificado?: boolean;
+  email_confirmado?: boolean;
+  cpf?: string;
+  cnpj?: string;
+  documento_status?: "nao_enviado" | "enviado" | "aprovado" | "rejeitado";
+  mfa_enabled?: boolean;
+}
+
+export function calcularNivelConfiabilidade(p: NivelEntrada): {
+  nivel: 1 | 2 | 3 | 4;
+  nome: string;
+  cor: string;
+  pendencias: string[];
+  proximo?: 1 | 2 | 3 | 4;
+} {
+  const temBase   = !!(p.telefone_verificado || p.email_confirmado);
+  const temDoc    = !!((p.cpf && p.cpf.length > 0) || (p.cnpj && p.cnpj.length > 0));
+  const docAprovado = p.documento_status === "aprovado";
+  const tem2FA    = !!p.mfa_enabled;
+
+  // Nível 4 — Premium
+  if (temBase && temDoc && docAprovado && tem2FA) {
+    return { nivel: 4, nome: "Premium", cor: "#7c3aed", pendencias: [] };
+  }
+  // Nível 3 — Confiável (falta 2FA pra Premium)
+  if (temBase && temDoc && docAprovado) {
+    return {
+      nivel: 3, nome: "Confiável", cor: "#16a34a",
+      pendencias: ["Ative 2FA para atingir Premium"],
+      proximo: 4,
+    };
+  }
+  // Nível 2 — Verificado (falta documento aprovado)
+  if (temBase && temDoc) {
+    const pend: string[] = [];
+    if (p.documento_status === "nao_enviado" || !p.documento_status) pend.push("Envie documento com foto");
+    else if (p.documento_status === "enviado") pend.push("Documento em análise");
+    else if (p.documento_status === "rejeitado") pend.push("Reenvie seu documento (foi rejeitado)");
+    return { nivel: 2, nome: "Verificado", cor: "#3A86FF", pendencias: pend, proximo: 3 };
+  }
+  // Nível 1 — Básico (falta CPF/CNPJ)
+  if (temBase) {
+    return {
+      nivel: 1, nome: "Básico", cor: "#FF6B35",
+      pendencias: ["Adicione seu CPF ou CNPJ pra verificar"],
+      proximo: 2,
+    };
+  }
+  // Sem base — tecnicamente abaixo de Nível 1. Devolve N1 com pendência
+  // explícita pra UI não quebrar.
+  return {
+    nivel: 1, nome: "Básico", cor: "#94a3b8",
+    pendencias: ["Verifique seu telefone ou confirme seu email"],
+    proximo: 2,
+  };
+}
+
 // ── Vaga expirada: data + horario_fim já passou e nada foi confirmado ────────
 // Recebe os campos crus do banco; retorna true se a vaga deveria sair do feed.
 export function vagaExpirou(

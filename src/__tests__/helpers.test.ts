@@ -15,6 +15,7 @@ import {
   formatarDistancia,
   tempoEstimadoMin,
   formatarTempo,
+  calcularNivelConfiabilidade,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -490,5 +491,82 @@ describe("formatarTempo", () => {
 
   it("retorna string vazia para null", () => {
     expect(formatarTempo(null)).toBe("");
+  });
+});
+
+// ── calcularNivelConfiabilidade ──────────────────────────────────────────────
+describe("calcularNivelConfiabilidade", () => {
+  it("Sem base (sem telefone nem email) cai num N1 com pendência", () => {
+    const r = calcularNivelConfiabilidade({});
+    expect(r.nivel).toBe(1);
+    expect(r.pendencias[0]).toMatch(/telefone|email/i);
+  });
+
+  it("Nível 1: telefone verificado, sem CPF", () => {
+    const r = calcularNivelConfiabilidade({ telefone_verificado: true });
+    expect(r.nivel).toBe(1);
+    expect(r.nome).toBe("Básico");
+    expect(r.pendencias[0]).toMatch(/cpf/i);
+    expect(r.proximo).toBe(2);
+  });
+
+  it("Nível 1: só email confirmado, sem CPF (caso grandfathered)", () => {
+    const r = calcularNivelConfiabilidade({ email_confirmado: true });
+    expect(r.nivel).toBe(1);
+  });
+
+  it("Nível 2: telefone + CPF → Verificado, falta documento", () => {
+    const r = calcularNivelConfiabilidade({
+      telefone_verificado: true,
+      cpf: "529.982.247-25",
+    });
+    expect(r.nivel).toBe(2);
+    expect(r.nome).toBe("Verificado");
+    expect(r.pendencias[0]).toMatch(/documento/i);
+    expect(r.proximo).toBe(3);
+  });
+
+  it("Nível 2: PJ usando CNPJ no lugar do CPF", () => {
+    const r = calcularNivelConfiabilidade({
+      email_confirmado: true,
+      cnpj: "11.222.333/0001-81",
+    });
+    expect(r.nivel).toBe(2);
+  });
+
+  it("Nível 2 com documento enviado: mensagem específica", () => {
+    const r = calcularNivelConfiabilidade({
+      telefone_verificado: true, cpf: "x", documento_status: "enviado",
+    });
+    expect(r.nivel).toBe(2);
+    expect(r.pendencias[0]).toMatch(/análise/i);
+  });
+
+  it("Nível 2 com documento rejeitado: pede reenvio", () => {
+    const r = calcularNivelConfiabilidade({
+      telefone_verificado: true, cpf: "x", documento_status: "rejeitado",
+    });
+    expect(r.nivel).toBe(2);
+    expect(r.pendencias[0]).toMatch(/reenvie/i);
+  });
+
+  it("Nível 3: doc aprovado mas sem 2FA → Confiável", () => {
+    const r = calcularNivelConfiabilidade({
+      telefone_verificado: true, cpf: "x", documento_status: "aprovado",
+    });
+    expect(r.nivel).toBe(3);
+    expect(r.nome).toBe("Confiável");
+    expect(r.pendencias[0]).toMatch(/2FA/i);
+    expect(r.proximo).toBe(4);
+  });
+
+  it("Nível 4: tudo verificado + 2FA → Premium", () => {
+    const r = calcularNivelConfiabilidade({
+      telefone_verificado: true, cpf: "x", documento_status: "aprovado", mfa_enabled: true,
+    });
+    expect(r.nivel).toBe(4);
+    expect(r.nome).toBe("Premium");
+    expect(r.pendencias.length).toBe(0);
+    expect(r.proximo).toBeUndefined();
   });
 });

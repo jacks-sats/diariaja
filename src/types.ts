@@ -70,6 +70,24 @@ export interface UserProfile {
   plano_ativo?: string;       // 'gratis' | 'destaque'
   is_admin?: boolean;
   portfolio_urls?: string[];  // até 3 fotos do trabalho (diarista)
+  // ── Níveis de confiabilidade ─────────────────────────────────────────
+  telefone_verificado?: boolean;
+  documento_status?: "nao_enviado" | "enviado" | "aprovado" | "rejeitado";
+  documento_url?: string;
+  documento_enviado_em?: string;
+  documento_revisado_em?: string;
+}
+
+// ── Sistema de níveis de confiabilidade ────────────────────────────────────
+// Cada nível destrava funcionalidades e aumenta a confiança na plataforma.
+export type NivelConfiabilidade = 1 | 2 | 3 | 4;
+
+export interface NivelInfo {
+  nivel: NivelConfiabilidade;
+  nome: string;          // "Básico" | "Verificado" | "Confiável" | "Premium"
+  cor: string;
+  pendencias: string[];  // o que falta pra subir ao próximo nível
+  proximo?: NivelConfiabilidade;
 }
 
 export interface Topico {
