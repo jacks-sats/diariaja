@@ -258,6 +258,16 @@ export default function App() {
   const [criandoTicket, setCriandoTicket]         = useState(false);
   const [ticketsNovos, setTicketsNovos]           = useState(0); // badge admin pra tickets em tempo real
 
+  // KYC — upload/revisão de RG ou CNH
+  const [docFile, setDocFile]                     = useState<File | null>(null);
+  const [docPreview, setDocPreview]               = useState<string | null>(null);
+  const [docTipo, setDocTipo]                     = useState<"rg"|"cnh">("rg");
+  const [enviandoDoc, setEnviandoDoc]             = useState(false);
+  const [adminDocsPendentes, setAdminDocsPendentes] = useState<{user_id:string; nome:string; user_type:string; documento_url:string; documento_enviado_em:string}[]>([]);
+  const [docRevisao, setDocRevisao]               = useState<{user_id:string; nome:string; url:string; signedUrl?:string} | null>(null);
+  const [docMotivoRejeicao, setDocMotivoRejeicao] = useState("");
+  const [revisandoDoc, setRevisandoDoc]           = useState(false);
+
   // Filtro/sort de vagas (diarista)
   const [modalFiltro, setModalFiltro] = useState(false);
   // Default agora é "feed" (distância → recência → valor) — só altera se o
@@ -2336,6 +2346,119 @@ export default function App() {
     await carregarAdminTickets();
   };
 
+  // ── KYC: Upload + Revisão de documentos (RG/CNH) ──────────────────────────
+
+  // User escolhe arquivo — só seta preview, NÃO faz upload ainda
+  const onDocFileSelected = (file: File) => {
+    setDocFile(file);
+    const url = URL.createObjectURL(file);
+    setDocPreview(url);
+  };
+
+  // User envia o documento — upload pro bucket privado + UPDATE no profile
+  const enviarDocumentoKYC = async () => {
+    if (!session?.user?.id || !docFile || enviandoDoc) return;
+    // Validações
+    if (docFile.size > 5 * 1024 * 1024) {
+      setToastError("Arquivo muito grande (máximo 5 MB).");
+      return;
+    }
+    const mimePermitidos = ["image/jpeg","image/png","image/webp","application/pdf"];
+    if (!mimePermitidos.includes(docFile.type)) {
+      setToastError("Tipo de arquivo não permitido. Envie JPG, PNG, WEBP ou PDF.");
+      return;
+    }
+
+    setEnviandoDoc(true);
+    const userId = session.user.id;
+    const ext = docFile.name.split(".").pop()?.toLowerCase() || "jpg";
+    const path = `${userId}/${docTipo}_${Date.now()}.${ext}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from("documentos")
+      .upload(path, docFile, { contentType: docFile.type, upsert: false });
+    if (uploadErr) {
+      setEnviandoDoc(false);
+      setToastError("Falha no envio: " + uploadErr.message);
+      return;
+    }
+
+    // Atualiza o profile: status enviado + URL (path no bucket privado)
+    // O trigger anti-escalada permite essa transição (nao_enviado/rejeitado → enviado).
+    const { error: updErr } = await supabase
+      .from("user_profiles")
+      .update({
+        documento_status:   "enviado",
+        documento_url:      path,
+        documento_enviado_em: new Date().toISOString(),
+      })
+      .eq("id", userId);
+
+    setEnviandoDoc(false);
+    if (updErr) {
+      setToastError("Documento subiu mas o status não foi salvo. Tente reenviar.");
+      return;
+    }
+    setProfile(prev => prev ? { ...prev, documento_status: "enviado", documento_url: path } : prev);
+    setDocFile(null);
+    if (docPreview) { URL.revokeObjectURL(docPreview); setDocPreview(null); }
+    setToastSuccess("✅ Documento enviado! Aguarde a equipe revisar (até 24h).");
+    trackEvento("documento_enviado", userId, modoAtual, { tipo: docTipo });
+  };
+
+  // Admin: lista documentos pendentes
+  const carregarDocsPendentes = async () => {
+    if (!profile?.is_admin) return;
+    const { data, error } = await supabase.rpc("admin_documentos_pendentes");
+    if (!error && data) setAdminDocsPendentes(data as any);
+  };
+
+  // Admin: abre um doc específico — gera signed URL pra visualizar
+  const abrirDocParaRevisao = async (d: {user_id:string; nome:string; documento_url:string}) => {
+    setDocRevisao({ user_id: d.user_id, nome: d.nome, url: d.documento_url });
+    setDocMotivoRejeicao("");
+    // Signed URL com 5 min de validade (mais que suficiente pra revisar)
+    const { data } = await supabase.storage
+      .from("documentos")
+      .createSignedUrl(d.documento_url, 300);
+    if (data?.signedUrl) {
+      setDocRevisao(prev => prev ? { ...prev, signedUrl: data.signedUrl } : null);
+    }
+  };
+
+  // Admin: aprovar/rejeitar via RPC (que valida is_admin no banco)
+  const revisarDocumento = async (decisao: "aprovado" | "rejeitado") => {
+    if (!profile?.is_admin || !docRevisao || revisandoDoc) return;
+    if (decisao === "rejeitado" && docMotivoRejeicao.trim().length < 3) {
+      setToastError("Informe o motivo da rejeição (mínimo 3 caracteres).");
+      return;
+    }
+    setRevisandoDoc(true);
+    const { error } = await supabase.rpc("revisar_documento", {
+      p_user_id: docRevisao.user_id,
+      p_decisao: decisao,
+      p_motivo: decisao === "rejeitado" ? docMotivoRejeicao.trim() : null,
+    });
+    setRevisandoDoc(false);
+    if (error) {
+      setToastError("Falha ao revisar: " + error.message);
+      return;
+    }
+    // Push pro user
+    enviarPush(
+      [docRevisao.user_id],
+      decisao === "aprovado" ? "✅ Documento aprovado!" : "❌ Documento rejeitado",
+      decisao === "aprovado"
+        ? "Sua identidade foi verificada. Bem-vindo ao nível Confiável!"
+        : `Motivo: ${docMotivoRejeicao.trim()}. Você pode reenviar pelo app.`,
+      { tipo: "confirmacao", url: "/?tela=configuracoes" },
+    );
+    setToastSuccess(`✅ Documento ${decisao}.`);
+    setDocRevisao(null);
+    setDocMotivoRejeicao("");
+    await carregarDocsPendentes();
+  };
+
   // ── COMUNIDADE ───────────────────────────────────────────────────────────
 
   const carregarTopicos = async (categoria = "todos") => {
@@ -3819,6 +3942,13 @@ export default function App() {
               { icon:"👤", label:"Alterar perfil", sub:"Nome, foto, especialidade e dados", action:() => setTela(modoAtual === "diarista" ? "editar-perfil" : "editar-perfil-empregador") },
               { icon:"🔑", label:"Alterar senha", sub:"Mude sua senha de acesso", action:() => setTela("alterar-senha") },
               { icon:"📱", label:"Verificar número de telefone", sub: telefoneVerificado ? "✅ Número verificado" : "Confirme seu número para mais segurança", action:() => setTela("verificar-telefone") },
+              { icon: profile?.documento_status === "aprovado" ? "✅" : profile?.documento_status === "enviado" ? "🔍" : profile?.documento_status === "rejeitado" ? "❌" : "🆔",
+                label:"Verificar identidade (RG/CNH)",
+                sub: profile?.documento_status === "aprovado" ? "✅ Documento aprovado"
+                   : profile?.documento_status === "enviado" ? "🔍 Em análise pela equipe"
+                   : profile?.documento_status === "rejeitado" ? "❌ Reenvie — toque pra ver motivo"
+                   : "Suba pro nível Confiável com foto do seu RG/CNH",
+                action:() => setTela("verificar-documento") },
               ...(pushEstado.suportado ? [{
                 icon: pushEstado.inscrito ? "🔔" : "🔕",
                 label: "Notificações push",
@@ -10955,7 +11085,7 @@ export default function App() {
             <button
               title="Recarregar"
               style={{ marginLeft:"auto", background:"rgba(255,255,255,.15)", border:"none", color:"#fff", borderRadius:10, padding:"8px 12px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-              onClick={() => { carregarAdminStats(); carregarAdminTickets(); }}>
+              onClick={() => { carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); }}>
               {carregandoAdminStats ? "⏳" : "🔄"}
             </button>
           </div>
@@ -11021,6 +11151,226 @@ export default function App() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+        {/* Documentos pendentes de KYC */}
+        <div style={{ padding:"4px 16px 24px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>📄 Documentos pendentes (KYC)</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{adminDocsPendentes.length} aguardando</div>
+          </div>
+          {adminDocsPendentes.length === 0 ? (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              ✅ Nenhum documento aguardando revisão.
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {adminDocsPendentes.map(d => (
+                <div key={d.user_id}
+                  style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer", borderLeft:"4px solid #f59e0b" }}
+                  onClick={() => abrirDocParaRevisao(d)}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>
+                        {d.nome || "Usuário"}
+                      </div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                        {d.user_type === "diarista" ? "👷 Diarista" : "🏢 Contratante"} · Enviou {d.documento_enviado_em ? new Date(d.documento_enviado_em).toLocaleDateString("pt-BR") : "—"}
+                      </div>
+                    </div>
+                    <span style={{ background:"rgba(245,158,11,.18)", color:"#f59e0b", fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>Revisar</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Modal: revisão de documento */}
+        {docRevisao && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:700, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+            onClick={() => { setDocRevisao(null); setDocMotivoRejeicao(""); }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"18px", width:"100%", maxWidth:420, maxHeight:"92vh", overflowY:"auto" as const }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4 }}>📄 Revisar documento</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:14 }}>{docRevisao.nome}</div>
+
+              {/* Preview do doc */}
+              {docRevisao.signedUrl ? (
+                docRevisao.url.toLowerCase().endsWith(".pdf") ? (
+                  <iframe src={docRevisao.signedUrl} title="Documento" style={{ width:"100%", height:380, border:"1px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"#fff" }} />
+                ) : (
+                  <img src={docRevisao.signedUrl} alt="Documento" style={{ width:"100%", maxHeight:380, objectFit:"contain" as const, borderRadius:10, marginBottom:14, background:"#000" }} />
+                )
+              ) : (
+                <div style={{ width:"100%", height:200, background:"#f1f5f9", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", color:"#94a3b8", fontSize:13, marginBottom:14 }}>
+                  Carregando documento…
+                </div>
+              )}
+
+              {/* Motivo (só usado se rejeitar) */}
+              <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", display:"block", marginBottom:4, textTransform:"uppercase" as const, letterSpacing:0.3 }}>Motivo (obrigatório se rejeitar)</label>
+              <textarea
+                value={docMotivoRejeicao}
+                onChange={e => setDocMotivoRejeicao(e.target.value.slice(0, 500))}
+                placeholder="Ex: Foto borrada — refaça em local com boa iluminação"
+                rows={2}
+                style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"vertical" as const, boxSizing:"border-box" as const, marginBottom:12, background:"var(--bg-app,#fff)", color:"var(--text-1,#0f172a)", outline:"none" }}
+              />
+
+              <div style={{ display:"flex", gap:8 }}>
+                <button
+                  disabled={revisandoDoc}
+                  style={{ flex:1, padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:800, cursor: revisandoDoc ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: revisandoDoc ? 0.6 : 1 }}
+                  onClick={() => revisarDocumento("aprovado")}>
+                  ✅ Aprovar
+                </button>
+                <button
+                  disabled={revisandoDoc || docMotivoRejeicao.trim().length < 3}
+                  style={{ flex:1, padding:"12px", background:"#ef4444", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:800, cursor: revisandoDoc || docMotivoRejeicao.trim().length < 3 ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: revisandoDoc || docMotivoRejeicao.trim().length < 3 ? 0.5 : 1 }}
+                  onClick={() => revisarDocumento("rejeitado")}>
+                  ❌ Rejeitar
+                </button>
+              </div>
+              <button
+                style={{ width:"100%", marginTop:8, padding:"10px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => { setDocRevisao(null); setDocMotivoRejeicao(""); }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── ENVIAR DOCUMENTO (KYC — usuário envia RG/CNH) ─────────────────────────
+  if (tela === "verificar-documento") {
+    const voltarTela = "configuracoes";
+    const docStatus = profile?.documento_status || "nao_enviado";
+    const statusInfo: Record<string, { cor: string; icone: string; titulo: string; sub: string }> = {
+      nao_enviado: { cor:"#94a3b8", icone:"📷", titulo:"Documento ainda não enviado", sub:"Envie uma foto do seu RG ou CNH pra subir pro nível Confiável." },
+      enviado:     { cor:"#f59e0b", icone:"🔍", titulo:"Em análise",                 sub:"A equipe está verificando. Você recebe um aviso em até 24h." },
+      aprovado:    { cor:"#16a34a", icone:"✅", titulo:"Documento aprovado",         sub:"Sua identidade está verificada. Você é Nível Confiável!" },
+      rejeitado:   { cor:"#ef4444", icone:"❌", titulo:"Documento rejeitado",        sub: profile?.documento_motivo_rejeicao || "Reenvie com mais qualidade." },
+    };
+    const info = statusInfo[docStatus];
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
+          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🆔</div>
+            <div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Verificar identidade</div>
+              <div style={{ fontSize:13, color:"#94a3b8" }}>Suba para o nível Confiável</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Status atual */}
+        <div style={{ padding:"16px" }}>
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", borderLeft:`4px solid ${info.cor}`, marginBottom:14 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:44, height:44, background:info.cor+"22", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>{info.icone}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{info.titulo}</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.5 }}>{info.sub}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* LGPD info */}
+          <div style={{ background:"rgba(58,134,255,.08)", border:"1px solid rgba(58,134,255,.3)", borderRadius:12, padding:"12px 14px", marginBottom:16, fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
+            🔒 <strong style={{ color:"var(--text-1,#0f172a)" }}>Privacidade (LGPD):</strong> seu documento é guardado em local privado e só visto pela equipe pra verificar identidade. Nunca aparece no seu perfil público.
+          </div>
+
+          {/* Formulário (só aparece se status permite reenvio) */}
+          {(docStatus === "nao_enviado" || docStatus === "rejeitado") && (
+            <>
+              <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Tipo de documento</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+                {([["rg","🪪","RG"],["cnh","🚗","CNH"]] as const).map(([val, icone, label]) => {
+                  const ativo = docTipo === val;
+                  return (
+                    <button key={val}
+                      style={{ padding:"14px 8px", border: ativo ? "2.5px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)", borderRadius:14, background: ativo ? "#fff7f3" : "var(--bg-card,#fff)", color: ativo ? "#FF6B35" : "var(--text-1,#0f172a)", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, alignItems:"center", gap:4 }}
+                      onClick={() => setDocTipo(val)}>
+                      <span style={{ fontSize:22 }}>{icone}</span>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Arquivo</div>
+
+              <label style={{ display:"block", padding:"24px 16px", background:"var(--bg-surface,#f8fafc)", border:"2px dashed var(--border,#e2e8f0)", borderRadius:14, textAlign:"center" as const, cursor:"pointer", marginBottom:12 }}>
+                <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
+                  style={{ display:"none" }}
+                  onChange={e => e.target.files?.[0] && onDocFileSelected(e.target.files[0])} />
+                {docFile ? (
+                  <div>
+                    <div style={{ fontSize:32, marginBottom:6 }}>📎</div>
+                    <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{docFile.name}</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>
+                      {(docFile.size / 1024 / 1024).toFixed(2)} MB · {docFile.type}
+                    </div>
+                    <div style={{ fontSize:11, color:"#FF6B35", marginTop:6, fontWeight:700 }}>Toque pra trocar</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontSize:36, marginBottom:6 }}>📷</div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Toque para tirar foto ou escolher</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>JPG, PNG, WEBP ou PDF · máx 5 MB</div>
+                  </div>
+                )}
+              </label>
+
+              {/* Preview se for imagem */}
+              {docPreview && docFile && docFile.type.startsWith("image/") && (
+                <img src={docPreview} alt="Pré-visualização" style={{ width:"100%", maxHeight:280, objectFit:"contain" as const, borderRadius:12, background:"#000", marginBottom:12 }} />
+              )}
+
+              {/* Dicas */}
+              <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
+                💡 <strong style={{ color:"var(--text-1,#0f172a)" }}>Pra evitar rejeição:</strong>
+                <ul style={{ margin:"6px 0 0 18px", padding:0 }}>
+                  <li>Foto nítida, sem borrão</li>
+                  <li>Texto legível (sem reflexo)</li>
+                  <li>Documento inteiro na foto</li>
+                  <li>Sem dedos cobrindo dados</li>
+                </ul>
+              </div>
+
+              <button
+                disabled={!docFile || enviandoDoc}
+                style={{ width:"100%", padding:"14px", background:!docFile||enviandoDoc?"#94a3b8":"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:!docFile||enviandoDoc?"not-allowed":"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity:!docFile||enviandoDoc?.6:1, boxShadow:!docFile||enviandoDoc?"none":"0 4px 16px rgba(255,107,53,.4)" }}
+                onClick={enviarDocumentoKYC}>
+                {enviandoDoc ? "Enviando..." : docFile ? "Enviar documento" : "Escolha um arquivo acima"}
+              </button>
+            </>
+          )}
+
+          {/* Status enviado/aprovado: sem formulário */}
+          {docStatus === "enviado" && (
+            <div style={{ textAlign:"center" as const, padding:"24px 16px" }}>
+              <div style={{ fontSize:42, marginBottom:10 }}>⏳</div>
+              <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Aguarde a equipe revisar</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+                Você receberá uma notificação assim que for analisado.
+              </div>
+            </div>
+          )}
+          {docStatus === "aprovado" && (
+            <div style={{ textAlign:"center" as const, padding:"24px 16px" }}>
+              <div style={{ fontSize:42, marginBottom:10 }}>🎉</div>
+              <div style={{ fontWeight:800, fontSize:15, color:"#16a34a", marginBottom:6 }}>Tudo certo!</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+                Sua identidade está verificada. Esse status fica salvo no seu perfil.
+              </div>
             </div>
           )}
         </div>

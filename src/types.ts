@@ -77,6 +77,7 @@ export interface UserProfile {
   documento_url?: string;
   documento_enviado_em?: string;
   documento_revisado_em?: string;
+  documento_motivo_rejeicao?: string;
   // Heartbeat de presença (painel admin "online agora")
   last_activity_at?: string;
   // PIX do diarista (recebe pagamentos da plataforma)
