@@ -18,9 +18,21 @@ const SUPABASE_KEY     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const MP_TOKEN         = Deno.env.get("MP_ACCESS_TOKEN")!;
 const WEBHOOK_SECRET   = Deno.env.get("MP_WEBHOOK_SECRET") ?? "";
 
+// Comparação byte-a-byte em tempo constante — evita timing oracle
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 // Valida a assinatura HMAC-SHA256 enviada pelo MP no header x-signature
 async function validarAssinatura(req: Request, body: string): Promise<boolean> {
-  if (!WEBHOOK_SECRET) return true; // sem secret configurado → aceita (dev)
+  // Fail-closed: sem secret em produção a função não aceita nada.
+  // Configure MP_WEBHOOK_SECRET no painel do Supabase antes de receber webhooks.
+  if (!WEBHOOK_SECRET) return false;
 
   const xSignature = req.headers.get("x-signature") ?? "";
   const xRequestId = req.headers.get("x-request-id") ?? "";
@@ -51,7 +63,7 @@ async function validarAssinatura(req: Request, body: string): Promise<boolean> {
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(template));
   const computed = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
 
-  return computed === hash;
+  return timingSafeEqualHex(computed, hash);
 }
 
 Deno.serve(async (req) => {
