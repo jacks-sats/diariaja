@@ -12,8 +12,9 @@ import {
 } from "./constants";
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
-  detectarContatoExterno, validarCPF, maskCPF, maskCNPJ, haversineKm,
+  detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, haversineKm,
   validarTituloDiaria, validarEmail, validarSenhaForte,
+  maskTelefone, validarTelefone,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -95,7 +96,7 @@ export default function App() {
     return (localStorage.getItem("diariaja_modo") as "empregador"|"diarista") || "empregador";
   });
   const [negocioSelecionado, setNegocio]  = useState<string | null>(null);
-  const [form, setForm]                   = useState({ nome:"", telefone:"", funcao:"", valor:"", nomeNegocio:"", email:"", senha:"", bio:"", cpf:"", cnpj:"", pessoaTipo:"fisica", sexo:"", dataNasc:"", cepEmp:"", ruaEmp:"", numeroEmp:"", complementoEmp:"", bairroEmp:"", cidadeEmp:"", estadoEmp:"", cep:"", bairro:"", cidade:"" });
+  const [form, setForm]                   = useState({ nome:"", telefone:"", funcao:"", valor:"", nomeNegocio:"", email:"", senha:"", bio:"", cpf:"", cnpj:"", pessoaTipo:"fisica", sexo:"", dataNasc:"", cepEmp:"", ruaEmp:"", numeroEmp:"", complementoEmp:"", bairroEmp:"", cidadeEmp:"", estadoEmp:"", cep:"", bairro:"", cidade:"", pixTipo:"cpf", pixChave:"" });
   const [buscandoCEPEmp, setBuscandoCEPEmp] = useState(false);
   const [fotoUrl, setFotoUrl]             = useState<string | null>(null);
   const [uploadingFoto, setUploadingFoto] = useState(false);
@@ -3558,7 +3559,8 @@ export default function App() {
       <label style={S.label}>Nome completo *</label>
       <input style={S.input} placeholder="Ex: Maria Oliveira" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
       <label style={S.label}>Telefone (WhatsApp) *</label>
-      <input style={S.input} placeholder="(67) 99999-9999" value={form.telefone} onChange={e=>setForm({...form,telefone:e.target.value})} />
+      <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15}
+        value={form.telefone} onChange={e=>setForm({...form,telefone:maskTelefone(e.target.value)})} />
 
       {form.pessoaTipo === "fisica" ? (
         <>
@@ -3632,12 +3634,14 @@ export default function App() {
         setAuthError("");
         if (!form.nome.trim()) { setAuthError("Informe seu nome completo."); return; }
         { const erroNome = validarNome(form.nome); if (erroNome) { setAuthError(erroNome); return; } }
+        if (!validarTelefone(form.telefone)) { setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX."); return; }
         if (form.pessoaTipo === "fisica" && !validarCPF(form.cpf)) { setAuthError("CPF inválido. Verifique os dígitos e tente novamente."); return; }
-        if (form.pessoaTipo === "juridica" && form.cnpj.replace(/\D/g,"").length !== 14) { setAuthError("CNPJ inválido — deve ter 14 dígitos."); return; }
+        if (form.pessoaTipo === "juridica" && !validarCNPJ(form.cnpj)) { setAuthError("CNPJ inválido. Verifique os dígitos e tente novamente."); return; }
         if (!form.cepEmp || !form.ruaEmp.trim() || !form.numeroEmp.trim()) { setAuthError("Preencha CEP, logradouro e número."); return; }
         const endEmp = `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp.trim()?` — ${form.complementoEmp}`:""},  ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} — CEP ${form.cepEmp}`;
         const ok = await saveProfile({
           nome_negocio: form.pessoaTipo === "juridica" ? form.nomeNegocio : form.nome,
+          telefone: form.telefone.replace(/\D/g, ""),
           cpf: form.cpf,
           cnpj: form.cnpj,
           pessoa_tipo: form.pessoaTipo,
