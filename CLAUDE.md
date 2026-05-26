@@ -69,10 +69,6 @@ the verification script is the safety net.
 └── index.html               Inline CSS variables for light/dark mode + native splash
 ```
 
-Note: two zero-byte stray files exist at the root (`64x`, `6GHz)`) — they
-appear to be accidental shell-history artefacts. Leave them alone unless
-asked to clean up.
-
 ## Development workflow
 
 ```bash

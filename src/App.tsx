@@ -7,14 +7,13 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import { Session } from "@supabase/supabase-js";
-import MapComponent from "./MapComponent";
 // ── Ícones (Lucide React — outline moderno, tree-shaken) ─────────────────────
 import {
-  Home, Briefcase, MessageCircle, User, Plus, ArrowLeft,
-  Star, CheckCircle2, AlertTriangle, MapPin, Camera, QrCode,
-  Heart, Bell, LogOut, Settings, Search, Filter, X, Send,
-  Wallet, ShieldCheck, ThumbsUp, ThumbsDown, Clock, Trash2,
-  Eye, EyeOff, ChevronRight, Inbox, Loader2,
+  Home, Briefcase, MessageCircle, User, Plus,
+  Star, CheckCircle2, AlertTriangle, MapPin,
+  Filter, X, Send,
+  Wallet, ShieldCheck, Clock,
+  ChevronRight, Inbox, Loader2,
 } from "lucide-react";
 // QRCodeSVG é carregado sob demanda — economiza ~117KB gzip no startup
 const QRCodeSVG = React.lazy(() =>
@@ -303,7 +302,6 @@ export default function App() {
   const [modalPix, setModalPix] = useState<Diaria | null>(null);
   const [modalPagamentoMP, setModalPagamentoMP] = useState<Diaria | null>(null);
   const [criandoPagamento, setCriandoPagamento] = useState(false);
-  const [mpOAuthStatus, setMpOAuthStatus] = useState<"idle"|"conectando"|"conectado"|"erro">("idle");
   const [assinatura, setAssinatura] = useState<Assinatura | null>(null);
   const [criandoAssinatura, setCriandoAssinatura] = useState(false);
   const [modalLimiteContato, setModalLimiteContato] = useState(false);
@@ -391,7 +389,6 @@ export default function App() {
   const portfolioInputRef = useRef<HTMLInputElement>(null);
 
   // Código de indicação / referral
-  const [modalIndicar, setModalIndicar] = useState(false);
   const [modalQuemSomos, setModalQuemSomos] = useState(false);
 
   // Mostrar/ocultar senha nos campos de login e cadastro
@@ -401,7 +398,6 @@ export default function App() {
   const [resetSenhaLoading, setResetSenhaLoading] = useState(false);
 
   // Configurações / Conta
-  const [senhaAtual, setSenhaAtual] = useState("");
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmSenha, setConfirmSenha] = useState("");
   const [alterandoSenha, setAlterandoSenha] = useState(false);
@@ -476,6 +472,14 @@ export default function App() {
   useEffect(() => { localStorage.setItem("diariaja_modo", modoAtual); }, [modoAtual]);
   // Persiste a tela atual para não sair da página ao recarregar
   useEffect(() => { localStorage.setItem("diariaja_tela", tela); }, [tela]);
+  // Cleanup ObjectURL do preview de KYC ao sair da tela (evita leak em mobile)
+  useEffect(() => {
+    if (tela !== "verificar-documento" && docPreview) {
+      try { URL.revokeObjectURL(docPreview); } catch {}
+      setDocPreview(null);
+      setDocFile(null);
+    }
+  }, [tela, docPreview]);
   // Persiste e aplica dark mode via CSS custom properties + atributo no body
   useEffect(() => {
     localStorage.setItem("diariaja_dark", darkMode ? "1" : "0");
@@ -509,11 +513,9 @@ export default function App() {
     const mpOAuth = params.get("mp_oauth");
     const pagStatus = params.get("pagamento");
     if (mpOAuth === "sucesso") {
-      setMpOAuthStatus("conectado");
       setToastSuccess("✅ Conta Mercado Pago conectada com sucesso!");
       window.history.replaceState({}, "", window.location.pathname);
     } else if (mpOAuth === "erro") {
-      setMpOAuthStatus("erro");
       setToastError("❌ Erro ao conectar conta MP. Tente novamente.");
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -547,12 +549,6 @@ export default function App() {
   }, [session?.user?.id]);
 
   // Diaristas reais: IDs negativos = índice no array (via ref)
-  const handleDiaristaClick = useCallback((id: number) => {
-    const realIdx = (-id) - 1;
-    const d = diaristasReaisRef.current[realIdx];
-    if (d) { setDiaristaSelecionadaReal(d); setTela("perfil-diarista-real"); }
-  }, []);
-
   // Redireciona para escolha-negocio SOMENTE se nem o estado nem o perfil têm segmento
   useEffect(() => {
     if (tela === "home-empregador" && !negocioSelecionado && !profile?.segmento) {
@@ -1572,6 +1568,16 @@ export default function App() {
       // Ignora eventos que não mudam estado (ex: TOKEN_REFRESHED quando já estava logado)
       if (event === "TOKEN_REFRESHED") return;
       setSession(session);
+      // Re-tenta persistir aceite dos termos se ficou pendente do signup (LGPD)
+      if (session && event === "SIGNED_IN") {
+        try {
+          if (localStorage.getItem("diariaja_termos_pendente_db") === "1") {
+            supabase.rpc("aceitar_termos", { p_versao: TERMOS_VERSAO })
+              .then(() => { try { localStorage.removeItem("diariaja_termos_pendente_db"); } catch {} },
+                    () => {});
+          }
+        } catch { /* ignore */ }
+      }
       if (session) {
         (async () => {
           try {
@@ -1743,20 +1749,20 @@ export default function App() {
     if (error) {
       setAuthError(traduzirErroAuth(error.message));
     } else {
-      // Audit trail do aceite — server-side em user_profiles (LGPD)
+      // Audit trail do aceite (LGPD). Quando "Confirm email" está ON, signupData.session
+      // é null e o profile/RLS não aceitam INSERT ainda — usamos RPC SECURITY DEFINER
+      // que persiste assim que houver sessão. Se ainda não houver sessão, marca localStorage
+      // como backup e o app re-tenta no primeiro login via onAuthStateChange.
       try {
-        const novoUserId = signupData?.user?.id;
-        if (novoUserId) {
-          await supabase.from("user_profiles").upsert({
-            id: novoUserId,
-            termos_aceitos_em: new Date().toISOString(),
-            termos_versao: TERMOS_VERSAO,
-          });
+        if (signupData?.session) {
+          await supabase.rpc("aceitar_termos", { p_versao: TERMOS_VERSAO });
         }
-      } catch { /* registra aceite localmente como backup mesmo se DB falhar */ }
+      } catch { /* falha silenciosa — backup em localStorage abaixo */ }
       try {
         localStorage.setItem("diariaja_termos_" + TERMOS_VERSAO, "1");
         localStorage.setItem("diariaja_termos_data", new Date().toISOString());
+        // Marcador pra re-tentar persistir após confirm-email no primeiro login
+        localStorage.setItem("diariaja_termos_pendente_db", "1");
       } catch { /* ignore */ }
     }
     setAuthLoading(false);
@@ -2351,8 +2357,9 @@ export default function App() {
   // User escolhe arquivo — só seta preview, NÃO faz upload ainda
   const onDocFileSelected = (file: File) => {
     setDocFile(file);
-    const url = URL.createObjectURL(file);
-    setDocPreview(url);
+    // Revoga preview anterior pra evitar memory leak em mobile (fotos de 5 MB)
+    if (docPreview) { try { URL.revokeObjectURL(docPreview); } catch {} }
+    setDocPreview(URL.createObjectURL(file));
   };
 
   // User envia o documento — upload pro bucket privado + UPDATE no profile
@@ -4276,8 +4283,18 @@ export default function App() {
                       setAuthError("Código inválido ou expirado. Tente novamente.");
                       return;
                     }
-                    // Persiste no perfil: agora é oficialmente verificado
-                    await saveProfile({ telefone: form.telefone.trim(), telefone_verificado: true } as any);
+                    // Persiste no perfil via RPC server-side — o trigger anti-escalada
+                    // bloqueia UPDATE direto em telefone_verificado pelo client.
+                    const telDigitos = form.telefone.replace(/\D/g, "");
+                    const { error: rpcErr } = await supabase.rpc("confirmar_telefone_verificado", {
+                      p_telefone: telDigitos,
+                    });
+                    if (rpcErr) {
+                      setEnviandoVerif(false);
+                      setAuthError("Telefone verificado no SMS, mas falha ao salvar no perfil. " + rpcErr.message);
+                      return;
+                    }
+                    setProfile(prev => prev ? { ...prev, telefone: telDigitos, telefone_verificado: true } : prev);
                     setTelefoneVerificado(true);
                     try { localStorage.setItem("diariaja_tel_verif","1"); } catch {}
                     hapticConfirm();
@@ -4684,7 +4701,7 @@ export default function App() {
         const endEmp = `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp.trim()?` — ${form.complementoEmp}`:""},  ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} — CEP ${form.cepEmp}`;
         const ok = await saveProfile({
           nome_negocio: form.pessoaTipo === "juridica" ? form.nomeNegocio : form.nome,
-          telefone: form.telefone,
+          telefone: form.telefone.replace(/\D/g, ""), // só dígitos pra consistência
           cpf: form.cpf,
           cnpj: form.cnpj,
           pessoa_tipo: form.pessoaTipo,
@@ -4926,13 +4943,22 @@ export default function App() {
         if (calcularIdade(form.dataNasc) < 18) { setAuthError("Diaristas precisam ter 18 anos ou mais (CLT/LC 150)."); return; }
         if (categoriasSelecionadas.length === 0) { setAuthError("Selecione ao menos uma especialidade."); return; }
         { const erroPix = validarPix(form.pixChave, form.pixTipo); if (erroPix) { setAuthError(erroPix); return; } }
+        // Normaliza valores antes de gravar — banco fica com formato canônico,
+        // sem máscara visual. Quebra integração MP/PIX se mantiver formatado.
+        const telDigitos = form.telefone.replace(/\D/g, "");
+        const pixNorm =
+          form.pixTipo === "cpf" || form.pixTipo === "cnpj"
+            ? form.pixChave.replace(/\D/g, "")
+            : form.pixTipo === "telefone"
+              ? "+55" + form.pixChave.replace(/\D/g, "")
+              : form.pixChave.trim();
         const ok = await saveProfile({
-          telefone: form.telefone,
+          telefone: telDigitos,
           funcao: categoriasSelecionadas[0] || "",
           cpf: form.cpf,
           sexo: form.sexo,
           data_nascimento: form.dataNasc,
-          pix_chave: form.pixChave,
+          pix_chave: pixNorm,
           pix_tipo: form.pixTipo as "cpf"|"cnpj"|"email"|"telefone"|"aleatoria",
         });
         if (ok) setTela("pedir-localizacao");
