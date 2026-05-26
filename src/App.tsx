@@ -413,6 +413,8 @@ export default function App() {
   // Login por CPF/CNPJ (alternativa ao e-mail)
   const [modoLogin, setModoLogin] = useState<"email"|"cpf">("email");
   const [loginCpfInput, setLoginCpfInput] = useState("");
+  // Menu de "mais opções" (três pontinhos) no header — atalho pra Configurações
+  const [menuOpcoes, setMenuOpcoes] = useState(false);
   // Alterar senha — exige senha atual (proteção contra device roubado)
   const [senhaAtual, setSenhaAtual] = useState("");
   // Favoritos (empregador salva diaristas favoritos)
@@ -5434,7 +5436,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-            {/* Sino + botão trocar perfil */}
+            {/* Sino + três pontinhos (mais opções) + botão trocar perfil */}
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               {tipo === "ambos" && (
                 <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
@@ -5445,6 +5447,14 @@ export default function App() {
                 🔔
                 {(notifNaoLidas + suporteNaoLidos) > 0 && <div style={{ position:"absolute", top:-4, right:-4, background: suporteNaoLidos > 0 ? "#f59e0b" : "#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</div>}
               </div>
+              <button
+                aria-label="Mais opções"
+                style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, gap:3, fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => setMenuOpcoes(true)}>
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+              </button>
             </div>
           </div>
 
@@ -7533,6 +7543,52 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Bottom sheet: três pontinhos (mais opções) ── */}
+        {menuOpcoes && (
+          <div style={S.modalOverlay} onClick={() => setMenuOpcoes(false)}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 24px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+              <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
+              <div style={{ padding:"0 16px", display:"flex", flexDirection:"column" as const, gap:10 }}>
+                <button
+                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                  onClick={() => { setMenuOpcoes(false); setTela("configuracoes"); }}>
+                  <div style={{ width:40, height:40, borderRadius:20, background:"#FF6B3518", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>⚙️</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Configurações</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Conta, senha, notificações e mais</div>
+                  </div>
+                  <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                </button>
+                <button
+                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                  onClick={() => { setMenuOpcoes(false); setTela("suporte"); }}>
+                  <div style={{ width:40, height:40, borderRadius:20, background:"#3A86FF18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🎧</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Suporte</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Fale com a equipe ou abra um ticket</div>
+                  </div>
+                  <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                </button>
+                {profile?.is_admin && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); setTela("admin-painel"); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Stats da plataforma e tickets de suporte</div>
+                    </div>
+                    {ticketsNovos > 0 && (
+                      <span style={{ background:"#ef4444", color:"#fff", borderRadius:10, padding:"2px 8px", fontSize:11, fontWeight:900 }}>{ticketsNovos > 9 ? "9+" : ticketsNovos}</span>
+                    )}
+                  </button>
+                )}
+                <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)", width:"100%", marginTop:4 }} onClick={() => setMenuOpcoes(false)}>Fechar</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Bottom sheet: trocar de perfil ── */}
         {menuTrocarPerfil && (
           <div style={S.modalOverlay} onClick={() => setMenuTrocarPerfil(false)}>
@@ -7676,7 +7732,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-            {/* Sino + botão trocar perfil */}
+            {/* Sino + três pontinhos (mais opções) + botão trocar perfil */}
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               {tipo === "ambos" && (
                 <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
@@ -7687,6 +7743,14 @@ export default function App() {
                 🔔
                 {(notifNaoLidas + suporteNaoLidos) > 0 && <div style={{ position:"absolute", top:-4, right:-4, background: suporteNaoLidos > 0 ? "#f59e0b" : "#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</div>}
               </div>
+              <button
+                aria-label="Mais opções"
+                style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, gap:3, fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => setMenuOpcoes(true)}>
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+              </button>
             </div>
           </div>
 
@@ -9769,6 +9833,52 @@ export default function App() {
             <span>Perfil</span>
           </button>
         </div>
+
+        {/* ── Bottom sheet: três pontinhos (mais opções) ── */}
+        {menuOpcoes && (
+          <div style={S.modalOverlay} onClick={() => setMenuOpcoes(false)}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 24px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+              <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
+              <div style={{ padding:"0 16px", display:"flex", flexDirection:"column" as const, gap:10 }}>
+                <button
+                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                  onClick={() => { setMenuOpcoes(false); setTela("configuracoes"); }}>
+                  <div style={{ width:40, height:40, borderRadius:20, background:"#FF6B3518", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>⚙️</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Configurações</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Conta, senha, notificações e mais</div>
+                  </div>
+                  <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                </button>
+                <button
+                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                  onClick={() => { setMenuOpcoes(false); setTela("suporte"); }}>
+                  <div style={{ width:40, height:40, borderRadius:20, background:"#3A86FF18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🎧</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Suporte</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Fale com a equipe ou abra um ticket</div>
+                  </div>
+                  <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                </button>
+                {profile?.is_admin && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); setTela("admin-painel"); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Stats da plataforma e tickets de suporte</div>
+                    </div>
+                    {ticketsNovos > 0 && (
+                      <span style={{ background:"#ef4444", color:"#fff", borderRadius:10, padding:"2px 8px", fontSize:11, fontWeight:900 }}>{ticketsNovos > 9 ? "9+" : ticketsNovos}</span>
+                    )}
+                  </button>
+                )}
+                <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)", width:"100%", marginTop:4 }} onClick={() => setMenuOpcoes(false)}>Fechar</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Bottom sheet: trocar de perfil ── */}
         {menuTrocarPerfil && (
