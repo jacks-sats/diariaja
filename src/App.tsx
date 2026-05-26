@@ -62,10 +62,10 @@ import {
 } from "./constants";
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
-  detectarContatoExterno, validarCPF, maskCPF, maskCNPJ, haversineKm,
+  detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
   validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
-  calcularNivelConfiabilidade,
+  calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -142,7 +142,7 @@ export default function App() {
     return (localStorage.getItem("diariaja_modo") as "empregador"|"diarista") || "empregador";
   });
   const [negocioSelecionado, setNegocio]  = useState<string | null>(null);
-  const [form, setForm]                   = useState({ nome:"", telefone:"", funcao:"", valor:"", nomeNegocio:"", email:"", senha:"", bio:"", cpf:"", cnpj:"", pessoaTipo:"fisica", sexo:"", dataNasc:"", cepEmp:"", ruaEmp:"", numeroEmp:"", complementoEmp:"", bairroEmp:"", cidadeEmp:"", estadoEmp:"", cep:"", bairro:"", cidade:"" });
+  const [form, setForm]                   = useState({ nome:"", telefone:"", funcao:"", valor:"", nomeNegocio:"", email:"", senha:"", bio:"", cpf:"", cnpj:"", pessoaTipo:"fisica", sexo:"", dataNasc:"", cepEmp:"", ruaEmp:"", numeroEmp:"", complementoEmp:"", bairroEmp:"", cidadeEmp:"", estadoEmp:"", cep:"", bairro:"", cidade:"", pixTipo:"cpf", pixChave:"" });
   const [buscandoCEPEmp, setBuscandoCEPEmp] = useState(false);
   const [fotoUrl, setFotoUrl]             = useState<string | null>(null);
   const [uploadingFoto, setUploadingFoto] = useState(false);
@@ -1727,13 +1727,23 @@ export default function App() {
   const handleEmailSignup = async () => {
     if (!checkTermos) { setAuthError("Você precisa aceitar os Termos de Uso para criar uma conta."); return; }
     if (!validarEmail(form.email)) { setAuthError("E-mail inválido. Confira e tente novamente."); return; }
-    if (form.senha.length < 6) { setAuthError("A senha deve ter pelo menos 6 caracteres."); return; }
+    { const erroSenha = validarSenhaForte(form.senha); if (erroSenha) { setAuthError(erroSenha); return; } }
     setAuthError(""); setAuthLoading(true);
-    const { error } = await supabase.auth.signUp({ email: form.email, password: form.senha });
+    const { data: signupData, error } = await supabase.auth.signUp({ email: form.email, password: form.senha });
     if (error) {
       setAuthError(traduzirErroAuth(error.message));
     } else {
-      // Registra aceite dos termos no momento do cadastro
+      // Audit trail do aceite — server-side em user_profiles (LGPD)
+      try {
+        const novoUserId = signupData?.user?.id;
+        if (novoUserId) {
+          await supabase.from("user_profiles").upsert({
+            id: novoUserId,
+            termos_aceitos_em: new Date().toISOString(),
+            termos_versao: TERMOS_VERSAO,
+          });
+        }
+      } catch { /* registra aceite localmente como backup mesmo se DB falhar */ }
       try {
         localStorage.setItem("diariaja_termos_" + TERMOS_VERSAO, "1");
         localStorage.setItem("diariaja_termos_data", new Date().toISOString());
@@ -1744,10 +1754,22 @@ export default function App() {
 
   const handleResetSenha = async () => {
     if (!form.email.trim()) { setAuthError("Informe seu e-mail para redefinir a senha."); return; }
+    if (!validarEmail(form.email)) { setAuthError("E-mail inválido. Confira e tente novamente."); return; }
     setResetSenhaLoading(true); setAuthError("");
-    const { error } = await supabase.auth.resetPasswordForEmail(form.email.trim(), { redirectTo: window.location.origin });
+    // redirectTo fixo (não usar window.location.origin) para evitar open-redirect
+    // se o app for embarcado em domínio comprometido.
+    const APP_REDIRECT = "https://diariaja.vercel.app/?recovery=1";
+    const { error } = await supabase.auth.resetPasswordForEmail(form.email.trim(), { redirectTo: APP_REDIRECT });
     setResetSenhaLoading(false);
-    if (error) { setAuthError(traduzirErroAuth(error.message)); } else { setResetSenhaEnviado(true); }
+    // Mensagem genérica em caso de erro/sucesso → evita enumeração de e-mail
+    setResetSenhaEnviado(true);
+    if (error) {
+      // Mostra erro técnico só se não for "user not found" (que vazaria existência)
+      const msg = error.message.toLowerCase();
+      if (!msg.includes("not found") && !msg.includes("user not")) {
+        setAuthError(traduzirErroAuth(error.message));
+      }
+    }
   };
 
   const handleGoogleLogin = async () => {
@@ -3517,27 +3539,42 @@ export default function App() {
         {[
           { key:"empregador", icone:"🏢", label:"Quero contratar", desc:"Negócio, restaurante, obra..." },
           { key:"diarista",   icone:"👷", label:"Quero trabalhar", desc:"Encontrar vagas próximas" },
-        ].map(t => (
-          <div key={t.key}
-            style={{ background: tipo===t.key ? "rgba(255,107,53,.15)" : "rgba(255,255,255,.06)", border: tipo===t.key ? "2px solid #FF6B35" : "1.5px solid rgba(255,255,255,.1)", borderRadius:20, padding:"24px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:10, cursor:"pointer" }}
-            onClick={() => setTipo(t.key)}>
-            <span style={{ fontSize:36 }}>{t.icone}</span>
-            <span style={{ fontWeight:800, fontSize:15, color:tipo===t.key?"#FF6B35":"#f1f5f9" }}>{t.label}</span>
-            <span style={{ fontSize:11, color:"var(--text-2,#64748b)", textAlign:"center" }}>{t.desc}</span>
-          </div>
-        ))}
+        ].map(t => {
+          const ativo = tipo === t.key;
+          return (
+            <div key={t.key}
+              style={{ position:"relative" as const, background: ativo ? "rgba(255,107,53,.35)" : "rgba(255,255,255,.06)", border: ativo ? "3px solid #FF6B35" : "1.5px solid rgba(255,255,255,.1)", borderRadius:20, padding:"24px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:10, cursor:"pointer", transition:"all .15s" }}
+              onClick={() => { hapticTick(); setTipo(t.key); }}>
+              {ativo && (
+                <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(0,0,0,.3)" }}>✓</div>
+              )}
+              <span style={{ fontSize:36 }}>{t.icone}</span>
+              <span style={{ fontWeight:800, fontSize:15, color: ativo ? "#fff" : "#f1f5f9" }}>{t.label}</span>
+              <span style={{ fontSize:11, color: ativo ? "rgba(255,255,255,.85)" : "var(--text-2,#64748b)", textAlign:"center" }}>{t.desc}</span>
+            </div>
+          );
+        })}
       </div>
       {/* Card empresa — linha separada, largura total */}
-      <div
-        style={{ background: tipo==="empresa" ? "rgba(58,134,255,.18)" : "rgba(255,255,255,.06)", border: tipo==="empresa" ? "2px solid #3A86FF" : "1.5px solid rgba(255,255,255,.1)", borderRadius:20, padding:"18px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:8, cursor:"pointer", marginBottom:24 }}
-        onClick={() => setTipo("empresa")}>
-        <span style={{ fontSize:36 }}>🏢</span>
-        <span style={{ fontWeight:800, fontSize:15, color:tipo==="empresa"?"#3A86FF":"#f1f5f9" }}>Empresa com CNPJ</span>
-        <span style={{ fontSize:11, color:"var(--text-2,#64748b)", textAlign:"center" as const }}>Pessoa jurídica — CNPJ obrigatório</span>
-      </div>
+      {(() => {
+        const ativo = tipo === "empresa";
+        return (
+          <div
+            style={{ position:"relative" as const, background: ativo ? "rgba(58,134,255,.35)" : "rgba(255,255,255,.06)", border: ativo ? "3px solid #3A86FF" : "1.5px solid rgba(255,255,255,.1)", borderRadius:20, padding:"18px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:8, cursor:"pointer", marginBottom:24, transition:"all .15s" }}
+            onClick={() => { hapticTick(); setTipo("empresa"); }}>
+            {ativo && (
+              <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#3A86FF", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(0,0,0,.3)" }}>✓</div>
+            )}
+            <span style={{ fontSize:36 }}>🏢</span>
+            <span style={{ fontWeight:800, fontSize:15, color: ativo ? "#fff" : "#f1f5f9" }}>Empresa com CNPJ</span>
+            <span style={{ fontSize:11, color: ativo ? "rgba(255,255,255,.85)" : "var(--text-2,#64748b)", textAlign:"center" as const }}>Pessoa jurídica — CNPJ obrigatório</span>
+          </div>
+        );
+      })()}
 
-      <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity:tipo?1:0.35, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
+      <button style={{ width:"100%", padding:"15px", background: tipo ? "#FF6B35" : "#475569", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor: tipo ? "pointer" : "not-allowed", fontFamily:"Inter, system-ui, sans-serif", opacity: tipo ? 1 : 0.75, boxShadow: tipo ? "0 4px 16px rgba(255,107,53,.4)" : "none", transition:"all .2s" }}
         disabled={!tipo}
+        aria-disabled={!tipo}
         onClick={() => {
           if (tipo === "empresa") {
             setForm(prev => ({ ...prev, pessoaTipo: "juridica" }));
@@ -3549,7 +3586,7 @@ export default function App() {
             setTela("cadastro-auth");
           }
         }}>
-        Continuar →
+        {tipo ? "Continuar →" : "👆 Escolha um tipo de conta acima"}
       </button>
     </div>
   );
@@ -3604,7 +3641,7 @@ export default function App() {
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
         <div style={{ position:"relative" as const }}>
           <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none" }}
-            id="cad-senha" aria-label="Senha" autoComplete="new-password" placeholder="Mínimo 6 caracteres" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
+            id="cad-senha" aria-label="Senha" autoComplete="new-password" placeholder="Mín. 10 caracteres, com letra e número" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
           <button type="button" aria-label={mostrarSenhaCadastro ? "Ocultar senha" : "Mostrar senha"} style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
             onClick={() => setMostrarSenhaCadastro(p => !p)}>
             {mostrarSenhaCadastro ? "🙈" : "👁️"}
@@ -3652,16 +3689,34 @@ export default function App() {
             <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
           </div>
           <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
-            {[
-              { titulo:"1. Apresentação", body:`O DiáriaJá conecta contratantes, empresas e profissionais autônomos para serviços por diária em Campo Grande/MS. Ao se cadastrar, você declara ter lido e aceito este Termo.\n\nObserva: LGPD (Lei nº 13.709/2018), Marco Civil da Internet, CDC e LC nº 150/2015.` },
-              { titulo:"2. Natureza da Plataforma", body:`Somos um canal de conexão — não prestamos serviços, não somos empregador e não garantimos qualidade ou pagamento externo. A relação entre as partes é de responsabilidade exclusiva delas.` },
-              { titulo:"3. Cadastro e Conta", body:`O cadastro exige dados verdadeiros. É proibido criar perfis falsos, usar CPF de terceiros ou duplicar contas. O usuário deve ser maior de 18 anos e capaz de praticar atos civis.` },
-              { titulo:"4. Dados Pessoais e Privacidade (LGPD)", body:`Tratamos nome, e-mail, foto, CPF/CNPJ (privado), geolocalização e histórico de diárias. CPF nunca é exibido publicamente. Para exclusão de dados: suporte@diariaja.com.br.` },
-              { titulo:"5. Pagamentos", body:`Quando habilitado, o pagamento ocorre via Mercado Pago diretamente pelo app. A plataforma não se responsabiliza por acordos realizados fora da plataforma.` },
-              { titulo:"6. Condutas Proibidas", body:`São proibidas: fraude, discriminação, assédio, atividades ilícitas, spam e conteúdo ofensivo. O descumprimento pode resultar em exclusão da conta e comunicação às autoridades.` },
-              { titulo:"7. Limitação de Responsabilidade", body:`O DiáriaJá não se responsabiliza por informações falsas de usuários, descumprimento de acordos, inadimplemento, acidentes ou falhas de conexão.` },
-              { titulo:"8. Informações", body:`DiáriaJá · Beta 1.0 · Campo Grande/MS\nsuporte@diariaja.com.br · diariaja.vercel.app\nForo: domicílio do consumidor (CDC).` },
-            ].map(({ titulo, body }) => (
+            {(() => {
+              const isDiarista = tipo === "diarista";
+              const isContratante = tipo === "empregador" || tipo === "empresa";
+              const secoesGerais = [
+                { titulo:"1. Apresentação", body:`O DiáriaJá conecta contratantes, empresas e profissionais autônomos para serviços por diária em Campo Grande/MS. Ao se cadastrar, você declara ter lido e aceito este Termo.\n\nObserva: LGPD (Lei nº 13.709/2018), Marco Civil da Internet, CDC e LC nº 150/2015.` },
+                { titulo:"2. Natureza da Plataforma", body:`Somos um canal de conexão — não prestamos serviços, não somos empregador e não garantimos qualidade ou pagamento externo. A relação entre as partes é de responsabilidade exclusiva delas.` },
+                { titulo:"3. Cadastro e Conta", body:`O cadastro exige dados verdadeiros. É proibido criar perfis falsos, usar CPF de terceiros ou duplicar contas. O usuário deve ser maior de 18 anos e capaz de praticar atos civis.` },
+                { titulo:"4. Dados Pessoais e Privacidade (LGPD)", body:`Tratamos nome, e-mail, foto, CPF/CNPJ (privado), geolocalização e histórico de diárias. CPF nunca é exibido publicamente. Para exclusão de dados: suporte@diariaja.com.br.` },
+                { titulo:"5. Pagamentos", body:`Quando habilitado, o pagamento ocorre via Mercado Pago diretamente pelo app. A plataforma não se responsabiliza por acordos realizados fora da plataforma.` },
+                { titulo:"6. Condutas Proibidas", body:`São proibidas: fraude, discriminação, assédio, atividades ilícitas, spam e conteúdo ofensivo. O descumprimento pode resultar em exclusão da conta e comunicação às autoridades.` },
+                { titulo:"7. Limitação de Responsabilidade", body:`O DiáriaJá não se responsabiliza por informações falsas de usuários, descumprimento de acordos, inadimplemento, acidentes ou falhas de conexão.` },
+              ];
+              const secoesDiarista = isDiarista ? [
+                { titulo:"8. Trabalho Autônomo (diarista)", body:`Você se cadastra como TRABALHADOR AUTÔNOMO. Não há vínculo empregatício com o DiáriaJá nem com os contratantes que você atender via plataforma.\n\nO DiáriaJá não recolhe INSS, FGTS, IR ou demais encargos trabalhistas. Você é responsável por suas próprias obrigações fiscais e previdenciárias. Recomendamos formalização como MEI (Microempreendedor Individual) para garantir cobertura previdenciária.` },
+                { titulo:"9. Riscos e Responsabilidade do Profissional", body:`Você reconhece que prestar serviços autônomos envolve riscos próprios da atividade (deslocamento, acidentes, conflitos, inadimplemento do contratante). O DiáriaJá não fornece seguro nem cobertura para esses riscos.\n\nAvalie o ambiente de trabalho ANTES de aceitar uma diária. Se sentir-se inseguro, recuse. Em caso de denúncia ou acidente, registre boletim de ocorrência e acione o suporte.` },
+                { titulo:"10. Pagamento ao Diarista", body:`O pagamento será repassado à chave PIX cadastrada no seu perfil após a conclusão e confirmação da diária. Confira sempre se a chave está correta e atualizada — o DiáriaJá não se responsabiliza por valores enviados a chave PIX incorreta informada pelo usuário.` },
+              ] : [];
+              const secoesContratante = isContratante ? [
+                { titulo:"8. Responsabilidade do Contratante", body:`Ao publicar e contratar uma diária, você assume responsabilidade pelo AMBIENTE DE TRABALHO oferecido ao diarista: segurança, condições de higiene, equipamentos e EPIs (quando aplicável).\n\nÉ proibido contratar serviços ilegais, perigosos sem proteção, ou contrários à dignidade da pessoa. Atividades insalubres ou perigosas exigem precauções específicas — informe ao diarista antecipadamente.` },
+                { titulo:"9. Ausência de Vínculo Empregatício", body:`A relação com o diarista é de PRESTAÇÃO AUTÔNOMA DE SERVIÇO, sem vínculo CLT. Atenção: contratar o mesmo profissional por mais de 2 dias/semana de forma habitual pode configurar vínculo doméstico (LC nº 150/2015), cabendo a você avaliar as obrigações legais.` },
+                { titulo:"10. Pagamento da Diária", body:`O pagamento é feito via Mercado Pago no momento do aceite. A plataforma cobra ${"1,5%"} sobre o valor da diária como taxa de serviço, devida pelo contratante. O valor líquido é repassado ao diarista após a conclusão.` },
+              ] : [];
+              const secoesFinal = [
+                { titulo: `${secoesGerais.length + secoesDiarista.length + secoesContratante.length + 1}. Informações`,
+                  body:`DiáriaJá · Beta 1.0 · Campo Grande/MS\nsuporte@diariaja.com.br · diariaja.vercel.app\nForo: domicílio do consumidor (CDC).` },
+              ];
+              return [...secoesGerais, ...secoesDiarista, ...secoesContratante, ...secoesFinal];
+            })().map(({ titulo, body }) => (
               <div key={titulo} style={{ marginBottom:24 }}>
                 <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", marginBottom:8, paddingBottom:6, borderBottom:"2px solid #FF6B35" }}>{titulo}</div>
                 {body.split("\n\n").map((p, i) => (
@@ -4417,7 +4472,8 @@ export default function App() {
       <label style={S.label}>Nome completo *</label>
       <input style={S.input} placeholder="Ex: Maria Oliveira" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
       <label style={S.label}>Telefone (WhatsApp) *</label>
-      <input style={S.input} placeholder="(67) 99999-9999" value={form.telefone} onChange={e=>setForm({...form,telefone:e.target.value})} />
+      <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15}
+        value={form.telefone} onChange={e=>setForm({...form,telefone:maskTelefone(e.target.value)})} />
 
       {form.pessoaTipo === "fisica" ? (
         <>
@@ -4491,12 +4547,14 @@ export default function App() {
         setAuthError("");
         if (!form.nome.trim()) { setAuthError("Informe seu nome completo."); return; }
         { const erroNome = validarNome(form.nome); if (erroNome) { setAuthError(erroNome); return; } }
+        if (!validarTelefone(form.telefone)) { setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX."); return; }
         if (form.pessoaTipo === "fisica" && !validarCPF(form.cpf)) { setAuthError("CPF inválido. Verifique os dígitos e tente novamente."); return; }
-        if (form.pessoaTipo === "juridica" && form.cnpj.replace(/\D/g,"").length !== 14) { setAuthError("CNPJ inválido — deve ter 14 dígitos."); return; }
+        if (form.pessoaTipo === "juridica" && !validarCNPJ(form.cnpj)) { setAuthError("CNPJ inválido. Verifique os dígitos e tente novamente."); return; }
         if (!form.cepEmp || !form.ruaEmp.trim() || !form.numeroEmp.trim()) { setAuthError("Preencha CEP, logradouro e número."); return; }
         const endEmp = `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp.trim()?` — ${form.complementoEmp}`:""},  ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} — CEP ${form.cepEmp}`;
         const ok = await saveProfile({
           nome_negocio: form.pessoaTipo === "juridica" ? form.nomeNegocio : form.nome,
+          telefone: form.telefone,
           cpf: form.cpf,
           cnpj: form.cnpj,
           pessoa_tipo: form.pessoaTipo,
@@ -4589,7 +4647,8 @@ export default function App() {
       <input style={S.input} placeholder="Ex: João da Silva" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
 
       <label style={S.label}>Telefone (WhatsApp) *</label>
-      <input style={S.input} placeholder="(67) 99999-9999" value={form.telefone} onChange={e=>setForm({...form,telefone:e.target.value})} />
+      <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15}
+        value={form.telefone} onChange={e=>setForm({...form,telefone:maskTelefone(e.target.value)})} />
 
       <label style={S.label}>CPF *</label>
       <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
@@ -4611,8 +4670,11 @@ export default function App() {
 
       <label style={S.label}>Data de nascimento *</label>
       <input style={S.input} type="date"
-        max={new Date(new Date().setFullYear(new Date().getFullYear()-16)).toISOString().split("T")[0]}
+        max={new Date(new Date().setFullYear(new Date().getFullYear()-18)).toISOString().split("T")[0]}
         value={form.dataNasc} onChange={e=>setForm({...form,dataNasc:e.target.value})} />
+      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, margin:"-6px 0 10px" }}>
+        🔞 Cadastro disponível apenas para maiores de 18 anos (CLT/LC 150).
+      </p>
 
       {/* Especialidades com seção colapsável */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💼 Especialidades *</div>
@@ -4675,6 +4737,39 @@ export default function App() {
         📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>R$ 120 – R$ 250</strong> por diária
       </p>
 
+      {/* PIX — chave do diarista pra receber pagamentos */}
+      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:18, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💰 Chave PIX *</div>
+      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 8px", lineHeight:1.5 }}>
+        A plataforma usa essa chave pra te repassar o valor após cada diária concluída.
+      </p>
+      <label style={S.label}>Tipo de chave</label>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:6, marginBottom:8 }}>
+        {([
+          ["cpf","CPF"], ["cnpj","CNPJ"], ["email","E-mail"], ["telefone","Celular"], ["aleatoria","Aleatória"],
+        ] as const).map(([val, label]) => {
+          const ativo = form.pixTipo === val;
+          return (
+            <button key={val}
+              style={{ padding:"8px 4px", border: ativo ? "2px solid #FF6B35" : "1.5px solid #e2e8f0", borderRadius:10, background: ativo ? "#fff7f3" : "#f8fafc", color: ativo ? "#FF6B35" : "#475569", fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+              onClick={() => setForm({...form, pixTipo: val, pixChave: ""})}>
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <label style={S.label}>Chave PIX</label>
+      <input style={S.input}
+        placeholder={form.pixTipo === "cpf" ? "Mesmo CPF acima" : form.pixTipo === "cnpj" ? "CNPJ" : form.pixTipo === "email" ? "seu@email.com" : form.pixTipo === "telefone" ? "(67) 99999-9999" : "550e8400-e29b-41d4-a716-446655440000"}
+        inputMode={form.pixTipo === "email" ? "email" : "text"}
+        value={form.pixChave}
+        onChange={e => {
+          let v = e.target.value;
+          if (form.pixTipo === "cpf") v = maskCPF(v);
+          else if (form.pixTipo === "cnpj") v = maskCNPJ(v);
+          else if (form.pixTipo === "telefone") v = maskTelefone(v);
+          setForm({...form, pixChave: v});
+        }} />
+
       <label style={S.label}>Disponibilidade semanal</label>
       <div style={S.diasRow}>
         {DIAS.map(dia=>(
@@ -4691,17 +4786,24 @@ export default function App() {
       {authError && <p style={S.errorText}>{authError}</p>}
       <button style={{ ...S.btnPrimary, marginTop:16 }} onClick={async () => {
         setAuthError("");
+        if (!fotoUrl) { setAuthError("Adicione uma foto de perfil — empregadores não contratam quem não tem foto."); return; }
         if (!form.nome.trim()) { setAuthError("Informe seu nome completo."); return; }
         { const erroNome = validarNome(form.nome); if (erroNome) { setAuthError(erroNome); return; } }
+        if (!validarTelefone(form.telefone)) { setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX."); return; }
         if (!validarCPF(form.cpf)) { setAuthError("CPF inválido. Verifique os dígitos e tente novamente."); return; }
         if (!form.sexo) { setAuthError("Selecione seu sexo."); return; }
         if (!form.dataNasc) { setAuthError("Informe sua data de nascimento."); return; }
+        if (calcularIdade(form.dataNasc) < 18) { setAuthError("Diaristas precisam ter 18 anos ou mais (CLT/LC 150)."); return; }
         if (categoriasSelecionadas.length === 0) { setAuthError("Selecione ao menos uma especialidade."); return; }
+        { const erroPix = validarPix(form.pixChave, form.pixTipo); if (erroPix) { setAuthError(erroPix); return; } }
         const ok = await saveProfile({
+          telefone: form.telefone,
           funcao: categoriasSelecionadas[0] || "",
           cpf: form.cpf,
           sexo: form.sexo,
           data_nascimento: form.dataNasc,
+          pix_chave: form.pixChave,
+          pix_tipo: form.pixTipo as "cpf"|"cnpj"|"email"|"telefone"|"aleatoria",
         });
         if (ok) setTela("pedir-localizacao");
       }}>Criar conta grátis →</button>
