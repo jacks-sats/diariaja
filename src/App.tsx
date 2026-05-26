@@ -3407,143 +3407,28 @@ export default function App() {
       {/* Segundo brilho sutil na base */}
       <div style={{ position:"absolute", bottom:0, left:"50%", transform:"translateX(-50%)", width:360, height:180, background:"radial-gradient(ellipse,rgba(255,107,53,.08) 0%,transparent 70%)", pointerEvents:"none" }} />
 
-      {/* ── HERO ── */}
-      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"56px 28px 0" }}>
+      {/* ── HERO minimalista — logo + tagline ── */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px 28px", minHeight:"60vh" }}>
 
         {/* Raio com glow */}
-        <div style={{ fontSize:80, filter:"drop-shadow(0 0 36px #FF6B35) drop-shadow(0 0 10px #FF6B35bb)", marginBottom:16, lineHeight:1 }}>⚡</div>
+        <div style={{ fontSize:88, filter:"drop-shadow(0 0 40px #FF6B35) drop-shadow(0 0 12px #FF6B35bb)", marginBottom:18, lineHeight:1 }}>⚡</div>
 
         {/* Logo */}
-        <div style={{ fontSize:52, fontWeight:900, letterSpacing:-2, lineHeight:1, marginBottom:8 }}>
+        <div style={{ fontSize:56, fontWeight:900, letterSpacing:-2, lineHeight:1, marginBottom:10 }}>
           <span style={{ color:"#ffffff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
 
         {/* Linha gradiente */}
-        <div style={{ width:200, height:2, background:"linear-gradient(90deg,transparent,#FF6B35,transparent)", marginBottom:22 }} />
+        <div style={{ width:220, height:2, background:"linear-gradient(90deg,transparent,#FF6B35,transparent)", marginBottom:24 }} />
 
         {/* Tagline */}
-        <p style={{ fontSize:16, color:"#94a3b8", textAlign:"center", lineHeight:1.6, margin:"0 0 4px", fontWeight:400 }}>
+        <p style={{ fontSize:16, color:"#94a3b8", textAlign:"center", lineHeight:1.6, margin:"0 0 6px", fontWeight:400 }}>
           Contrate ou encontre serviços por diária
         </p>
-        <p style={{ fontSize:21, color:"#FF6B35", textAlign:"center", lineHeight:1.4, margin:"0 0 8px", fontWeight:900, letterSpacing:-0.3 }}>
+        <p style={{ fontSize:22, color:"#FF6B35", textAlign:"center", lineHeight:1.4, margin:0, fontWeight:900, letterSpacing:-0.3 }}>
           em Campo Grande/MS
         </p>
-        <p style={{ fontSize:12, color:"#64748b", textAlign:"center", lineHeight:1.6, margin:"0 0 26px", maxWidth:300 }}>
-          Conectamos contratantes, empresas e profissionais autônomos com perfis verificados, chat, avaliações e confirmação de presença pelo app.
-        </p>
-
-        {/* ── 3 cards de features — ícones SVG laranja, sem dependência de emoji ── */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, width:"100%", marginBottom:22 }}>
-          {([
-            {
-              svg: (
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="9" cy="7" r="4"/>
-                  <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                  <path d="M21 21v-2a4 4 0 0 0-3-3.87"/>
-                </svg>
-              ),
-              title:"Profissionais", sub:"verificados",
-            },
-            {
-              svg: (
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10"/>
-                  <polyline points="12 6 12 12 16 14"/>
-                </svg>
-              ),
-              title:"Contratação", sub:"em minutos",
-            },
-            {
-              svg: (
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                  <polyline points="9 12 11 14 15 10"/>
-                </svg>
-              ),
-              title:"Mais seguro", sub:"para todos",
-            },
-          ] as { svg: React.ReactNode; title: string; sub: string }[]).map(f => (
-            <div key={f.title} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,107,53,.22)", borderRadius:18, padding:"16px 8px", display:"flex", flexDirection:"column", alignItems:"center", gap:9 }}>
-              <div style={{ width:46, height:46, background:"rgba(255,107,53,.18)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                {f.svg}
-              </div>
-              <div style={{ textAlign:"center" }}>
-                <div style={{ color:"#f1f5f9", fontSize:12, fontWeight:800, lineHeight:1.3 }}>{f.title}</div>
-                <div style={{ color:"var(--text-2,#64748b)", fontSize:11, marginTop:2 }}>{f.sub}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Categorias / Social proof ── */}
-        <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap" as const, marginBottom:4 }}>
-          {[
-            { dot:"🏠", txt:"Doméstico" },
-            { dot:"🍽️", txt:"Restaurante" },
-            { dot:"🏗️", txt:"Construção" },
-            { dot:"🎉", txt:"Eventos" },
-            { dot:"🚚", txt:"Delivery" },
-          ].map(b => (
-            <div key={b.txt} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"5px 12px", display:"flex", alignItems:"center", gap:5 }}>
-              <span style={{ fontSize:11 }}>{b.dot}</span>
-              <span style={{ color:"var(--text-3,#94a3b8)", fontSize:11, fontWeight:600 }}>{b.txt}</span>
-            </div>
-          ))}
-        </div>
       </div>
-
-      {/* ── Seção de Confiança ── */}
-      <div style={{ padding:"16px 24px 0" }}>
-        <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"16px 18px" }}>
-          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, fontWeight:800, textTransform:"uppercase" as const, letterSpacing:0.8, textAlign:"center", marginBottom:12 }}>
-            🛡️ Como protegemos os dois lados
-          </p>
-          <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
-            {[
-              { icon:"✅", txt:"Perfis verificados por CPF/CNPJ" },
-              { icon:"⭐", txt:"Sistema de avaliações mútuas" },
-              { icon:"📋", txt:"Termos de uso claros e transparentes" },
-              { icon:"🔒", txt:"Dados protegidos pela LGPD" },
-            ].map(item => (
-              <div key={item.txt} style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <span style={{ fontSize:14, flexShrink:0 }}>{item.icon}</span>
-                <span style={{ color:"#cbd5e1", fontSize:12, fontWeight:500 }}>{item.txt}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Como funciona — 6 passos ── */}
-      <div style={{ padding:"16px 24px 0" }}>
-        <div style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.08)", borderRadius:20, padding:"16px 18px" }}>
-          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, fontWeight:800, textTransform:"uppercase" as const, letterSpacing:0.8, textAlign:"center", marginBottom:14 }}>
-            📋 Como funciona
-          </p>
-          <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
-            {[
-              { n:"1", txt:"Crie sua conta como contratante, profissional ou empresa." },
-              { n:"2", txt:"Complete seu perfil com dados básicos e área de atuação." },
-              { n:"3", txt:"Publique uma diária ou candidate-se às vagas próximas." },
-              { n:"4", txt:"Converse pelo chat e combine os detalhes com a outra parte." },
-              { n:"5", txt:"Confirme a presença pelo QR Code no início do serviço." },
-              { n:"6", txt:"Finalize, gere o comprovante e avalie a experiência." },
-            ].map(step => (
-              <div key={step.n} style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
-                <div style={{ width:22, height:22, borderRadius:8, background:"rgba(255,107,53,.25)", border:"1px solid rgba(255,107,53,.4)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
-                  <span style={{ color:"#FF6B35", fontSize:11, fontWeight:900, lineHeight:1 }}>{step.n}</span>
-                </div>
-                <span style={{ color:"#cbd5e1", fontSize:12, lineHeight:1.5 }}>{step.txt}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Spacer flexível */}
-      <div style={{ flex:1, minHeight:12 }} />
 
       {/* ── Botões ── */}
       <div style={{ padding:"0 24px 44px", display:"flex", flexDirection:"column", gap:12 }}>
