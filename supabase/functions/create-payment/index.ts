@@ -36,7 +36,10 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authErr } = await supabaseUser.auth.getUser();
     if (authErr || !user) return json({ error: "Token inválido ou expirado." }, 401);
 
-    const { diaria_id, empregador_id } = await req.json();
+    // diarista_id_a_selecionar (opcional) = fluxo novo: contratante paga ANTES
+    // de gravar a seleção no banco. O webhook executa a transação ao confirmar.
+    // Sem ele = fluxo legado (compatibilidade com diárias antigas).
+    const { diaria_id, empregador_id, diarista_id_a_selecionar } = await req.json();
 
     if (!diaria_id || !empregador_id) {
       return json({ error: "diaria_id e empregador_id são obrigatórios" }, 400);
@@ -48,7 +51,7 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // 1. Busca a diária e o perfil do diarista
+    // 1. Busca a diária
     const { data: diaria, error: dErr } = await supabase
       .from("diarias")
       .select("*, user_profiles!diarias_diarista_aceite_id_fkey(nome, telefone)")
@@ -57,12 +60,40 @@ Deno.serve(async (req) => {
 
     if (dErr || !diaria) return json({ error: "Diária não encontrada" }, 404);
     if (diaria.empregador_id !== empregador_id) return json({ error: "Não autorizado" }, 403);
-    if (!diaria.diarista_aceite_id) return json({ error: "Nenhum diarista selecionado ainda" }, 400);
+
+    // Validações específicas por fluxo
+    let diaristaNome = "Profissional";
+    if (diarista_id_a_selecionar) {
+      // Fluxo novo: ninguém ainda foi gravado como aceite, mas o candidato precisa
+      // ser real e estar pendente.
+      if (diaria.diarista_aceite_id && diaria.diarista_aceite_id !== diarista_id_a_selecionar) {
+        return json({ error: "Esta diária já tem outro diarista selecionado." }, 409);
+      }
+      const { data: cand } = await supabase
+        .from("candidaturas")
+        .select("status, user_profiles!candidaturas_diarista_id_fkey(nome)")
+        .eq("diaria_id", diaria_id)
+        .eq("diarista_id", diarista_id_a_selecionar)
+        .maybeSingle();
+      if (!cand) return json({ error: "Candidatura não encontrada." }, 404);
+      if (cand.status !== "pendente" && cand.status !== "selecionado") {
+        return json({ error: "Candidatura não está mais disponível." }, 409);
+      }
+      diaristaNome = ((cand as any).user_profiles?.nome) || "Profissional";
+    } else {
+      // Fluxo legado: precisa ter diarista_aceite_id já gravado.
+      if (!diaria.diarista_aceite_id) return json({ error: "Nenhum diarista selecionado ainda" }, 400);
+      diaristaNome = (diaria.user_profiles as any)?.nome || "Profissional";
+    }
 
     const valorTotal = Number(diaria.valor);
-    const diaristaNome = (diaria.user_profiles as any)?.nome || "Profissional";
 
     // 2. Cria preferência no MP com o token da PLATAFORMA (CheckoutPro)
+    // external_reference: "select::<diariaId>::<diaristaId>" (fluxo novo: webhook
+    // executa a seleção ao confirmar) OU "<diariaId>" (fluxo legado).
+    const externalRef = diarista_id_a_selecionar
+      ? `select::${diaria.id}::${diarista_id_a_selecionar}`
+      : diaria.id;
     const preferencia = {
       items: [
         {
@@ -74,7 +105,7 @@ Deno.serve(async (req) => {
           unit_price:  valorTotal,
         },
       ],
-      external_reference: diaria.id,
+      external_reference: externalRef,
       back_urls: {
         success: `${APP_URL}/?pagamento=sucesso&diaria=${diaria.id}`,
         failure: `${APP_URL}/?pagamento=falha&diaria=${diaria.id}`,
@@ -105,13 +136,14 @@ Deno.serve(async (req) => {
       return json({ error: "Erro ao criar pagamento no Mercado Pago", detalhe: mpData }, 502);
     }
 
-    // 3. Salva o MP preference ID na diária
+    // 3. Salva o MP preference ID na diária (fluxo novo NÃO grava diarista_aceite_id
+    // ainda — webhook faz isso quando o pagamento confirma)
     await supabase
       .from("diarias")
       .update({
         pagamento_mp_id:  mpData.id,
         pagamento_status: "aguardando",
-        valor_diarista:   valorTotal,  // repasse total ao diarista (sem split automático)
+        valor_diarista:   valorTotal,
       })
       .eq("id", diaria.id);
 

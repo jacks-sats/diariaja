@@ -207,21 +207,28 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    // ── Auth: exige JWT de usuário logado (não aceita anon) ────────────────
+    // ── Auth: exige JWT de usuário logado OU service_role pra uso interno ──
+    // (mp-webhook chama com service_role pra disparar push pós-pagamento)
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Não autorizado." }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authErr } = await supabaseUser.auth.getUser();
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Token inválido ou expirado." }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const isServiceRole = !!SUPABASE_KEY && bearerToken === SUPABASE_KEY;
+    let user: { id: string } | null = null;
+    if (!isServiceRole) {
+      const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
       });
+      const { data, error: authErr } = await supabaseUser.auth.getUser();
+      if (authErr || !data.user) {
+        return new Response(JSON.stringify({ error: "Token inválido ou expirado." }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      user = data.user;
     }
 
     const { user_ids: userIdsRaw, title, body: msgBody, url = "/", tipo = "default" } = await req.json() as {
@@ -242,8 +249,11 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // ── Filtra destinatários: caller só pode notificar quem tem relação ──
-    const user_ids = await filtrarDestinatariosAutorizados(supabaseAdmin, user.id, userIdsRaw);
+    // ── Filtra destinatários: service_role passa direto; user normal precisa
+    //   ter relação com cada destinatário (diária/candidatura/convite) ──
+    const user_ids = isServiceRole
+      ? userIdsRaw
+      : await filtrarDestinatariosAutorizados(supabaseAdmin, user!.id, userIdsRaw);
     if (!user_ids.length) {
       // Não revela quais foram bloqueados — resposta idêntica à de "sem subscription"
       return new Response(JSON.stringify({ sent: 0, reason: "no_subscriptions" }), {

@@ -164,7 +164,20 @@ Deno.serve(async (req) => {
         return new Response("ok", { status: 200 });
       }
 
-      const diariaId = payment.external_reference;
+      // external_reference pode ser:
+      //   "select::<diariaId>::<diaristaId>"  → fluxo novo, webhook executa a seleção
+      //   "<diariaId>"                         → fluxo legado (sem seleção pendente)
+      const extRef = String(payment.external_reference);
+      let diariaId: string;
+      let diaristaIdAposSelecionar: string | null = null;
+      if (extRef.startsWith("select::")) {
+        const parts = extRef.split("::");
+        diariaId = parts[1] ?? "";
+        diaristaIdAposSelecionar = parts[2] ?? null;
+      } else {
+        diariaId = extRef;
+      }
+      if (!diariaId) return new Response("ok", { status: 200 });
 
       const statusMap: Record<string, string> = {
         approved:   "pago",
@@ -176,29 +189,94 @@ Deno.serve(async (req) => {
       };
       const novoStatus = statusMap[payment.status] ?? "aguardando";
 
-      await supabase
-        .from("diarias")
-        .update({
-          pagamento_status: novoStatus,
-          pagamento_mp_id:  paymentId,
-        })
-        .eq("id", diariaId);
-
-      // Pagamento confirmado → insere mensagem automática no chat
-      if (novoStatus === "pago") {
-        const { data: diaria } = await supabase
+      // Fluxo novo: ao confirmar pagamento, executar a transação de seleção
+      // (marcar diarista_aceite_id, rejeitar candidaturas dos outros). Só roda
+      // se diarista_aceite_id ainda estiver vazio — proteção contra retentativa.
+      if (novoStatus === "pago" && diaristaIdAposSelecionar) {
+        const { data: upd, error: uErr } = await supabase
           .from("diarias")
-          .select("diarista_aceite_id, empregador_id, valor")
+          .update({
+            status:              "pendente",
+            diarista_aceite_id:  diaristaIdAposSelecionar,
+            pagamento_status:    "pago",
+            pagamento_mp_id:     paymentId,
+          })
           .eq("id", diariaId)
-          .single();
+          .is("diarista_aceite_id", null)
+          .select("id, empregador_id, valor, funcao, segmento, nome_negocio")
+          .maybeSingle();
 
-        if (diaria?.empregador_id) {
+        if (uErr) {
+          console.error("Erro ao executar seleção pós-pagamento:", uErr.message);
+        }
+
+        if (upd) {
+          // Candidaturas: selecionado vence, outros são rejeitados
+          await supabase.from("candidaturas")
+            .update({ status: "selecionado" })
+            .eq("diaria_id", diariaId)
+            .eq("diarista_id", diaristaIdAposSelecionar);
+          await supabase.from("candidaturas")
+            .update({ status: "rejeitado" })
+            .eq("diaria_id", diariaId)
+            .neq("diarista_id", diaristaIdAposSelecionar);
+
+          // Mensagem automática no chat
           await supabase.from("mensagens").insert({
-            diaria_id:    diariaId,
-            remetente_id: diaria.empregador_id,
-            destinatario_id: diaria.diarista_aceite_id,
-            conteudo:     `✅ Pagamento de R$ ${diaria.valor} confirmado via Mercado Pago! O repasse será feito via PIX após a conclusão da diária.`,
-          }).catch(() => {}); // ignora erro se coluna não existir
+            diaria_id:       diariaId,
+            remetente_id:    upd.empregador_id,
+            destinatario_id: diaristaIdAposSelecionar,
+            conteudo:        `✅ Pagamento de R$ ${upd.valor} confirmado via Mercado Pago! Confirme sua presença pra liberar o contato.`,
+          }).catch(() => {});
+
+          // Push pro diarista — "agora confirme presença"
+          await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+            method:  "POST",
+            headers: {
+              "Authorization": `Bearer ${SUPABASE_KEY}`,
+              "Content-Type":  "application/json",
+            },
+            body: JSON.stringify({
+              user_ids: [diaristaIdAposSelecionar],
+              title:    "🎉 Você foi contratado!",
+              body:     `${upd.nome_negocio || "O contratante"} pagou a diária. Abra o app pra confirmar sua presença.`,
+              url:      "/",
+              tipo:     "pagamento_confirmado",
+            }),
+          }).catch((err) => console.error("Erro ao enviar push:", err));
+        } else {
+          // diarista_aceite_id já estava setado — pagamento duplicado / retry.
+          // Garante que pagamento_status fique atualizado mesmo assim.
+          await supabase.from("diarias")
+            .update({ pagamento_status: "pago", pagamento_mp_id: paymentId })
+            .eq("id", diariaId);
+        }
+      } else {
+        // Fluxo legado OU status diferente de "pago" — só atualiza o status
+        await supabase
+          .from("diarias")
+          .update({
+            pagamento_status: novoStatus,
+            pagamento_mp_id:  paymentId,
+          })
+          .eq("id", diariaId);
+
+        // Mensagem automática no chat (fluxo legado, mantido)
+        if (novoStatus === "pago" && !diaristaIdAposSelecionar) {
+          const { data: diaria } = await supabase
+            .from("diarias")
+            .select("diarista_aceite_id, empregador_id, valor")
+            .eq("id", diariaId)
+            .single();
+
+          if (diaria?.empregador_id) {
+            await supabase.from("mensagens").insert({
+              diaria_id:       diariaId,
+              remetente_id:    diaria.empregador_id,
+              destinatario_id: diaria.diarista_aceite_id,
+              conteudo:        `✅ Pagamento de R$ ${diaria.valor} confirmado via Mercado Pago! O repasse será feito via PIX após a conclusão da diária.`,
+            }).catch(() => {});
+          }
         }
       }
 

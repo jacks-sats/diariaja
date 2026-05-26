@@ -2783,54 +2783,54 @@ export default function App() {
     }
   };
 
-  // Empregador seleciona um candidato — executa a lógica real após confirmação do modal
+  // Empregador seleciona um candidato — NOVO FLUXO: abre o checkout do Mercado
+  // Pago direto. A seleção só é gravada no banco quando o webhook confirma o
+  // pagamento (mp-webhook detecta o prefixo "select::" no external_reference e
+  // executa a transação). Se o empregador abandonar o checkout, a diária volta
+  // ao normal sem efeito colateral.
   const executarSelecaoCandidato = async (diaria: Diaria, diaristaId: string) => {
     if (!session?.user) {
-      // Fecha o modal ANTES de mostrar o toast (modal faz early-return e bloqueia o toast)
       setModalTermoCiencia(null);
       setTermoCienciaCheck(false);
       setToastError("❌ Sessão expirada. Faça login novamente.");
       return;
     }
     setSelecionando(true);
-
-    // Fecha o modal imediatamente (UI otimista) para que toasts apareçam
     setModalTermoCiencia(null);
     setTermoCienciaCheck(false);
 
-    // 1. Atualiza a diária
-    const { error: e1 } = await supabase
-      .from("diarias")
-      .update({ status: "pendente", diarista_aceite_id: diaristaId })
-      .eq("id", diaria.id)
-      .eq("empregador_id", session.user.id);
-
-    if (e1) {
+    try {
+      const resp = await fetch(
+        `${SUPABASE_URL}/functions/v1/create-payment`,
+        {
+          method:  "POST",
+          headers: {
+            "Content-Type":  "application/json",
+            "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          },
+          body: JSON.stringify({
+            diaria_id:                  diaria.id,
+            empregador_id:              session.user.id,
+            diarista_id_a_selecionar:   diaristaId,
+          }),
+        }
+      );
+      const data = await resp.json();
+      if (!resp.ok || !data.checkout_url) {
+        setSelecionando(false);
+        setToastError("❌ " + (data.error || "Erro ao iniciar pagamento. Tente novamente."));
+        return;
+      }
+      hapticConfirm();
+      setModalCandidatos(null);
       setSelecionando(false);
-      setToastError("❌ Erro ao selecionar candidato: " + e1.message);
-      return;
+      // Redireciona pro MP. Quando o pagamento entrar, o webhook marca a
+      // seleção e dispara push pro diarista pra confirmar presença.
+      window.location.href = data.checkout_url;
+    } catch {
+      setSelecionando(false);
+      setToastError("❌ Erro de conexão. Tente novamente.");
     }
-
-    // 2. Atualiza candidaturas
-    await supabase.from("candidaturas").update({ status: "selecionado" }).eq("diaria_id", diaria.id).eq("diarista_id", diaristaId);
-    await supabase.from("candidaturas").update({ status: "rejeitado"  }).eq("diaria_id", diaria.id).neq("diarista_id", diaristaId);
-
-    // 3. Push pro diarista escolhido + pros rejeitados (atualiza a sensação)
-    enviarPush(
-      [diaristaId],
-      "🎯 Você foi escolhido!",
-      `${profile?.nome_negocio || "Um contratante"} te selecionou pra "${diaria.funcao || diaria.segmento}". Abra o app pra confirmar.`,
-      { tipo: "selecionado", url: "/" },
-    );
-    hapticConfirm();
-
-    // 3. Atualiza estado local
-    setDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "pendente", diarista_aceite_id: diaristaId } : d));
-    setCandidaturas(prev => prev.map(c => c.diaria_id === diaria.id ? { ...c, status: c.diarista_id === diaristaId ? "selecionado" : "rejeitado" } : c));
-
-    setModalCandidatos(null);
-    setSelecionando(false);
-    setToastSuccess("✅ Candidato selecionado! Aguardando confirmação dele.");
   };
 
   // Inicia pagamento de R$ 1 para desbloquear seleção de contato adicional
@@ -5091,16 +5091,17 @@ export default function App() {
       <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" }}>
         <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
           <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
-          <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>📋 Antes de confirmar...</h3>
+          <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>💳 Selecionar e pagar</h3>
           <p style={{ fontSize:14, color:"var(--text-label,#475569)", lineHeight:1.6, marginBottom:16 }}>
-            Você está prestes a contratar <strong>{dp?.nome || "este profissional"}</strong> para <strong>{diaria.funcao}</strong>. Combinamos que:
+            Você está prestes a contratar <strong>{dp?.nome || "este profissional"}</strong> para <strong>{diaria.funcao}</strong> por <strong>R$ {diaria.valor}</strong>. Combinamos que:
           </p>
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
             {[
-              { icon:"✅", txt:"O DiáriaJá conecta profissionais e contratantes com facilidade" },
-              { icon:"⚠️", txt:"Não verificamos ativamente as qualificações de cada profissional" },
-              { icon:"💡", txt:"Recomendamos verificar referências pessoalmente quando possível" },
-              { icon:"🤝", txt:"A negociação final é entre você e o profissional" },
+              { icon:"💳", txt:"Você será redirecionado pro Mercado Pago. A seleção só é confirmada quando o pagamento entrar." },
+              { icon:"📲", txt:"Assim que pagar, o profissional recebe uma notificação pra confirmar a presença." },
+              { icon:"🔓", txt:"O contato direto é liberado pra vocês dois após a confirmação dele." },
+              { icon:"⚠️", txt:"Não verificamos ativamente as qualificações de cada profissional — recomendamos checar referências." },
+              { icon:"🤝", txt:"A negociação final é entre você e o profissional." },
             ].map(it => (
               <div key={it.icon} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
                 <span style={{ fontSize:18, flexShrink:0 }}>{it.icon}</span>
@@ -5110,13 +5111,13 @@ export default function App() {
           </div>
           <label style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoCienciaCheck?"#FF6B35":"#e2e8f0"}`, marginBottom:16 }}>
             <input type="checkbox" checked={termoCienciaCheck} onChange={e => setTermoCienciaCheck(e.target.checked)} style={{ width:18, height:18, accentColor:"#FF6B35", flexShrink:0, marginTop:1 }} />
-            <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Entendi e quero selecionar este profissional</span>
+            <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Entendi e quero ir pro pagamento</span>
           </label>
           <button
             style={{ width:"100%", padding:"15px", background:termoCienciaCheck?"#FF6B35":"#e2e8f0", color:termoCienciaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoCienciaCheck && !selecionando?"pointer":"default", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, opacity: selecionando ? 0.7 : 1 }}
             disabled={!termoCienciaCheck || selecionando}
             onClick={() => { if (termoCienciaCheck && !selecionando) void executarSelecaoCandidato(diaria, diaristaId); }}>
-            {selecionando ? "⏳ Confirmando..." : "✅ Confirmar seleção"}
+            {selecionando ? "⏳ Abrindo checkout..." : `💳 Ir pro pagamento — R$ ${diaria.valor}`}
           </button>
           <button
             style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
