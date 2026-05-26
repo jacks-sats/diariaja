@@ -65,6 +65,7 @@ import {
   validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
+  calcScoreBreakdown, calcCompletude, calcConquistas,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -409,6 +410,11 @@ export default function App() {
   const [etapaVerifTel, setEtapaVerifTel] = useState<"input"|"codigo">("input");
   const [codigoVerifInput, setCodigoVerifInput] = useState("");
   const [enviandoVerif, setEnviandoVerif] = useState(false);
+  // Login por CPF/CNPJ (alternativa ao e-mail)
+  const [modoLogin, setModoLogin] = useState<"email"|"cpf">("email");
+  const [loginCpfInput, setLoginCpfInput] = useState("");
+  // Alterar senha — exige senha atual (proteção contra device roubado)
+  const [senhaAtual, setSenhaAtual] = useState("");
   // Favoritos (empregador salva diaristas favoritos)
   const [favoritos, setFavoritos] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("diariaja_favoritos") || "[]")); } catch { return new Set<string>(); }
@@ -1531,6 +1537,22 @@ export default function App() {
 
     // ── Retorno do MP após desbloqueio de contato (R$ 1) ───────────────────
     const urlParams = new URLSearchParams(window.location.search);
+
+    // ── Recuperação de senha (fallback caso PASSWORD_RECOVERY não dispare) ─
+    // Supabase manda `redirectTo` com `?recovery=1` e adiciona `#type=recovery` no hash.
+    // Se chegou com qualquer marcador → força tela de definir senha em ~1.5s.
+    const hashHasRecovery = window.location.hash.includes("type=recovery");
+    if (urlParams.get("recovery") === "1" || hashHasRecovery) {
+      // Limpa só o query string — mantém o hash que o Supabase precisa processar
+      window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+      setTimeout(() => {
+        if (window.location.hash.includes("type=recovery") || urlParams.get("recovery") === "1") {
+          setTela("alterar-senha");
+          setLoading(false);
+        }
+      }, 1500);
+    }
+
     if (urlParams.get("contato_desbloqueado") === "sucesso") {
       try {
         const chave = "diariaja_contatos_desblo_" + new Date().toISOString().slice(0, 7);
@@ -1567,6 +1589,14 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // Ignora eventos que não mudam estado (ex: TOKEN_REFRESHED quando já estava logado)
       if (event === "TOKEN_REFRESHED") return;
+      // Recuperação de senha: o usuário abriu o link do e-mail. Vai direto pra
+      // tela de definir nova senha (em vez de cair na splash sem aviso).
+      if (event === "PASSWORD_RECOVERY") {
+        setSession(session);
+        setLoading(false);
+        setTela("alterar-senha");
+        return;
+      }
       setSession(session);
       // Re-tenta persistir aceite dos termos se ficou pendente do signup (LGPD)
       if (session && event === "SIGNED_IN") {
@@ -1736,6 +1766,54 @@ export default function App() {
       setAuthError(traduzirErroAuth(error.message));
     } else {
       trackEvento("login_sucesso", loginData?.user?.id, undefined);
+    }
+    setAuthLoading(false);
+  };
+
+  // Login por CPF/CNPJ — pede ao servidor o email correspondente, depois faz login normal
+  const handleCPFLogin = async () => {
+    setAuthError(""); setAuthLoading(true);
+    const digits = loginCpfInput.replace(/\D/g, "");
+    if (digits.length !== 11 && digits.length !== 14) {
+      setAuthError("Informe CPF (11 dígitos) ou CNPJ (14)."); setAuthLoading(false); return;
+    }
+    if (digits.length === 11 && !validarCPF(digits)) {
+      setAuthError("CPF inválido. Confira os dígitos."); setAuthLoading(false); return;
+    }
+    if (digits.length === 14 && !validarCNPJ(digits)) {
+      setAuthError("CNPJ inválido. Confira os dígitos."); setAuthLoading(false); return;
+    }
+    if (!form.senha) {
+      setAuthError("Informe sua senha."); setAuthLoading(false); return;
+    }
+    try {
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/lookup-by-cpf`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify(digits.length === 11 ? { cpf: digits } : { cnpj: digits }),
+      });
+      const json = await resp.json().catch(() => ({} as any));
+      if (!resp.ok || !json.email) {
+        setAuthError(json.error || "CPF/CNPJ ou senha incorretos.");
+        setAuthLoading(false);
+        return;
+      }
+      // Email descoberto — faz signInWithPassword normal
+      const { data: loginData, error } = await supabase.auth.signInWithPassword({
+        email: json.email, password: form.senha,
+      });
+      if (error) {
+        // Mesma mensagem genérica pra não vazar se o CPF existe
+        setAuthError("CPF/CNPJ ou senha incorretos.");
+      } else {
+        trackEvento("login_sucesso", loginData?.user?.id, undefined, { metodo: "cpf" });
+      }
+    } catch {
+      setAuthError("Erro de conexão. Tente novamente.");
     }
     setAuthLoading(false);
   };
@@ -3592,18 +3670,60 @@ export default function App() {
 
         <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
           <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou com e-mail</span>
+          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou</span>
           <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
         </div>
 
-        <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
-        <input
-          id="login-email"
-          aria-label="E-mail"
-          type="email"
-          autoComplete="email"
-          style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
-          placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
+        {/* Toggle E-mail / CPF — alternativa de login */}
+        <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,.05)", borderRadius:10, padding:3, marginBottom:14 }}>
+          {([
+            { id: "email", label: "E-mail" },
+            { id: "cpf",   label: "CPF / CNPJ" },
+          ] as const).map(opt => {
+            const ativo = modoLogin === opt.id;
+            return (
+              <button key={opt.id} type="button"
+                onClick={() => { setAuthError(""); setModoLogin(opt.id); }}
+                style={{
+                  flex:1, padding:"8px 10px", border:"none", borderRadius:8,
+                  background: ativo ? "#FF6B35" : "transparent",
+                  color: ativo ? "#fff" : "var(--text-3,#94a3b8)",
+                  fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif",
+                }}>
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {modoLogin === "email" ? (
+          <>
+            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
+            <input
+              id="login-email"
+              aria-label="E-mail"
+              type="email"
+              autoComplete="email"
+              style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+              placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
+          </>
+        ) : (
+          <>
+            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>CPF ou CNPJ</label>
+            <input
+              id="login-cpf"
+              aria-label="CPF ou CNPJ"
+              inputMode="numeric"
+              autoComplete="off"
+              style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12, letterSpacing:0.5 }}
+              placeholder="000.000.000-00"
+              value={loginCpfInput}
+              onChange={e => {
+                const d = e.target.value.replace(/\D/g, "").slice(0, 14);
+                setLoginCpfInput(d.length <= 11 ? maskCPF(d) : maskCNPJ(d));
+              }} />
+          </>
+        )}
 
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
           <label htmlFor="login-senha" style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>Senha</label>
@@ -3623,14 +3743,18 @@ export default function App() {
 
         {authError && <p style={{ color:"#f87171", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>{authError}</p>}
 
-        {resetSenhaEnviado ? (
+        {modoLogin === "cpf" ? (
+          <p style={{ color:"#94a3b8", fontSize:11, marginTop:8, textAlign:"center" as const, lineHeight:1.5 }}>
+            Esqueceu a senha? Volte pro login por <strong style={{ color:"#fff", cursor:"pointer" }} onClick={() => { setAuthError(""); setModoLogin("email"); }}>e-mail</strong> pra recuperar.
+          </p>
+        ) : resetSenhaEnviado ? (
           <p style={{ color:"#4ade80", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>
             ✅ Link enviado! Verifique seu e-mail (inclusive o spam).
           </p>
         ) : (
           <p style={{ textAlign:"right", marginTop:8, marginBottom:0 }}>
             <span
-              style={{ color:"#94a3b8", fontSize:12, cursor:"pointer", textDecoration:"underline" }}
+              style={{ color:"#fbbf24", fontSize:14, fontWeight:600, cursor:"pointer", textDecoration:"underline" }}
               onClick={handleResetSenha}>
               {resetSenhaLoading ? "Enviando..." : "Esqueci minha senha"}
             </span>
@@ -3638,7 +3762,7 @@ export default function App() {
         )}
 
         <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:16, opacity:authLoading?0.6:1, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
-          disabled={authLoading} onClick={handleEmailLogin}>
+          disabled={authLoading} onClick={modoLogin === "email" ? handleEmailLogin : handleCPFLogin}>
           {authLoading ? "Entrando..." : "Entrar"}
         </button>
       </div>
@@ -4151,20 +4275,43 @@ export default function App() {
   // ALTERAR SENHA
   if (tela === "alterar-senha") {
     const voltarHome = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    // Detecta se o usuário chegou aqui via link de recuperação de email.
+    // Nesse caso NÃO pede senha atual (usuário esqueceu) — Supabase Auth já
+    // autenticou a sessão pelo link.
+    const veioDeRecovery =
+      typeof window !== "undefined" &&
+      (window.location.hash.includes("type=recovery") ||
+       window.location.search.includes("recovery=1"));
     return (
       <div style={S.page}>
-        <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
-        <h2 style={S.pageTitle}>🔑 Alterar senha</h2>
+        {!veioDeRecovery && (
+          <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+        )}
+        <h2 style={S.pageTitle}>🔑 {veioDeRecovery ? "Defina sua nova senha" : "Alterar senha"}</h2>
         <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
-          Digite sua nova senha. Ela deve ter pelo menos 6 caracteres.
+          {veioDeRecovery
+            ? "Você abriu o link de recuperação. Crie uma nova senha de pelo menos 10 caracteres com letra e número."
+            : "Confirme sua senha atual e digite a nova. A nova precisa ter pelo menos 10 caracteres."}
         </p>
 
+        {/* Senha atual — só pedida quando NÃO veio de recovery (segurança contra device roubado) */}
+        {!veioDeRecovery && (
+          <>
+            <label style={S.label}>Senha atual</label>
+            <input style={S.input} type="password" placeholder="Sua senha atual" value={senhaAtual}
+              autoComplete="current-password"
+              onChange={e => setSenhaAtual(e.target.value)} />
+          </>
+        )}
+
         <label style={S.label}>Nova senha</label>
-        <input style={S.input} type="password" placeholder="Nova senha (mín. 6 caracteres)" value={novaSenha}
+        <input style={S.input} type="password" placeholder="Mín. 10 caracteres, com letra e número" value={novaSenha}
+          autoComplete="new-password"
           onChange={e => setNovaSenha(e.target.value)} />
 
         <label style={S.label}>Confirmar nova senha</label>
         <input style={S.input} type="password" placeholder="Repita a nova senha" value={confirmSenha}
+          autoComplete="new-password"
           onChange={e => setConfirmSenha(e.target.value)} />
 
         {authError && <p style={{ color: authError.startsWith("✅") ? "#16a34a" : "#ef4444", fontSize:13, fontWeight:600, marginBottom:12 }}>{authError}</p>}
@@ -4173,16 +4320,40 @@ export default function App() {
           disabled={alterandoSenha}
           onClick={async () => {
             setAuthError("");
-            if (novaSenha.length < 6) { setAuthError("A senha deve ter pelo menos 6 caracteres."); return; }
+            // Quando NÃO veio de recovery, exige senha atual + valida via reauth
+            if (!veioDeRecovery) {
+              if (!senhaAtual) { setAuthError("Informe sua senha atual."); return; }
+              if (!session?.user?.email) { setAuthError("Sessão expirada. Faça login de novo."); return; }
+            }
+            { const erroSenha = validarSenhaForte(novaSenha); if (erroSenha) { setAuthError(erroSenha); return; } }
             if (novaSenha !== confirmSenha) { setAuthError("As senhas não coincidem."); return; }
+            if (!veioDeRecovery && senhaAtual === novaSenha) { setAuthError("A nova senha precisa ser diferente da atual."); return; }
             setAlterandoSenha(true);
+            // Reauth com senha atual antes de mudar (proteção contra device roubado)
+            if (!veioDeRecovery && session?.user?.email) {
+              const { error: reauthErr } = await supabase.auth.signInWithPassword({
+                email: session.user.email,
+                password: senhaAtual,
+              });
+              if (reauthErr) {
+                setAlterandoSenha(false);
+                setAuthError("Senha atual incorreta.");
+                return;
+              }
+            }
             const { error } = await supabase.auth.updateUser({ password: novaSenha });
             setAlterandoSenha(false);
             if (error) { setAuthError("Erro ao alterar senha: " + error.message); }
             else {
               setToastSuccess("✅ Senha alterada com sucesso!");
-              setNovaSenha(""); setConfirmSenha("");
-              setTela("configuracoes");
+              setSenhaAtual(""); setNovaSenha(""); setConfirmSenha("");
+              if (veioDeRecovery) {
+                // Limpa marcadores da URL pra próxima visita ser normal
+                try { window.history.replaceState({}, "", window.location.pathname); } catch {}
+                setTela(voltarHome);
+              } else {
+                setTela("configuracoes");
+              }
             }
           }}>
           {alterandoSenha ? "Alterando..." : "Salvar nova senha"}
@@ -8700,28 +8871,181 @@ export default function App() {
               </div>
             </div>
 
-            {/* Score de confiança */}
-            <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", border:"1.5px solid var(--border,#e2e8f0)" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>🛡️ Score de confiança</div>
-                <div style={{ fontWeight:900, fontSize:18, color: score >= 70 ? "#16a34a" : score >= 40 ? "#d97706" : "#dc2626" }}>{score}%</div>
-              </div>
-              <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden" }}>
-                <div style={{ background: score >= 70 ? "#16a34a" : score >= 40 ? "#f59e0b" : "#ef4444", height:8, width:`${score}%`, borderRadius:20, transition:"width .4s" }} />
-              </div>
-              <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" as const }}>
-                {[
-                  { ok: !!profile?.foto_url, label:"Foto", icone:"📸" },
-                  { ok: !!profile?.cpf,      label:"CPF",  icone:"🪪" },
-                  { ok: telefoneVerificado,   label:"Telefone", icone:"📱" },
-                  { ok: totalConc >= 1,       label:"1ª diária", icone:"✅" },
-                ].map(item => (
-                  <div key={item.label} style={{ display:"flex", alignItems:"center", gap:4, background: item.ok ? "#dcfce7" : "var(--bg-subtle,#f1f5f9)", borderRadius:8, padding:"4px 10px", fontSize:11, fontWeight:700, color: item.ok ? "#16a34a" : "var(--text-3,#94a3b8)" }}>
-                    {item.icone} {item.label} {item.ok ? "✓" : "×"}
+            {/* Completude do perfil — checklist com % */}
+            {(() => {
+              const comp = calcCompletude(
+                {
+                  foto_url: profile?.foto_url, cpf: profile?.cpf, cnpj: profile?.cnpj,
+                  telefone: profile?.telefone,
+                  telefone_verificado: profile?.telefone_verificado || telefoneVerificado,
+                  bio: profile?.bio, endereco_empregador: profile?.endereco_empregador,
+                  lat: profile?.lat, pix_chave: profile?.pix_chave, mp_user_id: profile?.mp_user_id,
+                },
+                totalConc, mediaAval,
+              );
+              return (
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                    <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>📋 Completude do perfil</div>
+                    <div style={{ fontWeight:900, fontSize:18, color: comp.pct >= 80 ? "#16a34a" : comp.pct >= 50 ? "#f59e0b" : "#dc2626" }}>{comp.pct}%</div>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden", marginBottom:12 }}>
+                    <div style={{ background: comp.pct >= 80 ? "#16a34a" : "linear-gradient(90deg,#FF6B35,#f59e0b)", height:8, width:`${comp.pct}%`, borderRadius:20, transition:"width .4s" }} />
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                    {comp.itens.map(item => {
+                      const pendente = !item.preenchido;
+                      const hasCTA = pendente && item.descricao;
+                      return (
+                        <div key={item.chave}
+                          style={{
+                            display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
+                            background: hasCTA ? "rgba(251,191,36,.08)" : "transparent",
+                            border: hasCTA ? "1px solid rgba(251,191,36,.3)" : "none",
+                            borderRadius:10,
+                          }}>
+                          <span style={{ fontSize:18 }}>{item.icone}</span>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:13, fontWeight:700, color: item.preenchido ? "var(--text-1,#0f172a)" : "#92400e" }}>
+                              {item.label}
+                            </div>
+                            {pendente && item.descricao && (
+                              <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.4 }}>
+                                {item.descricao}
+                              </div>
+                            )}
+                          </div>
+                          {item.preenchido ? (
+                            <span style={{ color:"#16a34a", fontSize:18, fontWeight:900 }}>✓</span>
+                          ) : (
+                            <span
+                              style={{ color:"#FF6B35", fontSize:12, fontWeight:800, cursor:"pointer", whiteSpace:"nowrap" as const }}
+                              onClick={() => {
+                                if (item.chave === "foto" || item.chave === "bio" || item.chave === "endereco") setTela("editar-perfil");
+                                else if (item.chave === "cpf" || item.chave === "telefone") setTela("editar-perfil");
+                                else if (item.chave === "pagamento") setTela("editar-perfil");
+                              }}>
+                              Preencher →
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Score de Confiança expandido — breakdown em 4 dimensões */}
+            {(() => {
+              const sb = calcScoreBreakdown(
+                {
+                  foto_url: profile?.foto_url, cpf: profile?.cpf, cnpj: profile?.cnpj,
+                  telefone: profile?.telefone, bio: profile?.bio,
+                  endereco_empregador: profile?.endereco_empregador, lat: profile?.lat,
+                  telefone_verificado: profile?.telefone_verificado || telefoneVerificado,
+                  documento_status: profile?.documento_status,
+                },
+                totalConc, avals.length, mediaAval,
+              );
+              const Row = (label: string, icone: string, cor: string, valor: number, max: number) => (
+                <div style={{ marginTop:8 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
+                    <span style={{ color:"var(--text-2,#64748b)", fontWeight:700 }}>{icone} {label}</span>
+                    <span style={{ color:"var(--text-1,#0f172a)", fontWeight:800 }}>{valor}/{max}</span>
+                  </div>
+                  <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:6, height:5, overflow:"hidden" }}>
+                    <div style={{ background: cor, height:5, width:`${(valor/max)*100}%`, borderRadius:6, transition:"width .4s" }} />
+                  </div>
+                </div>
+              );
+              return (
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:6 }}>
+                    <div>
+                      <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>🛡️ Score de confiança</div>
+                      <div style={{ fontSize:11, fontWeight:700, color: sb.nivelCor, marginTop:2 }}>● {sb.nivelLabel}</div>
+                    </div>
+                    <div style={{ textAlign:"right" as const }}>
+                      <span style={{ fontWeight:900, fontSize:26, color: sb.nivelCor }}>{sb.total}</span>
+                      <span style={{ fontSize:13, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>/100</span>
+                    </div>
+                  </div>
+                  <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden", marginTop:6 }}>
+                    <div style={{ background: sb.nivelCor, height:8, width:`${sb.total}%`, borderRadius:20, transition:"width .4s" }} />
+                  </div>
+                  {Row("Perfil",    "📋", "#7c3aed", sb.perfil.valor,    sb.perfil.max)}
+                  {Row("Reputação", "⭐", "#f59e0b", sb.reputacao.valor, sb.reputacao.max)}
+                  {Row("Atividade", "⚡", "#FF6B35", sb.atividade.valor, sb.atividade.max)}
+                  {Row("Confiança", "🔒", "#16a34a", sb.confianca.valor, sb.confianca.max)}
+                  {sb.total < 100 && (
+                    <div style={{ marginTop:12, padding:"10px 12px", background:"rgba(251,191,36,.1)", border:"1px solid rgba(251,191,36,.3)", borderRadius:10 }}>
+                      <div style={{ fontSize:11, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+                        💡 <strong style={{ color:"var(--text-1,#0f172a)" }}>Como melhorar:</strong>{" "}
+                        {sb.atividade.valor < sb.atividade.max && totalConc < 5 && "Conclua mais diárias pra subir Atividade. "}
+                        {sb.reputacao.valor < 10 && avals.length < 3 && "Receba mais avaliações pra subir Reputação. "}
+                        {sb.perfil.valor < sb.perfil.max && "Complete o perfil acima pra subir Perfil. "}
+                        {sb.confianca.valor < sb.confianca.max && !profile?.documento_status && "Envie seu documento pra subir Confiança."}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Conquistas — 8 medalhas */}
+            {(() => {
+              const conquistas = calcConquistas(
+                {
+                  foto_url: profile?.foto_url, cpf: profile?.cpf, cnpj: profile?.cnpj,
+                  telefone: profile?.telefone,
+                  telefone_verificado: profile?.telefone_verificado || telefoneVerificado,
+                  bio: profile?.bio,
+                },
+                totalConc, avals.length, mediaAval,
+              );
+              const alcancadas = conquistas.filter(c => c.alcancada).length;
+              return (
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                    <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>🏅 Conquistas</div>
+                    <div style={{ fontSize:13, fontWeight:800, color:"var(--text-2,#64748b)" }}>{alcancadas}/{conquistas.length}</div>
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    {conquistas.map(c => {
+                      const ativa = c.alcancada;
+                      const pct = c.progresso ? Math.min(100, (c.progresso.atual / c.progresso.alvo) * 100) : 0;
+                      return (
+                        <div key={c.chave}
+                          style={{
+                            background: ativa ? "rgba(34,197,94,.08)" : "var(--bg-surface,#f8fafc)",
+                            border: ativa ? "1.5px solid #22c55e" : "1px solid var(--border-sub,#f1f5f9)",
+                            borderRadius:12, padding:"12px 11px",
+                            opacity: ativa ? 1 : 0.7,
+                          }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                            <span style={{ fontSize:22, filter: ativa ? "none" : "grayscale(.7)" }}>{c.icone}</span>
+                            {ativa && <span style={{ fontSize:10, fontWeight:800, color:"#16a34a", background:"#dcfce7", borderRadius:8, padding:"1px 6px" }}>✓ Conquistado</span>}
+                          </div>
+                          <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:2 }}>{c.titulo}</div>
+                          <div style={{ fontSize:11, color:"var(--text-2,#64748b)", lineHeight:1.4 }}>{c.descricao}</div>
+                          {!ativa && c.progresso && (
+                            <>
+                              <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:6, height:4, overflow:"hidden", marginTop:8 }}>
+                                <div style={{ background:"#FF6B35", height:4, width:`${pct}%`, borderRadius:6 }} />
+                              </div>
+                              <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", fontWeight:700, marginTop:4 }}>
+                                {c.progresso.atual} / {c.progresso.alvo}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Bio */}
             <div style={{ ...S.section, margin:"8px 0 0" }}>
