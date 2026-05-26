@@ -5,7 +5,7 @@
  * Lei 9.609/98 e Lei 9.610/98. Contato: suporte@diariaja.com.br
  */
 import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
-import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY, RECUPERACAO_SENHA_DETECTADA, ERRO_HASH_INICIAL } from "./supabaseClient";
 import { Session } from "@supabase/supabase-js";
 import MapComponent from "./MapComponent";
 // ── Ícones (Lucide React — outline moderno, tree-shaken) ─────────────────────
@@ -391,6 +391,16 @@ export default function App() {
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmSenha, setConfirmSenha] = useState("");
   const [alterandoSenha, setAlterandoSenha] = useState(false);
+  // Fluxo de recuperação de senha (clicou no link do e-mail).
+  // Detectado em supabaseClient.ts antes do hash ser consumido pelo supabase-js,
+  // e reforçado pelo evento PASSWORD_RECOVERY no onAuthStateChange.
+  const [senhaRecovery, setSenhaRecovery] = useState<boolean>(RECUPERACAO_SENHA_DETECTADA);
+  const senhaRecoveryRef = useRef<boolean>(RECUPERACAO_SENHA_DETECTADA);
+  // Senha opcional definida durante o cadastro (útil para usuários OAuth/Google
+  // que ainda não têm senha cadastrada e querem poder entrar também por e-mail).
+  const [senhaCadastro, setSenhaCadastro] = useState("");
+  const [senhaCadastroConfirm, setSenhaCadastroConfirm] = useState("");
+  const [mostrarSenhaCad, setMostrarSenhaCad] = useState(false);
   const [confirmDeleteConta, setConfirmDeleteConta] = useState(false);
   const [deletandoConta, setDeletandoConta] = useState(false);
   const [telefoneVerificado, setTelefoneVerificado] = useState<boolean>(() => {
@@ -1453,6 +1463,17 @@ export default function App() {
       return;
     }
 
+    // Erro no fragmento da URL (ex.: link de recuperação expirado).
+    // Capturado em supabaseClient.ts antes do hash ser limpo.
+    if (ERRO_HASH_INICIAL) {
+      window.history.replaceState({}, "", window.location.pathname);
+      setLoading(false);
+      setTela("login");
+      setAuthError(`⚠️ ${ERRO_HASH_INICIAL}. Solicite um novo link de recuperação.`);
+      clearTimeout(safetyTimer);
+      return;
+    }
+
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
         // Não chamamos checkProfile aqui — o onAuthStateChange (INITIAL_SESSION)
@@ -1468,8 +1489,29 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // Ignora eventos que não mudam estado (ex: TOKEN_REFRESHED quando já estava logado)
       if (event === "TOKEN_REFRESHED") return;
+
+      // Fluxo de recuperação de senha: o supabase-js dispara este evento quando
+      // o link do e-mail é processado. Vamos para a tela de redefinição em vez
+      // de cair na home (que era o bug — usuário voltava para login).
+      if (event === "PASSWORD_RECOVERY") {
+        senhaRecoveryRef.current = true;
+        setSenhaRecovery(true);
+        setSession(session);
+        setTela("alterar-senha");
+        setLoading(false);
+        return;
+      }
+
       setSession(session);
       if (session) {
+        // Se chegamos aqui via link de recuperação (detectado no hash inicial
+        // antes do supabase-js consumir), pular checkProfile e ir direto para
+        // a tela de redefinir senha.
+        if (senhaRecoveryRef.current) {
+          setTela("alterar-senha");
+          setLoading(false);
+          return;
+        }
         (async () => {
           try {
             const { data } = await supabase
@@ -3722,21 +3764,27 @@ export default function App() {
 
   // ALTERAR SENHA
   if (tela === "alterar-senha") {
-    const voltarHome = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    const emRecovery = senhaRecovery;
     return (
       <div style={S.page}>
-        <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
-        <h2 style={S.pageTitle}>🔑 Alterar senha</h2>
+        {!emRecovery && (
+          <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+        )}
+        <h2 style={S.pageTitle}>🔑 {emRecovery ? "Redefinir senha" : "Alterar senha"}</h2>
         <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
-          Digite sua nova senha. Ela deve ter pelo menos 6 caracteres.
+          {emRecovery
+            ? "Você chegou aqui pelo link de recuperação. Defina uma nova senha para entrar no app."
+            : "Digite sua nova senha. Ela deve ter pelo menos 6 caracteres."}
         </p>
 
         <label style={S.label}>Nova senha</label>
         <input style={S.input} type="password" placeholder="Nova senha (mín. 6 caracteres)" value={novaSenha}
+          autoComplete="new-password"
           onChange={e => setNovaSenha(e.target.value)} />
 
         <label style={S.label}>Confirmar nova senha</label>
         <input style={S.input} type="password" placeholder="Repita a nova senha" value={confirmSenha}
+          autoComplete="new-password"
           onChange={e => setConfirmSenha(e.target.value)} />
 
         {authError && <p style={{ color: authError.startsWith("✅") ? "#16a34a" : "#ef4444", fontSize:13, fontWeight:600, marginBottom:12 }}>{authError}</p>}
@@ -3750,15 +3798,41 @@ export default function App() {
             setAlterandoSenha(true);
             const { error } = await supabase.auth.updateUser({ password: novaSenha });
             setAlterandoSenha(false);
-            if (error) { setAuthError("Erro ao alterar senha: " + error.message); }
-            else {
-              setToastSuccess("✅ Senha alterada com sucesso!");
-              setNovaSenha(""); setConfirmSenha("");
+            if (error) { setAuthError("Erro ao alterar senha: " + error.message); return; }
+            setToastSuccess(emRecovery
+              ? "✅ Senha redefinida! Você está conectado."
+              : "✅ Senha alterada com sucesso!");
+            setNovaSenha(""); setConfirmSenha("");
+            if (emRecovery) {
+              // Sai do modo recovery e roteia para onde o usuário deveria estar
+              senhaRecoveryRef.current = false;
+              setSenhaRecovery(false);
+              if (session?.user?.id) {
+                await checkProfile(session.user.id);
+              } else {
+                setTela("splash");
+              }
+            } else {
               setTela("configuracoes");
             }
           }}>
-          {alterandoSenha ? "Alterando..." : "Salvar nova senha"}
+          {alterandoSenha ? "Salvando..." : emRecovery ? "Redefinir senha e entrar" : "Salvar nova senha"}
         </button>
+
+        {emRecovery && (
+          <button
+            style={{ ...S.btnSecondary, marginTop:12 }}
+            onClick={async () => {
+              // Cancelar recovery: faz logout e volta para login
+              senhaRecoveryRef.current = false;
+              setSenhaRecovery(false);
+              await supabase.auth.signOut();
+              setNovaSenha(""); setConfirmSenha(""); setAuthError("");
+              setTela("login");
+            }}>
+            Cancelar
+          </button>
+        )}
       </div>
     );
   }
@@ -4223,6 +4297,37 @@ export default function App() {
         </div>
       </div>
 
+      {/* ── Definir senha (para login por e-mail) ── */}
+      {(() => {
+        const provs = (session?.user?.app_metadata?.providers as string[] | undefined) || [];
+        const provUnico = session?.user?.app_metadata?.provider as string | undefined;
+        const temSenhaEmail = provs.includes("email") || provUnico === "email";
+        if (temSenhaEmail) return null;
+        return (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>🔑 Definir senha</div>
+            <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:12, padding:"10px 14px", marginBottom:12, fontSize:12, color:"#9a3412", lineHeight:1.5 }}>
+              Como você entrou com Google, defina uma senha para poder entrar também com e-mail futuramente.
+            </div>
+            <label style={S.label}>Senha (mín. 6 caracteres)</label>
+            <div style={{ position:"relative" as const }}>
+              <input style={{ ...S.input, paddingRight:46 }} type={mostrarSenhaCad ? "text" : "password"}
+                autoComplete="new-password" placeholder="Mínimo 6 caracteres" value={senhaCadastro}
+                onChange={e => setSenhaCadastro(e.target.value)} />
+              <button type="button" aria-label={mostrarSenhaCad ? "Ocultar senha" : "Mostrar senha"}
+                style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", fontSize:18, padding:0, lineHeight:1 }}
+                onClick={() => setMostrarSenhaCad(p => !p)}>
+                {mostrarSenhaCad ? "🙈" : "👁️"}
+              </button>
+            </div>
+            <label style={S.label}>Confirmar senha</label>
+            <input style={S.input} type={mostrarSenhaCad ? "text" : "password"}
+              autoComplete="new-password" placeholder="Repita a senha" value={senhaCadastroConfirm}
+              onChange={e => setSenhaCadastroConfirm(e.target.value)} />
+          </>
+        );
+      })()}
+
       {authError && <p style={S.errorText}>{authError}</p>}
       <button style={{ ...S.btnPrimary, marginTop:20 }} onClick={async () => {
         setAuthError("");
@@ -4231,6 +4336,11 @@ export default function App() {
         if (form.pessoaTipo === "fisica" && !validarCPF(form.cpf)) { setAuthError("CPF inválido. Verifique os dígitos e tente novamente."); return; }
         if (form.pessoaTipo === "juridica" && form.cnpj.replace(/\D/g,"").length !== 14) { setAuthError("CNPJ inválido — deve ter 14 dígitos."); return; }
         if (!form.cepEmp || !form.ruaEmp.trim() || !form.numeroEmp.trim()) { setAuthError("Preencha CEP, logradouro e número."); return; }
+        // Validação da senha opcional (só se foi preenchida)
+        if (senhaCadastro || senhaCadastroConfirm) {
+          if (senhaCadastro.length < 6) { setAuthError("A senha deve ter pelo menos 6 caracteres."); return; }
+          if (senhaCadastro !== senhaCadastroConfirm) { setAuthError("As senhas não coincidem."); return; }
+        }
         const endEmp = `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp.trim()?` — ${form.complementoEmp}`:""},  ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} — CEP ${form.cepEmp}`;
         const ok = await saveProfile({
           nome_negocio: form.pessoaTipo === "juridica" ? form.nomeNegocio : form.nome,
@@ -4241,7 +4351,18 @@ export default function App() {
           // Inclui lat/lng geocodificados do CEP se disponíveis
           ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
         });
-        if (ok) setTela("escolha-negocio");
+        if (ok) {
+          // Define a senha (para usuários OAuth/Google ganharem login por e-mail)
+          if (senhaCadastro && senhaCadastro.length >= 6) {
+            const { error: errSenha } = await supabase.auth.updateUser({ password: senhaCadastro });
+            if (errSenha) {
+              setAuthError("Perfil salvo, mas não foi possível definir a senha: " + errSenha.message);
+              return;
+            }
+            setSenhaCadastro(""); setSenhaCadastroConfirm("");
+          }
+          setTela("escolha-negocio");
+        }
       }}>Continuar →</button>
     </div>
   );
@@ -4425,6 +4546,37 @@ export default function App() {
         </div>
       </div>
 
+      {/* ── Definir senha (para login por e-mail) ── */}
+      {(() => {
+        const provs = (session?.user?.app_metadata?.providers as string[] | undefined) || [];
+        const provUnico = session?.user?.app_metadata?.provider as string | undefined;
+        const temSenhaEmail = provs.includes("email") || provUnico === "email";
+        if (temSenhaEmail) return null;
+        return (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>🔑 Definir senha</div>
+            <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:12, padding:"10px 14px", marginBottom:12, fontSize:12, color:"#9a3412", lineHeight:1.5 }}>
+              Como você entrou com Google, defina uma senha para poder entrar também com e-mail futuramente.
+            </div>
+            <label style={S.label}>Senha (mín. 6 caracteres)</label>
+            <div style={{ position:"relative" as const }}>
+              <input style={{ ...S.input, paddingRight:46 }} type={mostrarSenhaCad ? "text" : "password"}
+                autoComplete="new-password" placeholder="Mínimo 6 caracteres" value={senhaCadastro}
+                onChange={e => setSenhaCadastro(e.target.value)} />
+              <button type="button" aria-label={mostrarSenhaCad ? "Ocultar senha" : "Mostrar senha"}
+                style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", fontSize:18, padding:0, lineHeight:1 }}
+                onClick={() => setMostrarSenhaCad(p => !p)}>
+                {mostrarSenhaCad ? "🙈" : "👁️"}
+              </button>
+            </div>
+            <label style={S.label}>Confirmar senha</label>
+            <input style={S.input} type={mostrarSenhaCad ? "text" : "password"}
+              autoComplete="new-password" placeholder="Repita a senha" value={senhaCadastroConfirm}
+              onChange={e => setSenhaCadastroConfirm(e.target.value)} />
+          </>
+        );
+      })()}
+
       {authError && <p style={S.errorText}>{authError}</p>}
       <button style={{ ...S.btnPrimary, marginTop:16 }} onClick={async () => {
         setAuthError("");
@@ -4434,13 +4586,29 @@ export default function App() {
         if (!form.sexo) { setAuthError("Selecione seu sexo."); return; }
         if (!form.dataNasc) { setAuthError("Informe sua data de nascimento."); return; }
         if (categoriasSelecionadas.length === 0) { setAuthError("Selecione ao menos uma especialidade."); return; }
+        // Validação da senha opcional (só se foi preenchida)
+        if (senhaCadastro || senhaCadastroConfirm) {
+          if (senhaCadastro.length < 6) { setAuthError("A senha deve ter pelo menos 6 caracteres."); return; }
+          if (senhaCadastro !== senhaCadastroConfirm) { setAuthError("As senhas não coincidem."); return; }
+        }
         const ok = await saveProfile({
           funcao: categoriasSelecionadas[0] || "",
           cpf: form.cpf,
           sexo: form.sexo,
           data_nascimento: form.dataNasc,
         });
-        if (ok) setTela("pedir-localizacao");
+        if (ok) {
+          // Define a senha (para usuários OAuth/Google ganharem login por e-mail)
+          if (senhaCadastro && senhaCadastro.length >= 6) {
+            const { error: errSenha } = await supabase.auth.updateUser({ password: senhaCadastro });
+            if (errSenha) {
+              setAuthError("Perfil salvo, mas não foi possível definir a senha: " + errSenha.message);
+              return;
+            }
+            setSenhaCadastro(""); setSenhaCadastroConfirm("");
+          }
+          setTela("pedir-localizacao");
+        }
       }}>Criar conta grátis →</button>
     </div>
   );
@@ -9282,6 +9450,15 @@ export default function App() {
         )}
       </div>
 
+      {/* ── Segurança / senha ── */}
+      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", margin:"20px 0 8px", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🔑 Segurança</div>
+      <button
+        style={{ width:"100%", padding:"13px 16px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontWeight:700, color:"var(--text-1,#0f172a)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}
+        onClick={() => { setAuthError(""); setNovaSenha(""); setConfirmSenha(""); setTela("alterar-senha"); }}>
+        <span>🔑 Alterar senha de acesso</span>
+        <span style={{ color:"#FF6B35", fontWeight:800 }}>›</span>
+      </button>
+
       {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
       <button style={{ ...S.btnPrimary, marginTop:16, opacity: salvandoPerfil ? 0.6 : 1 }} onClick={async () => {
         setAuthError("");
@@ -10565,6 +10742,15 @@ export default function App() {
       ) : profile?.lat ? (
         <p style={{ color:"#16a34a", fontSize:12, marginTop:4 }}>✅ Localização já salva no perfil</p>
       ) : null}
+
+      {/* ── Segurança / senha ── */}
+      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", margin:"20px 0 8px", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🔑 Segurança</div>
+      <button
+        style={{ width:"100%", padding:"13px 16px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontWeight:700, color:"var(--text-1,#0f172a)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}
+        onClick={() => { setAuthError(""); setNovaSenha(""); setConfirmSenha(""); setTela("alterar-senha"); }}>
+        <span>🔑 Alterar senha de acesso</span>
+        <span style={{ color:"#3A86FF", fontWeight:800 }}>›</span>
+      </button>
 
       {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
       <button style={{ ...S.btnPrimary, marginTop:16, opacity: salvandoPerfil ? 0.6 : 1 }} onClick={async () => {
