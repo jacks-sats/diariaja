@@ -100,6 +100,11 @@ export default function App() {
   const [buscandoCEPEmp, setBuscandoCEPEmp] = useState(false);
   const [fotoUrl, setFotoUrl]             = useState<string | null>(null);
   const [uploadingFoto, setUploadingFoto] = useState(false);
+  // KYC — upload de documento (RG/CNH p/ PF, Cartão CNPJ/Contrato Social p/ PJ)
+  const [docFile, setDocFile]             = useState<File | null>(null);
+  const [docPreview, setDocPreview]       = useState<string | null>(null);
+  const [docTipo, setDocTipo]             = useState<"rg"|"cnh"|"cartao_cnpj"|"contrato_social">("rg");
+  const [enviandoDoc, setEnviandoDoc]     = useState(false);
   const [agendaSelecionada, setAgenda]          = useState<string[]>([]);
   const [categoriasSelecionadas, setCategorias] = useState<string[]>([]);
   const [disponivelAgora, setDisponivel]  = useState(false);
@@ -1277,6 +1282,68 @@ export default function App() {
   const funcoesDoNegocio = negocio ? negocio.funcoes : [];
   const toggleDia = (dia: string) =>
     setAgenda(prev => prev.includes(dia) ? prev.filter(d => d !== dia) : [...prev, dia]);
+
+  // ── KYC: Upload de documento ──────────────────────────────────────────────
+  // Ajusta tipo de documento padrão conforme pessoa_tipo (PJ → cartao_cnpj, PF → rg)
+  useEffect(() => {
+    if (tela !== "verificar-documento") return;
+    const isPJ = profile?.pessoa_tipo === "juridica";
+    if (isPJ && (docTipo === "rg" || docTipo === "cnh")) setDocTipo("cartao_cnpj");
+    if (!isPJ && (docTipo === "cartao_cnpj" || docTipo === "contrato_social")) setDocTipo("rg");
+  }, [tela, profile?.pessoa_tipo, docTipo]);
+
+  const onDocFileSelected = (file: File) => {
+    setDocFile(file);
+    if (docPreview) { try { URL.revokeObjectURL(docPreview); } catch { /* ignore */ } }
+    setDocPreview(URL.createObjectURL(file));
+  };
+
+  const enviarDocumentoKYC = async () => {
+    if (!session?.user?.id || !docFile || enviandoDoc) return;
+    if (docFile.size > 5 * 1024 * 1024) {
+      setToastError("Arquivo muito grande (máximo 5 MB).");
+      return;
+    }
+    const mimePermitidos = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+    if (!mimePermitidos.includes(docFile.type)) {
+      setToastError("Tipo de arquivo não permitido. Envie JPG, PNG, WEBP ou PDF.");
+      return;
+    }
+    setEnviandoDoc(true);
+    const userId = session.user.id;
+    const ext = docFile.name.split(".").pop()?.toLowerCase() || "jpg";
+    const path = `${userId}/${docTipo}_${Date.now()}.${ext}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from("documentos")
+      .upload(path, docFile, { contentType: docFile.type, upsert: false });
+    if (uploadErr) {
+      setEnviandoDoc(false);
+      setToastError("Falha no envio: " + uploadErr.message);
+      return;
+    }
+
+    const { error: updErr } = await supabase
+      .from("user_profiles")
+      .update({
+        documento_status: "enviado",
+        documento_url: path,
+        documento_tipo: docTipo,
+        documento_enviado_em: new Date().toISOString(),
+      })
+      .eq("id", userId);
+
+    setEnviandoDoc(false);
+    if (updErr) {
+      setToastError("Documento subiu mas o status não foi salvo. Tente reenviar.");
+      return;
+    }
+    setProfile(prev => prev ? { ...prev, documento_status: "enviado", documento_url: path, documento_tipo: docTipo } : prev);
+    setDocFile(null);
+    if (docPreview) { URL.revokeObjectURL(docPreview); setDocPreview(null); }
+    setToastSuccess("✅ Documento enviado! Aguarde a equipe revisar (até 24h).");
+    trackEvento("documento_enviado", userId, modoAtual, { tipo: docTipo });
+  };
 
 
   // Atualiza localização do usuário (usado no perfil após cadastro)
@@ -3686,14 +3753,156 @@ export default function App() {
             // Sempre abre na aba de profissionais ao confirmar o ramo
             setTabEmpregador("inicio");
             trackEvento("cadastro_concluido", session?.user?.id, "empregador");
-            // Pede localização apenas na primeira vez (perfil novo sem lat/lng)
-            setTela(profile?.lat ? "home-empregador" : "pedir-localizacao");
+            // PJ recém-cadastrado precisa enviar comprovante antes de publicar vagas
+            const precisaKYC = profile?.pessoa_tipo === "juridica"
+              && profile?.documento_status !== "aprovado";
+            if (precisaKYC) {
+              setTela("verificar-documento");
+            } else {
+              // Pede localização apenas na primeira vez (perfil novo sem lat/lng)
+              setTela(profile?.lat ? "home-empregador" : "pedir-localizacao");
+            }
           }
         }}>
         Ver profissionais disponíveis
       </button>
     </div>
   );
+
+  // ── ENVIAR DOCUMENTO (KYC: RG/CNH p/ PF, Cartão CNPJ/Contrato Social p/ PJ) ──
+  if (tela === "verificar-documento") {
+    const isPJ = profile?.pessoa_tipo === "juridica";
+    const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    const docStatus = profile?.documento_status || "nao_enviado";
+    const subNaoEnviado = isPJ
+      ? "Envie o cartão CNPJ ou contrato social pra liberar publicação de vagas."
+      : "Envie uma foto do seu RG ou CNH pra subir pro nível Confiável.";
+    const subAprovado = isPJ
+      ? "Sua empresa está verificada. Você pode publicar vagas normalmente."
+      : "Sua identidade está verificada. Você é Nível Confiável!";
+    const statusInfo: Record<string, { cor: string; icone: string; titulo: string; sub: string }> = {
+      nao_enviado: { cor:"#94a3b8", icone:"📷", titulo:"Documento ainda não enviado", sub: subNaoEnviado },
+      enviado:     { cor:"#f59e0b", icone:"🔍", titulo:"Em análise",                 sub:"A equipe está verificando. Você recebe um aviso em até 24h." },
+      aprovado:    { cor:"#16a34a", icone:"✅", titulo:"Documento aprovado",         sub: subAprovado },
+      rejeitado:   { cor:"#ef4444", icone:"❌", titulo:"Documento rejeitado",        sub: profile?.documento_motivo_rejeicao || "Reenvie com mais qualidade." },
+    };
+    const info = statusInfo[docStatus];
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"system-ui,sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
+          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"system-ui,sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>{isPJ ? "🏢" : "🆔"}</div>
+            <div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>{isPJ ? "Verificar empresa" : "Verificar identidade"}</div>
+              <div style={{ fontSize:13, color:"#94a3b8" }}>{isPJ ? "Obrigatório para publicar vagas" : "Suba para o nível Confiável"}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding:"16px" }}>
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", borderLeft:`4px solid ${info.cor}`, marginBottom:14 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:44, height:44, background:info.cor+"22", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>{info.icone}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{info.titulo}</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.5 }}>{info.sub}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background:"rgba(58,134,255,.08)", border:"1px solid rgba(58,134,255,.3)", borderRadius:12, padding:"12px 14px", marginBottom:16, fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
+            🔒 <strong style={{ color:"var(--text-1,#0f172a)" }}>Privacidade (LGPD):</strong> {isPJ ? "o documento da empresa é guardado em local privado e só visto pela equipe pra confirmar a existência do CNPJ. Nunca aparece no perfil público." : "seu documento é guardado em local privado e só visto pela equipe pra verificar identidade. Nunca aparece no seu perfil público."}
+          </div>
+
+          {(docStatus === "nao_enviado" || docStatus === "rejeitado") && (
+            <>
+              <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Tipo de documento</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+                {(isPJ
+                  ? ([["cartao_cnpj","📇","Cartão CNPJ"],["contrato_social","📄","Contrato Social"]] as const)
+                  : ([["rg","🪪","RG"],["cnh","🚗","CNH"]] as const)
+                ).map(([val, icone, label]) => {
+                  const ativo = docTipo === val;
+                  return (
+                    <button key={val}
+                      style={{ padding:"14px 8px", border: ativo ? "2.5px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)", borderRadius:14, background: ativo ? "#fff7f3" : "var(--bg-card,#fff)", color: ativo ? "#FF6B35" : "var(--text-1,#0f172a)", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", flexDirection:"column" as const, alignItems:"center", gap:4 }}
+                      onClick={() => setDocTipo(val as typeof docTipo)}>
+                      <span style={{ fontSize:22 }}>{icone}</span>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Arquivo</div>
+              <label style={{ display:"block", padding:"24px 16px", background:"var(--bg-surface,#f8fafc)", border:"2px dashed var(--border,#e2e8f0)", borderRadius:14, textAlign:"center" as const, cursor:"pointer", marginBottom:12 }}>
+                <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
+                  style={{ display:"none" }}
+                  onChange={e => e.target.files?.[0] && onDocFileSelected(e.target.files[0])} />
+                {docFile ? (
+                  <div>
+                    <div style={{ fontSize:32, marginBottom:6 }}>📎</div>
+                    <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{docFile.name}</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>
+                      {(docFile.size / 1024 / 1024).toFixed(2)} MB · {docFile.type}
+                    </div>
+                    <div style={{ fontSize:11, color:"#FF6B35", marginTop:6, fontWeight:700 }}>Toque pra trocar</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontSize:36, marginBottom:6 }}>📷</div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Toque para tirar foto ou escolher</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>JPG, PNG, WEBP ou PDF · máx 5 MB</div>
+                  </div>
+                )}
+              </label>
+
+              {docPreview && docFile && docFile.type.startsWith("image/") && (
+                <img src={docPreview} alt="Pré-visualização" style={{ width:"100%", maxHeight:280, objectFit:"contain" as const, borderRadius:12, background:"#000", marginBottom:12 }} />
+              )}
+
+              <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
+                💡 <strong style={{ color:"var(--text-1,#0f172a)" }}>Pra evitar rejeição:</strong>
+                <ul style={{ margin:"6px 0 0 18px", padding:0 }}>
+                  <li>Foto nítida, sem borrão</li>
+                  <li>Texto legível (sem reflexo)</li>
+                  <li>Documento inteiro na foto</li>
+                  <li>Sem dedos cobrindo dados</li>
+                </ul>
+              </div>
+
+              <button
+                disabled={!docFile || enviandoDoc}
+                style={{ width:"100%", padding:"14px", background:!docFile||enviandoDoc?"#94a3b8":"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:!docFile||enviandoDoc?"not-allowed":"pointer", fontFamily:"system-ui,sans-serif", opacity:!docFile||enviandoDoc?.6:1, boxShadow:!docFile||enviandoDoc?"none":"0 4px 16px rgba(255,107,53,.4)" }}
+                onClick={enviarDocumentoKYC}>
+                {enviandoDoc ? "Enviando..." : docFile ? "Enviar documento" : "Escolha um arquivo acima"}
+              </button>
+            </>
+          )}
+
+          {docStatus === "enviado" && (
+            <div style={{ textAlign:"center" as const, padding:"24px 16px" }}>
+              <div style={{ fontSize:42, marginBottom:10 }}>⏳</div>
+              <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Aguarde a equipe revisar</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+                Você receberá uma notificação assim que for analisado.
+              </div>
+            </div>
+          )}
+          {docStatus === "aprovado" && (
+            <div style={{ textAlign:"center" as const, padding:"24px 16px" }}>
+              <div style={{ fontSize:42, marginBottom:10 }}>🎉</div>
+              <div style={{ fontWeight:800, fontSize:15, color:"#16a34a", marginBottom:6 }}>Tudo certo!</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+                Sua empresa/identidade está verificada. Esse status fica salvo no seu perfil.
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // CADASTRO DIARISTA
   if (tela === "cadastro-diarista") return (
@@ -8775,6 +8984,11 @@ export default function App() {
 
   // CRIAR DIÁRIA
   if (tela === "criar-diaria") {
+    // Guard KYC: PJ precisa ter comprovante aprovado antes de publicar vagas
+    if (profile?.pessoa_tipo === "juridica" && profile?.documento_status !== "aprovado") {
+      setTimeout(() => setTela("verificar-documento"), 0);
+      return null;
+    }
     const cor = negocio?.cor || "#FF6B35";
     // Sempre mostra TODAS as habilidades do app, organizadas por categoria
     const funcoesDisponiveis = Object.entries(CATEGORIAS_NEGOCIO);

@@ -69,6 +69,13 @@ export interface UserProfile {
   mp_access_token?: string;
   plano_ativo?: string;       // 'gratis' | 'destaque'
   is_admin?: boolean;
+  // ── KYC: documento de identidade (PF) ou comprovante de empresa (PJ) ──────
+  documento_status?: "nao_enviado" | "enviado" | "aprovado" | "rejeitado";
+  documento_url?: string;
+  documento_tipo?: "rg" | "cnh" | "cartao_cnpj" | "contrato_social";
+  documento_enviado_em?: string;
+  documento_revisado_em?: string;
+  documento_motivo_rejeicao?: string;
 }
 
 export interface Topico {
