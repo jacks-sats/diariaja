@@ -65,6 +65,7 @@ import {
   validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
+  calcScoreBreakdown, calcCompletude, calcConquistas,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -8870,28 +8871,181 @@ export default function App() {
               </div>
             </div>
 
-            {/* Score de confiança */}
-            <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", border:"1.5px solid var(--border,#e2e8f0)" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>🛡️ Score de confiança</div>
-                <div style={{ fontWeight:900, fontSize:18, color: score >= 70 ? "#16a34a" : score >= 40 ? "#d97706" : "#dc2626" }}>{score}%</div>
-              </div>
-              <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden" }}>
-                <div style={{ background: score >= 70 ? "#16a34a" : score >= 40 ? "#f59e0b" : "#ef4444", height:8, width:`${score}%`, borderRadius:20, transition:"width .4s" }} />
-              </div>
-              <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" as const }}>
-                {[
-                  { ok: !!profile?.foto_url, label:"Foto", icone:"📸" },
-                  { ok: !!profile?.cpf,      label:"CPF",  icone:"🪪" },
-                  { ok: telefoneVerificado,   label:"Telefone", icone:"📱" },
-                  { ok: totalConc >= 1,       label:"1ª diária", icone:"✅" },
-                ].map(item => (
-                  <div key={item.label} style={{ display:"flex", alignItems:"center", gap:4, background: item.ok ? "#dcfce7" : "var(--bg-subtle,#f1f5f9)", borderRadius:8, padding:"4px 10px", fontSize:11, fontWeight:700, color: item.ok ? "#16a34a" : "var(--text-3,#94a3b8)" }}>
-                    {item.icone} {item.label} {item.ok ? "✓" : "×"}
+            {/* Completude do perfil — checklist com % */}
+            {(() => {
+              const comp = calcCompletude(
+                {
+                  foto_url: profile?.foto_url, cpf: profile?.cpf, cnpj: profile?.cnpj,
+                  telefone: profile?.telefone,
+                  telefone_verificado: profile?.telefone_verificado || telefoneVerificado,
+                  bio: profile?.bio, endereco_empregador: profile?.endereco_empregador,
+                  lat: profile?.lat, pix_chave: profile?.pix_chave, mp_user_id: profile?.mp_user_id,
+                },
+                totalConc, mediaAval,
+              );
+              return (
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                    <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>📋 Completude do perfil</div>
+                    <div style={{ fontWeight:900, fontSize:18, color: comp.pct >= 80 ? "#16a34a" : comp.pct >= 50 ? "#f59e0b" : "#dc2626" }}>{comp.pct}%</div>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden", marginBottom:12 }}>
+                    <div style={{ background: comp.pct >= 80 ? "#16a34a" : "linear-gradient(90deg,#FF6B35,#f59e0b)", height:8, width:`${comp.pct}%`, borderRadius:20, transition:"width .4s" }} />
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                    {comp.itens.map(item => {
+                      const pendente = !item.preenchido;
+                      const hasCTA = pendente && item.descricao;
+                      return (
+                        <div key={item.chave}
+                          style={{
+                            display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
+                            background: hasCTA ? "rgba(251,191,36,.08)" : "transparent",
+                            border: hasCTA ? "1px solid rgba(251,191,36,.3)" : "none",
+                            borderRadius:10,
+                          }}>
+                          <span style={{ fontSize:18 }}>{item.icone}</span>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:13, fontWeight:700, color: item.preenchido ? "var(--text-1,#0f172a)" : "#92400e" }}>
+                              {item.label}
+                            </div>
+                            {pendente && item.descricao && (
+                              <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.4 }}>
+                                {item.descricao}
+                              </div>
+                            )}
+                          </div>
+                          {item.preenchido ? (
+                            <span style={{ color:"#16a34a", fontSize:18, fontWeight:900 }}>✓</span>
+                          ) : (
+                            <span
+                              style={{ color:"#FF6B35", fontSize:12, fontWeight:800, cursor:"pointer", whiteSpace:"nowrap" as const }}
+                              onClick={() => {
+                                if (item.chave === "foto" || item.chave === "bio" || item.chave === "endereco") setTela("editar-perfil");
+                                else if (item.chave === "cpf" || item.chave === "telefone") setTela("editar-perfil");
+                                else if (item.chave === "pagamento") setTela("editar-perfil");
+                              }}>
+                              Preencher →
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Score de Confiança expandido — breakdown em 4 dimensões */}
+            {(() => {
+              const sb = calcScoreBreakdown(
+                {
+                  foto_url: profile?.foto_url, cpf: profile?.cpf, cnpj: profile?.cnpj,
+                  telefone: profile?.telefone, bio: profile?.bio,
+                  endereco_empregador: profile?.endereco_empregador, lat: profile?.lat,
+                  telefone_verificado: profile?.telefone_verificado || telefoneVerificado,
+                  documento_status: profile?.documento_status,
+                },
+                totalConc, avals.length, mediaAval,
+              );
+              const Row = (label: string, icone: string, cor: string, valor: number, max: number) => (
+                <div style={{ marginTop:8 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
+                    <span style={{ color:"var(--text-2,#64748b)", fontWeight:700 }}>{icone} {label}</span>
+                    <span style={{ color:"var(--text-1,#0f172a)", fontWeight:800 }}>{valor}/{max}</span>
+                  </div>
+                  <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:6, height:5, overflow:"hidden" }}>
+                    <div style={{ background: cor, height:5, width:`${(valor/max)*100}%`, borderRadius:6, transition:"width .4s" }} />
+                  </div>
+                </div>
+              );
+              return (
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:6 }}>
+                    <div>
+                      <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>🛡️ Score de confiança</div>
+                      <div style={{ fontSize:11, fontWeight:700, color: sb.nivelCor, marginTop:2 }}>● {sb.nivelLabel}</div>
+                    </div>
+                    <div style={{ textAlign:"right" as const }}>
+                      <span style={{ fontWeight:900, fontSize:26, color: sb.nivelCor }}>{sb.total}</span>
+                      <span style={{ fontSize:13, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>/100</span>
+                    </div>
+                  </div>
+                  <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden", marginTop:6 }}>
+                    <div style={{ background: sb.nivelCor, height:8, width:`${sb.total}%`, borderRadius:20, transition:"width .4s" }} />
+                  </div>
+                  {Row("Perfil",    "📋", "#7c3aed", sb.perfil.valor,    sb.perfil.max)}
+                  {Row("Reputação", "⭐", "#f59e0b", sb.reputacao.valor, sb.reputacao.max)}
+                  {Row("Atividade", "⚡", "#FF6B35", sb.atividade.valor, sb.atividade.max)}
+                  {Row("Confiança", "🔒", "#16a34a", sb.confianca.valor, sb.confianca.max)}
+                  {sb.total < 100 && (
+                    <div style={{ marginTop:12, padding:"10px 12px", background:"rgba(251,191,36,.1)", border:"1px solid rgba(251,191,36,.3)", borderRadius:10 }}>
+                      <div style={{ fontSize:11, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+                        💡 <strong style={{ color:"var(--text-1,#0f172a)" }}>Como melhorar:</strong>{" "}
+                        {sb.atividade.valor < sb.atividade.max && totalConc < 5 && "Conclua mais diárias pra subir Atividade. "}
+                        {sb.reputacao.valor < 10 && avals.length < 3 && "Receba mais avaliações pra subir Reputação. "}
+                        {sb.perfil.valor < sb.perfil.max && "Complete o perfil acima pra subir Perfil. "}
+                        {sb.confianca.valor < sb.confianca.max && !profile?.documento_status && "Envie seu documento pra subir Confiança."}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Conquistas — 8 medalhas */}
+            {(() => {
+              const conquistas = calcConquistas(
+                {
+                  foto_url: profile?.foto_url, cpf: profile?.cpf, cnpj: profile?.cnpj,
+                  telefone: profile?.telefone,
+                  telefone_verificado: profile?.telefone_verificado || telefoneVerificado,
+                  bio: profile?.bio,
+                },
+                totalConc, avals.length, mediaAval,
+              );
+              const alcancadas = conquistas.filter(c => c.alcancada).length;
+              return (
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                    <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>🏅 Conquistas</div>
+                    <div style={{ fontSize:13, fontWeight:800, color:"var(--text-2,#64748b)" }}>{alcancadas}/{conquistas.length}</div>
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    {conquistas.map(c => {
+                      const ativa = c.alcancada;
+                      const pct = c.progresso ? Math.min(100, (c.progresso.atual / c.progresso.alvo) * 100) : 0;
+                      return (
+                        <div key={c.chave}
+                          style={{
+                            background: ativa ? "rgba(34,197,94,.08)" : "var(--bg-surface,#f8fafc)",
+                            border: ativa ? "1.5px solid #22c55e" : "1px solid var(--border-sub,#f1f5f9)",
+                            borderRadius:12, padding:"12px 11px",
+                            opacity: ativa ? 1 : 0.7,
+                          }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                            <span style={{ fontSize:22, filter: ativa ? "none" : "grayscale(.7)" }}>{c.icone}</span>
+                            {ativa && <span style={{ fontSize:10, fontWeight:800, color:"#16a34a", background:"#dcfce7", borderRadius:8, padding:"1px 6px" }}>✓ Conquistado</span>}
+                          </div>
+                          <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:2 }}>{c.titulo}</div>
+                          <div style={{ fontSize:11, color:"var(--text-2,#64748b)", lineHeight:1.4 }}>{c.descricao}</div>
+                          {!ativa && c.progresso && (
+                            <>
+                              <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:6, height:4, overflow:"hidden", marginTop:8 }}>
+                                <div style={{ background:"#FF6B35", height:4, width:`${pct}%`, borderRadius:6 }} />
+                              </div>
+                              <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", fontWeight:700, marginTop:4 }}>
+                                {c.progresso.atual} / {c.progresso.alvo}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Bio */}
             <div style={{ ...S.section, margin:"8px 0 0" }}>

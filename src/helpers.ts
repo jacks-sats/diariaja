@@ -29,6 +29,169 @@ export function calcScore(
   return Math.min(score, 100);
 }
 
+// ── Breakdown do Score de confiança em 4 dimensões ───────────────────────────
+// Usado pra mostrar onde o diarista precisa investir pra subir o score.
+//   Perfil:     foto + CPF + telefone + bio + endereço (até 30 pts)
+//   Reputação:  média das avaliações × volume (até 30 pts)
+//   Atividade:  diárias concluídas (até 25 pts)
+//   Confiança:  CPF/CNPJ verificado + telefone verificado + KYC (até 15 pts)
+export interface ScoreBreakdown {
+  total: number;          // 0–100 (= soma)
+  perfil:    { valor: number; max: number };
+  reputacao: { valor: number; max: number };
+  atividade: { valor: number; max: number };
+  confianca: { valor: number; max: number };
+  nivelLabel: string;     // "Crescendo" | "Visitante" | "Sólido" | "Top"
+  nivelCor: string;
+}
+
+export function calcScoreBreakdown(
+  p: { foto_url?: string; cpf?: string; cnpj?: string; telefone?: string;
+       bio?: string; endereco_empregador?: string; lat?: number | null;
+       telefone_verificado?: boolean;
+       documento_status?: "nao_enviado" | "enviado" | "aprovado" | "rejeitado"; },
+  diariasFeitas: number,
+  totalAvaliacoes: number,
+  mediaAval: number | null,
+): ScoreBreakdown {
+  // Perfil — 30 pts
+  let perfil = 0;
+  if (p.foto_url)                        perfil += 8;
+  if (p.cpf || p.cnpj)                   perfil += 6;
+  if (p.telefone)                        perfil += 4;
+  if (p.bio && p.bio.length >= 20)       perfil += 6;
+  if (p.endereco_empregador || p.lat)    perfil += 6;
+  perfil = Math.min(perfil, 30);
+
+  // Reputação — 30 pts (média × volume)
+  let reputacao = 0;
+  if (mediaAval !== null && totalAvaliacoes > 0) {
+    const fatorMedia  = Math.max(0, Math.min(1, (mediaAval - 1) / 4)); // 1.0=0, 5.0=1
+    const fatorVolume = Math.min(1, totalAvaliacoes / 10);
+    reputacao = Math.round(30 * fatorMedia * fatorVolume);
+  }
+
+  // Atividade — 25 pts (curva acelera no início, satura no fim)
+  // 1 diária = 5, 5 = 12, 15 = 20, 30 = 25
+  let atividade = 0;
+  if (diariasFeitas >= 1)  atividade += 5;
+  if (diariasFeitas >= 5)  atividade += 7;
+  if (diariasFeitas >= 15) atividade += 8;
+  if (diariasFeitas >= 30) atividade += 5;
+  atividade = Math.min(atividade, 25);
+
+  // Confiança — 15 pts
+  let confianca = 0;
+  if (p.telefone_verificado)             confianca += 5;
+  if (p.cpf || p.cnpj)                   confianca += 5;
+  if (p.documento_status === "aprovado") confianca += 5;
+  confianca = Math.min(confianca, 15);
+
+  const total = perfil + reputacao + atividade + confianca;
+
+  let nivelLabel = "Visitante";
+  let nivelCor   = "#94a3b8";
+  if (total >= 75)      { nivelLabel = "Top";       nivelCor = "#16a34a"; }
+  else if (total >= 50) { nivelLabel = "Sólido";    nivelCor = "#3A86FF"; }
+  else if (total >= 25) { nivelLabel = "Crescendo"; nivelCor = "#f59e0b"; }
+
+  return {
+    total,
+    perfil:    { valor: perfil,    max: 30 },
+    reputacao: { valor: reputacao, max: 30 },
+    atividade: { valor: atividade, max: 25 },
+    confianca: { valor: confianca, max: 15 },
+    nivelLabel, nivelCor,
+  };
+}
+
+// ── Completude do perfil (%) ─────────────────────────────────────────────────
+// Lista de campos que o user precisa preencher pra ter perfil "completo".
+// Retorna % + array de itens com label/ícone/preenchido.
+export interface CompletudeItem {
+  chave: string;
+  icone: string;
+  label: string;
+  descricao?: string;
+  preenchido: boolean;
+}
+
+export function calcCompletude(
+  p: { foto_url?: string; cpf?: string; cnpj?: string; telefone?: string;
+       telefone_verificado?: boolean; bio?: string;
+       endereco_empregador?: string; lat?: number | null;
+       pix_chave?: string; mp_user_id?: string; },
+  diariasFeitas: number,
+  mediaAval: number | null,
+): { pct: number; itens: CompletudeItem[] } {
+  const itens: CompletudeItem[] = [
+    { chave: "foto",         icone: "📷", label: "Foto de perfil",       preenchido: !!p.foto_url },
+    { chave: "cpf",          icone: "🪪", label: "CPF verificado",       preenchido: !!(p.cpf || p.cnpj) },
+    { chave: "telefone",     icone: "📱", label: "Telefone",             preenchido: !!(p.telefone_verificado || p.telefone) },
+    { chave: "bio",          icone: "📝", label: "Apresentação",
+      descricao: "Escreva pelo menos 20 caracteres sobre você e suas habilidades.",
+      preenchido: !!(p.bio && p.bio.length >= 20) },
+    { chave: "endereco",     icone: "📍", label: "Localização",
+      preenchido: !!(p.endereco_empregador || p.lat) },
+    { chave: "primeira",     icone: "✅", label: "1ª diária concluída",  preenchido: diariasFeitas >= 1 },
+    { chave: "avaliacao",    icone: "⭐", label: "Avaliação positiva",
+      descricao: "Mantenha média acima de 4.0 para ganhar mais confiança.",
+      preenchido: (mediaAval ?? 0) >= 4.0 },
+    { chave: "pagamento",    icone: "💳", label: "Recebimento via PIX",
+      descricao: "Cadastre sua chave PIX ou conecte o Mercado Pago para receber pagamentos.",
+      preenchido: !!(p.pix_chave || p.mp_user_id) },
+  ];
+  const preenchidos = itens.filter(i => i.preenchido).length;
+  const pct = Math.round((preenchidos / itens.length) * 100);
+  return { pct, itens };
+}
+
+// ── Conquistas (8 medalhas calculadas a partir do estado atual) ──────────────
+export interface Conquista {
+  chave: string;
+  icone: string;
+  titulo: string;
+  descricao: string;
+  alcancada: boolean;
+  progresso?: { atual: number; alvo: number };
+}
+
+export function calcConquistas(
+  p: { foto_url?: string; cpf?: string; cnpj?: string; telefone?: string;
+       telefone_verificado?: boolean; bio?: string; },
+  diariasFeitas: number,
+  totalAvaliacoes: number,
+  mediaAval: number | null,
+): Conquista[] {
+  const perfilCompleto =
+    !!p.foto_url && !!(p.cpf || p.cnpj) && !!p.telefone && !!(p.bio && p.bio.length >= 20);
+  return [
+    { chave: "primeira",  icone: "🚀", titulo: "Primeira Diária",  descricao: "Conclua sua primeira diária",
+      alcancada: diariasFeitas >= 1,
+      progresso: diariasFeitas < 1 ? { atual: diariasFeitas, alvo: 1 } : undefined },
+    { chave: "cinco",     icone: "✋", titulo: "Nas 5!",            descricao: "Conclua 5 diárias",
+      alcancada: diariasFeitas >= 5,
+      progresso: diariasFeitas < 5 ? { atual: diariasFeitas, alvo: 5 } : undefined },
+    { chave: "confiavel", icone: "🥈", titulo: "Confiável",         descricao: "Conclua 15 diárias",
+      alcancada: diariasFeitas >= 15,
+      progresso: diariasFeitas < 15 ? { atual: diariasFeitas, alvo: 15 } : undefined },
+    { chave: "elite",     icone: "💎", titulo: "Elite",             descricao: "Conclua 30 diárias",
+      alcancada: diariasFeitas >= 30,
+      progresso: diariasFeitas < 30 ? { atual: diariasFeitas, alvo: 30 } : undefined },
+    { chave: "lenda",     icone: "🌟", titulo: "Lenda",             descricao: "Conclua 50 diárias",
+      alcancada: diariasFeitas >= 50,
+      progresso: diariasFeitas < 50 ? { atual: diariasFeitas, alvo: 50 } : undefined },
+    { chave: "perfil",    icone: "⭐", titulo: "Perfil Completo",   descricao: "Preencha foto, CPF, telefone e bio",
+      alcancada: perfilCompleto },
+    { chave: "bemaval",   icone: "🏆", titulo: "Bem Avaliado",      descricao: "Alcance média de avaliações ≥ 4.5",
+      alcancada: (mediaAval ?? 0) >= 4.5 && totalAvaliacoes >= 3,
+      progresso: (mediaAval ?? 0) < 4.5 || totalAvaliacoes < 3 ? { atual: totalAvaliacoes, alvo: 3 } : undefined },
+    { chave: "reconhec",  icone: "👑", titulo: "Reconhecido",       descricao: "Receba 10 avaliações",
+      alcancada: totalAvaliacoes >= 10,
+      progresso: totalAvaliacoes < 10 ? { atual: totalAvaliacoes, alvo: 10 } : undefined },
+  ];
+}
+
 // ── Validação de nome real (anti-fake) ───────────────────────────────────────
 export function validarNome(nome: string): string | null {
   const t = nome.trim();
