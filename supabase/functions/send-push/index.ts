@@ -38,6 +38,15 @@ async function filtrarDestinatariosAutorizados(
   callerId: string,
   userIds: string[],
 ): Promise<string[]> {
+  // Admin libera qualquer destinatário — usado pra responder tickets de
+  // suporte, avisos da plataforma, etc.
+  const { data: callerProfile } = await supabaseAdmin
+    .from("user_profiles")
+    .select("is_admin")
+    .eq("id", callerId)
+    .single();
+  if (callerProfile?.is_admin === true) return userIds;
+
   const alvos = new Set(userIds.filter(id => id && id !== callerId));
   if (alvos.size === 0) {
     // Caller só quer notificar a si mesmo — sempre permitido
