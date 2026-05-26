@@ -1,6 +1,24 @@
 // ── Funções utilitárias do Trampojá ─────────────────────────────────────────
 // Extraídas do App.tsx para separação de concerns.
 
+// ── Código de presença (fallback do QR Code) ─────────────────────────────────
+// Deriva 4 dígitos determinísticos do UUID da diária pra usar como fallback
+// quando a câmera do empregador não funciona. O diarista lê o código em voz
+// alta e o empregador digita no app — o app compara contra suas próprias
+// diárias em estado "aceita" (RLS já filtra), então não é um identificador
+// público nem precisa ser secreto: é só uma forma compacta de referenciar
+// a diária que o diarista tem na mão.
+export function codigoPresenca(diariaId: string): string {
+  // Hash simples (djb2 truncado em 14 bits → 0–9999) — determinístico,
+  // sem dependências, e o suficiente pra mapear 1-para-1 dentro do escopo
+  // das diárias abertas de UM empregador (tipicamente <10 simultâneas).
+  let h = 5381;
+  for (let i = 0; i < diariaId.length; i++) {
+    h = ((h << 5) + h + diariaId.charCodeAt(i)) >>> 0;
+  }
+  return String(h % 10000).padStart(4, "0");
+}
+
 // ── Gamificação: nível do diarista ───────────────────────────────────────────
 export function nivelDiarista(diariasFeitas: number): {
   nome: string; cor: string; icone: string; proximo: number; atual: number;
