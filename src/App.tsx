@@ -401,6 +401,8 @@ export default function App() {
   const [senhaCadastro, setSenhaCadastro] = useState("");
   const [senhaCadastroConfirm, setSenhaCadastroConfirm] = useState("");
   const [mostrarSenhaCad, setMostrarSenhaCad] = useState(false);
+  // Seção colapsável "Alterar senha" dentro de editar-perfil
+  const [alterarSenhaAberto, setAlterarSenhaAberto] = useState(false);
   const [confirmDeleteConta, setConfirmDeleteConta] = useState(false);
   const [deletandoConta, setDeletandoConta] = useState(false);
   const [telefoneVerificado, setTelefoneVerificado] = useState<boolean>(() => {
@@ -3774,8 +3776,18 @@ export default function App() {
         <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
           {emRecovery
             ? "Você chegou aqui pelo link de recuperação. Defina uma nova senha para entrar no app."
-            : "Digite sua nova senha. Ela deve ter pelo menos 6 caracteres."}
+            : "Por segurança, confirme sua senha atual antes de cadastrar a nova."}
         </p>
+
+        {/* Senha atual — só para alteração normal, não para recovery (esqueceu a senha) */}
+        {!emRecovery && (
+          <>
+            <label style={S.label}>Senha atual</label>
+            <input style={S.input} type="password" placeholder="Sua senha atual" value={senhaAtual}
+              autoComplete="current-password"
+              onChange={e => setSenhaAtual(e.target.value)} />
+          </>
+        )}
 
         <label style={S.label}>Nova senha</label>
         <input style={S.input} type="password" placeholder="Nova senha (mín. 6 caracteres)" value={novaSenha}
@@ -3793,16 +3805,33 @@ export default function App() {
           disabled={alterandoSenha}
           onClick={async () => {
             setAuthError("");
-            if (novaSenha.length < 6) { setAuthError("A senha deve ter pelo menos 6 caracteres."); return; }
+            if (!emRecovery && !senhaAtual) { setAuthError("Informe sua senha atual."); return; }
+            if (novaSenha.length < 6) { setAuthError("A nova senha deve ter pelo menos 6 caracteres."); return; }
             if (novaSenha !== confirmSenha) { setAuthError("As senhas não coincidem."); return; }
+            if (!emRecovery && senhaAtual === novaSenha) { setAuthError("A nova senha deve ser diferente da atual."); return; }
             setAlterandoSenha(true);
+            // Fora do recovery: valida a senha atual fazendo signIn antes de atualizar
+            if (!emRecovery) {
+              const email = session?.user?.email;
+              if (!email) {
+                setAlterandoSenha(false);
+                setAuthError("Não foi possível identificar seu e-mail para validação.");
+                return;
+              }
+              const { error: errSignIn } = await supabase.auth.signInWithPassword({ email, password: senhaAtual });
+              if (errSignIn) {
+                setAlterandoSenha(false);
+                setAuthError("Senha atual incorreta. Tente novamente.");
+                return;
+              }
+            }
             const { error } = await supabase.auth.updateUser({ password: novaSenha });
             setAlterandoSenha(false);
             if (error) { setAuthError("Erro ao alterar senha: " + error.message); return; }
             setToastSuccess(emRecovery
               ? "✅ Senha redefinida! Você está conectado."
               : "✅ Senha alterada com sucesso!");
-            setNovaSenha(""); setConfirmSenha("");
+            setSenhaAtual(""); setNovaSenha(""); setConfirmSenha("");
             if (emRecovery) {
               // Sai do modo recovery e roteia para onde o usuário deveria estar
               senhaRecoveryRef.current = false;
@@ -3827,7 +3856,7 @@ export default function App() {
               senhaRecoveryRef.current = false;
               setSenhaRecovery(false);
               await supabase.auth.signOut();
-              setNovaSenha(""); setConfirmSenha(""); setAuthError("");
+              setSenhaAtual(""); setNovaSenha(""); setConfirmSenha(""); setAuthError("");
               setTela("login");
             }}>
             Cancelar
@@ -9450,14 +9479,65 @@ export default function App() {
         )}
       </div>
 
-      {/* ── Segurança / senha ── */}
+      {/* ── Segurança / Alterar senha (inline, expansível) ── */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", margin:"20px 0 8px", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🔑 Segurança</div>
-      <button
-        style={{ width:"100%", padding:"13px 16px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontWeight:700, color:"var(--text-1,#0f172a)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}
-        onClick={() => { setAuthError(""); setNovaSenha(""); setConfirmSenha(""); setTela("alterar-senha"); }}>
-        <span>🔑 Alterar senha de acesso</span>
-        <span style={{ color:"#FF6B35", fontWeight:800 }}>›</span>
-      </button>
+      <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, marginBottom:8, overflow:"hidden" }}>
+        <button
+          style={{ width:"100%", padding:"13px 16px", background:"transparent", border:"none", fontSize:14, fontWeight:700, color:"var(--text-1,#0f172a)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"space-between" }}
+          onClick={() => {
+            setAlterarSenhaAberto(p => !p);
+            setAuthError(""); setSenhaAtual(""); setNovaSenha(""); setConfirmSenha("");
+          }}>
+          <span>🔑 Alterar senha de acesso</span>
+          <span style={{ color:"#FF6B35", fontWeight:800 }}>{alterarSenhaAberto ? "−" : "›"}</span>
+        </button>
+        {alterarSenhaAberto && (
+          <div style={{ padding:"4px 14px 14px", borderTop:"1px solid var(--border,#e2e8f0)" }}>
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:12, marginTop:10, marginBottom:10, lineHeight:1.5 }}>
+              Por segurança, confirme sua senha atual antes de definir a nova.
+            </p>
+            <label style={S.label}>Senha atual</label>
+            <input style={S.input} type="password" placeholder="Sua senha atual"
+              autoComplete="current-password" value={senhaAtual}
+              onChange={e => setSenhaAtual(e.target.value)} />
+            <label style={S.label}>Nova senha</label>
+            <input style={S.input} type="password" placeholder="Mínimo 6 caracteres"
+              autoComplete="new-password" value={novaSenha}
+              onChange={e => setNovaSenha(e.target.value)} />
+            <label style={S.label}>Confirmar nova senha</label>
+            <input style={S.input} type="password" placeholder="Repita a nova senha"
+              autoComplete="new-password" value={confirmSenha}
+              onChange={e => setConfirmSenha(e.target.value)} />
+            <button
+              style={{ ...S.btnPrimary, marginTop:4, opacity: alterandoSenha ? 0.6 : 1 }}
+              disabled={alterandoSenha}
+              onClick={async () => {
+                setAuthError("");
+                if (!senhaAtual) { setAuthError("Informe sua senha atual."); return; }
+                if (novaSenha.length < 6) { setAuthError("A nova senha deve ter pelo menos 6 caracteres."); return; }
+                if (novaSenha !== confirmSenha) { setAuthError("As senhas não coincidem."); return; }
+                if (senhaAtual === novaSenha) { setAuthError("A nova senha deve ser diferente da atual."); return; }
+                const email = session?.user?.email;
+                if (!email) { setAuthError("Não foi possível identificar seu e-mail para validação."); return; }
+                setAlterandoSenha(true);
+                const { error: errSignIn } = await supabase.auth.signInWithPassword({ email, password: senhaAtual });
+                if (errSignIn) {
+                  setAlterandoSenha(false);
+                  setAuthError("Senha atual incorreta. Tente novamente.");
+                  return;
+                }
+                const { error } = await supabase.auth.updateUser({ password: novaSenha });
+                setAlterandoSenha(false);
+                if (error) { setAuthError("Erro ao alterar senha: " + error.message); return; }
+                setSenhaAtual(""); setNovaSenha(""); setConfirmSenha("");
+                setAlterarSenhaAberto(false);
+                setToastSuccess("✅ Senha alterada com sucesso!");
+              }}>
+              {alterandoSenha ? "Salvando..." : "Salvar nova senha"}
+            </button>
+          </div>
+        )}
+      </div>
 
       {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
       <button style={{ ...S.btnPrimary, marginTop:16, opacity: salvandoPerfil ? 0.6 : 1 }} onClick={async () => {
@@ -10743,14 +10823,65 @@ export default function App() {
         <p style={{ color:"#16a34a", fontSize:12, marginTop:4 }}>✅ Localização já salva no perfil</p>
       ) : null}
 
-      {/* ── Segurança / senha ── */}
+      {/* ── Segurança / Alterar senha (inline, expansível) ── */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", margin:"20px 0 8px", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🔑 Segurança</div>
-      <button
-        style={{ width:"100%", padding:"13px 16px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontWeight:700, color:"var(--text-1,#0f172a)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}
-        onClick={() => { setAuthError(""); setNovaSenha(""); setConfirmSenha(""); setTela("alterar-senha"); }}>
-        <span>🔑 Alterar senha de acesso</span>
-        <span style={{ color:"#3A86FF", fontWeight:800 }}>›</span>
-      </button>
+      <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, marginBottom:8, overflow:"hidden" }}>
+        <button
+          style={{ width:"100%", padding:"13px 16px", background:"transparent", border:"none", fontSize:14, fontWeight:700, color:"var(--text-1,#0f172a)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"space-between" }}
+          onClick={() => {
+            setAlterarSenhaAberto(p => !p);
+            setAuthError(""); setSenhaAtual(""); setNovaSenha(""); setConfirmSenha("");
+          }}>
+          <span>🔑 Alterar senha de acesso</span>
+          <span style={{ color:"#3A86FF", fontWeight:800 }}>{alterarSenhaAberto ? "−" : "›"}</span>
+        </button>
+        {alterarSenhaAberto && (
+          <div style={{ padding:"4px 14px 14px", borderTop:"1px solid var(--border,#e2e8f0)" }}>
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:12, marginTop:10, marginBottom:10, lineHeight:1.5 }}>
+              Por segurança, confirme sua senha atual antes de definir a nova.
+            </p>
+            <label style={S.label}>Senha atual</label>
+            <input style={S.input} type="password" placeholder="Sua senha atual"
+              autoComplete="current-password" value={senhaAtual}
+              onChange={e => setSenhaAtual(e.target.value)} />
+            <label style={S.label}>Nova senha</label>
+            <input style={S.input} type="password" placeholder="Mínimo 6 caracteres"
+              autoComplete="new-password" value={novaSenha}
+              onChange={e => setNovaSenha(e.target.value)} />
+            <label style={S.label}>Confirmar nova senha</label>
+            <input style={S.input} type="password" placeholder="Repita a nova senha"
+              autoComplete="new-password" value={confirmSenha}
+              onChange={e => setConfirmSenha(e.target.value)} />
+            <button
+              style={{ ...S.btnPrimary, marginTop:4, opacity: alterandoSenha ? 0.6 : 1 }}
+              disabled={alterandoSenha}
+              onClick={async () => {
+                setAuthError("");
+                if (!senhaAtual) { setAuthError("Informe sua senha atual."); return; }
+                if (novaSenha.length < 6) { setAuthError("A nova senha deve ter pelo menos 6 caracteres."); return; }
+                if (novaSenha !== confirmSenha) { setAuthError("As senhas não coincidem."); return; }
+                if (senhaAtual === novaSenha) { setAuthError("A nova senha deve ser diferente da atual."); return; }
+                const email = session?.user?.email;
+                if (!email) { setAuthError("Não foi possível identificar seu e-mail para validação."); return; }
+                setAlterandoSenha(true);
+                const { error: errSignIn } = await supabase.auth.signInWithPassword({ email, password: senhaAtual });
+                if (errSignIn) {
+                  setAlterandoSenha(false);
+                  setAuthError("Senha atual incorreta. Tente novamente.");
+                  return;
+                }
+                const { error } = await supabase.auth.updateUser({ password: novaSenha });
+                setAlterandoSenha(false);
+                if (error) { setAuthError("Erro ao alterar senha: " + error.message); return; }
+                setSenhaAtual(""); setNovaSenha(""); setConfirmSenha("");
+                setAlterarSenhaAberto(false);
+                setToastSuccess("✅ Senha alterada com sucesso!");
+              }}>
+              {alterandoSenha ? "Salvando..." : "Salvar nova senha"}
+            </button>
+          </div>
+        )}
+      </div>
 
       {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
       <button style={{ ...S.btnPrimary, marginTop:16, opacity: salvandoPerfil ? 0.6 : 1 }} onClick={async () => {
