@@ -121,7 +121,6 @@ function QRScannerComponent({ onResult, onError, onClose }: {
       }
     })();
     return () => { html5QrCode?.stop().catch(() => {}); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return <div id="qr-reader" style={{ width:"100%", borderRadius:12, overflow:"hidden" }} />;
 }
@@ -130,13 +129,9 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  // ── Controle de aceite dos Termos de Uso ──────────────────────────────
+  // ── Termos de Uso: consentimento ocorre no momento do cadastro ────────
   const TERMOS_VERSAO = "v1"; // incrementar aqui força re-aceite em nova versão
-  const [termosAceitos, setTermosAceitos] = useState<boolean>(() => {
-    try { return localStorage.getItem("diariaja_termos_" + TERMOS_VERSAO) === "1"; } catch { return false; }
-  });
   const [mostrarTermos, setMostrarTermos] = useState(false);       // modal de termos (usado no cadastro)
-  // Gate de aceite removido: consentimento agora ocorre no momento do cadastro (melhoria UX/conversão)
   const [checkTermos, setCheckTermos] = useState(false);           // checkbox no cadastro
   // ─────────────────────────────────────────────────────────────────────
   const [tela, setTela]                   = useState<string>(() => {
@@ -171,8 +166,6 @@ export default function App() {
   const [vagaConfirmada, setVagaConfirmada]       = useState(false);
   const [diaristasReais, setDiaristasReais]       = useState<UserProfile[]>([]);
   const [diaristaSelecionadaReal, setDiaristaSelecionadaReal] = useState<UserProfile | null>(null);
-  const [modalContratoReal, setModalContratoReal] = useState(false);
-  const [contratadoReal, setContratadoReal]       = useState(false);
   const [convitesRecebidos, setConvitesRecebidos] = useState<Convite[]>([]);
   const [convitesEnviados, setConvitesEnviados]   = useState<Convite[]>([]);
   const [modalConvite, setModalConvite]           = useState(false);
@@ -190,7 +183,6 @@ export default function App() {
   const [enviandoTopico, setEnviandoTopico]       = useState(false);
   const [enviandoComentario, setEnviandoComentario] = useState(false);
   const diaristasReaisRef = useRef<UserProfile[]>([]);
-  const [tab, setTab]                     = useState("lista");
   const [tabDiarista, setTabDiarista]     = useState("inicio");
   const [tabEmpregador, setTabEmpregador] = useState("inicio");
   const [authError, setAuthError]         = useState("");
@@ -199,7 +191,6 @@ export default function App() {
   const [qrDiaria, setQrDiaria]           = useState<Diaria | null>(null);
   const [scannerAberto, setScannerAberto] = useState(false);
   const [scanMsg, setScanMsg]             = useState<{ok:boolean,txt:string}|null>(null);
-  const scannerRef = useRef<any>(null);
   // Avaliação mútua
   const [modalAvalEmp, setModalAvalEmp]           = useState<Diaria | null>(null);  // diarista avalia empregador
   const [modalAvalDiaristaReal, setModalAvalDiaristaReal] = useState<Diaria | null>(null); // empregador avalia diarista
@@ -305,7 +296,6 @@ export default function App() {
   const [mpOAuthStatus, setMpOAuthStatus] = useState<"idle"|"conectando"|"conectado"|"erro">("idle");
   const [assinatura, setAssinatura] = useState<Assinatura | null>(null);
   const [criandoAssinatura, setCriandoAssinatura] = useState(false);
-  const [modalLimiteVagas, setModalLimiteVagas] = useState(false);
   const [modalLimiteContato, setModalLimiteContato] = useState(false);
   const [desbloqueandoContato, setDesbloqueandoContato] = useState(false);
   // Contatos desbloqueados via R$ 1 neste mês (persiste em localStorage)
@@ -550,7 +540,7 @@ export default function App() {
   const handleDiaristaClick = useCallback((id: number) => {
     const realIdx = (-id) - 1;
     const d = diaristasReaisRef.current[realIdx];
-    if (d) { setDiaristaSelecionadaReal(d); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
+    if (d) { setDiaristaSelecionadaReal(d); setTela("perfil-diarista-real"); }
   }, []);
 
   // Redireciona para escolha-negocio SOMENTE se nem o estado nem o perfil têm segmento
@@ -1747,7 +1737,6 @@ export default function App() {
       try {
         localStorage.setItem("diariaja_termos_" + TERMOS_VERSAO, "1");
         localStorage.setItem("diariaja_termos_data", new Date().toISOString());
-        setTermosAceitos(true);
       } catch { /* ignore */ }
     }
     setAuthLoading(false);
@@ -2106,13 +2095,11 @@ export default function App() {
     });
     setEnviandoConvite(false);
     if (error) {
-      console.error("Erro convite:", error);
       setToastError(`Erro ao enviar convite: ${error.message}`);
       return;
     }
     setModalConvite(false);
     setFormConvite({ cep: "", rua: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "", endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "" });
-    setContratadoReal(false);
     // Recarrega convites enviados e vai direto para aba Diárias
     if (session?.user) carregarConvites(session.user.id, "empregador");
     setTabEmpregador("diarias");
@@ -2782,17 +2769,6 @@ export default function App() {
     } catch { /* silencioso — o registro no banco já saiu */ }
   };
 
-  const aceitarVaga = async (diaria: Diaria) => {
-    if (!session?.user) return;
-    const { error } = await supabase
-      .from("diarias")
-      .update({ status: "aceita", diarista_aceite_id: session.user.id })
-      .eq("id", diaria.id);
-    if (error) { setAuthError("Erro ao aceitar: " + error.message); return; }
-    setVagaConfirmada(true);
-    setVagasReais(prev => prev.filter(v => v.id !== diaria.id));
-  };
-
   // Publica uma nova diária
   // Inicia assinatura de plano via Mercado Pago Preapproval
   const iniciarAssinatura = async (planoId: string) => {
@@ -3094,21 +3070,6 @@ export default function App() {
     setBuscandoCEPConvite(false);
   };
 
-  // ── SUPORTE FAQ (chatbot automático) ─────────────────────────────────────
-  const SUPORTE_FAQ = [
-    { keys: ["cancelar","cancel"], resp: "Para cancelar uma diária, abra a diária na aba 'Diárias' e toque em '✕ Cancelar'. Informe um motivo — o diarista/contratante será notificado automaticamente. ⚠️ Cancelamentos frequentes afetam sua reputação." },
-    { keys: ["pagar","pagamento","pix","dinheiro"], resp: "O pagamento é combinado entre contratante e profissional, diretamente via PIX. Não há intermediação financeira. Após a conclusão, acesse a diária e toque em '🏦 PIX' para ver a chave do profissional ou em '🧾 Recibo' para gerar o comprovante." },
-    { keys: ["avalia","nota","star","estrela"], resp: "Após a conclusão da diária, ambos podem se avaliar. A avaliação aparece no perfil e ajuda a construir reputação. Seja justo! ⭐" },
-    { keys: ["conta","perfil","editar","foto"], resp: "Para editar seu perfil, vá na aba 'Perfil' e toque em '✏️ Editar'. Você pode atualizar foto, bio, função e muito mais." },
-    { keys: ["convite","convidar"], resp: "Empregadores podem enviar convites diretos a diaristas específicos. Acesse o perfil do diarista e toque em '📨 Convidar para diária'." },
-    { keys: ["qr","qrcode","check","chegada"], resp: "O check-in é feito via QR Code. O diarista mostra o QR Code no app e o empregador escaneia. Isso confirma a chegada e inicia a diária oficialmente." },
-    { keys: ["senha","esqueci","login","entrar"], resp: "Para redefinir sua senha, toque em 'Esqueci minha senha' na tela de login. Um link será enviado para seu e-mail." },
-    { keys: ["problema","erro","bug","não funciona","ajuda"], resp: "Sinto muito pelo transtorno! 🙏 Entre em contato pelo e-mail suporte@diariaja.com.br ou pelo WhatsApp. Respondemos em até 24h." },
-    { keys: ["taxa","cobrança","custo","gratuito"], resp: "O DiáriaJá cobra uma taxa de 1,5% sobre o valor da diária para empregadores. Diaristas não pagam taxa. 💚" },
-    { keys: ["nota fiscal","recibo","comprovante"], resp: "Após conclusão da diária, o comprovante fica disponível na aba 'Diárias'. Toque em '🧾 Recibo' para visualizar e compartilhar." },
-    { keys: ["seguro","garantia","confiavel","verificado"], resp: "Todos os diaristas com badge '✅ Verificado' tiveram o CPF confirmado. Recomendamos verificar avaliações e histórico antes de contratar. 🛡️" },
-  ];
-
   const responderSuporte = async (msg: string) => {
     // Adiciona mensagem do usuário ao histórico da API
     historicoSuporteRef.current = [
@@ -3204,51 +3165,6 @@ export default function App() {
       </div>
     </div>
   );
-
-  // ── MODAL DE TERMOS COMPLETO (acessível de qualquer tela) ───────────
-  // (gate removido: landing é mostrada primeiro, consent ocorre no cadastro)
-  {mostrarTermos && (
-        <div style={{ position:"fixed", inset:0, background:"#fff", zIndex:999, overflowY:"auto", fontFamily:"Inter, system-ui, sans-serif" }}>
-          <div style={{ position:"sticky", top:0, background:"#fff", borderBottom:"1px solid #e2e8f0", padding:"16px 20px", display:"flex", alignItems:"center", gap:12, zIndex:1 }}>
-            <button style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
-            <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
-          </div>
-          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
-            {[
-              { titulo:"1. Apresentação", body:`O DiáriaJá é uma plataforma digital (PWA) que conecta trabalhadores autônomos (diaristas) a empregadores — pessoas físicas e estabelecimentos comerciais — para contratação de serviços pontuais nas categorias: Doméstico, Supermercado, Restaurante, Construção, Eventos, Saúde & Cuidado, Logística e Pet & Animais.\n\nAo acessar, cadastrar-se ou utilizar o DiáriaJá, você declara que leu, compreendeu e aceitou integralmente este Termo. Caso não concorde, interrompa o uso imediatamente.\n\nEste Termo observa: LGPD (Lei nº 13.709/2018), Marco Civil da Internet (Lei nº 12.965/2014), CDC (Lei nº 8.078/1990) e LC nº 150/2015.` },
-              { titulo:"2. Natureza da Plataforma", body:`O DiáriaJá é um ambiente digital de intermediação. Não prestamos serviços diretamente, não somos empregador das diaristas e não garantimos qualidade, presença ou pagamento externo.\n\nA relação entre diarista e empregador, após o aceite, é de responsabilidade exclusiva das partes. A prestação por mais de dois dias por semana, com pessoalidade e continuidade, pode configurar vínculo doméstico (LC nº 150/2015) — cabendo às partes avaliar suas obrigações legais.` },
-              { titulo:"3. Cadastro e Conta", body:`O cadastro exige dados verdadeiros, atualizados e completos. O DiáriaJá adota modelo dual: o mesmo usuário pode alternar entre modo diarista e empregador.\n\nÉ proibido: criar perfis falsos, usar CPF de terceiros, simular avaliações, duplicar contas abusivamente. O usuário responde por toda atividade realizada em sua conta.\n\nO usuário declara ser maior de 18 anos e plenamente capaz para praticar atos da vida civil.` },
-              { titulo:"4. Perfil do Diarista", body:`O perfil pode conter: nome, foto, cidade, localização aproximada, habilidades, categorias, disponibilidade, histórico de diárias e avaliações. O CPF é coletado para verificação interna e nunca exibido publicamente.\n\nO DiáriaJá exibe um badge "✅ Verificado" para diaristas com CPF ou CNPJ cadastrado — indicador de identidade verificada, sem garantia de idoneidade absoluta.\n\nO diarista pode publicar portfólio com até 3 fotos de trabalhos anteriores.` },
-              { titulo:"5. Perfil do Empregador", body:`O perfil pode conter: nome, foto, tipo de negócio, segmento, endereço do serviço, histórico e avaliações recebidas. O empregador compromete-se a publicar apenas oportunidades reais, lícitas e compatíveis com a plataforma.\n\nÉ proibido solicitar atividades ilegais, perigosas, humilhantes ou incompatíveis com o escopo informado.` },
-              { titulo:"6. Publicação de Diárias", body:`O empregador publica uma diária informando: data, categoria, função, valor, horário, local (CEP + mapa) e observações. O empregador pode criar diárias recorrentes (semanais ou quinzenais).\n\nA publicação não garante candidatos disponíveis. O empregador pode cancelar uma diária, informando motivo — os candidatos serão notificados automaticamente.` },
-              { titulo:"7. Candidaturas, Convites e Aceite", body:`O diarista pode se candidatar a vagas compatíveis com seu perfil. Ao se candidatar, declara intenção real de realizar o serviço.\n\nO empregador também pode enviar convites diretos a diaristas. O diarista pode aceitar ou recusar.\n\nApós o aceite, as demais candidaturas são recusadas automaticamente. O diarista confirma presença via QR Code gerado no app — esse evento marca o início da diária.` },
-              { titulo:"8. Comunicação e Chat", body:`O chat é exclusivo para fins relacionados à diária. É proibido usar o canal para assédio, ameaças, spam, discriminação, pedido de dados excessivos, conteúdo ilegal ou manipulação de avaliações.\n\nO DiáriaJá armazena mensagens para fins de segurança e resolução de conflitos, conforme a LGPD.` },
-              { titulo:"9. Pagamentos e Taxa de Plataforma", body:`O DiáriaJá facilita o pagamento via chave PIX exibida no app. A taxa de plataforma é de 1,5% sobre o valor da diária, devida pelo empregador. Esse valor deve ser enviado separadamente via PIX para suporte@diariaja.com.br.\n\nO DiáriaJá não processa pagamentos diretamente. Não nos responsabilizamos por atrasos, inadimplementos ou acordos realizados fora da plataforma.\n\nO sistema de planos (Grátis, Pro, Premium) oferece funcionalidades diferenciadas para empregadores.` },
-              { titulo:"10. Cancelamentos e Conclusão", body:`Empregador pode cancelar diárias abertas ou em andamento, informando motivo. Diarista pode cancelar diária aceita, informando motivo — a vaga volta a "aberta".\n\nDiárias são concluídas após QR Code de check-in + confirmação de encerramento. Após a conclusão, ambas as partes podem avaliar a experiência.\n\nO DiáriaJá registra todos os eventos (candidatura, aceite, cancelamento, conclusão) para fins de reputação e segurança.` },
-              { titulo:"11. Avaliações e Reputação", body:`Empregadores e diaristas podem avaliar uns aos outros após a conclusão da diária. As avaliações devem refletir experiências reais, de forma honesta e respeitosa.\n\nÉ proibido publicar avaliações falsas, ofensivas, compradas ou manipuladas. O DiáriaJá pode remover avaliações que violem este Termo.\n\nO histórico de avaliações é público e compõe a reputação do usuário na plataforma.` },
-              { titulo:"12. Geolocalização", body:`O DiáriaJá usa geolocalização (GPS do dispositivo ou CEP informado) para calcular distância entre diaristas e vagas. O usuário pode revogar a permissão nas configurações — isso limita funcionalidades de proximidade.\n\nÉ proibido usar informações de localização para perseguição, assédio ou qualquer finalidade fora da contratação legítima de diárias.` },
-              { titulo:"13. Dados Pessoais e Privacidade (LGPD)", body:`Tratamos os seguintes dados: nome, e-mail, foto, CPF/CNPJ (privado), geolocalização, endereço do serviço, histórico de diárias, candidaturas, mensagens e registros técnicos.\n\nFinalidades: cadastro, autenticação, segurança, cálculo de distância, exibição de perfis, comunicação, melhoria do produto e cumprimento legal.\n\nO CPF nunca é exibido publicamente — apenas o badge "Verificado" é visível.\n\nVocê pode solicitar acesso, correção, exclusão ou portabilidade dos seus dados pelo e-mail suporte@diariaja.com.br. Para encerrar sua conta, entre em contato pelo mesmo canal.` },
-              { titulo:"14. Condutas Proibidas", body:`São proibidas: fraude ou falsidade de dados; discriminação por raça, sexo, religião, origem ou condição social; assédio e violência; atividades ilícitas; spam, engenharia reversa, raspagem de dados; conteúdo ofensivo, pornográfico ou difamatório.\n\nO descumprimento pode resultar em suspensão ou exclusão definitiva da conta, além de comunicação às autoridades competentes.` },
-              { titulo:"15. Limitação de Responsabilidade", body:`O DiáriaJá não se responsabiliza por: informações falsas de usuários, descumprimento de acordos entre partes, inadimplemento de pagamento, qualidade do serviço, furtos, acidentes, conflitos pessoais, falhas de conexão ou serviços externos.\n\nEssa limitação não exclui responsabilidades previstas em lei, especialmente no CDC.` },
-              { titulo:"16. Alterações do Termo", body:`O DiáriaJá pode atualizar este Termo. Alterações relevantes serão comunicadas via notificação no app. O uso continuado após a publicação da nova versão indica aceitação. Versões novas requerem novo aceite explícito.` },
-              { titulo:"17. Informações da Operadora", body:`Aplicativo: DiáriaJá\nVersão: Beta 1.0\nData: 21 de maio de 2026\nE-mail de suporte: suporte@diariaja.com.br\nURL: diariaja.vercel.app\n\nRazão social, CNPJ e foro serão informados quando da formalização empresarial. O foro aplicável é o do domicílio do consumidor, em caso de relação de consumo, conforme o CDC.` },
-            ].map(({ titulo, body }) => (
-              <div key={titulo} style={{ marginBottom:24 }}>
-                <div style={{ fontWeight:900, fontSize:15, color:"#0f172a", marginBottom:8, paddingBottom:6, borderBottom:"2px solid #FF6B35" }}>{titulo}</div>
-                {body.split("\n\n").map((p, i) => (
-                  <p key={i} style={{ fontSize:13, color:"#475569", lineHeight:1.7, marginBottom:10 }}>{p}</p>
-                ))}
-              </div>
-            ))}
-            <button
-              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:8 }}
-              onClick={() => { setMostrarTermos(false); setCheckTermos(true); }}>
-              ✅ Entendido — Aceitar os Termos
-            </button>
-          </div>
-        </div>
-  )}
-  // ────────────────────────────────────────────────────────────────────────
 
   // SPLASH
   if (tela === "splash") return (
@@ -5180,7 +5096,7 @@ export default function App() {
                           const ini = d.nome.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
                           return (
                             <div key={d.id} style={{ flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer" }}
-                              onClick={() => { setDiaristaSelecionadaReal(d); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }}>
+                              onClick={() => { setDiaristaSelecionadaReal(d); setTela("perfil-diarista-real"); }}>
                               {d.foto_url
                                 ? <img src={d.foto_url} style={{ width:52, height:52, borderRadius:26, objectFit:"cover", border:`2px solid ${negocio.cor}` }} alt="" />
                                 : <div style={{ width:52, height:52, borderRadius:26, background:negocio.cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, border:`2px solid ${negocio.cor}` }}>{ini}</div>
@@ -5223,7 +5139,7 @@ export default function App() {
                     return (
                       <div key={d.id}
                         style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer" }}
-                        onClick={() => { setDiaristaSelecionadaReal(d); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }}>
+                        onClick={() => { setDiaristaSelecionadaReal(d); setTela("perfil-diarista-real"); }}>
 
                         <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
                           {/* Avatar */}
@@ -5271,7 +5187,7 @@ export default function App() {
                               </div>
                               <button
                                 style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"9px 18px", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 10px ${negocio.cor}44` }}
-                                onClick={e => { e.stopPropagation(); setDiaristaSelecionadaReal(d); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }}>
+                                onClick={e => { e.stopPropagation(); setDiaristaSelecionadaReal(d); setTela("perfil-diarista-real"); }}>
                                 Ver perfil
                               </button>
                             </div>
@@ -5342,7 +5258,7 @@ export default function App() {
                                 style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                                 onClick={async () => {
                                   const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
-                                  if (dp) { setDiaristaSelecionadaReal(dp); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
+                                  if (dp) { setDiaristaSelecionadaReal(dp); setTela("perfil-diarista-real"); }
                                 }}>
                                 📱 Ver contato de {c.diarista_nome?.split(" ")[0]}
                               </button>
@@ -5357,7 +5273,7 @@ export default function App() {
                               style={{ width:"100%", padding:"9px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                               onClick={async () => {
                                 const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
-                                if (dp) { setDiaristaSelecionadaReal(dp); setModalContratoReal(false); setContratadoReal(false); setTela("perfil-diarista-real"); }
+                                if (dp) { setDiaristaSelecionadaReal(dp); setTela("perfil-diarista-real"); }
                               }}>
                               👤 Ver perfil completo
                             </button>
@@ -6478,32 +6394,6 @@ export default function App() {
           );
         })()}
 
-        {/* ── Modal: Limite de vagas atingido ── */}
-        {modalLimiteVagas && (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:28, padding:"32px 24px", maxWidth:360, width:"100%", textAlign:"center" }}>
-              <div style={{ fontSize:52, marginBottom:12 }}>🚀</div>
-              <div style={{ fontWeight:900, fontSize:20, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Limite do plano Grátis</div>
-              <div style={{ fontSize:14, color:"var(--text-2,#64748b)", lineHeight:1.7, marginBottom:24 }}>
-                Você usou as <strong>3 vagas gratuitas</strong> deste mês.<br />
-                Faça upgrade para publicar vagas ilimitadas.
-              </div>
-              <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
-                <button
-                  style={{ padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
-                  onClick={() => { setModalLimiteVagas(false); setTela("planos"); }}>
-                  Ver planos →
-                </button>
-                <button
-                  style={{ padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                  onClick={() => setModalLimiteVagas(false)}>
-                  Agora não
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* ── Modal: Limite de contatos atingido (R$ 1/contato adicional) ── */}
         {modalLimiteContato && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
@@ -7275,12 +7165,6 @@ export default function App() {
 
       </div>
     );
-  }
-
-  // perfil-diarista mock: removido — redireciona para home-empregador
-  if (tela === "perfil-diarista") {
-    setTela("home-empregador");
-    return null;
   }
 
   // HOME DIARISTA
@@ -10163,7 +10047,7 @@ export default function App() {
                   😔 {d.nome.split(" ")[0]} não pôde nesta data. Tente outra data ou horário.
                 </div>
               )}
-              <button style={{ ...S.btnPrimary, background:cor }} onClick={() => { setModalConvite(true); setContratadoReal(false); }}>
+              <button style={{ ...S.btnPrimary, background:cor }} onClick={() => { setModalConvite(true); }}>
                 📨 Convidar para diária
               </button>
             </div>
@@ -10938,9 +10822,6 @@ export default function App() {
     >{salvandoPerfil ? "Salvando..." : "Salvar alterações"}</button>
     </div>
   );
-
-  // chat mock: removido — use o chat real em home-empregador/home-diarista
-  if (tela === "chat") { setTela("home-empregador"); return null; }
 
   // ── PAINEL ADMIN ────────────────────────────────────────────────────────────
   if (tela === "admin-painel") {
