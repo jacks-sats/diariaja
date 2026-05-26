@@ -222,6 +222,8 @@ export default function App() {
   const [desistindo, setDesistindo] = useState(false);
   // Detalhes da diária aceita (modal ao clicar no card)
   const [detalhesDiaria, setDetalhesDiaria] = useState<Diaria | null>(null);
+  // Menu de "mais opções" (três pontinhos) no header — leva para Configurações etc.
+  const [menuOpcoes, setMenuOpcoes] = useState(false);
   // Menu de troca de perfil (bottom sheet ao clicar no nome/avatar)
   const [menuTrocarPerfil, setMenuTrocarPerfil] = useState(false);
   // Modal de informações do perfil (ao clicar no nome)
@@ -4939,7 +4941,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-            {/* Sino + botão trocar perfil */}
+            {/* Sino + três pontinhos (mais opções) + botão trocar perfil */}
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               {tipo === "ambos" && (
                 <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
@@ -4950,6 +4952,14 @@ export default function App() {
                 🔔
                 {(notifNaoLidas + suporteNaoLidos) > 0 && <div style={{ position:"absolute", top:-4, right:-4, background: suporteNaoLidos > 0 ? "#f59e0b" : "#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</div>}
               </div>
+              <button
+                aria-label="Mais opções"
+                style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, gap:3, fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => setMenuOpcoes(true)}>
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+              </button>
             </div>
           </div>
 
@@ -6810,14 +6820,9 @@ export default function App() {
         {/* ── ABA PERFIL ── */}
         {tabEmpregador === "perfil" && (
           <>
-            {/* Barra + ⚙️ */}
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+            {/* Barra "Meu Perfil" — acesso a Configurações agora vive nos três pontinhos do header */}
+            <div style={{ padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
-              <button
-                style={{ background:"var(--bg-subtle,#f1f5f9)", border:"none", borderRadius:12, padding:"8px 14px", fontSize:14, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:6 }}
-                onClick={() => setTela("configuracoes")}>
-                ⚙️ <span style={{ fontSize:12 }}>Config.</span>
-              </button>
             </div>
 
             {/* Foto + nome + rating */}
@@ -7064,6 +7069,28 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Bottom sheet: três pontinhos (mais opções) ── */}
+        {menuOpcoes && (
+          <div style={S.modalOverlay} onClick={() => setMenuOpcoes(false)}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 24px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+              <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
+              <div style={{ padding:"0 16px" }}>
+                <button
+                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const, marginBottom:10 }}
+                  onClick={() => { setMenuOpcoes(false); setTela("configuracoes"); }}>
+                  <div style={{ width:40, height:40, borderRadius:20, background:"#FF6B3518", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>⚙️</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Configurações</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Conta, segurança, notificações e mais</div>
+                  </div>
+                  <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                </button>
+                <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)", width:"100%" }} onClick={() => setMenuOpcoes(false)}>Fechar</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Bottom sheet: trocar de perfil ── */}
         {menuTrocarPerfil && (
           <div style={S.modalOverlay} onClick={() => setMenuTrocarPerfil(false)}>
@@ -7213,7 +7240,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-            {/* Sino + botão trocar perfil */}
+            {/* Sino + três pontinhos (mais opções) + botão trocar perfil */}
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               {tipo === "ambos" && (
                 <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
@@ -7224,6 +7251,14 @@ export default function App() {
                 🔔
                 {(notifNaoLidas + suporteNaoLidos) > 0 && <div style={{ position:"absolute", top:-4, right:-4, background: suporteNaoLidos > 0 ? "#f59e0b" : "#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</div>}
               </div>
+              <button
+                aria-label="Mais opções"
+                style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, gap:3, fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => setMenuOpcoes(true)}>
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+              </button>
             </div>
           </div>
 
@@ -8327,14 +8362,9 @@ export default function App() {
           const oauthUrl = `https://auth.mercadopago.com.br/authorization?client_id=${mpClientId}&response_type=code&platform_id=mp&state=${session?.user?.id}&redirect_uri=${SUPABASE_URL}/functions/v1/mp-oauth`;
           return (
           <>
-            {/* Barra de boas-vindas + ⚙️ */}
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+            {/* Barra "Meu Perfil" — acesso a Configurações agora vive nos três pontinhos do header */}
+            <div style={{ padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
-              <button
-                style={{ background:"var(--bg-subtle,#f1f5f9)", border:"none", borderRadius:12, padding:"8px 14px", fontSize:14, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:6 }}
-                onClick={() => setTela("configuracoes")}>
-                ⚙️ <span style={{ fontSize:12 }}>Config.</span>
-              </button>
             </div>
 
             {/* Banner foto */}
@@ -9153,6 +9183,28 @@ export default function App() {
             <span>Perfil</span>
           </button>
         </div>
+
+        {/* ── Bottom sheet: três pontinhos (mais opções) ── */}
+        {menuOpcoes && (
+          <div style={S.modalOverlay} onClick={() => setMenuOpcoes(false)}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 24px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+              <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
+              <div style={{ padding:"0 16px" }}>
+                <button
+                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const, marginBottom:10 }}
+                  onClick={() => { setMenuOpcoes(false); setTela("configuracoes"); }}>
+                  <div style={{ width:40, height:40, borderRadius:20, background:"#FF6B3518", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>⚙️</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Configurações</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Conta, segurança, notificações e mais</div>
+                  </div>
+                  <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                </button>
+                <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)", width:"100%" }} onClick={() => setMenuOpcoes(false)}>Fechar</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Bottom sheet: trocar de perfil ── */}
         {menuTrocarPerfil && (
