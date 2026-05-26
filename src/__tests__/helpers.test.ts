@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   validarCPF,
+  validarCNPJ,
   validarNome,
   nivelDiarista,
   calcScore,
@@ -8,6 +9,7 @@ import {
   detectarContatoExterno,
   maskCPF,
   maskCNPJ,
+  maskTelefone,
   haversineKm,
   validarEmail,
   validarTelefone,
@@ -17,6 +19,9 @@ import {
   formatarTempo,
   calcularNivelConfiabilidade,
   formatTempoRelativo,
+  calcularIdade,
+  validarSenhaForte,
+  validarPix,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -611,5 +616,139 @@ describe("formatTempoRelativo", () => {
 
   it("data no futuro retorna \"agora\"", () => {
     expect(formatTempoRelativo("2026-05-25T16:00:00", agora)).toBe("agora");
+  });
+});
+
+// ── validarCNPJ ──────────────────────────────────────────────────────────────
+describe("validarCNPJ", () => {
+  it("aceita CNPJ válido (com máscara)", () => {
+    // CNPJ válido conhecido da Receita: 11.222.333/0001-81
+    expect(validarCNPJ("11.222.333/0001-81")).toBe(true);
+  });
+  it("aceita CNPJ válido sem formatação", () => {
+    expect(validarCNPJ("11222333000181")).toBe(true);
+  });
+  it("rejeita CNPJ com dígito verificador errado", () => {
+    expect(validarCNPJ("11.222.333/0001-99")).toBe(false);
+  });
+  it("rejeita sequência repetida", () => {
+    expect(validarCNPJ("11.111.111/1111-11")).toBe(false);
+    expect(validarCNPJ("00.000.000/0000-00")).toBe(false);
+  });
+  it("rejeita CNPJ com tamanho errado", () => {
+    expect(validarCNPJ("11.222.333/0001-8")).toBe(false);
+    expect(validarCNPJ("1122233300018111")).toBe(false);
+  });
+  it("rejeita string vazia ou só letras", () => {
+    expect(validarCNPJ("")).toBe(false);
+    expect(validarCNPJ("abcdefghijklmn")).toBe(false);
+  });
+});
+
+// ── maskTelefone ─────────────────────────────────────────────────────────────
+describe("maskTelefone", () => {
+  it("formata progressivamente celular 11 dígitos", () => {
+    expect(maskTelefone("6")).toBe("(6");
+    expect(maskTelefone("67")).toBe("(67");
+    expect(maskTelefone("6798")).toBe("(67) 98");
+    expect(maskTelefone("67999998888")).toBe("(67) 99999-8888");
+  });
+  it("formata fixo 10 dígitos", () => {
+    expect(maskTelefone("6733334444")).toBe("(67) 3333-4444");
+  });
+  it("trunca em 11 dígitos", () => {
+    expect(maskTelefone("67999998888999")).toBe("(67) 99999-8888");
+  });
+  it("retorna vazio quando vazio", () => {
+    expect(maskTelefone("")).toBe("");
+  });
+  it("aceita input com lixo (parênteses, traços)", () => {
+    expect(maskTelefone("(67) 99999-8888")).toBe("(67) 99999-8888");
+  });
+});
+
+// ── calcularIdade ────────────────────────────────────────────────────────────
+describe("calcularIdade", () => {
+  const hoje = new Date("2026-05-25");
+  it("calcula idade exata quando aniversário já passou no ano", () => {
+    expect(calcularIdade("2000-01-15", hoje)).toBe(26);
+  });
+  it("calcula idade -1 quando aniversário ainda não chegou", () => {
+    expect(calcularIdade("2000-12-31", hoje)).toBe(25);
+  });
+  it("retorna 18 quando aniversário é exatamente hoje há 18 anos", () => {
+    expect(calcularIdade("2008-05-25", hoje)).toBe(18);
+  });
+  it("retorna 17 quando faltou 1 dia para 18", () => {
+    expect(calcularIdade("2008-05-26", hoje)).toBe(17);
+  });
+  it("retorna 0 para data vazia ou inválida", () => {
+    expect(calcularIdade("", hoje)).toBe(0);
+    expect(calcularIdade("não-é-data", hoje)).toBe(0);
+  });
+  it("nunca retorna idade negativa", () => {
+    expect(calcularIdade("2099-01-01", hoje)).toBe(0);
+  });
+});
+
+// ── validarSenhaForte ────────────────────────────────────────────────────────
+describe("validarSenhaForte", () => {
+  it("aceita senha boa", () => {
+    expect(validarSenhaForte("Cabeca42!2026")).toBeNull();
+  });
+  it("rejeita senha vazia", () => {
+    expect(validarSenhaForte("")).toContain("Informe");
+  });
+  it("rejeita senha curta", () => {
+    expect(validarSenhaForte("ab12")).toContain("muito curta");
+  });
+  it("rejeita senha sem letras", () => {
+    expect(validarSenhaForte("1234567890")).toMatch(/sequências|letra/);
+  });
+  it("rejeita senha sem números", () => {
+    expect(validarSenhaForte("apenasletras")).toContain("número");
+  });
+  it("rejeita senha óbvia comum", () => {
+    expect(validarSenhaForte("diariaja123")).toContain("comum");
+    expect(validarSenhaForte("brasil2026")).toContain("comum");
+  });
+  it("rejeita repetição de caractere único", () => {
+    expect(validarSenhaForte("aaaaaaaaaa")).toBeTruthy();
+    expect(validarSenhaForte("1111111111")).toBeTruthy();
+  });
+  it("rejeita senha excessivamente longa (>72)", () => {
+    expect(validarSenhaForte("a".repeat(73) + "1")).toContain("muito longa");
+  });
+});
+
+// ── validarPix ───────────────────────────────────────────────────────────────
+describe("validarPix", () => {
+  it("PIX CPF válido", () => {
+    expect(validarPix("52998224725", "cpf")).toBeNull();
+  });
+  it("PIX CPF inválido", () => {
+    expect(validarPix("11111111111", "cpf")).toContain("CPF inválido");
+  });
+  it("PIX CNPJ válido", () => {
+    expect(validarPix("11222333000181", "cnpj")).toBeNull();
+  });
+  it("PIX email válido", () => {
+    expect(validarPix("contato@diariaja.com.br", "email")).toBeNull();
+  });
+  it("PIX email inválido", () => {
+    expect(validarPix("não-é-email", "email")).toBeTruthy();
+  });
+  it("PIX telefone válido", () => {
+    expect(validarPix("(67) 99999-8888", "telefone")).toBeNull();
+  });
+  it("PIX aleatória válida (UUID)", () => {
+    expect(validarPix("550e8400-e29b-41d4-a716-446655440000", "aleatoria")).toBeNull();
+    expect(validarPix("550e8400e29b41d4a716446655440000", "aleatoria")).toBeNull();
+  });
+  it("PIX aleatória inválida (não-hex)", () => {
+    expect(validarPix("nao-eh-uuid-valido-aqui", "aleatoria")).toBeTruthy();
+  });
+  it("rejeita chave vazia", () => {
+    expect(validarPix("", "cpf")).toContain("Informe");
   });
 });

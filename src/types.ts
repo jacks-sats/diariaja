@@ -79,6 +79,12 @@ export interface UserProfile {
   documento_revisado_em?: string;
   // Heartbeat de presença (painel admin "online agora")
   last_activity_at?: string;
+  // PIX do diarista (recebe pagamentos da plataforma)
+  pix_chave?: string;
+  pix_tipo?: "cpf" | "cnpj" | "email" | "telefone" | "aleatoria";
+  // Audit trail de aceite dos Termos (LGPD — prova server-side)
+  termos_aceitos_em?: string;
+  termos_versao?: string;
 }
 
 // ── Sistema de níveis de confiabilidade ────────────────────────────────────
