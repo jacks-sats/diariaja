@@ -65,7 +65,7 @@ import {
   validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
-  calcScoreBreakdown, calcCompletude, calcConquistas,
+  calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -191,6 +191,7 @@ export default function App() {
   const [qrDiaria, setQrDiaria]           = useState<Diaria | null>(null);
   const [scannerAberto, setScannerAberto] = useState(false);
   const [scanMsg, setScanMsg]             = useState<{ok:boolean,txt:string}|null>(null);
+  const [codigoManual, setCodigoManual]   = useState("");  // fallback 4-dígitos quando câmera falha
   // Avaliação mútua
   const [modalAvalEmp, setModalAvalEmp]           = useState<Diaria | null>(null);  // diarista avalia empregador
   const [modalAvalDiaristaReal, setModalAvalDiaristaReal] = useState<Diaria | null>(null); // empregador avalia diarista
@@ -6965,12 +6966,57 @@ export default function App() {
         {/* ── Modal Scanner QR ── */}
         {scannerAberto && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.92)", zIndex:200, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24 }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 20px", width:"100%", maxWidth:360 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 20px", width:"100%", maxWidth:360, maxHeight:"92vh", overflowY:"auto" as const }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4, textAlign:"center" as const }}>📷 Escanear QR Code</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:16 }}>Aponte a câmera traseira para o QR Code do diarista</div>
-              <QRScannerComponent onResult={confirmarInicio} onError={(msg) => setScanMsg({ ok:false, txt:msg })} onClose={() => setScannerAberto(false)} />
-              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:14 }}
-                onClick={() => setScannerAberto(false)}>
+              <QRScannerComponent
+                onResult={(id) => { setCodigoManual(""); confirmarInicio(id); }}
+                onError={(msg) => setScanMsg({ ok:false, txt:msg })}
+                onClose={() => setScannerAberto(false)}
+              />
+
+              {/* Fallback: digitação manual do código de 4 dígitos */}
+              <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0 12px" }}>
+                <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+                <span style={{ color:"var(--text-label,#475569)", fontSize:11, fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.7 }}>ou digite o código</span>
+                <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+              </div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:10 }}>
+                Peça ao diarista os <strong>4 dígitos</strong> que aparecem na tela dele.
+              </div>
+              <input
+                aria-label="Código de 4 dígitos"
+                inputMode="numeric"
+                pattern="\d*"
+                maxLength={4}
+                value={codigoManual}
+                onChange={e => setCodigoManual(e.target.value.replace(/\D/g, "").slice(0,4))}
+                placeholder="0000"
+                style={{ width:"100%", padding:"14px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:28, fontWeight:900, textAlign:"center" as const, letterSpacing:12, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:10, color:"var(--text-1,#0f172a)", background:"var(--bg-surface,#f8fafc)" }}
+              />
+              <button
+                disabled={codigoManual.length !== 4}
+                style={{ width:"100%", padding:"12px", background: codigoManual.length === 4 ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: codigoManual.length === 4 ? "pointer" : "default", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => {
+                  // Procura uma diária minha em status "aceita" cujo código bata
+                  const alvo = diarias.find(d =>
+                    d.empregador_id === session?.user?.id &&
+                    d.status === "aceita" &&
+                    codigoPresenca(d.id) === codigoManual
+                  );
+                  if (!alvo) {
+                    setScanMsg({ ok:false, txt:"Código não confere com nenhuma diária aguardando confirmação." });
+                    return;
+                  }
+                  setCodigoManual("");
+                  setScannerAberto(false);
+                  confirmarInicio(alvo.id);
+                }}>
+                ✅ Confirmar chegada
+              </button>
+
+              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:10 }}
+                onClick={() => { setCodigoManual(""); setScannerAberto(false); }}>
                 Cancelar
               </button>
             </div>
@@ -9556,11 +9602,15 @@ export default function App() {
         {qrDiaria && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:200, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24 }}
             onClick={() => setQrDiaria(null)}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", width:"100%", maxWidth:360, textAlign:"center" }}
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", width:"100%", maxWidth:360, textAlign:"center", maxHeight:"90vh", overflowY:"auto" as const }}
               onClick={e => e.stopPropagation()}>
+              {/* Título */}
+              <div style={{ fontSize:18, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:6 }}>
+                📲 QR Code de presença
+              </div>
               {/* Instrução */}
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16, lineHeight:1.5 }}>
-                Mostre este QR Code para o <strong>empregador escanear</strong> e confirmar sua chegada
+                Mostre este código ao <strong>contratante</strong>. Ao escanear, ele confirma sua chegada e <strong>libera o contato entre vocês</strong>.
               </div>
               {/* QR */}
               <div style={{ display:"flex", justifyContent:"center", background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:20, marginBottom:16 }}>
@@ -9573,6 +9623,22 @@ export default function App() {
                     level="H"
                   />
                 </Suspense>
+              </div>
+              {/* Código de 4 dígitos — fallback quando câmera não funciona */}
+              <div style={{ background:"#0f172a", borderRadius:16, padding:"16px 14px", marginBottom:16 }}>
+                <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.7, marginBottom:10 }}>
+                  Ou fale este código ao contratante
+                </div>
+                <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:8 }}>
+                  {codigoPresenca(qrDiaria.id).split("").map((d, i) => (
+                    <div key={i} style={{ background:"#1e293b", borderRadius:10, width:54, height:64, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:32, fontWeight:900 }}>
+                      {d}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize:11, color:"#94a3b8", lineHeight:1.4 }}>
+                  O contratante digita no app para confirmar sua chegada
+                </div>
               </div>
               {/* Info da diária */}
               <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px", marginBottom:16, textAlign:"left" }}>
