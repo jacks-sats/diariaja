@@ -13,7 +13,7 @@ import {
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, maskCPF, maskCNPJ, haversineKm,
-  validarTituloDiaria,
+  validarTituloDiaria, validarEmail, validarSenhaForte,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -1220,6 +1220,8 @@ export default function App() {
 
   const handleEmailSignup = async () => {
     if (!checkTermos) { setAuthError("Você precisa aceitar os Termos de Uso para criar uma conta."); return; }
+    if (!validarEmail(form.email)) { setAuthError("E-mail inválido. Confira o endereço e tente novamente."); return; }
+    { const erroSenha = validarSenhaForte(form.senha); if (erroSenha) { setAuthError(erroSenha); return; } }
     setAuthError(""); setAuthLoading(true);
     const { error } = await supabase.auth.signUp({ email: form.email, password: form.senha });
     if (error) {
@@ -2868,15 +2870,25 @@ export default function App() {
       </div>
 
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
-        <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
-          {GoogleSVG} Cadastrar com Google
-        </button>
+        {/* Cadastro com Google — disponível pra diarista e empregador PF. Bloqueado pra empresa (PJ) pra forçar fluxo rigoroso com CNPJ + comprovante. */}
+        {tipo !== "empresa" && (
+          <>
+            <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"system-ui,sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
+              {GoogleSVG} Cadastrar com Google
+            </button>
 
-        <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
-          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou com e-mail</span>
-          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-        </div>
+            <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
+              <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+              <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou com e-mail</span>
+              <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+            </div>
+          </>
+        )}
+        {tipo === "empresa" && (
+          <div style={{ background:"rgba(58,134,255,.08)", border:"1px solid rgba(58,134,255,.3)", borderRadius:12, padding:"12px 14px", marginBottom:16, fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+            🔒 <strong style={{ color:"#60a5fa" }}>Cadastro de empresa:</strong> por questões de verificação, contas PJ precisam ser criadas com e-mail + senha. Você enviará o cartão CNPJ ou contrato social na etapa de verificação.
+          </div>
+        )}
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
         <input id="cad-email" aria-label="E-mail" type="email" autoComplete="email" style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
@@ -2885,7 +2897,7 @@ export default function App() {
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
         <div style={{ position:"relative" as const }}>
           <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"system-ui,sans-serif", boxSizing:"border-box" as const, outline:"none" }}
-            id="cad-senha" aria-label="Senha" autoComplete="new-password" placeholder="Mínimo 6 caracteres" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
+            id="cad-senha" aria-label="Senha" autoComplete="new-password" placeholder="Mín. 10 caracteres, com letra e número" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
           <button type="button" aria-label={mostrarSenhaCadastro ? "Ocultar senha" : "Mostrar senha"} style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
             onClick={() => setMostrarSenhaCadastro(p => !p)}>
             {mostrarSenhaCadastro ? "🙈" : "👁️"}
