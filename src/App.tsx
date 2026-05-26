@@ -65,7 +65,7 @@ import {
   validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
-  calcScoreBreakdown, calcCompletude, calcConquistas,
+  calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -191,6 +191,7 @@ export default function App() {
   const [qrDiaria, setQrDiaria]           = useState<Diaria | null>(null);
   const [scannerAberto, setScannerAberto] = useState(false);
   const [scanMsg, setScanMsg]             = useState<{ok:boolean,txt:string}|null>(null);
+  const [codigoManual, setCodigoManual]   = useState("");  // fallback 4-dígitos quando câmera falha
   // Avaliação mútua
   const [modalAvalEmp, setModalAvalEmp]           = useState<Diaria | null>(null);  // diarista avalia empregador
   const [modalAvalDiaristaReal, setModalAvalDiaristaReal] = useState<Diaria | null>(null); // empregador avalia diarista
@@ -1868,12 +1869,6 @@ export default function App() {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    setAuthError("");
-    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
-    if (error) setAuthError(traduzirErroAuth(error.message));
-  };
-
   const handleLogout = async () => {
     await supabase.auth.signOut();
     // Limpa TODO o estado local para não vazar dados entre usuários no mesmo dispositivo
@@ -3359,16 +3354,6 @@ export default function App() {
     await saveProfile({ agenda: novaAgenda });
   };
 
-  // SVG do Google reutilizável
-  const GoogleSVG = (
-    <svg width="20" height="20" viewBox="0 0 24 24" style={{marginRight:10,flexShrink:0}}>
-      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
-      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-    </svg>
-  );
-
   // LOADING
   // ── Barra de progresso global (aparece em qualquer operação assíncrona) ─────
   const anyLoading = loading || salvandoPerfil || authLoading || salvandoDiaria || enviandoAvalMutua || selecionando;
@@ -3551,16 +3536,6 @@ export default function App() {
 
       {/* Card de login */}
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
-        <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
-          {GoogleSVG} Entrar com Google
-        </button>
-
-        <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
-          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou</span>
-          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-        </div>
-
         {/* Toggle E-mail / CPF — alternativa de login */}
         <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,.05)", borderRadius:10, padding:3, marginBottom:14 }}>
           {([
@@ -3765,16 +3740,6 @@ export default function App() {
       </div>
 
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
-        <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
-          {GoogleSVG} Cadastrar com Google
-        </button>
-
-        <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
-          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou com e-mail</span>
-          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-        </div>
-
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
         <input id="cad-email" aria-label="E-mail" type="email" autoComplete="email" style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
@@ -7001,12 +6966,57 @@ export default function App() {
         {/* ── Modal Scanner QR ── */}
         {scannerAberto && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.92)", zIndex:200, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24 }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 20px", width:"100%", maxWidth:360 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 20px", width:"100%", maxWidth:360, maxHeight:"92vh", overflowY:"auto" as const }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4, textAlign:"center" as const }}>📷 Escanear QR Code</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:16 }}>Aponte a câmera traseira para o QR Code do diarista</div>
-              <QRScannerComponent onResult={confirmarInicio} onError={(msg) => setScanMsg({ ok:false, txt:msg })} onClose={() => setScannerAberto(false)} />
-              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:14 }}
-                onClick={() => setScannerAberto(false)}>
+              <QRScannerComponent
+                onResult={(id) => { setCodigoManual(""); confirmarInicio(id); }}
+                onError={(msg) => setScanMsg({ ok:false, txt:msg })}
+                onClose={() => setScannerAberto(false)}
+              />
+
+              {/* Fallback: digitação manual do código de 4 dígitos */}
+              <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0 12px" }}>
+                <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+                <span style={{ color:"var(--text-label,#475569)", fontSize:11, fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.7 }}>ou digite o código</span>
+                <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+              </div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:10 }}>
+                Peça ao diarista os <strong>4 dígitos</strong> que aparecem na tela dele.
+              </div>
+              <input
+                aria-label="Código de 4 dígitos"
+                inputMode="numeric"
+                pattern="\d*"
+                maxLength={4}
+                value={codigoManual}
+                onChange={e => setCodigoManual(e.target.value.replace(/\D/g, "").slice(0,4))}
+                placeholder="0000"
+                style={{ width:"100%", padding:"14px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:28, fontWeight:900, textAlign:"center" as const, letterSpacing:12, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:10, color:"var(--text-1,#0f172a)", background:"var(--bg-surface,#f8fafc)" }}
+              />
+              <button
+                disabled={codigoManual.length !== 4}
+                style={{ width:"100%", padding:"12px", background: codigoManual.length === 4 ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: codigoManual.length === 4 ? "pointer" : "default", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => {
+                  // Procura uma diária minha em status "aceita" cujo código bata
+                  const alvo = diarias.find(d =>
+                    d.empregador_id === session?.user?.id &&
+                    d.status === "aceita" &&
+                    codigoPresenca(d.id) === codigoManual
+                  );
+                  if (!alvo) {
+                    setScanMsg({ ok:false, txt:"Código não confere com nenhuma diária aguardando confirmação." });
+                    return;
+                  }
+                  setCodigoManual("");
+                  setScannerAberto(false);
+                  confirmarInicio(alvo.id);
+                }}>
+                ✅ Confirmar chegada
+              </button>
+
+              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:10 }}
+                onClick={() => { setCodigoManual(""); setScannerAberto(false); }}>
                 Cancelar
               </button>
             </div>
@@ -9592,11 +9602,15 @@ export default function App() {
         {qrDiaria && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:200, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24 }}
             onClick={() => setQrDiaria(null)}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", width:"100%", maxWidth:360, textAlign:"center" }}
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", width:"100%", maxWidth:360, textAlign:"center", maxHeight:"90vh", overflowY:"auto" as const }}
               onClick={e => e.stopPropagation()}>
+              {/* Título */}
+              <div style={{ fontSize:18, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:6 }}>
+                📲 QR Code de presença
+              </div>
               {/* Instrução */}
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16, lineHeight:1.5 }}>
-                Mostre este QR Code para o <strong>empregador escanear</strong> e confirmar sua chegada
+                Mostre este código ao <strong>contratante</strong>. Ao escanear, ele confirma sua chegada e <strong>libera o contato entre vocês</strong>.
               </div>
               {/* QR */}
               <div style={{ display:"flex", justifyContent:"center", background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:20, marginBottom:16 }}>
@@ -9609,6 +9623,22 @@ export default function App() {
                     level="H"
                   />
                 </Suspense>
+              </div>
+              {/* Código de 4 dígitos — fallback quando câmera não funciona */}
+              <div style={{ background:"#0f172a", borderRadius:16, padding:"16px 14px", marginBottom:16 }}>
+                <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.7, marginBottom:10 }}>
+                  Ou fale este código ao contratante
+                </div>
+                <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:8 }}>
+                  {codigoPresenca(qrDiaria.id).split("").map((d, i) => (
+                    <div key={i} style={{ background:"#1e293b", borderRadius:10, width:54, height:64, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:32, fontWeight:900 }}>
+                      {d}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize:11, color:"#94a3b8", lineHeight:1.4 }}>
+                  O contratante digita no app para confirmar sua chegada
+                </div>
               </div>
               {/* Info da diária */}
               <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px", marginBottom:16, textAlign:"left" }}>

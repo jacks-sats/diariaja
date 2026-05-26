@@ -22,6 +22,7 @@ import {
   calcularIdade,
   validarSenhaForte,
   validarPix,
+  codigoPresenca,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -750,5 +751,28 @@ describe("validarPix", () => {
   });
   it("rejeita chave vazia", () => {
     expect(validarPix("", "cpf")).toContain("Informe");
+  });
+});
+
+// ── codigoPresenca ────────────────────────────────────────────────────────────
+describe("codigoPresenca", () => {
+  it("retorna 4 dígitos", () => {
+    expect(codigoPresenca("550e8400-e29b-41d4-a716-446655440000")).toMatch(/^\d{4}$/);
+  });
+  it("é determinístico — mesmo input, mesma saída", () => {
+    const id = "9f8b2c10-aaaa-bbbb-cccc-ddddeeeeffff";
+    expect(codigoPresenca(id)).toBe(codigoPresenca(id));
+  });
+  it("difere entre IDs diferentes", () => {
+    const a = codigoPresenca("550e8400-e29b-41d4-a716-446655440000");
+    const b = codigoPresenca("660e8400-e29b-41d4-a716-446655440000");
+    expect(a).not.toBe(b);
+  });
+  it("preenche com zeros à esquerda se for menor que 1000", () => {
+    // Procura um input qualquer que produza saída < 1000 e confere 4 dígitos
+    for (let i = 0; i < 1000; i++) {
+      const out = codigoPresenca(`teste-${i}`);
+      expect(out.length).toBe(4);
+    }
   });
 });
