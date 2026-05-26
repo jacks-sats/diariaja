@@ -1,12 +1,17 @@
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
+// CSS do Leaflet via npm — self-hosted, sem violar a CSP do vercel.json
+import "leaflet/dist/leaflet.css";
+import markerIconRetina from "leaflet/dist/images/marker-icon-2x.png";
+import markerIcon       from "leaflet/dist/images/marker-icon.png";
+import markerShadow     from "leaflet/dist/images/marker-shadow.png";
 
 // Corrige o ícone padrão do Leaflet quando usado com Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  iconRetinaUrl: markerIconRetina,
+  iconUrl:       markerIcon,
+  shadowUrl:     markerShadow,
 });
 
 interface Diarista {

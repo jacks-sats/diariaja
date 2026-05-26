@@ -49,7 +49,9 @@ Deno.serve(async (req) => {
     const tokenData = await tokenResp.json();
 
     if (!tokenData.access_token) {
-      console.error("Erro token MP:", tokenData);
+      // Log apenas a mensagem de erro — nunca o objeto completo (pode conter
+      // refresh_token ou eco de client_secret).
+      console.error("Erro token MP:", tokenData?.error || tokenData?.message || "sem detalhe");
       return redirect(`${APP_URL}/?mp_oauth=erro`);
     }
 
