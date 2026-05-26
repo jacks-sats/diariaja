@@ -139,6 +139,8 @@ export interface Convite {
   valor?: number;
   status: string;             // 'pendente' | 'aceito' | 'recusado'
   created_at: string;
+  contato_pago_em?: string | null; // timestamp do pagamento de liberação (R$ 1)
+  pagamento_mp_id?: string | null;
 }
 
 export interface AnalyticsEvento {

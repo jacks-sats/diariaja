@@ -1,9 +1,11 @@
 // Edge Function: create-contact-payment
-// Cria preferência de R$ 1 no Mercado Pago para desbloquear
-// uma seleção de candidato adicional no plano Grátis.
+// Cria preferência de R$ 1 no Mercado Pago. Dois usos:
+//   1. Body: { empregador_id }                  → desbloqueio de seleção extra
+//      no plano Grátis. external_reference = "contact_unlock::<empregadorId>".
+//   2. Body: { empregador_id, convite_id }      → liberação de contato em
+//      convite direto. external_reference = "invite_unlock::<conviteId>".
 //
-// Body: { empregador_id: string }
-// Retorna: { checkout_url: string }
+// Retorna: { checkout_url }
 //
 // Variáveis de ambiente:
 //   MP_ACCESS_TOKEN  → Access Token de produção
@@ -37,7 +39,7 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authErr } = await supabaseUser.auth.getUser();
     if (authErr || !user) return json({ error: "Token inválido ou expirado." }, 401);
 
-    const { empregador_id } = await req.json();
+    const { empregador_id, convite_id } = await req.json();
 
     if (!empregador_id) {
       return json({ error: "empregador_id obrigatório" }, 400);
@@ -47,25 +49,64 @@ Deno.serve(async (req) => {
       return json({ error: "Não autorizado para este empregador." }, 403);
     }
 
-    // Cria preferência de R$ 1,00 para desbloqueio de contato
-    const idempotencyKey = `contact-unlock-${empregador_id}-${new Date().toISOString().slice(0, 13)}`;
+    // Se vier convite_id, valida: convite tem que existir, pertencer ao caller,
+    // estar aceito e ainda não estar pago. (Service-role bypass de RLS aqui.)
+    if (convite_id) {
+      const supabaseAdmin = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
+      const { data: conv } = await supabaseAdmin
+        .from("convites")
+        .select("id, contratante_id, status, contato_pago_em")
+        .eq("id", convite_id)
+        .maybeSingle();
+      if (!conv) return json({ error: "Convite não encontrado." }, 404);
+      if (conv.contratante_id !== empregador_id) return json({ error: "Convite não pertence a você." }, 403);
+      if (conv.status !== "aceito") return json({ error: "Convite não foi aceito ainda." }, 409);
+      if (conv.contato_pago_em) return json({ error: "Contato já liberado." }, 409);
+    }
+
+    // R$ 1,00 — vale pros dois casos (desbloqueio extra ou liberação de convite)
+    const idempotencyKey = convite_id
+      ? `invite-unlock-${convite_id}`
+      : `contact-unlock-${empregador_id}-${new Date().toISOString().slice(0, 13)}`;
+
+    const externalRef = convite_id
+      ? `invite_unlock::${convite_id}`
+      : `contact_unlock::${empregador_id}`;
+
+    const title = convite_id
+      ? "DiáriaJá — Liberar contato do profissional"
+      : "DiáriaJá — Desbloqueio de contato";
+
+    const description = convite_id
+      ? "Liberação do WhatsApp do profissional convidado."
+      : "Desbloqueie 1 seleção de candidato adicional no plano Grátis.";
+
+    const successPath = convite_id
+      ? `${APP_URL}/?contato_liberado=sucesso&convite=${convite_id}`
+      : `${APP_URL}/?contato_desbloqueado=sucesso`;
+    const failurePath = convite_id
+      ? `${APP_URL}/?contato_liberado=falha&convite=${convite_id}`
+      : `${APP_URL}/?contato_desbloqueado=falha`;
+    const pendingPath = convite_id
+      ? `${APP_URL}/?contato_liberado=pendente&convite=${convite_id}`
+      : `${APP_URL}/?contato_desbloqueado=pendente`;
 
     const preferencia = {
       items: [
         {
-          id:          `contact_unlock_${empregador_id}`,
-          title:       "DiáriaJá — Desbloqueio de contato",
-          description: "Desbloqueie 1 seleção de candidato adicional no plano Grátis.",
+          id:          convite_id ? `invite_unlock_${convite_id}` : `contact_unlock_${empregador_id}`,
+          title,
+          description,
           quantity:    1,
           currency_id: "BRL",
           unit_price:  1.00,
         },
       ],
-      external_reference: `contact_unlock::${empregador_id}`,
+      external_reference: externalRef,
       back_urls: {
-        success: `${APP_URL}/?contato_desbloqueado=sucesso`,
-        failure: `${APP_URL}/?contato_desbloqueado=falha`,
-        pending: `${APP_URL}/?contato_desbloqueado=pendente`,
+        success: successPath,
+        failure: failurePath,
+        pending: pendingPath,
       },
       auto_return:       "approved",
       notification_url:  `${Deno.env.get("SUPABASE_URL")}/functions/v1/mp-webhook`,

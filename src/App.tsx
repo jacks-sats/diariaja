@@ -2861,6 +2861,39 @@ export default function App() {
     setDesbloqueandoContato(false);
   };
 
+  // Fluxo de convite direto: contratante paga R$ 1 pra liberar o contato.
+  // O webhook do MP é quem marca convites.contato_pago_em e dispara push
+  // pro diarista — aqui só abrimos o checkout.
+  const pagarLiberacaoContato = async (conviteId: string) => {
+    if (!session?.user) return;
+    try {
+      const resp = await fetch(
+        `${SUPABASE_URL}/functions/v1/create-contact-payment`,
+        {
+          method:  "POST",
+          headers: {
+            "Content-Type":  "application/json",
+            "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          },
+          body: JSON.stringify({
+            empregador_id: session.user.id,
+            convite_id:    conviteId,
+          }),
+        }
+      );
+      const data = await resp.json();
+      if (!resp.ok || !data.checkout_url) {
+        setToastError("❌ " + (data.error || "Erro ao iniciar pagamento. Tente novamente."));
+        return;
+      }
+      hapticConfirm();
+      // Redireciona pro MP. Webhook libera o contato e notifica o diarista.
+      window.location.href = data.checkout_url;
+    } catch {
+      setToastError("❌ Erro de conexão. Tente novamente.");
+    }
+  };
+
   // Wrapper: verifica limite de contatos e abre modal de termo antes de selecionar
   const selecionarCandidato = (diaria: Diaria, diaristaId: string) => {
     // Verifica limite para plano grátis (3 seleções/mês + extras desbloqueados)
@@ -5525,7 +5558,7 @@ export default function App() {
                   </div>
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
                     {convitesEnviados.filter(c => c.status === "aceito").map(c => {
-                      const jaLiberado = contatosLiberados.has(c.id);
+                      const jaLiberado = !!c.contato_pago_em || contatosLiberados.has(c.id);
                       const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
                       return (
                         <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:"4px solid #22c55e" }}>
@@ -5540,7 +5573,7 @@ export default function App() {
                           </div>
                           <div style={{ fontSize:12, color:"var(--text-label,#475569)", marginBottom:12 }}>📍 {c.local_servico}</div>
                           <div style={{ background:"#f0fdf4", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#166534", fontWeight:700, marginBottom:10 }}>
-                            🎉 {c.diarista_nome?.split(" ")[0]} aceitou! Pague para liberar o contato.
+                            🎉 {c.diarista_nome?.split(" ")[0]} aceitou! Pague R$ 1 para liberar o contato.
                           </div>
                           <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
                             {jaLiberado ? (
@@ -5555,8 +5588,8 @@ export default function App() {
                             ) : (
                               <button
                                 style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                                onClick={() => { setModalPix(c as any); setContatosLiberados(prev => new Set([...prev, c.id])); }}>
-                                💳 Pagar{c.valor ? ` R$ ${c.valor}` : ""} e liberar contato
+                                onClick={() => pagarLiberacaoContato(c.id)}>
+                                💳 Pagar R$ 1 e liberar contato
                               </button>
                             )}
                             <button
@@ -10585,7 +10618,7 @@ export default function App() {
 
           if (statusConvite === "aceito") {
             // ── Estado: aceito — contato liberado apenas após pagamento ──
-            const contatoJaLiberado = conviteAtivo && contatosLiberados.has(conviteAtivo.id);
+            const contatoJaLiberado = !!(conviteAtivo && (conviteAtivo.contato_pago_em || contatosLiberados.has(conviteAtivo.id)));
             return (
               <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
                 <div style={{ background:"#dcfce7", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 }}>
@@ -10623,18 +10656,12 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Botão pagamento + desbloquear contato */}
-                {!contatoJaLiberado && (
+                {/* Botão pagamento — R$ 1 via Mercado Pago real */}
+                {!contatoJaLiberado && conviteAtivo && (
                   <button
                     style={{ ...S.btnPrimary, background:cor }}
-                    onClick={() => {
-                      if (conviteAtivo) {
-                        setModalPix(conviteAtivo as any);
-                        // Marca o contato como liberado ao clicar em pagar (simula confirmação)
-                        setContatosLiberados(prev => new Set([...prev, conviteAtivo.id]));
-                      }
-                    }}>
-                    💳 Pagar e desbloquear contato{conviteAtivo?.valor ? ` — R$ ${conviteAtivo.valor}` : ""}
+                    onClick={() => pagarLiberacaoContato(conviteAtivo.id)}>
+                    💳 Pagar R$ 1 e desbloquear contato
                   </button>
                 )}
 

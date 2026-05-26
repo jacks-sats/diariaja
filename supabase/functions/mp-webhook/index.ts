@@ -155,12 +155,61 @@ Deno.serve(async (req) => {
 
       if (!payment.external_reference) return new Response("ok", { status: 200 });
 
-      // ── Desbloqueio de contato (R$ 1) ──────────────────────────
+      // ── Desbloqueio de seleção extra no Grátis (R$ 1) ─────────
       // O cliente é redirecionado para /?contato_desbloqueado=sucesso
       // e controla o contador via localStorage. O webhook apenas loga.
       if (String(payment.external_reference).startsWith("contact_unlock::")) {
         const userId = String(payment.external_reference).split("::")[1] ?? "";
         console.log(`Contato desbloqueado: user=${userId} payment=${paymentId} status=${payment.status}`);
+        return new Response("ok", { status: 200 });
+      }
+
+      // ── Liberação de contato em convite direto (R$ 1) ─────────
+      // Marca convites.contato_pago_em e dispara push pro diarista pra ele
+      // confirmar a presença (chat + WhatsApp liberados após confirmação).
+      if (String(payment.external_reference).startsWith("invite_unlock::")) {
+        const conviteId = String(payment.external_reference).split("::")[1] ?? "";
+        if (!conviteId) return new Response("ok", { status: 200 });
+
+        if (payment.status !== "approved") {
+          console.log(`invite_unlock ${conviteId}: status ${payment.status} — sem efeito`);
+          return new Response("ok", { status: 200 });
+        }
+
+        // Marca como pago — idempotente via .is("contato_pago_em", null)
+        const { data: upd } = await supabase
+          .from("convites")
+          .update({
+            contato_pago_em: new Date().toISOString(),
+            pagamento_mp_id: paymentId,
+          })
+          .eq("id", conviteId)
+          .is("contato_pago_em", null)
+          .select("id, contratante_id, diarista_id, contratante_nome, funcao, local_servico")
+          .maybeSingle();
+
+        if (!upd) {
+          console.log(`invite_unlock ${conviteId}: já estava pago (idempotência)`);
+          return new Response("ok", { status: 200 });
+        }
+
+        // Push pro diarista — "agora confirme presença"
+        await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+          method:  "POST",
+          headers: {
+            "Authorization": `Bearer ${SUPABASE_KEY}`,
+            "Content-Type":  "application/json",
+          },
+          body: JSON.stringify({
+            user_ids: [upd.diarista_id],
+            title:    "🎉 Contato liberado!",
+            body:     `${upd.contratante_nome || "O contratante"} pagou pela liberação. Abra o app pra confirmar presença.`,
+            url:      "/",
+            tipo:     "convite_pago",
+          }),
+        }).catch((err) => console.error("Erro ao enviar push convite_pago:", err));
+
+        console.log(`invite_unlock ${conviteId}: pago ✓ (payment ${paymentId})`);
         return new Response("ok", { status: 200 });
       }
 
