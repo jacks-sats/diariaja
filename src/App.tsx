@@ -53,7 +53,7 @@ async function enviarPush(
   } catch { /* push é best-effort — falhas não interrompem o fluxo */ }
 }
 // ── Separação de concerns ────────────────────────────────────────────────────
-import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite, ReputacaoEmpregador } from "./types";
+import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite, ReputacaoEmpregador, SuporteTicket, SuporteResposta, AdminStats } from "./types";
 import {
   FUNCOES_DELIVERY, CATEGORIAS_NEGOCIO, MEDIAS_CAMPO_GRANDE,
   PLANOS_EMPREGADOR, PLANOS_DIARISTA,
@@ -251,7 +251,21 @@ export default function App() {
   const [listaNotif, setListaNotif] = useState<{tipo:"ok"|"erro", msg:string, ts:number}[]>([]);
   const [modalNotif, setModalNotif] = useState(false);
   const [notifNaoLidas, setNotifNaoLidas] = useState(0);
-  const [suporteNaoLidos, setSuporteNaoLidos] = useState(0); // badge admin para tópicos de suporte
+  const [suporteNaoLidos, setSuporteNaoLidos] = useState(0); // badge admin para tópicos de suporte (Comunidade)
+
+  // Painel admin + tickets de suporte (privados, 1-on-1 user × admin)
+  const [adminStats, setAdminStats]               = useState<AdminStats | null>(null);
+  const [carregandoAdminStats, setCarregandoAdminStats] = useState(false);
+  const [adminTickets, setAdminTickets]           = useState<(SuporteTicket & { user_nome?: string })[]>([]);
+  const [meusTickets, setMeusTickets]             = useState<SuporteTicket[]>([]);
+  const [ticketAtivo, setTicketAtivo]             = useState<(SuporteTicket & { user_nome?: string }) | null>(null);
+  const [respostasTicket, setRespostasTicket]     = useState<SuporteResposta[]>([]);
+  const [novaRespostaTicket, setNovaRespostaTicket] = useState("");
+  const [enviandoRespostaTicket, setEnviandoRespostaTicket] = useState(false);
+  const [modalNovoTicket, setModalNovoTicket]     = useState(false);
+  const [formTicket, setFormTicket]               = useState({ assunto: "", mensagem: "" });
+  const [criandoTicket, setCriandoTicket]         = useState(false);
+  const [ticketsNovos, setTicketsNovos]           = useState(0); // badge admin pra tickets em tempo real
 
   // Filtro/sort de vagas (diarista)
   const [modalFiltro, setModalFiltro] = useState(false);
@@ -1274,6 +1288,95 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id, profile?.is_admin]);
 
+  // 11) Heartbeat de presença: atualiza last_activity_at a cada 60s enquanto
+  //     o app está com aba/janela visível. Usado pelo painel admin pra contar
+  //     "online agora" (atividade nos últimos 5 min).
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const userId = session.user.id;
+    let cancelled = false;
+
+    const pulse = async () => {
+      if (cancelled || document.hidden) return;
+      await supabase
+        .from("user_profiles")
+        .update({ last_activity_at: new Date().toISOString() })
+        .eq("id", userId)
+        .then(undefined as any, () => {}); // silencia falha de rede
+    };
+
+    pulse();
+    const id = setInterval(pulse, 60_000);
+    // Quando aba volta a ficar visível, dá um pulso imediato
+    const onVisible = () => { if (!document.hidden) pulse(); };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [session?.user?.id]);
+
+  // 12) Realtime: admin recebe notificação ao chegar mensagem nova num ticket
+  //     de suporte. Usa channel separado pra não conflitar com tópicos da
+  //     comunidade.
+  useEffect(() => {
+    if (!session?.user || !profile?.is_admin) return;
+    const channel = supabase
+      .channel(`tickets-admin-${session.user.id}`)
+      .on("postgres_changes" as any,
+        { event: "INSERT", schema: "public", table: "suporte_respostas" },
+        (payload: any) => {
+          const r = payload.new as { sender_role?: string; ticket_id?: string };
+          if (r?.sender_role === "user") {
+            setTicketsNovos(prev => prev + 1);
+            setToastSuccess("📨 Nova mensagem em um ticket de suporte!");
+            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+              new Notification("📨 Suporte", { body: "Usuário respondeu em um ticket.", icon: "/icon-192.png" });
+            }
+          }
+        }
+      )
+      .on("postgres_changes" as any,
+        { event: "INSERT", schema: "public", table: "suporte_tickets" },
+        () => {
+          setTicketsNovos(prev => prev + 1);
+          setToastSuccess("🆕 Novo ticket de suporte aberto!");
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user?.id, profile?.is_admin]);
+
+  // 13) Realtime: USER recebe push quando admin responde no seu ticket
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const userId = session.user.id;
+    const channel = supabase
+      .channel(`meus-tickets-${userId}`)
+      .on("postgres_changes" as any,
+        { event: "INSERT", schema: "public", table: "suporte_respostas" },
+        async (payload: any) => {
+          const r = payload.new as { sender_role?: string; ticket_id?: string; sender_id?: string };
+          if (r?.sender_role !== "admin" || !r?.ticket_id) return;
+          // Confere se o ticket pertence a este usuário (RLS já filtra leitura, mas dupla checagem)
+          const { data: tk } = await supabase
+            .from("suporte_tickets").select("user_id").eq("id", r.ticket_id).single();
+          if (tk?.user_id !== userId) return;
+          setToastSuccess("💬 A equipe respondeu no seu ticket!");
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            new Notification("DiáriaJá — Suporte", {
+              body: "A equipe respondeu seu ticket. Toque para abrir.",
+              icon: "/icon-192.png",
+            });
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user?.id]);
+
   // Carrega perfis dos diaristas que aceitaram as diárias do empregador
   useEffect(() => {
     if (!diarias.length) return;
@@ -2031,6 +2134,197 @@ export default function App() {
     setConvitesEnviados(prev => prev.filter(c => c.id !== conviteId));
     setConfirmCancelarConvite(null);
     setToastSuccess("🗑️ Convite cancelado.");
+  };
+
+  // ── PAINEL ADMIN + TICKETS DE SUPORTE ────────────────────────────────────
+
+  // Stats agregadas — só admin executa (RLS no banco também valida)
+  const carregarAdminStats = async () => {
+    if (!profile?.is_admin) return;
+    setCarregandoAdminStats(true);
+    const { data, error } = await supabase.rpc("admin_stats");
+    if (!error && data?.[0]) setAdminStats(data[0] as AdminStats);
+    setCarregandoAdminStats(false);
+  };
+
+  // Carrega todos os tickets ordenados por última atualização (visão admin)
+  const carregarAdminTickets = async () => {
+    if (!profile?.is_admin) return;
+    const { data: tickets } = await supabase
+      .from("suporte_tickets")
+      .select("id, user_id, assunto, status, ultima_resposta_role, created_at, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(100);
+    if (!tickets?.length) { setAdminTickets([]); return; }
+    // Busca nomes dos donos pra exibir
+    const userIds = [...new Set(tickets.map((t: any) => t.user_id))];
+    const { data: perfis } = await supabase
+      .from("user_profiles")
+      .select("id, nome")
+      .in("id", userIds);
+    const mapaNomes = new Map((perfis || []).map((p: any) => [p.id, p.nome]));
+    setAdminTickets(tickets.map((t: any) => ({ ...t, user_nome: mapaNomes.get(t.user_id) || "Usuário" })));
+  };
+
+  // Carrega tickets do próprio usuário (visão user)
+  const carregarMeusTickets = async () => {
+    if (!session?.user?.id) return;
+    const { data } = await supabase
+      .from("suporte_tickets")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .order("updated_at", { ascending: false });
+    setMeusTickets((data || []) as SuporteTicket[]);
+  };
+
+  // Carrega o histórico de mensagens de um ticket
+  const carregarRespostasTicket = async (ticketId: string) => {
+    const { data } = await supabase
+      .from("suporte_respostas")
+      .select("*")
+      .eq("ticket_id", ticketId)
+      .order("created_at", { ascending: true });
+    setRespostasTicket((data || []) as SuporteResposta[]);
+  };
+
+  // Abre um ticket — busca dados + respostas + marca tela
+  const abrirTicket = async (t: SuporteTicket & { user_nome?: string }) => {
+    setTicketAtivo(t);
+    setRespostasTicket([]);
+    setNovaRespostaTicket("");
+    await carregarRespostasTicket(t.id);
+    setTela("ticket-conversa");
+  };
+
+  // Usuário cria novo ticket (modal "Falar com a equipe")
+  const criarTicketSuporte = async () => {
+    if (!session?.user || criandoTicket) return;
+    const assunto = formTicket.assunto.trim();
+    const mensagem = formTicket.mensagem.trim();
+    if (!assunto || !mensagem) { setToastError("Preencha o assunto e a mensagem."); return; }
+    if (assunto.length > 200) { setToastError("Assunto muito longo (máx 200 caracteres)."); return; }
+    if (mensagem.length > 4000) { setToastError("Mensagem muito longa (máx 4000 caracteres)."); return; }
+
+    setCriandoTicket(true);
+    const { data: ticket, error: e1 } = await supabase
+      .from("suporte_tickets")
+      .insert({ user_id: session.user.id, assunto })
+      .select()
+      .single();
+    if (e1 || !ticket) {
+      setCriandoTicket(false);
+      setToastError("Não foi possível abrir o ticket. Tente novamente.");
+      return;
+    }
+    const { error: e2 } = await supabase.from("suporte_respostas").insert({
+      ticket_id: ticket.id,
+      sender_id: session.user.id,
+      sender_role: "user",
+      mensagem,
+    });
+    setCriandoTicket(false);
+    if (e2) {
+      setToastError("Ticket criado, mas falha ao enviar a mensagem inicial.");
+      return;
+    }
+    setFormTicket({ assunto: "", mensagem: "" });
+    setModalNovoTicket(false);
+    setToastSuccess("✅ Ticket aberto! A equipe vai te responder em breve.");
+    trackEvento("ticket_suporte_aberto", session.user.id, modoAtual, { ticket_id: ticket.id });
+    await carregarMeusTickets();
+    await abrirTicket(ticket as SuporteTicket);
+  };
+
+  // Envia resposta no ticket aberto (user ou admin)
+  const enviarRespostaTicket = async () => {
+    if (!session?.user || !ticketAtivo || enviandoRespostaTicket) return;
+    const msg = novaRespostaTicket.trim();
+    if (!msg) return;
+    if (msg.length > 4000) { setToastError("Mensagem muito longa (máx 4000 caracteres)."); return; }
+    setEnviandoRespostaTicket(true);
+
+    const senderRole: "user" | "admin" =
+      profile?.is_admin && ticketAtivo.user_id !== session.user.id ? "admin" : "user";
+
+    const { error } = await supabase.from("suporte_respostas").insert({
+      ticket_id: ticketAtivo.id,
+      sender_id: session.user.id,
+      sender_role: senderRole,
+      mensagem: msg,
+    });
+    setEnviandoRespostaTicket(false);
+    if (error) {
+      setToastError("Falha ao enviar resposta. Tente de novo.");
+      return;
+    }
+    setNovaRespostaTicket("");
+    await carregarRespostasTicket(ticketAtivo.id);
+
+    // Se admin respondeu, dispara push pro usuário dono do ticket
+    if (senderRole === "admin") {
+      enviarPush(
+        [ticketAtivo.user_id],
+        "DiáriaJá — Suporte",
+        "A equipe respondeu seu ticket. Toque para abrir.",
+        { tipo: "mensagem", url: "/?tela=meus-tickets" },
+      );
+    }
+  };
+
+  // JSX reusável do modal de "Abrir novo ticket"
+  const modalNovoTicketJSX = modalNovoTicket && (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:600, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"20px 18px", width:"100%", maxWidth:380, maxHeight:"90vh", overflowY:"auto" as const }}>
+        <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:4 }}>💬 Abrir ticket</div>
+        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:14, lineHeight:1.5 }}>
+          Descreva sua dúvida ou problema. A equipe responde pelo próprio app — você vai receber notificação.
+        </div>
+        <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", display:"block", marginBottom:4, textTransform:"uppercase" as const, letterSpacing:0.3 }}>Assunto *</label>
+        <input
+          type="text"
+          value={formTicket.assunto}
+          onChange={e => setFormTicket(p => ({ ...p, assunto: e.target.value.slice(0, 200) }))}
+          placeholder="Ex: Não consigo confirmar diária"
+          maxLength={200}
+          style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, marginBottom:12, background:"var(--bg-app,#fff)", color:"var(--text-1,#0f172a)", outline:"none" }}
+        />
+        <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", display:"block", marginBottom:4, textTransform:"uppercase" as const, letterSpacing:0.3 }}>Mensagem *</label>
+        <textarea
+          value={formTicket.mensagem}
+          onChange={e => setFormTicket(p => ({ ...p, mensagem: e.target.value.slice(0, 4000) }))}
+          placeholder="Descreva com detalhes para a equipe te ajudar."
+          rows={5}
+          style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", resize:"vertical" as const, boxSizing:"border-box" as const, marginBottom:6, background:"var(--bg-app,#fff)", color:"var(--text-1,#0f172a)", outline:"none" }}
+        />
+        <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", textAlign:"right" as const, marginBottom:14 }}>
+          {formTicket.mensagem.length} / 4000
+        </div>
+        <button
+          disabled={criandoTicket || !formTicket.assunto.trim() || !formTicket.mensagem.trim()}
+          style={{ width:"100%", padding:"13px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:15, fontWeight:800, cursor: criandoTicket || !formTicket.assunto.trim() || !formTicket.mensagem.trim() ? "not-allowed" : "pointer", opacity: criandoTicket || !formTicket.assunto.trim() || !formTicket.mensagem.trim() ? .55 : 1, fontFamily:"Inter, system-ui, sans-serif", marginBottom:8 }}
+          onClick={criarTicketSuporte}>
+          {criandoTicket ? "Enviando..." : "Enviar ticket"}
+        </button>
+        <button
+          style={{ width:"100%", padding:"11px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+          onClick={() => { setModalNovoTicket(false); setFormTicket({ assunto: "", mensagem: "" }); }}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+
+  // Admin altera status do ticket
+  const atualizarStatusTicket = async (novoStatus: SuporteTicket["status"]) => {
+    if (!profile?.is_admin || !ticketAtivo) return;
+    const { error } = await supabase
+      .from("suporte_tickets")
+      .update({ status: novoStatus, updated_at: new Date().toISOString() })
+      .eq("id", ticketAtivo.id);
+    if (error) { setToastError("Falha ao atualizar status."); return; }
+    setTicketAtivo({ ...ticketAtivo, status: novoStatus });
+    setToastSuccess(`✅ Ticket marcado como ${novoStatus}.`);
+    await carregarAdminTickets();
   };
 
   // ── COMUNIDADE ───────────────────────────────────────────────────────────
@@ -3600,7 +3894,8 @@ export default function App() {
           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Informações</div>
           <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
             {[
-              { icon:"🎧", label:"Suporte", sub:"Fale com nossa equipe", action:() => setTela("suporte") },
+              { icon:"🎧", label:"Suporte", sub:"Fale com nossa equipe ou abra um ticket", action:() => setTela("suporte") },
+              { icon:"📨", label:"Meus tickets", sub:"Veja o histórico de chamados que você abriu", action:() => { carregarMeusTickets(); setTela("meus-tickets"); } },
               { icon:"ℹ️", label:"Quem somos", sub:"Conheça o DiáriaJá", action:() => setModalQuemSomos(true) },
               { icon:"📄", label:"Termos de uso", sub:"Leia nossos termos e políticas", action:() => setMostrarTermos(true) },
               { icon:"🔒", label:"Política de Privacidade", sub:"Como tratamos seus dados (LGPD)", action:() => setTela("politica-privacidade") },
@@ -3617,6 +3912,31 @@ export default function App() {
             ))}
           </div>
         </div>
+
+        {/* Painel Admin — só aparece pra is_admin */}
+        {profile?.is_admin && (
+          <div style={{ padding:"12px 16px 4px" }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"#FF6B35", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>👑 Administração</div>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", cursor:"pointer" }}
+                onClick={() => { setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); setTela("admin-painel"); }}>
+                <div style={{ width:40, height:40, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", display:"flex", alignItems:"center", gap:8 }}>
+                    Painel Admin
+                    {ticketsNovos > 0 && (
+                      <span style={{ background:"#ef4444", color:"#fff", borderRadius:10, padding:"2px 8px", fontSize:11, fontWeight:900 }}>
+                        {ticketsNovos > 9 ? "9+" : ticketsNovos}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Usuários, métricas e tickets de suporte</div>
+                </div>
+                <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Zona de perigo */}
         <div style={{ padding:"12px 16px 4px" }}>
@@ -4038,6 +4358,32 @@ export default function App() {
           </div>
         </div>
 
+        {/* Abrir ticket / ver tickets — chat 1-on-1 com a equipe */}
+        <div style={{ padding:"4px 16px 8px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Chamado interno</div>
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", marginBottom:10 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
+              <div style={{ width:42, height:42, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>💬</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Falar com a equipe</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Abra um ticket — respondemos pelo app.</div>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button
+                style={{ flex:1, padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 2px 8px rgba(255,107,53,.3)" }}
+                onClick={() => { hapticTick(); setFormTicket({ assunto: "", mensagem: "" }); setModalNovoTicket(true); }}>
+                + Abrir novo ticket
+              </button>
+              <button
+                style={{ flex:1, padding:"11px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => { hapticTick(); carregarMeusTickets(); setTela("meus-tickets"); }}>
+                📨 Meus tickets
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* FAQ */}
         <div style={{ padding:"16px 16px 8px" }}>
           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Perguntas frequentes</div>
@@ -4120,6 +4466,7 @@ export default function App() {
           </div>
         </div>
       )}
+      {modalNovoTicketJSX}
       </>
     );
   }
@@ -10594,6 +10941,281 @@ export default function App() {
 
   // chat mock: removido — use o chat real em home-empregador/home-diarista
   if (tela === "chat") { setTela("home-empregador"); return null; }
+
+  // ── PAINEL ADMIN ────────────────────────────────────────────────────────────
+  if (tela === "admin-painel") {
+    if (!profile?.is_admin) { setTela("configuracoes"); return null; }
+    const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    const tk = adminTickets;
+    const cardStat = (label: string, valor: number | string, cor: string, icone: string) => (
+      <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:10 }}>
+        <div style={{ width:40, height:40, background:cor+"22", color:cor, borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{icone}</div>
+        <div>
+          <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>{label}</div>
+          <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1 }}>{valor}</div>
+        </div>
+      </div>
+    );
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        {/* Header */}
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#FF6B35)", padding:"48px 20px 24px" }}>
+          <button style={{ background:"none", border:"none", color:"#fff", opacity:.85, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
+            ← Voltar
+          </button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:50, height:50, background:"rgba(255,255,255,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26 }}>👑</div>
+            <div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Painel Admin</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.85)" }}>Visão geral e suporte</div>
+            </div>
+            <button
+              title="Recarregar"
+              style={{ marginLeft:"auto", background:"rgba(255,255,255,.15)", border:"none", color:"#fff", borderRadius:10, padding:"8px 12px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+              onClick={() => { carregarAdminStats(); carregarAdminTickets(); }}>
+              {carregandoAdminStats ? "⏳" : "🔄"}
+            </button>
+          </div>
+        </div>
+
+        {/* Stats em grid */}
+        <div style={{ padding:"16px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Visão geral</div>
+          {adminStats ? (
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              {cardStat("Usuários", adminStats.total_usuarios, "#3A86FF", "👥")}
+              {cardStat("Online agora", adminStats.online_agora, "#16a34a", "🟢")}
+              {cardStat("Novos hoje", adminStats.novos_hoje, "#FF6B35", "✨")}
+              {cardStat("Últimos 7 dias", adminStats.novos_semana, "#a855f7", "📈")}
+              {cardStat("Diárias ativas", adminStats.diarias_ativas, "#f59e0b", "💼")}
+              {cardStat("Tickets abertos", adminStats.tickets_abertos, "#ef4444", "📨")}
+            </div>
+          ) : (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              {carregandoAdminStats ? "Carregando estatísticas…" : "Toque em 🔄 pra carregar."}
+            </div>
+          )}
+        </div>
+
+        {/* Lista de tickets */}
+        <div style={{ padding:"4px 16px 16px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>Tickets de suporte</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{tk.length} total</div>
+          </div>
+          {tk.length === 0 ? (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              📭 Sem tickets abertos.
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {tk.map(t => {
+                const corStatus =
+                  t.status === "aberto"            ? "#ef4444" :
+                  t.status === "aguardando_user"   ? "#f59e0b" :
+                  t.status === "resolvido"         ? "#16a34a" : "#94a3b8";
+                const labelStatus =
+                  t.status === "aberto"            ? "Aberto" :
+                  t.status === "aguardando_user"   ? "Aguardando user" :
+                  t.status === "resolvido"         ? "Resolvido" : "Fechado";
+                const novaDoUser = t.ultima_resposta_role === "user" && (t.status === "aberto" || t.status === "aguardando_user");
+                return (
+                  <div key={t.id}
+                    style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer", borderLeft:`4px solid ${corStatus}` }}
+                    onClick={() => abrirTicket(t)}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const, display:"flex", alignItems:"center", gap:6 }}>
+                          {novaDoUser && <span style={{ width:8, height:8, borderRadius:4, background:"#ef4444", flexShrink:0 }} />}
+                          {t.assunto}
+                        </div>
+                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                          {t.user_nome} · {new Date(t.updated_at).toLocaleDateString("pt-BR")} {new Date(t.updated_at).toLocaleTimeString("pt-BR", {hour:"2-digit",minute:"2-digit"})}
+                        </div>
+                      </div>
+                      <span style={{ background:corStatus+"22", color:corStatus, fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>{labelStatus}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── MEUS TICKETS (visão do usuário comum) ───────────────────────────────────
+  if (tela === "meus-tickets") {
+    const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
+          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
+            ← Voltar
+          </button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>📨</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Meus tickets</div>
+              <div style={{ fontSize:13, color:"#94a3b8" }}>Conversas com a equipe de suporte</div>
+            </div>
+            <button
+              style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"8px 12px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+              onClick={() => { setFormTicket({ assunto: "", mensagem: "" }); setModalNovoTicket(true); }}>
+              + Novo
+            </button>
+          </div>
+        </div>
+        <div style={{ padding:"16px" }}>
+          {meusTickets.length === 0 ? (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"28px 20px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              <div style={{ fontSize:36, marginBottom:10 }}>📭</div>
+              <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Você ainda não abriu tickets</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16, lineHeight:1.5 }}>
+                Precisa de ajuda? Abra um ticket e a equipe responde direto pelo app.
+              </div>
+              <button
+                style={{ padding:"12px 20px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => { setFormTicket({ assunto: "", mensagem: "" }); setModalNovoTicket(true); }}>
+                + Abrir primeiro ticket
+              </button>
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {meusTickets.map(t => {
+                const corStatus =
+                  t.status === "aberto"            ? "#ef4444" :
+                  t.status === "aguardando_user"   ? "#f59e0b" :
+                  t.status === "resolvido"         ? "#16a34a" : "#94a3b8";
+                const labelStatus =
+                  t.status === "aberto"            ? "Aberto" :
+                  t.status === "aguardando_user"   ? "Aguardando você" :
+                  t.status === "resolvido"         ? "Resolvido" : "Fechado";
+                const respostaNova = t.ultima_resposta_role === "admin" && t.status === "aguardando_user";
+                return (
+                  <div key={t.id}
+                    style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer", borderLeft:`4px solid ${corStatus}` }}
+                    onClick={() => abrirTicket(t)}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const, display:"flex", alignItems:"center", gap:6 }}>
+                          {respostaNova && <span style={{ width:8, height:8, borderRadius:4, background:"#FF6B35", flexShrink:0 }} />}
+                          {t.assunto}
+                        </div>
+                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                          {new Date(t.updated_at).toLocaleDateString("pt-BR")} {new Date(t.updated_at).toLocaleTimeString("pt-BR", {hour:"2-digit",minute:"2-digit"})}
+                        </div>
+                      </div>
+                      <span style={{ background:corStatus+"22", color:corStatus, fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>{labelStatus}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {modalNovoTicketJSX}
+      </div>
+    );
+  }
+
+  // ── CONVERSA DO TICKET (user ou admin) ──────────────────────────────────────
+  if (tela === "ticket-conversa") {
+    if (!ticketAtivo) { setTela(profile?.is_admin ? "admin-painel" : "meus-tickets"); return null; }
+    const isAdminView = !!profile?.is_admin && ticketAtivo.user_id !== session?.user?.id;
+    const voltarTela = isAdminView ? "admin-painel" : "meus-tickets";
+    const corStatus =
+      ticketAtivo.status === "aberto"            ? "#ef4444" :
+      ticketAtivo.status === "aguardando_user"   ? "#f59e0b" :
+      ticketAtivo.status === "resolvido"         ? "#16a34a" : "#94a3b8";
+    const labelStatus =
+      ticketAtivo.status === "aberto"            ? "Aberto" :
+      ticketAtivo.status === "aguardando_user"   ? "Aguardando " + (isAdminView ? "usuário" : "você") :
+      ticketAtivo.status === "resolvido"         ? "Resolvido" : "Fechado";
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column" }}>
+        {/* Header */}
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"40px 16px 16px", position:"sticky", top:0, zIndex:5 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+            <button style={{ background:"none", border:"none", color:"#fff", fontSize:22, cursor:"pointer", padding:0 }} onClick={() => { setTicketAtivo(null); setTela(voltarTela); }}>←</button>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:15, fontWeight:900, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>{ticketAtivo.assunto}</div>
+              <div style={{ fontSize:11, color:"#94a3b8" }}>
+                {isAdminView ? (ticketAtivo.user_nome || "Usuário") : "Ticket #" + ticketAtivo.id.slice(0,8)}
+              </div>
+            </div>
+            <span style={{ background:corStatus+"33", color:"#fff", fontSize:10, fontWeight:900, borderRadius:8, padding:"4px 8px", textTransform:"uppercase" as const, letterSpacing:0.3 }}>{labelStatus}</span>
+          </div>
+          {isAdminView && ticketAtivo.status !== "resolvido" && ticketAtivo.status !== "fechado" && (
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" as const, marginTop:6 }}>
+              <button
+                style={{ padding:"6px 10px", background:"rgba(34,197,94,.2)", color:"#22c55e", border:"none", borderRadius:8, fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => atualizarStatusTicket("resolvido")}>✅ Marcar resolvido</button>
+              <button
+                style={{ padding:"6px 10px", background:"rgba(148,163,184,.2)", color:"#94a3b8", border:"none", borderRadius:8, fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => atualizarStatusTicket("fechado")}>🗄️ Fechar</button>
+            </div>
+          )}
+        </div>
+
+        {/* Mensagens */}
+        <div style={{ flex:1, padding:"14px 12px", overflowY:"auto" as const, display:"flex", flexDirection:"column", gap:10 }}>
+          {respostasTicket.length === 0 ? (
+            <div style={{ textAlign:"center" as const, color:"var(--text-3,#94a3b8)", fontSize:13, padding:"40px 20px" }}>Carregando mensagens…</div>
+          ) : (
+            respostasTicket.map(r => {
+              const isMe = r.sender_id === session?.user?.id;
+              const isAdminMsg = r.sender_role === "admin";
+              return (
+                <div key={r.id} style={{ display:"flex", justifyContent: isMe ? "flex-end" : "flex-start" }}>
+                  <div style={{
+                    maxWidth:"82%",
+                    background: isMe ? "linear-gradient(135deg,#FF6B35,#f59e0b)" : (isAdminMsg ? "#3A86FF" : "var(--bg-card,#fff)"),
+                    color: isMe || isAdminMsg ? "#fff" : "var(--text-1,#0f172a)",
+                    padding:"10px 13px", borderRadius: isMe ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                    boxShadow: isMe || isAdminMsg ? "none" : "0 1px 4px rgba(0,0,0,.08)",
+                    fontSize:14, lineHeight:1.45, whiteSpace:"pre-wrap" as const, wordBreak:"break-word" as const,
+                  }}>
+                    {!isMe && isAdminMsg && (
+                      <div style={{ fontSize:10, fontWeight:900, opacity:.85, marginBottom:4, textTransform:"uppercase" as const, letterSpacing:0.5 }}>🛟 Equipe DiáriaJá</div>
+                    )}
+                    {r.mensagem}
+                    <div style={{ fontSize:10, opacity:.7, marginTop:4, textAlign:"right" as const }}>
+                      {new Date(r.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Composer */}
+        {(ticketAtivo.status === "aberto" || ticketAtivo.status === "aguardando_user") ? (
+          <div style={{ padding:"10px 12px", borderTop:"1px solid var(--border-sub,#f1f5f9)", background:"var(--bg-card,#fff)", display:"flex", gap:8 }}>
+            <textarea
+              value={novaRespostaTicket}
+              onChange={e => setNovaRespostaTicket(e.target.value.slice(0, 4000))}
+              placeholder={isAdminView ? "Responder ao usuário…" : "Digite sua mensagem…"}
+              rows={2}
+              style={{ flex:1, padding:"10px 12px", borderRadius:10, border:"1px solid var(--border,#e2e8f0)", fontSize:14, resize:"vertical" as const, fontFamily:"Inter, system-ui, sans-serif", background:"var(--bg-app,#fff)", color:"var(--text-1,#0f172a)", outline:"none" }}
+            />
+            <button
+              disabled={enviandoRespostaTicket || !novaRespostaTicket.trim()}
+              style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"0 16px", fontSize:14, fontWeight:800, cursor: enviandoRespostaTicket || !novaRespostaTicket.trim() ? "not-allowed" : "pointer", opacity: enviandoRespostaTicket || !novaRespostaTicket.trim() ? .5 : 1, fontFamily:"Inter, system-ui, sans-serif" }}
+              onClick={enviarRespostaTicket}>
+              {enviandoRespostaTicket ? "⏳" : "➤"}
+            </button>
+          </div>
+        ) : (
+          <div style={{ padding:"14px 16px", borderTop:"1px solid var(--border-sub,#f1f5f9)", background:"var(--bg-card,#fff)", textAlign:"center" as const, fontSize:13, color:"var(--text-2,#64748b)" }}>
+            Este ticket está {ticketAtivo.status === "resolvido" ? "resolvido" : "fechado"} — sem novas mensagens.
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // ── COMUNIDADE ──────────────────────────────────────────────────────────────
   if (tela === "comunidade") {

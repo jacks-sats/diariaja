@@ -77,6 +77,8 @@ export interface UserProfile {
   documento_url?: string;
   documento_enviado_em?: string;
   documento_revisado_em?: string;
+  // Heartbeat de presença (painel admin "online agora")
+  last_activity_at?: string;
 }
 
 // ── Sistema de níveis de confiabilidade ────────────────────────────────────
@@ -171,4 +173,33 @@ export interface ReputacaoEmpregador {
   nota_media: number | null;        // 1.0–5.0
   pct_pagou_combinado: number | null;   // 0–100, null se ninguém respondeu ainda
   pct_cumpriu_combinado: number | null;
+}
+
+// ── Suporte por tickets (painel admin) ──────────────────────────────────────
+export interface SuporteTicket {
+  id: string;
+  user_id: string;
+  assunto: string;
+  status: "aberto" | "aguardando_user" | "resolvido" | "fechado";
+  ultima_resposta_role: "user" | "admin" | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SuporteResposta {
+  id: string;
+  ticket_id: string;
+  sender_id: string;
+  sender_role: "user" | "admin";
+  mensagem: string;
+  created_at: string;
+}
+
+export interface AdminStats {
+  total_usuarios: number;
+  online_agora: number;
+  novos_hoje: number;
+  novos_semana: number;
+  tickets_abertos: number;
+  diarias_ativas: number;
 }
