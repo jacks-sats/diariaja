@@ -10,6 +10,7 @@
 //   APP_URL          → URL pública do app
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { rateLimitOrReject } from "../_shared/rate-limit.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -46,6 +47,15 @@ Deno.serve(async (req) => {
     if (user.id !== empregador_id) {
       return json({ error: "Não autorizado para este empregador." }, 403);
     }
+
+    // Rate-limit: 3 tentativas / 60s. Impede que o usuário gere dezenas
+    // de preferências MP em sequência (desperdício de cota do MP + ataque
+    // de spam de checkout URLs).
+    const blocked = await rateLimitOrReject(
+      { key: `contact-unlock:user:${user.id}`, max: 3, windowSeconds: 60, corsHeaders: CORS },
+      supabaseUser,
+    );
+    if (blocked) return blocked;
 
     // Cria preferência de R$ 1,00 para desbloqueio de contato.
     // P1-6 auditoria: antes a key truncava em `slice(0, 13)` (até a hora) — dois

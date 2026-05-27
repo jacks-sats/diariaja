@@ -109,9 +109,10 @@ serve(async (req) => {
     await supabaseAdmin.from("diarias").update({ diarista_aceite_id: null }).eq("diarista_aceite_id", userId);
     await supabaseAdmin.from("diarias").delete().eq("empregador_id", userId);
 
-    // 2. Apaga arquivos do storage (avatares + documentos KYC)
-    // Lista e remove TUDO dentro de avatars/{userId}/ e documentos/{userId}/.
-    for (const bucket of ["avatars", "documentos"]) {
+    // 2. Apaga arquivos do storage (avatares + KYC RG/CNH + antecedentes criminais)
+    // Lista e remove TUDO dentro de avatars/{userId}/, documentos/{userId}/ e
+    // antecedentes/{userId}/.
+    for (const bucket of ["avatars", "documentos", "antecedentes"]) {
       try {
         const { data: files } = await supabaseAdmin.storage.from(bucket).list(userId);
         if (files && files.length > 0) {

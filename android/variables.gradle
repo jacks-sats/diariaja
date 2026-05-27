@@ -1,7 +1,9 @@
 ext {
     minSdkVersion = 22
-    compileSdkVersion = 34
-    targetSdkVersion = 34
+    // Play exige compileSdk/targetSdk = 35 (Android 15) pra apps novos
+    // desde 31-ago-2025 e pra updates desde 1-nov-2025.
+    compileSdkVersion = 35
+    targetSdkVersion = 35
     androidxActivityVersion = '1.8.0'
     androidxAppCompatVersion = '1.7.1'
     androidxCoordinatorLayoutVersion = '1.3.0'

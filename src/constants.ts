@@ -131,65 +131,111 @@ export const MEDIAS_CAMPO_GRANDE: Record<string, { min: number; max: number; med
   "Esteticista":                { min: 130, max: 250, media: 180 },
 };
 
-// ── Planos de assinatura ─────────────────────────────────────────────────────
+// ── Planos de assinatura — Modelo Dual Track 2026-05 ─────────────────────────
+// IMPORTANTE: cada usuário tem assinatura SEPARADA por papel (diarista/empregador).
+// Quem é "ambos" pode ter Essencial diarista (R$9,90) + Plus empregador (R$49,90)
+// ao mesmo tempo. Fonte da verdade: tabela `assinaturas(user_id, user_type, plano)`.
+// O campo legado `user_profiles.plano_ativo` ainda é lido por retrocompat mas
+// será deprecated em fase futura.
+//
+// 'pro' (legado) → 'plus' (novo nome). Migration faz UPDATE automático.
+// 'destaque' (legado diarista) → 'plus'. Migration faz UPDATE automático.
 export const PLANOS_EMPREGADOR = [
   {
     id: "gratis", nome: "Grátis", valor: 0, cor: "#64748b",
-    vagas_mes: Infinity,             // vagas ilimitadas; limite é em seleções de candidato
-    contatos_mes: 3,                 // até 3 seleções/mês; além disso R$ 1 por contato
+    vagas_mes: Infinity,
+    matches_gratis_mes: 3,                 // até 3 seleções/mês; após R$1 por extra
+    descricao: "Pra começar a contratar sem custo",
     recursos: [
-      "3 seleções de candidato/mês",
       "Vagas ilimitadas",
-      "Candidatos ilimitados por vaga",
-      "Chat após seleção",
-      "Avaliações",
+      "Até 5 candidatos por vaga",
+      "3 matches grátis por mês",
+      "Depois disso, R$ 1 por seleção extra",
+      "Chat liberado só após match confirmado",
     ],
     destaque: false, badge: false,
   },
   {
-    id: "essencial", nome: "Essencial", valor: 49, cor: "#3A86FF",
+    id: "essencial", nome: "Essencial", valor: 24.90, cor: "#3A86FF",
     vagas_mes: Infinity,
-    contatos_mes: Infinity,
-    descricao: "Para restaurantes, condomínios, clínicas e eventos recorrentes",
+    matches_gratis_mes: Infinity,
+    descricao: "Pra quem contrata com frequência",
     recursos: [
-      "Seleções ilimitadas de candidato",
-      "Vagas ilimitadas",
-      "Badge verificado ✅",
-      "Candidatos ilimitados",
-      "Chat com diarista",
-      "Avaliações",
+      "Tudo do Grátis",
+      "Matches ilimitados (sem R$1)",
+      "IA Jájá pra criar vagas em segundos",
+      "Filtros avançados",
+      "Favoritos de diaristas",
+      "Histórico de contratações",
+      "Destaque moderado nas vagas",
     ],
-    destaque: false, badge: true, popular: false,
+    destaque: false, badge: true, popular: true,
   },
   {
-    id: "pro", nome: "Pro", valor: 99, cor: "#FF6B35",
+    id: "plus", nome: "Plus", valor: 49.90, cor: "#FF6B35",
     vagas_mes: Infinity,
-    contatos_mes: Infinity,
-    descricao: "Para empresas com demanda recorrente e alto volume",
+    matches_gratis_mes: Infinity,
+    descricao: "Pra empresas e contratação recorrente",
     recursos: [
       "Tudo do Essencial",
-      "Vagas em destaque 🔥",
-      "Aparece primeiro nas buscas",
-      "Profissionais favoritos",
-      "Relatório de candidatos",
-      "Suporte prioritário",
+      "Prioridade máxima nas vagas (topo da lista)",
+      "Vagas impulsionadas",
+      "Convites diretos ilimitados",
+      "Automações de vagas recorrentes",
+      "Multi-endereço",
+      "Relatórios simples",
+      "Selo Contratante Verificado",
     ],
-    destaque: true, badge: true, popular: true,
+    destaque: true, badge: true, popular: false,
   },
 ] as const;
 
 export const PLANOS_DIARISTA = [
   {
     id: "gratis", nome: "Grátis", valor: 0, cor: "#64748b",
-    recursos: ["Aparece na listagem", "Candidatura a vagas", "Chat com empregador", "Avaliações"],
+    descricao: "Use completo, sem limite de tempo",
+    recursos: [
+      "Candidaturas ilimitadas",
+      "Receber matches",
+      "Chat após confirmação",
+      "Curso interno (Já Decola)",
+      "Níveis de confiança",
+      "Primeiras 3 diárias concluídas grátis",
+    ],
     destaque: false,
   },
   {
-    id: "destaque", nome: "Destaque ⭐", valor: 19, cor: "#FF6B35",
-    recursos: ["Aparece em 1º nas buscas", "Badge ⭐ Destaque no perfil", "Mais visibilidade para empregadores", "Candidatura prioritária"],
-    destaque: true, popular: true,
+    id: "essencial", nome: "Essencial", valor: 9.90, cor: "#3A86FF",
+    descricao: "Pra continuar recebendo oportunidades depois das primeiras diárias",
+    recursos: [
+      "Diárias ilimitadas",
+      "Prioridade moderada nas buscas",
+      "Selo Profissional no perfil",
+      "IA assistente pra montar bio e respostas",
+      "Boost semanal de visibilidade",
+      "Notificações antecipadas de vagas",
+    ],
+    destaque: false, badge: true, popular: true,
+  },
+  {
+    id: "plus", nome: "Plus", valor: 19.90, cor: "#FF6B35",
+    descricao: "Pra quem quer aparecer primeiro e fechar mais diárias",
+    recursos: [
+      "Tudo do Essencial",
+      "Topo da lista nas buscas",
+      "Boost diário de visibilidade",
+      "Destaque Premium no perfil",
+      "IA avançada (sugestões personalizadas)",
+      "Prioridade máxima em convites",
+      "Selo Alta Confiabilidade",
+    ],
+    destaque: true, popular: false,
   },
 ] as const;
+
+// Tipo dos IDs de plano — usado pelos hooks e validações.
+export type PlanoId = "gratis" | "essencial" | "plus";
+export type RoleAssinatura = "diarista" | "empregador";
 
 // ── Dias da semana ────────────────────────────────────────────────────────────
 export const DIAS = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"];

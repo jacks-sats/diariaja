@@ -28,6 +28,22 @@ function timingSafeEqualHex(a: string, b: string): boolean {
   return diff === 0;
 }
 
+// Pseudonimiza ID antes de logar — primeiros 8 chars do SHA-256 hex.
+// Suficiente pra correlacionar eventos do mesmo user/payment sem vazar
+// o identificador real em dump de logs do Supabase (retidos ~7 dias e
+// acessíveis a qualquer dev com acesso ao painel).
+async function pseudo(id: string | undefined | null): Promise<string> {
+  if (!id) return "—";
+  try {
+    const buf = new TextEncoder().encode(String(id));
+    const hash = await crypto.subtle.digest("SHA-256", buf);
+    const arr = Array.from(new Uint8Array(hash));
+    return arr.slice(0, 4).map(b => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return "—";
+  }
+}
+
 // Valida a assinatura HMAC-SHA256 enviada pelo MP no header x-signature
 async function validarAssinatura(req: Request, body: string): Promise<boolean> {
   // Fail-closed: sem secret em produção a função não aceita nada.
@@ -171,7 +187,7 @@ Deno.serve(async (req) => {
           .eq("id", userId);
       }
 
-      console.log(`Assinatura ${subId}: ${novoStatus} (user ${userId}, plano ${plano})`);
+      console.log(`Assinatura ${await pseudo(subId)}: ${novoStatus} (user ${await pseudo(userId)}, plano ${plano})`);
       return new Response("ok", { status: 200 });
     }
 
@@ -189,11 +205,28 @@ Deno.serve(async (req) => {
       if (!payment.external_reference) return new Response("ok", { status: 200 });
 
       // ── Desbloqueio de contato (R$ 1) ──────────────────────────
-      // O cliente é redirecionado para /?contato_desbloqueado=sucesso
-      // e controla o contador via localStorage. O webhook apenas loga.
+      // Registra na tabela `contatos_desbloqueios` para que o cliente saiba
+      // quantos extras foram comprados no mês. UNIQUE em mp_payment_id
+      // garante idempotência mesmo com retries do webhook do MP.
       if (String(payment.external_reference).startsWith("contact_unlock::")) {
         const userId = String(payment.external_reference).split("::")[1] ?? "";
-        console.log(`Contato desbloqueado: user=${userId} payment=${paymentId} status=${payment.status}`);
+        if (payment.status === "approved" && userId) {
+          const { error: insErr } = await supabase
+            .from("contatos_desbloqueios")
+            .insert({
+              empregador_id:         userId,
+              mp_payment_id:         String(paymentId),
+              mp_external_reference: String(payment.external_reference),
+            });
+          // Erro de duplicidade (UNIQUE) é esperado em retries — ignora.
+          // Outros erros vamos logar pra debugging mas não bloqueamos o webhook
+          // (200 OK pra MP não ficar retentando indefinidamente).
+          if (insErr && !String(insErr.message ?? "").toLowerCase().includes("duplicate")) {
+            console.error(`[mp-webhook] insert contato_desbloqueio falhou:`, insErr);
+          }
+        } else {
+          console.log(`[mp-webhook] contact_unlock ignored: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
+        }
         return new Response("ok", { status: 200 });
       }
 
@@ -235,7 +268,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      console.log(`Pagamento ${paymentId}: ${novoStatus} (diária ${diariaId})`);
+      console.log(`Pagamento ${await pseudo(String(paymentId))}: ${novoStatus} (diária ${await pseudo(String(diariaId))})`);
       return new Response("ok", { status: 200 });
     }
 

@@ -69,6 +69,9 @@ import {
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
+import { usePlan } from "./hooks/usePlan";
+import { useLimits } from "./hooks/useLimits";
+import { usePermissions } from "./hooks/usePermissions";
 
 // ── Analytics: registra eventos de uso no Supabase ──────────────────────────
 async function trackEvento(
@@ -314,10 +317,19 @@ export default function App() {
   const [docPreview, setDocPreview]               = useState<string | null>(null);
   const [docTipo, setDocTipo]                     = useState<"rg"|"cnh">("rg");
   const [enviandoDoc, setEnviandoDoc]             = useState(false);
+  // Antecedentes criminais — PDF (ou imagem) da certidão negativa
+  const [antecedentesFile, setAntecedentesFile]   = useState<File | null>(null);
+  const [antecedentesPreview, setAntecedentesPreview] = useState<string | null>(null);
+  const [enviandoAntecedentes, setEnviandoAntecedentes] = useState(false);
   const [adminDocsPendentes, setAdminDocsPendentes] = useState<{user_id:string; nome:string; user_type:string; documento_url:string; documento_enviado_em:string}[]>([]);
   const [docRevisao, setDocRevisao]               = useState<{user_id:string; nome:string; url:string; signedUrl?:string} | null>(null);
   const [docMotivoRejeicao, setDocMotivoRejeicao] = useState("");
   const [revisandoDoc, setRevisandoDoc]           = useState(false);
+  // Admin — revisão de antecedentes criminais (espelha o de KYC)
+  const [adminAntecedentesPendentes, setAdminAntecedentesPendentes] = useState<{user_id:string; nome:string; user_type:string; antecedentes_url:string; antecedentes_enviado_em:string}[]>([]);
+  const [antecedentesRevisao, setAntecedentesRevisao] = useState<{user_id:string; nome:string; url:string; signedUrl?:string} | null>(null);
+  const [antecedentesMotivoRejeicao, setAntecedentesMotivoRejeicao] = useState("");
+  const [revisandoAntecedentes, setRevisandoAntecedentes] = useState(false);
 
   // Filtro/sort de vagas (diarista)
   const [modalFiltro, setModalFiltro] = useState(false);
@@ -354,17 +366,38 @@ export default function App() {
   const [modalPix, setModalPix] = useState<Diaria | null>(null);
   // State modalPagamentoMP removido — DiáriaJá não intermedia valor da diária.
   // State criandoPagamento removido junto com iniciarPagamentoMP.
-  const [assinatura, setAssinatura] = useState<Assinatura | null>(null);
+  // Dual track: usuário 'ambos' pode ter 2 assinaturas ativas (1 diarista + 1
+  // empregador). A fonte da verdade é a tabela `assinaturas`. O campo legado
+  // `user_profiles.plano_ativo` ainda existe mas será deprecated.
+  const [assinaturas, setAssinaturas] = useState<Assinatura[]>([]);
+  // Diárias CONCLUÍDAS como diarista (vitalício) — usado pra CTA de upgrade.
+  // Carregado via RPC `contar_diarias_concluidas_diarista`.
+  const [diariasConcluidasComoDiarista, setDiariasConcluidasComoDiarista] = useState<number>(0);
   const [criandoAssinatura, setCriandoAssinatura] = useState(false);
   const [modalLimiteContato, setModalLimiteContato] = useState(false);
   const [desbloqueandoContato, setDesbloqueandoContato] = useState(false);
-  // Contatos desbloqueados via R$ 1 neste mês (persiste em localStorage)
-  const [contatosDesbloqueados, setContatosDesbloqueados] = useState<number>(() => {
-    try {
-      const chave = "diariaja_contatos_desblo_" + new Date().toISOString().slice(0, 7);
-      return parseInt(localStorage.getItem(chave) || "0", 10);
-    } catch { return 0; }
-  });
+  // Contatos desbloqueados (pagos R$ 1 via MP) neste mês.
+  // Source of truth: tabela `contatos_desbloqueios` no banco. Antes morava em
+  // localStorage, mas era manipulável (URL `?contato_desbloqueado=sucesso`
+  // incrementava sem confirmação server-side). Hoje o mp-webhook INSERT na
+  // tabela; o client lê via RPC `contar_contatos_desbloqueados_mes`.
+  const [contatosDesbloqueados, setContatosDesbloqueados] = useState<number>(0);
+  // ── Bloqueio de usuário (UGC safety — Play Policy) ────────────────────────
+  // Set de alvo_id de quem o usuário atual bloqueou. Carregado no login;
+  // re-buscado quando o user bloqueia/desbloqueia alguém.
+  const [usuariosBloqueados, setUsuariosBloqueados] = useState<Set<string>>(new Set());
+  const [modalBloquear, setModalBloquear] = useState<{ id: string; nome: string } | null>(null);
+  const [modalConfirmDesbloq, setModalConfirmDesbloq] = useState<{ id: string; nome: string } | null>(null);
+  const [bloqueando, setBloqueando] = useState(false);
+
+  // ── Hooks centrais de monetização ─────────────────────────────────────────
+  // Único ponto de verdade no client pra: plano ativo por papel, limites de
+  // uso, e gates de feature. Sempre que precisar checar "o usuário pode X?",
+  // use `permissions.*` (ou consulte `pode_selecionar_candidato` no banco
+  // pra decisões críticas — ele é a fonte oficial).
+  const plans       = usePlan(assinaturas);
+  const limits      = useLimits(plans, diarias, contatosDesbloqueados, diariasConcluidasComoDiarista);
+  const permissions = usePermissions(plans);
 
   // Novas features v2
   const [modalTermoCiencia, setModalTermoCiencia] = useState<{diaria: Diaria, diaristaId: string} | null>(null);
@@ -510,6 +543,59 @@ export default function App() {
     4: ["aceitaTermos"],
   };
 
+  // ── Cadastro Diarista (PF) — Wizard de 4 passos ─────────────────────────
+  // Usa o `form` global como fonte de verdade (já compartilhado com editar-perfil),
+  // mas adiciona estado próprio de wizard: passo atual, erros tocados, termos.
+  type CampoDia = "foto" | "nome" | "sexo" | "dataNasc" | "telefone" | "cpf"
+                | "categorias" | "valor" | "pixChave" | "agenda" | "aceitaTermos";
+  const [passoDiarista, setPassoDiarista] = useState<1 | 2 | 3 | 4>(() => {
+    try {
+      const v = Number(localStorage.getItem("diariaja_cad_diarista_passo"));
+      if (v >= 1 && v <= 4) return v as 1 | 2 | 3 | 4;
+    } catch { /* ignore */ }
+    return 1;
+  });
+  useEffect(() => {
+    try { localStorage.setItem("diariaja_cad_diarista_passo", String(passoDiarista)); } catch { /* ignore */ }
+  }, [passoDiarista]);
+  const [errosDia, setErrosDia] = useState<Partial<Record<CampoDia, string>>>({});
+  const [tocadosDia, setTocadosDia] = useState<Partial<Record<CampoDia, boolean>>>({});
+  const [submittingDia, setSubmittingDia] = useState(false);
+  const [aceitaTermosDia, setAceitaTermosDia] = useState(false);
+  // Mapeamento de campos por passo do wizard PF (diarista) — usado pra validar
+  // incrementalmente e avançar.
+  const CAMPOS_POR_PASSO_DIA: Record<1 | 2 | 3 | 4, CampoDia[]> = {
+    1: ["foto", "nome", "sexo", "dataNasc"],
+    2: ["telefone", "cpf"],
+    3: ["categorias", "valor", "pixChave"],
+    4: ["agenda", "aceitaTermos"],
+  };
+
+  // ── Cadastro Empregador PF — Wizard de 3 passos ─────────────────────────
+  // Mesma estratégia: usa `form` global + estado próprio de wizard.
+  type CampoEmpPF = "nome" | "telefone" | "cpf" | "nomeNegocio" | "segmento"
+                  | "cep" | "endereco" | "aceitaTermos";
+  const [passoEmpregadorPF, setPassoEmpregadorPF] = useState<1 | 2 | 3 | 4>(() => {
+    try {
+      const v = Number(localStorage.getItem("diariaja_cad_emppf_passo"));
+      if (v >= 1 && v <= 4) return v as 1 | 2 | 3 | 4;
+    } catch { /* ignore */ }
+    return 1;
+  });
+  useEffect(() => {
+    try { localStorage.setItem("diariaja_cad_emppf_passo", String(passoEmpregadorPF)); } catch { /* ignore */ }
+  }, [passoEmpregadorPF]);
+  const [errosEmpPF, setErrosEmpPF] = useState<Partial<Record<CampoEmpPF, string>>>({});
+  const [tocadosEmpPF, setTocadosEmpPF] = useState<Partial<Record<CampoEmpPF, boolean>>>({});
+  const [submittingEmpPF, setSubmittingEmpPF] = useState(false);
+  const [aceitaTermosEmpPF, setAceitaTermosEmpPF] = useState(false);
+  const CAMPOS_POR_PASSO_EMPPF: Record<1 | 2 | 3 | 4, CampoEmpPF[]> = {
+    1: ["nome", "telefone", "cpf"],
+    2: ["nomeNegocio", "cep", "endereco"],
+    3: ["segmento"],
+    4: ["aceitaTermos"],
+  };
+
   // Configurações / Conta
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmSenha, setConfirmSenha] = useState("");
@@ -528,6 +614,13 @@ export default function App() {
   const [loginCpfInput, setLoginCpfInput] = useState("");
   // Menu de "mais opções" (três pontinhos) no header — atalho pra Configurações
   const [menuOpcoes, setMenuOpcoes] = useState(false);
+  // ── Editar Perfil — campos travados (verificados) que o usuário pode destravar ─
+  // Telefone verificado, CPF e data de nascimento ficam read-only por padrão.
+  // Botãozinho "Alterar" ao lado destrava só aquele campo. Limpamos ao sair da tela.
+  const [camposDestravadosEdit, setCamposDestravadosEdit] = useState<Set<string>>(new Set());
+  const destravarCampoEdit = (c: string) => setCamposDestravadosEdit(prev => {
+    const next = new Set(prev); next.add(c); return next;
+  });
   // Alterar senha — exige senha atual (proteção contra device roubado)
   const [senhaAtual, setSenhaAtual] = useState("");
   // Favoritos (empregador salva diaristas favoritos)
@@ -703,10 +796,10 @@ export default function App() {
     if (assinaturaStatus === "sucesso") {
       setToastSuccess("🎉 Assinatura ativada! Aproveite seu plano.");
       window.history.replaceState({}, "", window.location.pathname);
-      // Recarrega assinatura do banco
+      // Recarrega TODAS as assinaturas (dual track: diarista + empregador)
       if (session?.user?.id) {
-        supabase.from("assinaturas").select("*").eq("user_id", session.user.id).eq("status", "ativo").maybeSingle()
-          .then(({ data }) => setAssinatura(data || null));
+        supabase.from("assinaturas").select("*").eq("user_id", session.user.id).eq("status", "ativo")
+          .then(({ data }) => setAssinaturas(Array.isArray(data) ? data : []));
       }
     }
   // BUG-M5 fix: inclui session.user.id para reprocessar quando sessão carrega após redirect OAuth
@@ -877,7 +970,10 @@ export default function App() {
             lotadas = new Set(Object.entries(contMap).filter(([, n]) => n >= MAX_INTERESSADOS).map(([id]) => id));
           }
         }
-        setVagasReais(data.filter((d: any) => !lotadas.has(d.id)));
+        // Filtra vagas: remove as lotadas E as de contratantes que o user bloqueou
+        setVagasReais(data.filter((d: any) =>
+          !lotadas.has(d.id) && !usuariosBloqueados.has(d.empregador_id)
+        ));
         // Carrega perfis dos empregadores para exibir foto no card
         const empIds = [...new Set(data.map((d: any) => d.empregador_id).filter(Boolean))];
         if (empIds.length > 0) {
@@ -1041,8 +1137,8 @@ export default function App() {
   const enviarAvaliacaoEmpObrigatoria = async () => {
     if (!session?.user || diariasAvaliarEmp.length === 0) return;
     if (avalEmpNota === 0)           { setToastError("Dê uma nota de 1 a 5 estrelas."); return; }
-    if (avalEmpPagou === null)       { setToastError("Informe se o empregador pagou o combinado."); return; }
-    if (avalEmpCumpriu === null)     { setToastError("Informe se o empregador cumpriu o combinado."); return; }
+    if (avalEmpPagou === null)       { setToastError("Informe se o contratante pagou o combinado."); return; }
+    if (avalEmpCumpriu === null)     { setToastError("Informe se o contratante cumpriu o combinado."); return; }
     const diaria = diariasAvaliarEmp[0];
     setEnviandoAvalEmpOb(true);
     const { error } = await supabase.from("avaliacoes_empregador").insert({
@@ -1266,7 +1362,7 @@ export default function App() {
               localStorage.setItem("diariaja_cancels", JSON.stringify(cancels));
             } catch {}
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              mostrarNotificacaoLocal("❌ Diária cancelada pelo empregador", {
+              mostrarNotificacaoLocal("❌ Diária cancelada pelo contratante", {
                 body: `Sua diária em ${local} foi cancelada.${updated.motivo_cancelamento ? " Motivo: " + updated.motivo_cancelamento : ""}`,
                 icon: "/vite.svg",
               });
@@ -1354,9 +1450,9 @@ export default function App() {
           if (updated.status === "cancelada" && oldStatus !== "cancelada") {
             // Remove o interesse local para que a vaga não apareça com estado preso
             setMeuInteresse(prev => { const n = { ...prev }; delete n[updated.diaria_id]; return n; });
-            setToastError("⚠️ Uma vaga na qual você tinha interesse foi cancelada pelo empregador.");
+            setToastError("⚠️ Uma vaga na qual você tinha interesse foi cancelada pelo contratante.");
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              mostrarNotificacaoLocal("❌ Vaga cancelada pelo empregador", {
+              mostrarNotificacaoLocal("❌ Vaga cancelada pelo contratante", {
                 body: "Uma diária na qual você tinha interesse foi removida. Verifique as vagas disponíveis.",
                 icon: "/vite.svg",
               });
@@ -1713,11 +1809,18 @@ export default function App() {
     }
 
     if (urlParams.get("contato_desbloqueado") === "sucesso") {
+      // Webhook do MP é fonte da verdade: insere na tabela contatos_desbloqueios
+      // quando o pagamento é aprovado. O client só recarrega a contagem.
+      // Pequeno atraso pra dar tempo do webhook processar antes do RPC retornar.
+      setTimeout(() => {
+        void supabase.rpc("contar_contatos_desbloqueados_mes").then(({ data }) => {
+          if (typeof data === "number") setContatosDesbloqueados(data);
+        });
+      }, 1200);
+      // Limpa chave antiga do localStorage (legado — não é mais source of truth)
       try {
         const chave = "diariaja_contatos_desblo_" + new Date().toISOString().slice(0, 7);
-        const atual = parseInt(localStorage.getItem(chave) || "0", 10);
-        localStorage.setItem(chave, String(atual + 1));
-        setContatosDesbloqueados(atual + 1);
+        localStorage.removeItem(chave);
       } catch { /* ignore */ }
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -1838,14 +1941,28 @@ export default function App() {
       setAgenda(data.agenda || []);
       setFotoUrl(data.foto_url || null);
       setCategorias(data.categorias || []);
+      // Carrega contador de contatos desbloqueados deste mês (server-side).
+      // Não bloqueia o fluxo se a RPC falhar (fica em 0 = mais restritivo).
+      void supabase.rpc("contar_contatos_desbloqueados_mes").then(({ data: cnt }) => {
+        if (typeof cnt === "number") setContatosDesbloqueados(cnt);
+      });
       // Portfólio agora vem do banco — sobrevive a troca de aparelho
       if (Array.isArray(data.portfolio_urls)) {
         setPortfolioUrls(data.portfolio_urls);
         try { localStorage.setItem("diariaja_portfolio", JSON.stringify(data.portfolio_urls)); } catch {}
       }
-      // Carrega assinatura ativa
-      supabase.from("assinaturas").select("*").eq("user_id", userId).eq("status", "ativo").maybeSingle()
-        .then(({ data: sub }) => setAssinatura(sub || null));
+      // Carrega TODAS as assinaturas ativas (dual track: diarista + empregador)
+      supabase.from("assinaturas").select("*").eq("user_id", userId).eq("status", "ativo")
+        .then(({ data: subs }) => setAssinaturas(Array.isArray(subs) ? subs : []));
+      // Conta diárias CONCLUÍDAS como diarista (vitalício) — usado pra CTA de upgrade
+      void supabase.rpc("contar_diarias_concluidas_diarista").then(({ data: total }) => {
+        if (typeof total === "number") setDiariasConcluidasComoDiarista(total);
+      });
+      // Carrega lista de usuários bloqueados pra filtrar feeds / chats
+      void supabase.from("usuarios_bloqueados").select("alvo_id").eq("bloqueador_id", userId)
+        .then(({ data: bloqs }) => {
+          if (Array.isArray(bloqs)) setUsuariosBloqueados(new Set(bloqs.map((b: { alvo_id: string }) => b.alvo_id)));
+        });
       // Restaura o modo e a tela salvos em localStorage (sobrevive ao reload)
       const modoSalvo = localStorage.getItem("diariaja_modo") as "empregador"|"diarista" | null;
       const telaSalva = (() => { try { return localStorage.getItem("diariaja_tela") || ""; } catch { return ""; } })();
@@ -1910,6 +2027,10 @@ export default function App() {
       sexo: updates.sexo ?? profile?.sexo ?? form.sexo ?? "",
       data_nascimento: updates.data_nascimento ?? profile?.data_nascimento ?? form.dataNasc ?? "",
       endereco_empregador: updates.endereco_empregador ?? profile?.endereco_empregador ?? "",
+      // PIX do diarista — coletado no wizard de cadastro e no editar-perfil.
+      // Falta isso aqui fazia o wizard "salvar" sem persistir o PIX (silent drop).
+      pix_chave: updates.pix_chave ?? profile?.pix_chave,
+      pix_tipo:  updates.pix_tipo  ?? profile?.pix_tipo,
     };
     const { error } = await supabase.from("user_profiles").upsert(full);
     setSalvandoPerfil(false);
@@ -2944,6 +3065,62 @@ export default function App() {
     trackEvento("documento_enviado", userId, modoAtual, { tipo: docTipo });
   };
 
+  // ── Antecedentes criminais (certidão negativa em PDF) ─────────────────────
+  // Mesma mecânica do KYC mas em bucket separado pra simplificar retenção.
+  const onAntecedentesFileSelected = (file: File) => {
+    setAntecedentesFile(file);
+    if (antecedentesPreview) URL.revokeObjectURL(antecedentesPreview);
+    setAntecedentesPreview(file.type.startsWith("image/") ? URL.createObjectURL(file) : null);
+  };
+
+  const enviarAntecedentes = async () => {
+    if (!session?.user?.id || !antecedentesFile || enviandoAntecedentes) return;
+    if (antecedentesFile.size > 5 * 1024 * 1024) {
+      setToastError("Arquivo muito grande (máximo 5 MB).");
+      return;
+    }
+    const mimePermitidos = ["application/pdf","image/jpeg","image/png","image/webp"];
+    if (!mimePermitidos.includes(antecedentesFile.type)) {
+      setToastError("Tipo de arquivo não permitido. Envie PDF, JPG, PNG ou WEBP.");
+      return;
+    }
+
+    setEnviandoAntecedentes(true);
+    const userId = session.user.id;
+    const ext = antecedentesFile.name.split(".").pop()?.toLowerCase() || "pdf";
+    const path = `${userId}/certidao_${Date.now()}.${ext}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from("antecedentes")
+      .upload(path, antecedentesFile, { contentType: antecedentesFile.type, upsert: false });
+    if (uploadErr) {
+      setEnviandoAntecedentes(false);
+      setToastError("Falha no envio: " + uploadErr.message);
+      return;
+    }
+
+    // O trigger anti-escalada permite (nao_enviado | rejeitado) → enviado.
+    const { error: updErr } = await supabase
+      .from("user_profiles")
+      .update({
+        antecedentes_status:    "enviado",
+        antecedentes_url:       path,
+        antecedentes_enviado_em: new Date().toISOString(),
+      })
+      .eq("id", userId);
+
+    setEnviandoAntecedentes(false);
+    if (updErr) {
+      setToastError("Certidão subiu mas o status não foi salvo. Tente reenviar.");
+      return;
+    }
+    setProfile(prev => prev ? { ...prev, antecedentes_status: "enviado", antecedentes_url: path } : prev);
+    setAntecedentesFile(null);
+    if (antecedentesPreview) { URL.revokeObjectURL(antecedentesPreview); setAntecedentesPreview(null); }
+    setToastSuccess("✅ Certidão enviada! Aguarde a equipe revisar (até 24h).");
+    trackEvento("antecedentes_enviado", userId, modoAtual);
+  };
+
   // Admin: lista documentos pendentes
   const carregarDocsPendentes = async () => {
     if (!profile?.is_admin) return;
@@ -2995,6 +3172,55 @@ export default function App() {
     setDocRevisao(null);
     setDocMotivoRejeicao("");
     await carregarDocsPendentes();
+  };
+
+  // ── Admin: revisão de antecedentes criminais (espelha o KYC) ──────────────
+  const carregarAntecedentesPendentes = async () => {
+    if (!profile?.is_admin) return;
+    const { data, error } = await supabase.rpc("admin_antecedentes_pendentes");
+    if (!error && data) setAdminAntecedentesPendentes(data as { user_id:string; nome:string; user_type:string; antecedentes_url:string; antecedentes_enviado_em:string }[]);
+  };
+
+  const abrirAntecedentesParaRevisao = async (d: {user_id:string; nome:string; antecedentes_url:string}) => {
+    setAntecedentesRevisao({ user_id: d.user_id, nome: d.nome, url: d.antecedentes_url });
+    setAntecedentesMotivoRejeicao("");
+    const { data } = await supabase.storage
+      .from("antecedentes")
+      .createSignedUrl(d.antecedentes_url, 300);
+    if (data?.signedUrl) {
+      setAntecedentesRevisao(prev => prev ? { ...prev, signedUrl: data.signedUrl } : null);
+    }
+  };
+
+  const revisarAntecedentes = async (decisao: "aprovado" | "rejeitado") => {
+    if (!profile?.is_admin || !antecedentesRevisao || revisandoAntecedentes) return;
+    if (decisao === "rejeitado" && antecedentesMotivoRejeicao.trim().length < 3) {
+      setToastError("Informe o motivo da rejeição (mínimo 3 caracteres).");
+      return;
+    }
+    setRevisandoAntecedentes(true);
+    const { error } = await supabase.rpc("revisar_antecedentes", {
+      p_user_id: antecedentesRevisao.user_id,
+      p_decisao: decisao,
+      p_motivo: decisao === "rejeitado" ? antecedentesMotivoRejeicao.trim() : null,
+    });
+    setRevisandoAntecedentes(false);
+    if (error) {
+      setToastError("Falha ao revisar: " + error.message);
+      return;
+    }
+    enviarPush(
+      [antecedentesRevisao.user_id],
+      decisao === "aprovado" ? "✅ Antecedentes aprovados!" : "❌ Antecedentes rejeitados",
+      decisao === "aprovado"
+        ? "Sua certidão de antecedentes foi aprovada. Selo extra ativo no seu perfil!"
+        : `Motivo: ${antecedentesMotivoRejeicao.trim()}. Você pode reenviar pelo app.`,
+      { tipo: "confirmacao", url: "/?tela=editar-perfil" },
+    );
+    setToastSuccess(`✅ Antecedentes ${decisao}.`);
+    setAntecedentesRevisao(null);
+    setAntecedentesMotivoRejeicao("");
+    await carregarAntecedentesPendentes();
   };
 
   // ── COMUNIDADE ───────────────────────────────────────────────────────────
@@ -3294,9 +3520,15 @@ export default function App() {
     // seleção pelo wrapper `selecionarCandidato`, não aqui.
   };
 
-  // Inicia pagamento de R$ 1 para desbloquear seleção de contato adicional
+  // Inicia pagamento de R$ 1 para desbloquear seleção de contato adicional.
+  // FIX 2026-05: enviava SUPABASE_ANON_KEY como Bearer — a Edge Function exige
+  // o JWT do user (auth.getUser()). Agora manda session.access_token e expõe
+  // o motivo real do erro em caso de falha (em vez do toast genérico).
   const desbloquearContato = async () => {
-    if (!session?.user) return;
+    if (!session?.user || !session.access_token) {
+      setToastError("Sessão expirada. Entre novamente e tente outra vez.");
+      return;
+    }
     setDesbloqueandoContato(true);
     try {
       const resp = await fetch(
@@ -3305,40 +3537,110 @@ export default function App() {
           method: "POST",
           headers: {
             "Content-Type":  "application/json",
-            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+            "Authorization": `Bearer ${session.access_token}`,
+            "apikey":        SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({ empregador_id: session.user.id }),
         }
       );
-      const data = await resp.json();
-      if (data.checkout_url) {
+      const data = await resp.json().catch(() => ({} as { checkout_url?: string; error?: string }));
+      if (resp.ok && data.checkout_url) {
         window.location.href = data.checkout_url;
-      } else {
-        setToastError("❌ Erro ao gerar link de pagamento. Tente novamente.");
+        return;
       }
-    } catch {
+      // Mostra o motivo real (vem da Edge Function) — ajuda diagnóstico.
+      const motivo = data.error || `HTTP ${resp.status}`;
+      setToastError(`❌ Não foi possível gerar link de pagamento: ${motivo}`);
+    } catch (err) {
       setToastError("❌ Erro de conexão. Verifique sua internet.");
+      console.warn("[desbloquearContato] erro:", err instanceof Error ? err.message : String(err));
     }
     setDesbloqueandoContato(false);
   };
 
-  // Wrapper: verifica limite de contatos e abre modal de termo antes de selecionar
-  const selecionarCandidato = (diaria: Diaria, diaristaId: string) => {
-    // Verifica limite para plano grátis (3 seleções/mês + extras desbloqueados)
-    const planoEmp = assinatura?.plano ?? "gratis";
-    if (planoEmp === "gratis") {
-      const mes = new Date().toISOString().slice(0, 7);
-      const selecionadasNoMes = diarias.filter(
-        d => d.diarista_aceite_id && d.created_at && d.created_at.slice(0, 7) === mes
-      ).length;
-      const limite = 3 + contatosDesbloqueados;
-      if (selecionadasNoMes >= limite) {
+  // ── Bloqueio de usuário ────────────────────────────────────────────────────
+  // Insere em `usuarios_bloqueados` e atualiza o Set local. Idempotente
+  // (UNIQUE no banco — se já bloqueado, ignora erro).
+  const bloquearUsuario = async (alvo: { id: string; nome: string }, motivo?: string) => {
+    if (!session?.user?.id || bloqueando) return;
+    if (alvo.id === session.user.id) {
+      setToastError("Você não pode bloquear a si mesmo.");
+      return;
+    }
+    setBloqueando(true);
+    const { error } = await supabase.from("usuarios_bloqueados").insert({
+      bloqueador_id: session.user.id,
+      alvo_id:       alvo.id,
+      motivo:        motivo?.trim() || null,
+    });
+    setBloqueando(false);
+    // Erro 23505 = duplicate key (já bloqueado) — tratamos como sucesso silencioso
+    if (error && !String(error.code) .includes("23505") && !String(error.message ?? "").toLowerCase().includes("duplicate")) {
+      setToastError("Não foi possível bloquear: " + error.message);
+      return;
+    }
+    setUsuariosBloqueados(prev => { const next = new Set(prev); next.add(alvo.id); return next; });
+    setModalBloquear(null);
+    setToastSuccess("✅ Usuário bloqueado. Você não verá mais conteúdo dele.");
+    trackEvento("usuario_bloqueado", session.user.id, modoAtual);
+    // Se está em chat com o bloqueado, sai
+    if (chatDiariaAtiva && (chatDiariaAtiva.empregador_id === alvo.id || chatDiariaAtiva.diarista_aceite_id === alvo.id)) {
+      setChatDiariaAtiva(null);
+    }
+  };
+
+  const desbloquearUsuario = async (alvoId: string) => {
+    if (!session?.user?.id || bloqueando) return;
+    setBloqueando(true);
+    const { error } = await supabase.from("usuarios_bloqueados")
+      .delete().eq("bloqueador_id", session.user.id).eq("alvo_id", alvoId);
+    setBloqueando(false);
+    if (error) {
+      setToastError("Não foi possível desbloquear: " + error.message);
+      return;
+    }
+    setUsuariosBloqueados(prev => { const next = new Set(prev); next.delete(alvoId); return next; });
+    setModalConfirmDesbloq(null);
+    setToastSuccess("Usuário desbloqueado.");
+  };
+
+  // Wrapper: verifica limite de contatos e abre modal de termo antes de selecionar.
+  // Source of truth: RPC `pode_selecionar_candidato` (banco). O client confia
+  // no resultado. Fallback pra heurística local SOMENTE em erro de rede (raro).
+  const selecionarCandidato = async (diaria: Diaria, diaristaId: string) => {
+    try {
+      const { data, error } = await supabase.rpc("pode_selecionar_candidato", {
+        p_diaria_id: diaria.id,
+      });
+      if (error) throw error;
+      const dec = data as {
+        permitido_gratis: boolean;
+        plano: string;
+        selecoes_mes: number;
+        limite_efetivo: number;
+        exige_cobranca_r1: boolean;
+      } | null;
+      if (dec?.exige_cobranca_r1) {
+        setModalLimiteContato(true);
+        trackEvento("limite_contato_atingido", session?.user?.id, "empregador", {
+          plano: dec.plano, selecoes_mes: dec.selecoes_mes,
+        });
+        return;
+      }
+      // Se a RPC autorizou (gratis dentro da cota, OU essencial/plus), segue.
+      setModalTermoCiencia({ diaria, diaristaId });
+      setTermoCienciaCheck(false);
+    } catch {
+      // Fallback defensivo: usa os limites do client (menos confiável).
+      // Em caso de erro de rede, melhor abrir modal de pagamento (conservador)
+      // do que liberar seleção indevida.
+      if (plans.empregador === "gratis" && limits.empregador.cobrancaR1Iminente) {
         setModalLimiteContato(true);
         return;
       }
+      setModalTermoCiencia({ diaria, diaristaId });
+      setTermoCienciaCheck(false);
     }
-    setModalTermoCiencia({ diaria, diaristaId });
-    setTermoCienciaCheck(false);
   };
 
   // Wrapper: abre o modal de termo antes de confirmar presença
@@ -3831,6 +4133,59 @@ export default function App() {
       const e = validarCampoEmpresa(k, form[k], form);
       if (e) erros[k] = e;
     });
+    return erros;
+  };
+
+  // ── Validadores do wizard PF (diarista) — opera sobre estado global do form ─
+  const validarCampoDiarista = (campo: CampoDia): string | undefined => {
+    switch (campo) {
+      case "foto":      return fotoUrl ? undefined : "Adicione uma foto de perfil.";
+      case "nome":      return validarNome(form.nome) || undefined;
+      case "sexo":      return form.sexo ? undefined : "Selecione seu sexo.";
+      case "dataNasc": {
+        if (!form.dataNasc) return "Informe a data de nascimento.";
+        if (calcularIdade(form.dataNasc) < 18) return "Você precisa ter 18 anos ou mais.";
+        return undefined;
+      }
+      case "telefone":  return validarTelefone(form.telefone) ? undefined : "Telefone inválido. (XX) 9XXXX-XXXX.";
+      case "cpf":       return validarCPF(form.cpf) ? undefined : "CPF inválido. Confira os dígitos.";
+      case "categorias": return categoriasSelecionadas.length > 0 ? undefined : "Selecione ao menos uma especialidade.";
+      case "valor": {
+        const n = Number(form.valor);
+        if (!form.valor || isNaN(n) || n <= 0) return "Informe um valor por diária.";
+        return undefined;
+      }
+      case "pixChave":  return validarPix(form.pixChave, form.pixTipo) || undefined;
+      case "agenda":    return (agendaSelecionada.length > 0 || disponivelAgora) ? undefined : 'Selecione ao menos um dia ou marque "Disponível agora".';
+      case "aceitaTermos": return aceitaTermosDia ? undefined : "Você precisa aceitar os Termos.";
+      default:          return undefined;
+    }
+  };
+  const validarTodoFormDiarista = (): Partial<Record<CampoDia, string>> => {
+    const erros: Partial<Record<CampoDia, string>> = {};
+    (["foto","nome","sexo","dataNasc","telefone","cpf","categorias","valor","pixChave","agenda","aceitaTermos"] as CampoDia[])
+      .forEach(c => { const e = validarCampoDiarista(c); if (e) erros[c] = e; });
+    return erros;
+  };
+
+  // ── Validadores do wizard Empregador PF ─────────────────────────────────────
+  const validarCampoEmpPF = (campo: CampoEmpPF): string | undefined => {
+    switch (campo) {
+      case "nome":     return validarNome(form.nome) || undefined;
+      case "telefone": return validarTelefone(form.telefone) ? undefined : "Telefone inválido. (XX) 9XXXX-XXXX.";
+      case "cpf":      return validarCPF(form.cpf) ? undefined : "CPF inválido.";
+      case "nomeNegocio": return form.nomeNegocio.trim() ? undefined : "Informe um nome (pessoal ou do estabelecimento).";
+      case "segmento": return (negocioSelecionado || profile?.segmento) ? undefined : "Selecione um segmento.";
+      case "cep":      return form.cepEmp.replace(/\D/g, "").length === 8 ? undefined : "CEP incompleto.";
+      case "endereco": return (form.ruaEmp.trim() && form.numeroEmp.trim() && form.bairroEmp.trim() && form.cidadeEmp.trim()) ? undefined : "Complete o endereço.";
+      case "aceitaTermos": return aceitaTermosEmpPF ? undefined : "Você precisa aceitar os Termos.";
+      default:         return undefined;
+    }
+  };
+  const validarTodoFormEmpPF = (): Partial<Record<CampoEmpPF, string>> => {
+    const erros: Partial<Record<CampoEmpPF, string>> = {};
+    (["nome","telefone","cpf","nomeNegocio","segmento","cep","endereco","aceitaTermos"] as CampoEmpPF[])
+      .forEach(c => { const e = validarCampoEmpPF(c); if (e) erros[c] = e; });
     return erros;
   };
 
@@ -4351,57 +4706,68 @@ export default function App() {
 
   // LOGIN
   if (tela === "login") return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px" }}>
+    <div style={{ minHeight:"100vh", background:"linear-gradient(165deg,#0a1428 0%,#101b3a 45%,#1a2754 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 22px 40px", position:"relative" as const, overflow:"hidden" }}>
+      {/* Glow laranja decorativo no topo direito — assinatura da marca */}
+      <div aria-hidden style={{ position:"absolute", top:-100, right:-80, width:280, height:280, borderRadius:"50%", background:"radial-gradient(circle, rgba(255,107,53,.28) 0%, rgba(255,107,53,0) 70%)", pointerEvents:"none" }} />
+      <div aria-hidden style={{ position:"absolute", bottom:-120, left:-100, width:320, height:320, borderRadius:"50%", background:"radial-gradient(circle, rgba(58,134,255,.18) 0%, rgba(58,134,255,0) 70%)", pointerEvents:"none" }} />
 
-      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => { setAuthError(""); setTela("splash"); }}>
+      <button style={{ background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", color:"#cbd5e1", fontSize:13, fontWeight:700, cursor:"pointer", padding:"8px 14px", marginTop:48, alignSelf:"flex-start", borderRadius:20, fontFamily:"Inter, system-ui, sans-serif", backdropFilter:"blur(8px)" as const }}
+        aria-label="Voltar para a tela inicial"
+        onClick={() => { setAuthError(""); setTela("splash"); }}>
         ← Voltar
       </button>
 
-      {/* Logo compacta */}
-      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"24px 0 32px" }}>
-        <div style={{ fontSize:40, filter:"drop-shadow(0 0 16px #FF6B35)", marginBottom:8 }}>⚡</div>
-        <div style={{ fontSize:30, fontWeight:900, letterSpacing:-1 }}>
-          <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
+      {/* Hero */}
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"28px 0 26px", position:"relative", zIndex:1 }}>
+        <div style={{ width:72, height:72, borderRadius:36, background:"linear-gradient(135deg,#FF6B35,#fb923c)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:34, boxShadow:"0 8px 32px rgba(255,107,53,.45), 0 0 0 6px rgba(255,107,53,.1)", marginBottom:14 }}>⚡</div>
+        <div style={{ fontSize:32, fontWeight:900, letterSpacing:-1, color:"#fff" }}>
+          Diária<span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginTop:4 }}>Bem-vindo de volta</p>
+        <p style={{ color:"#cbd5e1", fontSize:14, marginTop:6, fontWeight:500 }}>Bom te ver de novo 👋</p>
+        <p style={{ color:"rgba(255,255,255,.55)", fontSize:12, marginTop:2 }}>Entre e continue de onde parou</p>
       </div>
 
-      {/* Card de login */}
-      <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
-        {/* Google — disponível pra qualquer tipo de conta que já existir.
-            Contas PJ criadas pelo fluxo "Empresa com CNPJ" também podem
-            voltar via Google se já tiverem associado o e-mail à conta. */}
+      {/* Card de login — fundo branco com sombra, contraste alto */}
+      <div style={{ background:"#fff", borderRadius:24, padding:"24px 22px", boxShadow:"0 20px 60px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.05)", position:"relative", zIndex:1 }}>
+        {/* Entrar com Google — atalho rápido pra quem já tem conta */}
         <button
           type="button"
           aria-label="Entrar com Google"
-          style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }}
+          style={{ width:"100%", padding:"13px 16px", background:"#fff", color:"#0f172a", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:14, transition:"all .15s" }}
+          onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#e2e8f0"; }}
           onClick={handleGoogleLogin}>
-          {GoogleSVG} Entrar com Google
+          {GoogleSVG} <span>Entrar com Google</span>
         </button>
 
-        <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
-          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou</span>
-          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+        {/* Divisor "ou" */}
+        <div style={{ display:"flex", alignItems:"center", gap:10, margin:"4px 0 16px" }}>
+          <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+          <span style={{ color:"#94a3b8", fontSize:11, fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>ou</span>
+          <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
         </div>
 
-        {/* Toggle E-mail / CPF — alternativa de login */}
-        <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,.05)", borderRadius:10, padding:3, marginBottom:14 }}>
+        {/* Toggle E-mail / CPF */}
+        <div style={{ display:"flex", gap:4, background:"#f1f5f9", borderRadius:12, padding:4, marginBottom:18 }} role="tablist" aria-label="Método de login">
           {([
-            { id: "email", label: "E-mail" },
-            { id: "cpf",   label: "CPF / CNPJ" },
+            { id: "email", label: "E-mail", ic: "✉️" },
+            { id: "cpf",   label: "CPF / CNPJ", ic: "🪪" },
           ] as const).map(opt => {
             const ativo = modoLogin === opt.id;
             return (
-              <button key={opt.id} type="button"
+              <button key={opt.id} type="button" role="tab" aria-selected={ativo}
                 onClick={() => { setAuthError(""); setModoLogin(opt.id); }}
                 style={{
-                  flex:1, padding:"8px 10px", border:"none", borderRadius:8,
-                  background: ativo ? "#FF6B35" : "transparent",
-                  color: ativo ? "#fff" : "var(--text-3,#94a3b8)",
+                  flex:1, padding:"10px 8px", border:"none", borderRadius:9,
+                  background: ativo ? "#fff" : "transparent",
+                  color: ativo ? "#FF6B35" : "#64748b",
                   fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif",
+                  boxShadow: ativo ? "0 2px 8px rgba(15,23,42,.08)" : "none",
+                  transition: "all .2s",
+                  display:"flex", alignItems:"center", justifyContent:"center", gap:6,
                 }}>
-                {opt.label}
+                <span style={{ fontSize:14 }}>{opt.ic}</span>
+                <span>{opt.label}</span>
               </button>
             );
           })}
@@ -4409,24 +4775,28 @@ export default function App() {
 
         {modoLogin === "email" ? (
           <>
-            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
+            <label htmlFor="login-email" style={{ fontSize:11, fontWeight:800, color:"#475569", textTransform:"uppercase" as const, letterSpacing:0.6, display:"block", marginBottom:8 }}>E-mail</label>
             <input
               id="login-email"
               aria-label="E-mail"
               type="email"
               autoComplete="email"
-              style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+              style={{ width:"100%", padding:"14px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, background:"#f8fafc", color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:14, transition:"border-color .15s, background .15s" }}
+              onFocus={e => { e.target.style.borderColor = "#FF6B35"; e.target.style.background = "#fff"; }}
+              onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.background = "#f8fafc"; }}
               placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
           </>
         ) : (
           <>
-            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>CPF ou CNPJ</label>
+            <label htmlFor="login-cpf" style={{ fontSize:11, fontWeight:800, color:"#475569", textTransform:"uppercase" as const, letterSpacing:0.6, display:"block", marginBottom:8 }}>CPF ou CNPJ</label>
             <input
               id="login-cpf"
               aria-label="CPF ou CNPJ"
               inputMode="numeric"
               autoComplete="off"
-              style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12, letterSpacing:0.5 }}
+              style={{ width:"100%", padding:"14px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, background:"#f8fafc", color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:14, letterSpacing:0.5, transition:"border-color .15s, background .15s" }}
+              onFocus={e => { e.target.style.borderColor = "#FF6B35"; e.target.style.background = "#fff"; }}
+              onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.background = "#f8fafc"; }}
               placeholder="000.000.000-00"
               value={loginCpfInput}
               onChange={e => {
@@ -4436,51 +4806,73 @@ export default function App() {
           </>
         )}
 
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-          <label htmlFor="login-senha" style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>Senha</label>
-        </div>
-        <div style={{ position:"relative" as const }}>
+        <label htmlFor="login-senha" style={{ fontSize:11, fontWeight:800, color:"#475569", textTransform:"uppercase" as const, letterSpacing:0.6, display:"block", marginBottom:8 }}>Senha</label>
+        <div style={{ position:"relative" as const, marginBottom:6 }}>
           <input
             id="login-senha"
             aria-label="Senha"
             autoComplete="current-password"
-            style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none" }}
+            style={{ width:"100%", padding:"14px 48px 14px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, background:"#f8fafc", color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", transition:"border-color .15s, background .15s" }}
+            onFocus={e => { e.target.style.borderColor = "#FF6B35"; e.target.style.background = "#fff"; }}
+            onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.background = "#f8fafc"; }}
             placeholder="Sua senha" type={mostrarSenha ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
-          <button type="button" aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"} style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
+          <button type="button" aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+            style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:6, lineHeight:1, borderRadius:6 }}
             onClick={() => setMostrarSenha(p => !p)}>
             {mostrarSenha ? "🙈" : "👁️"}
           </button>
         </div>
 
-        {authError && <p style={{ color:"#f87171", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>{authError}</p>}
-
+        {/* Esqueci minha senha — alinhado à direita, cor da marca */}
         {modoLogin === "cpf" ? (
-          <p style={{ color:"#94a3b8", fontSize:11, marginTop:8, textAlign:"center" as const, lineHeight:1.5 }}>
-            Esqueceu a senha? Volte pro login por <strong style={{ color:"#fff", cursor:"pointer" }} onClick={() => { setAuthError(""); setModoLogin("email"); }}>e-mail</strong> pra recuperar.
+          <p style={{ color:"#94a3b8", fontSize:11, marginTop:10, textAlign:"center" as const, lineHeight:1.5 }}>
+            Esqueceu a senha? Volte pro login por{" "}
+            <strong style={{ color:"#FF6B35", cursor:"pointer", textDecoration:"underline" }}
+              onClick={() => { setAuthError(""); setModoLogin("email"); }}>e-mail</strong>{" "}
+            pra recuperar.
           </p>
         ) : resetSenhaEnviado ? (
-          <p style={{ color:"#4ade80", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>
-            ✅ Link enviado! Verifique seu e-mail (inclusive o spam).
+          <p style={{ color:"#16a34a", fontSize:13, fontWeight:700, marginTop:10, textAlign:"center", background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:10, padding:"10px 12px" }}>
+            ✅ Link enviado! Confira seu e-mail (e o spam).
           </p>
         ) : (
-          <p style={{ textAlign:"right", marginTop:8, marginBottom:0 }}>
-            <span
-              style={{ color:"#fbbf24", fontSize:14, fontWeight:600, cursor:"pointer", textDecoration:"underline" }}
+          <div style={{ textAlign:"right", marginTop:6, marginBottom:0 }}>
+            <button type="button"
+              style={{ background:"none", border:"none", color:"#FF6B35", fontSize:13, fontWeight:700, cursor:"pointer", padding:"4px 0", fontFamily:"Inter, system-ui, sans-serif", textDecoration:"underline" }}
               onClick={handleResetSenha}>
               {resetSenhaLoading ? "Enviando..." : "Esqueci minha senha"}
-            </span>
+            </button>
+          </div>
+        )}
+
+        {authError && (
+          <p role="alert" style={{ color:"#dc2626", fontSize:13, fontWeight:600, marginTop:12, textAlign:"center", background:"#fef2f2", border:"1px solid #fecaca", borderRadius:10, padding:"10px 12px" }}>
+            {authError}
           </p>
         )}
 
-        <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:16, opacity:authLoading?0.6:1, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
+        <button
+          style={{ width:"100%", padding:"15px", background: authLoading ? "#fb923c" : "#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor: authLoading ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:16, opacity:authLoading?0.85:1, boxShadow:"0 8px 24px rgba(255,107,53,.45)", transition:"all .15s", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
           disabled={authLoading} onClick={modoLogin === "email" ? handleEmailLogin : handleCPFLogin}>
-          {authLoading ? "Entrando..." : "Entrar"}
+          {authLoading ? <><span aria-hidden style={{ display:"inline-block", width:14, height:14, border:"2px solid #fff", borderTopColor:"transparent", borderRadius:"50%", animation:"spin .8s linear infinite" }} /> Entrando...</> : <>Entrar <span aria-hidden>→</span></>}
         </button>
+
+        {/* Pequeno selo de segurança */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginTop:14, fontSize:11, color:"#94a3b8" }}>
+          <span aria-hidden>🔒</span>
+          <span>Conexão criptografada · sua senha é cifrada</span>
+        </div>
       </div>
 
-      <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:14, marginTop:20, cursor:"pointer" }} onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
-        Não tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Cadastre-se grátis</span>
-      </p>
+      {/* Footer — cadastro novo */}
+      <button type="button"
+        style={{ background:"none", border:"none", textAlign:"center", color:"#cbd5e1", fontSize:14, marginTop:22, cursor:"pointer", padding:"10px 14px", borderRadius:12, fontFamily:"Inter, system-ui, sans-serif", position:"relative", zIndex:1 }}
+        onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
+        Ainda não tem conta? <span style={{ color:"#FF6B35", fontWeight:800 }}>Cadastre-se grátis →</span>
+      </button>
+
+      {/* Animação do spinner */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 
@@ -5595,7 +5987,7 @@ export default function App() {
       },
       {
         titulo: "3. Para que usamos seus dados",
-        corpo: "Seus dados são utilizados exclusivamente para:\n\n• Criar e autenticar sua conta\n• Exibir seu perfil para outros usuários da plataforma\n• Conectar empregadores e diaristas\n• Calcular score de confiança e nível de gamificação\n• Enviar notificações relacionadas às suas diárias\n• Cumprir obrigações legais e regulatórias",
+        corpo: "Seus dados são utilizados exclusivamente para:\n\n• Criar e autenticar sua conta\n• Exibir seu perfil para outros usuários da plataforma\n• Conectar contratantes e diaristas autônomos\n• Calcular score de confiança e nível de gamificação\n• Enviar notificações relacionadas às suas diárias\n• Cumprir obrigações legais e regulatórias",
       },
       {
         titulo: "4. Compartilhamento de dados",
@@ -6312,130 +6704,325 @@ export default function App() {
     );
   }
 
-  // CADASTRO EMPREGADOR
-  if (tela === "cadastro-empregador") return (
-    <div style={S.page}>
-      <button style={S.back} onClick={() => setTela("cadastro-tipo")}>← Voltar</button>
+  // CADASTRO EMPREGADOR PF — WIZARD DE 4 PASSOS
+  // Identidade → Local → Tipo de negócio → Confirma+Termos.
+  // Cada passo concede +25 XP. Após submit redireciona para pedir-localizacao.
+  if (tela === "cadastro-empregador") {
+    const NOMES_PASSOS_EMPPF: Record<1 | 2 | 3 | 4, string> = {
+      1: "Identidade",
+      2: "Local de atendimento",
+      3: "Tipo de negócio",
+      4: "Confirmação e termos",
+    };
+    const xpEmpPF = (passoEmpregadorPF - 1) * 25;
+    const erroEmpPF = (c: CampoEmpPF) => (tocadosEmpPF[c] ? errosEmpPF[c] : undefined);
+    const marcarTocadoEmpPF = (c: CampoEmpPF) => setTocadosEmpPF(t => ({ ...t, [c]: true }));
+    const revalidaEmpPF = (c: CampoEmpPF) => {
+      if (tocadosEmpPF[c]) setErrosEmpPF(e => ({ ...e, [c]: validarCampoEmpPF(c) }));
+    };
 
-      {/* Header */}
-      <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", borderRadius:20, padding:"20px 20px 18px", marginBottom:20, color:"#fff" }}>
-        <div style={{ fontSize:22, fontWeight:900 }}>🏢 Dados do Contratante</div>
-        <div style={{ fontSize:13, opacity:0.75, marginTop:4 }}>Preencha para criar sua conta</div>
-      </div>
+    const proximoPassoEmpPF = () => {
+      const campos = CAMPOS_POR_PASSO_EMPPF[passoEmpregadorPF];
+      const novosTocados = { ...tocadosEmpPF };
+      const novosErros: Partial<Record<CampoEmpPF, string>> = { ...errosEmpPF };
+      let temErro = false;
+      campos.forEach(c => {
+        novosTocados[c] = true;
+        const err = validarCampoEmpPF(c);
+        novosErros[c] = err;
+        if (err) temErro = true;
+      });
+      setTocadosEmpPF(novosTocados);
+      setErrosEmpPF(novosErros);
+      if (temErro) {
+        setAuthError("Corrija os campos destacados antes de continuar.");
+        return;
+      }
+      setAuthError("");
+      setPassoEmpregadorPF(p => (Math.min(4, p + 1) as 1 | 2 | 3 | 4));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
 
-      {/* Tipo de pessoa */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>👤 Tipo de pessoa *</div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
-        {([["fisica","👤","Pessoa Física","CPF"],["juridica","🏢","Pessoa Jurídica","CNPJ"]] as const).map(([tp, ic, lb, doc]) => (
-          <div key={tp}
-            style={{ background:form.pessoaTipo===tp?"#eff6ff":"#f8fafc", border:form.pessoaTipo===tp?"2px solid #3A86FF":"1.5px solid #e2e8f0", borderRadius:16, padding:"16px 12px", cursor:"pointer", textAlign:"center" as const }}
-            onClick={() => setForm({...form, pessoaTipo:tp})}>
-            <div style={{ fontSize:28 }}>{ic}</div>
-            <div style={{ fontWeight:800, fontSize:14, color:form.pessoaTipo===tp?"#1d4ed8":"#0f172a", marginTop:4 }}>{lb}</div>
-            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Documento: {doc}</div>
+    const errosTotaisEmpPF = validarTodoFormEmpPF();
+    const todoValidoEmpPF = Object.keys(errosTotaisEmpPF).length === 0;
+
+    const submitEmpPF = async () => {
+      setSubmittingEmpPF(true);
+      setAuthError("");
+      const errosF = validarTodoFormEmpPF();
+      setErrosEmpPF(errosF);
+      setTocadosEmpPF(Object.fromEntries((Object.keys(errosF) as CampoEmpPF[]).map(k => [k, true])));
+      if (Object.keys(errosF).length > 0) {
+        setSubmittingEmpPF(false);
+        setAuthError("Corrija os campos destacados antes de continuar.");
+        return;
+      }
+      const endEmp = `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp.trim() ? ` — ${form.complementoEmp}` : ""}, ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} — CEP ${form.cepEmp}`;
+      const segmentoEscolhido = negocioSelecionado || profile?.segmento || "";
+      const ok = await saveProfile({
+        nome_negocio: form.nomeNegocio.trim() || form.nome,
+        telefone: form.telefone.replace(/\D/g, ""),
+        cpf: form.cpf,
+        pessoa_tipo: "fisica",
+        segmento: segmentoEscolhido,
+        endereco_empregador: endEmp,
+        ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
+      });
+      setSubmittingEmpPF(false);
+      if (ok) {
+        setTabEmpregador("inicio");
+        trackEvento("cadastro_concluido", session?.user?.id, "empregador");
+        try { localStorage.removeItem("diariaja_cad_emppf_passo"); } catch { /* ignore */ }
+        setPassoEmpregadorPF(1);
+        setErrosEmpPF({});
+        setTocadosEmpPF({});
+        setAceitaTermosEmpPF(false);
+        setTela(profile?.lat ? "home-empregador" : "pedir-localizacao");
+      }
+    };
+
+    return (
+      <div style={S.page}>
+        <button style={S.back} onClick={() => {
+          if (passoEmpregadorPF === 1) { setAuthError(""); setTela("cadastro-tipo"); }
+          else { setAuthError(""); setPassoEmpregadorPF(p => (Math.max(1, p - 1) as 1 | 2 | 3 | 4)); window.scrollTo({ top: 0, behavior: "smooth" }); }
+        }}>← Voltar</button>
+
+        {/* Header escuro com barra de XP */}
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", borderRadius:20, padding:"22px 22px 18px", marginTop:8, marginBottom:8, color:"#fff" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ fontSize:32 }}>🏠</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:20, fontWeight:900, lineHeight:1.2 }}>Cadastro de Contratante</div>
+              <div style={{ fontSize:12, opacity:0.85, marginTop:2 }}>
+                Passo {passoEmpregadorPF} de 4 — {NOMES_PASSOS_EMPPF[passoEmpregadorPF]}
+              </div>
+            </div>
           </div>
-        ))}
-      </div>
-
-      {/* Identificação */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📋 Identificação</div>
-      <label style={S.label}>Nome completo *</label>
-      <input style={S.input} placeholder="Ex: Maria Oliveira" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
-      <label style={S.label}>Telefone (WhatsApp) *</label>
-      <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15}
-        value={form.telefone} onChange={e=>setForm({...form,telefone:maskTelefone(e.target.value)})} />
-
-      {form.pessoaTipo === "fisica" ? (
-        <>
-          <label style={S.label}>CPF *</label>
-          <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
-            value={form.cpf} onChange={e=>setForm({...form,cpf:maskCPF(e.target.value)})} />
-          <label style={S.label}>Nome do local / apelido *</label>
-          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Como será identificado nas vagas? Ex: Família Silva, Residência Oliveira…</p>
-          <input style={S.input} placeholder="Ex: Família Silva, Casa da Maria..." value={form.nomeNegocio} onChange={e=>setForm({...form,nomeNegocio:e.target.value})} />
-        </>
-      ) : (
-        <>
-          <label style={S.label}>CNPJ *</label>
-          <input style={{ ...S.input, letterSpacing:1 }} placeholder="00.000.000/0000-00" inputMode="numeric" maxLength={18}
-            value={form.cnpj} onChange={e=>setForm({...form,cnpj:maskCNPJ(e.target.value)})} />
-          <label style={S.label}>Nome do estabelecimento *</label>
-          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Nome da empresa/estabelecimento, não o seu nome pessoal.</p>
-          <input style={S.input} placeholder="Ex: Restaurante do João, Bar Guinness, Mercado Silva..." value={form.nomeNegocio} onChange={e=>setForm({...form,nomeNegocio:e.target.value})} />
-        </>
-      )}
-
-      {/* Endereço */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📍 Endereço do local *</div>
-      <div style={{ background:"#f0f9ff", border:"1.5px solid #bae6fd", borderRadius:12, padding:"10px 14px", marginBottom:12, fontSize:12, color:"#0369a1" }}>
-        Informe onde os serviços serão prestados (estabelecimento ou residência).
-      </div>
-
-      <label style={S.label}>CEP *</label>
-      <div style={{ position:"relative" }}>
-        <input style={{ ...S.input, letterSpacing:1, paddingRight: buscandoCEPEmp ? 110 : 14 }} placeholder="00000-000" inputMode="numeric" maxLength={9}
-          value={form.cepEmp}
-          onChange={e => {
-            let v = e.target.value.replace(/\D/g,"").slice(0,8);
-            if (v.length > 5) v = v.slice(0,5)+"-"+v.slice(5);
-            setForm(prev => ({...prev, cepEmp: v}));
-            if (v.replace(/\D/g,"").length === 8) buscarCEPEmp(v);
-          }} />
-        {buscandoCEPEmp && <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"var(--text-2,#64748b)", fontWeight:600 }}>Buscando...</span>}
-      </div>
-
-      <label style={S.label}>Logradouro *</label>
-      <input style={S.input} placeholder="Ex: Rua das Flores" value={form.ruaEmp} onChange={e=>setForm({...form,ruaEmp:e.target.value})} />
-
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr", gap:12 }}>
-        <div>
-          <label style={S.label}>Número *</label>
-          <input style={S.input} placeholder="Ex: 123" value={form.numeroEmp} onChange={e=>setForm({...form,numeroEmp:e.target.value})} />
+          <div style={{ marginTop:16 }} aria-label={`XP do cadastro: ${xpEmpPF} de 100`}>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:6, fontWeight:800 }}>
+              <span>⚡ XP do cadastro</span>
+              <span>{xpEmpPF}/100</span>
+            </div>
+            <div style={{ background:"rgba(255,255,255,.18)", height:8, borderRadius:6, overflow:"hidden" }}>
+              <div style={{ background:"#FF6B35", height:8, width:`${xpEmpPF}%`, borderRadius:6, transition:"width .4s ease-out", boxShadow:"0 0 8px rgba(255,107,53,.5)" }} />
+            </div>
+          </div>
         </div>
-        <div>
-          <label style={S.label}>Complemento</label>
-          <input style={S.input} placeholder="Sala, Bloco…" value={form.complementoEmp} onChange={e=>setForm({...form,complementoEmp:e.target.value})} />
+
+        <div style={{ background:"#fff7f3", border:"1px solid #fed7aa", borderRadius:12, padding:"12px 14px", marginTop:10, fontSize:12, color:"#9a3412", lineHeight:1.6 }}>
+          💡 Cada etapa concluída soma <strong>+25 XP</strong>. Cadastro rápido pra você começar a contratar.
         </div>
+
+        {/* ───────── PASSO 1 — Identidade ───────────────────────────────────── */}
+        {passoEmpregadorPF === 1 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>👤 Quem é você</div>
+
+            <label style={S.label}>Nome completo *</label>
+            <input style={S.input} placeholder="Ex: Maria Oliveira" autoComplete="name"
+              value={form.nome}
+              onChange={e => { setForm({ ...form, nome: e.target.value }); revalidaEmpPF("nome"); }}
+              onBlur={() => { marcarTocadoEmpPF("nome"); setErrosEmpPF(er => ({ ...er, nome: validarCampoEmpPF("nome") })); }} />
+            {erroEmpPF("nome") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroEmpPF("nome")}</p>}
+
+            <label style={S.label}>Telefone (WhatsApp) *</label>
+            <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15} autoComplete="tel"
+              value={form.telefone}
+              onChange={e => { setForm({ ...form, telefone: maskTelefone(e.target.value) }); revalidaEmpPF("telefone"); }}
+              onBlur={() => { marcarTocadoEmpPF("telefone"); setErrosEmpPF(er => ({ ...er, telefone: validarCampoEmpPF("telefone") })); }} />
+            {erroEmpPF("telefone") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroEmpPF("telefone")}</p>}
+
+            <label style={S.label}>CPF *</label>
+            <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
+              value={form.cpf}
+              onChange={e => { setForm({ ...form, cpf: maskCPF(e.target.value) }); revalidaEmpPF("cpf"); }}
+              onBlur={() => { marcarTocadoEmpPF("cpf"); setErrosEmpPF(er => ({ ...er, cpf: validarCampoEmpPF("cpf") })); }} />
+            {erroEmpPF("cpf") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroEmpPF("cpf")}</p>}
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-2px 0 10px" }}>
+              🔒 CPF nunca aparece no perfil público. Usado pra checar duplicidade.
+            </p>
+          </>
+        )}
+
+        {/* ───────── PASSO 2 — Local de atendimento ───────────────────────── */}
+        {passoEmpregadorPF === 2 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📍 Onde você atende</div>
+            <div style={{ background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:12, color:"#0369a1", lineHeight:1.5 }}>
+              Informe o local onde os serviços serão prestados (estabelecimento ou residência).
+            </div>
+
+            <label style={S.label}>Nome do local / apelido *</label>
+            <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Como será identificado nas vagas? Ex: Família Silva, Restaurante do João...</p>
+            <input style={S.input} placeholder="Ex: Família Silva, Casa da Maria..."
+              value={form.nomeNegocio}
+              onChange={e => { setForm({ ...form, nomeNegocio: e.target.value }); revalidaEmpPF("nomeNegocio"); }}
+              onBlur={() => { marcarTocadoEmpPF("nomeNegocio"); setErrosEmpPF(er => ({ ...er, nomeNegocio: validarCampoEmpPF("nomeNegocio") })); }} />
+            {erroEmpPF("nomeNegocio") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroEmpPF("nomeNegocio")}</p>}
+
+            <label style={S.label}>CEP *</label>
+            <div style={{ position:"relative" as const }}>
+              <input style={{ ...S.input, letterSpacing:1, paddingRight: buscandoCEPEmp ? 110 : 14 }} placeholder="00000-000" inputMode="numeric" maxLength={9}
+                value={form.cepEmp}
+                onChange={e => {
+                  let v = e.target.value.replace(/\D/g, "").slice(0, 8);
+                  if (v.length > 5) v = v.slice(0, 5) + "-" + v.slice(5);
+                  setForm(prev => ({ ...prev, cepEmp: v }));
+                  revalidaEmpPF("cep");
+                  if (v.replace(/\D/g, "").length === 8) buscarCEPEmp(v);
+                }}
+                onBlur={() => { marcarTocadoEmpPF("cep"); setErrosEmpPF(er => ({ ...er, cep: validarCampoEmpPF("cep") })); }} />
+              {buscandoCEPEmp && <span style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"var(--text-2,#64748b)", fontWeight:600 }}>Buscando...</span>}
+            </div>
+            {erroEmpPF("cep") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroEmpPF("cep")}</p>}
+
+            <label style={S.label}>Logradouro *</label>
+            <input style={S.input} placeholder="Ex: Rua das Flores"
+              value={form.ruaEmp}
+              onChange={e => { setForm({ ...form, ruaEmp: e.target.value }); revalidaEmpPF("endereco"); }}
+              onBlur={() => { marcarTocadoEmpPF("endereco"); setErrosEmpPF(er => ({ ...er, endereco: validarCampoEmpPF("endereco") })); }} />
+
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr", gap:12 }}>
+              <div>
+                <label style={S.label}>Número *</label>
+                <input style={S.input} placeholder="Ex: 123"
+                  value={form.numeroEmp}
+                  onChange={e => { setForm({ ...form, numeroEmp: e.target.value }); revalidaEmpPF("endereco"); }}
+                  onBlur={() => { marcarTocadoEmpPF("endereco"); setErrosEmpPF(er => ({ ...er, endereco: validarCampoEmpPF("endereco") })); }} />
+              </div>
+              <div>
+                <label style={S.label}>Complemento</label>
+                <input style={S.input} placeholder="Sala, Bloco…"
+                  value={form.complementoEmp}
+                  onChange={e => setForm({ ...form, complementoEmp: e.target.value })} />
+              </div>
+            </div>
+
+            <label style={S.label}>Bairro *</label>
+            <input style={S.input} placeholder="Ex: Centro"
+              value={form.bairroEmp}
+              onChange={e => { setForm({ ...form, bairroEmp: e.target.value }); revalidaEmpPF("endereco"); }}
+              onBlur={() => { marcarTocadoEmpPF("endereco"); setErrosEmpPF(er => ({ ...er, endereco: validarCampoEmpPF("endereco") })); }} />
+
+            <div style={{ display:"grid", gridTemplateColumns:"1.5fr 0.8fr", gap:12 }}>
+              <div>
+                <label style={S.label}>Cidade *</label>
+                <input style={S.input} placeholder="Campo Grande"
+                  value={form.cidadeEmp}
+                  onChange={e => { setForm({ ...form, cidadeEmp: e.target.value }); revalidaEmpPF("endereco"); }}
+                  onBlur={() => { marcarTocadoEmpPF("endereco"); setErrosEmpPF(er => ({ ...er, endereco: validarCampoEmpPF("endereco") })); }} />
+              </div>
+              <div>
+                <label style={S.label}>UF *</label>
+                <input style={S.input} placeholder="MS" maxLength={2}
+                  value={form.estadoEmp}
+                  onChange={e => setForm({ ...form, estadoEmp: e.target.value.toUpperCase().slice(0, 2) })} />
+              </div>
+            </div>
+            {erroEmpPF("endereco") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"4px 0 10px" }}>⚠ {erroEmpPF("endereco")}</p>}
+          </>
+        )}
+
+        {/* ───────── PASSO 3 — Tipo de negócio ─────────────────────────────── */}
+        {passoEmpregadorPF === 3 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>🎯 Tipo de negócio</div>
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:13, margin:"0 0 14px", lineHeight:1.5 }}>
+              Você verá apenas profissionais do seu setor. Pode mudar depois nas configurações.
+            </p>
+            <div style={S.negocioGrid}>
+              {Object.entries(CATEGORIAS_NEGOCIO).map(([nome, info]) => (
+                <div key={nome}
+                  style={{ ...S.negocioCard, ...(negocioSelecionado === nome ? { border:`2px solid ${info.cor}`, background:`${info.cor}18` } : {}) }}
+                  onClick={() => { setNegocio(nome); marcarTocadoEmpPF("segmento"); setErrosEmpPF(er => ({ ...er, segmento: undefined })); }}>
+                  <span style={S.negocioIcone}>{info.icone}</span>
+                  <span style={{ ...S.negocioLabel, color: negocioSelecionado === nome ? info.cor : "#0f172a" }}>{nome}</span>
+                  {("destaque" in info) && (info as { destaque: string }).destaque && (
+                    <span style={{ display:"inline-block", fontSize:10, fontWeight:800, color: info.cor, background:`${info.cor}18`, borderRadius:8, padding:"2px 7px", marginBottom:2 }}>
+                      {(info as { destaque: string }).destaque}
+                    </span>
+                  )}
+                  <span style={S.negocioFuncoes}>{info.funcoes.join(" · ")}</span>
+                </div>
+              ))}
+            </div>
+            {erroEmpPF("segmento") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"8px 0 0" }}>⚠ {erroEmpPF("segmento")}</p>}
+          </>
+        )}
+
+        {/* ───────── PASSO 4 — Confirmação + Termos ────────────────────────── */}
+        {passoEmpregadorPF === 4 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>✅ Confira seus dados</div>
+
+            <div style={{ background:"#fff", borderRadius:14, padding:"16px 18px", border:"1px solid #e2e8f0", marginTop:8 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>
+                Resumo
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"auto 1fr", gap:"8px 14px", fontSize:13 }}>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Nome</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.nome || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Local</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.nomeNegocio || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Telefone</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.telefone || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Endereço</span>
+                <span style={{ color:"#0f172a", fontWeight:700, fontSize:12, lineHeight:1.5 }}>
+                  {form.ruaEmp ? `${form.ruaEmp}, ${form.numeroEmp} — ${form.cidadeEmp}/${form.estadoEmp}` : "—"}
+                </span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Negócio</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{negocioSelecionado || profile?.segmento || "—"}</span>
+              </div>
+            </div>
+
+            <label aria-label="Aceite dos Termos de Uso"
+              style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", margin:"20px 0 4px", background:"#fff", borderRadius:12, padding:"14px 16px", border:`1.5px solid ${aceitaTermosEmpPF ? "#FF6B35" : "#e2e8f0"}`, minHeight:60 }}>
+              <input type="checkbox" checked={aceitaTermosEmpPF}
+                onChange={e => { setAceitaTermosEmpPF(e.target.checked); marcarTocadoEmpPF("aceitaTermos"); setErrosEmpPF(er => ({ ...er, aceitaTermos: e.target.checked ? undefined : "Você precisa aceitar os Termos." })); }}
+                style={{ width:20, height:20, accentColor:"#FF6B35", flexShrink:0, marginTop:2 }} />
+              <span style={{ fontSize:13, color:"#475569", lineHeight:1.5 }}>
+                Li e aceito os{" "}
+                <span role="button" style={{ color:"#FF6B35", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
+                  onClick={e => { e.preventDefault(); setTipo("empregador"); setMostrarTermos(true); }}>
+                  Termos de Uso
+                </span>{" "}
+                e a Política de Privacidade do DiáriaJá.
+              </span>
+            </label>
+            {erroEmpPF("aceitaTermos") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"4px 0 0" }}>⚠ {erroEmpPF("aceitaTermos")}</p>}
+          </>
+        )}
+
+        {authError && (
+          <p style={{ color: authError.startsWith("✅") ? "#16a34a" : "#ef4444", fontSize:13, fontWeight:600, marginTop:14, textAlign:"center" }}>
+            {authError}
+          </p>
+        )}
+
+        {passoEmpregadorPF < 4 ? (
+          <button type="button"
+            style={{ width:"100%", padding:"16px", marginTop:24, marginBottom:24, background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", minHeight:48, fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 16px rgba(255,107,53,.35)", transition:"all .2s", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}
+            onClick={proximoPassoEmpPF}>
+            <span>Continuar</span>
+            <span style={{ background:"rgba(255,255,255,.22)", padding:"3px 10px", borderRadius:14, fontSize:12, fontWeight:800 }}>+25 XP</span>
+          </button>
+        ) : (
+          <button type="button"
+            style={{ width:"100%", padding:"16px", marginTop:18, marginBottom:24, background: todoValidoEmpPF && !submittingEmpPF ? "#FF6B35" : "#cbd5e1", color: todoValidoEmpPF && !submittingEmpPF ? "#fff" : "#94a3b8", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor: todoValidoEmpPF && !submittingEmpPF ? "pointer" : "default", minHeight:48, fontFamily:"Inter, system-ui, sans-serif", boxShadow: todoValidoEmpPF && !submittingEmpPF ? "0 4px 16px rgba(255,107,53,.35)" : "none" }}
+            disabled={!todoValidoEmpPF || submittingEmpPF}
+            onClick={submitEmpPF}>
+            {submittingEmpPF ? "Criando conta..." : todoValidoEmpPF ? "✓ Criar conta e ganhar +100 XP" : "Complete os campos pra continuar"}
+          </button>
+        )}
+
+        <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:13, marginTop:0, marginBottom:24, cursor:"pointer" }}
+          onClick={() => { setAuthError(""); setTela("login"); }}>
+          Já tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Entrar</span>
+        </p>
       </div>
-
-      <label style={S.label}>Bairro *</label>
-      <input style={S.input} placeholder="Ex: Centro" value={form.bairroEmp} onChange={e=>setForm({...form,bairroEmp:e.target.value})} />
-
-      <div style={{ display:"grid", gridTemplateColumns:"1.5fr 0.8fr", gap:12 }}>
-        <div>
-          <label style={S.label}>Cidade *</label>
-          <input style={S.input} placeholder="Campo Grande" value={form.cidadeEmp} onChange={e=>setForm({...form,cidadeEmp:e.target.value})} />
-        </div>
-        <div>
-          <label style={S.label}>UF *</label>
-          <input style={S.input} placeholder="MS" maxLength={2} value={form.estadoEmp} onChange={e=>setForm({...form,estadoEmp:e.target.value.toUpperCase().slice(0,2)})} />
-        </div>
-      </div>
-
-      {authError && <p style={S.errorText}>{authError}</p>}
-      <button style={{ ...S.btnPrimary, marginTop:20 }} onClick={async () => {
-        setAuthError("");
-        if (!form.nome.trim()) { setAuthError("Informe seu nome completo."); return; }
-        { const erroNome = validarNome(form.nome); if (erroNome) { setAuthError(erroNome); return; } }
-        if (!validarTelefone(form.telefone)) { setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX."); return; }
-        if (form.pessoaTipo === "fisica" && !validarCPF(form.cpf)) { setAuthError("CPF inválido. Verifique os dígitos e tente novamente."); return; }
-        if (form.pessoaTipo === "juridica" && !validarCNPJ(form.cnpj)) { setAuthError("CNPJ inválido. Verifique os dígitos e tente novamente."); return; }
-        if (!form.cepEmp || !form.ruaEmp.trim() || !form.numeroEmp.trim()) { setAuthError("Preencha CEP, logradouro e número."); return; }
-        const endEmp = `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp.trim()?` — ${form.complementoEmp}`:""},  ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} — CEP ${form.cepEmp}`;
-        const ok = await saveProfile({
-          nome_negocio: form.pessoaTipo === "juridica" ? form.nomeNegocio : form.nome,
-          telefone: form.telefone.replace(/\D/g, ""), // só dígitos pra consistência
-          cpf: form.cpf,
-          cnpj: form.cnpj,
-          pessoa_tipo: form.pessoaTipo,
-          endereco_empregador: endEmp,
-          // Inclui lat/lng geocodificados do CEP se disponíveis
-          ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
-        });
-        if (ok) setTela("escolha-negocio");
-      }}>Continuar →</button>
-    </div>
-  );
+    );
+  }
 
   // ESCOLHA DE NEGÓCIO
   if (tela === "escolha-negocio") return (
@@ -6478,216 +7065,392 @@ export default function App() {
     </div>
   );
 
-  // CADASTRO DIARISTA
-  if (tela === "cadastro-diarista") return (
-    <div style={S.page}>
-      <button style={S.back} onClick={() => setTela("cadastro-tipo")}>← Voltar</button>
+  // CADASTRO DIARISTA — WIZARD DE 4 PASSOS (PF)
+  // Identidade → Contato → Trabalho → Disponibilidade+Termos.
+  // Cada passo concede +25 XP visualmente na barra do header (gamificação).
+  // Rascunho é o próprio `form` global (compartilhado com editar-perfil).
+  if (tela === "cadastro-diarista") {
+    const NOMES_PASSOS_DIA: Record<1 | 2 | 3 | 4, string> = {
+      1: "Identidade",
+      2: "Contato",
+      3: "Seu trabalho",
+      4: "Disponibilidade e termos",
+    };
+    const xpAcumulado = (passoDiarista - 1) * 25; // 0/25/50/75 ao entrar no passo
+    const erroDia = (c: CampoDia) => (tocadosDia[c] ? errosDia[c] : undefined);
+    const marcarTocadoDia = (c: CampoDia) => setTocadosDia(t => ({ ...t, [c]: true }));
+    const revalidaDia = (c: CampoDia) => {
+      if (tocadosDia[c]) setErrosDia(e => ({ ...e, [c]: validarCampoDiarista(c) }));
+    };
 
-      {/* Header */}
-      <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", borderRadius:20, padding:"20px 20px 18px", marginBottom:20, color:"#fff" }}>
-        <div style={{ fontSize:22, fontWeight:900 }}>👷 Perfil de Diarista</div>
-        <div style={{ fontSize:13, opacity:0.75, marginTop:4 }}>Preencha seus dados para começar a trabalhar</div>
-      </div>
+    const proximoPassoDia = () => {
+      const campos = CAMPOS_POR_PASSO_DIA[passoDiarista];
+      const novosTocados = { ...tocadosDia };
+      const novosErros: Partial<Record<CampoDia, string>> = { ...errosDia };
+      let temErro = false;
+      campos.forEach(c => {
+        novosTocados[c] = true;
+        const err = validarCampoDiarista(c);
+        novosErros[c] = err;
+        if (err) temErro = true;
+      });
+      setTocadosDia(novosTocados);
+      setErrosDia(novosErros);
+      if (temErro) {
+        setAuthError("Corrija os campos destacados antes de continuar.");
+        return;
+      }
+      setAuthError("");
+      setPassoDiarista(p => (Math.min(4, p + 1) as 1 | 2 | 3 | 4));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
 
-      {/* Foto pessoal */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto pessoal *</div>
-      <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20, padding:"14px 16px", background:"var(--bg-surface,#f8fafc)", borderRadius:16, border:"1.5px solid var(--border,#e2e8f0)" }}>
-        {fotoUrl
-          ? <img loading="lazy" src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover" as const, flexShrink:0, border:"3px solid #FF6B35" }} alt="foto" />
-          : <div style={{ width:72, height:72, borderRadius:36, background:"#e2e8f0", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, flexShrink:0 }}>👤</div>
-        }
-        <div style={{ flex:1 }}>
-          <div style={{ fontWeight:700, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:4 }}>
-            {fotoUrl ? "✅ Foto adicionada!" : "Adicione sua foto"}
-          </div>
-          <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, lineHeight:1.4 }}>
-            Perfis com foto recebem <strong>3× mais contratações</strong>
-          </div>
-          <label style={{ display:"inline-block", padding:"8px 16px", background:fotoUrl?"#f0fdf4":"#FF6B35", color:fotoUrl?"#16a34a":"#fff", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer" }}>
-            {uploadingFoto ? "Enviando..." : fotoUrl ? "Trocar foto" : "📷 Escolher foto"}
-            <input type="file" accept="image/jpeg,image/png,image/webp" capture="user" style={{ display:"none" }} onChange={e=>e.target.files?.[0]&&handleFotoUpload(e.target.files[0])} />
-          </label>
-        </div>
-      </div>
+    const errosTotais = validarTodoFormDiarista();
+    const todoValidoDia = Object.keys(errosTotais).length === 0;
 
-      {/* Dados pessoais */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📋 Dados pessoais</div>
+    const submitDia = async () => {
+      setSubmittingDia(true);
+      setAuthError("");
+      const errosF = validarTodoFormDiarista();
+      setErrosDia(errosF);
+      setTocadosDia(Object.fromEntries((Object.keys(errosF) as CampoDia[]).map(k => [k, true])));
+      if (Object.keys(errosF).length > 0) {
+        setSubmittingDia(false);
+        setAuthError("Corrija os campos destacados antes de continuar.");
+        return;
+      }
+      // Normaliza valores antes de gravar — banco fica com formato canônico.
+      const telDigitos = form.telefone.replace(/\D/g, "");
+      const pixNorm =
+        form.pixTipo === "cpf" || form.pixTipo === "cnpj"
+          ? form.pixChave.replace(/\D/g, "")
+          : form.pixTipo === "telefone"
+            ? "+55" + form.pixChave.replace(/\D/g, "")
+            : form.pixChave.trim();
+      const ok = await saveProfile({
+        telefone: telDigitos,
+        funcao: categoriasSelecionadas[0] || "",
+        cpf: form.cpf,
+        sexo: form.sexo,
+        data_nascimento: form.dataNasc,
+        pix_chave: pixNorm,
+        pix_tipo: form.pixTipo as "cpf" | "cnpj" | "email" | "telefone" | "aleatoria",
+      });
+      setSubmittingDia(false);
+      if (ok) {
+        trackEvento("cadastro_concluido", session?.user?.id, "diarista");
+        try { localStorage.removeItem("diariaja_cad_diarista_passo"); } catch { /* ignore */ }
+        setPassoDiarista(1);
+        setErrosDia({});
+        setTocadosDia({});
+        setAceitaTermosDia(false);
+        setTela("pedir-localizacao");
+      }
+    };
 
-      <label style={S.label}>Nome completo *</label>
-      <input style={S.input} placeholder="Ex: João da Silva" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
+    return (
+      <div style={S.page}>
+        <button style={S.back} onClick={() => {
+          if (passoDiarista === 1) { setAuthError(""); setTela("cadastro-tipo"); }
+          else { setAuthError(""); setPassoDiarista(p => (Math.max(1, p - 1) as 1 | 2 | 3 | 4)); window.scrollTo({ top: 0, behavior: "smooth" }); }
+        }}>← Voltar</button>
 
-      <label style={S.label}>Telefone (WhatsApp) *</label>
-      <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15}
-        value={form.telefone} onChange={e=>setForm({...form,telefone:maskTelefone(e.target.value)})} />
-
-      <label style={S.label}>CPF *</label>
-      <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
-        value={form.cpf} onChange={e=>setForm({...form,cpf:maskCPF(e.target.value)})} />
-      <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
-        🔒 Usado apenas para verificação de identidade. Nunca compartilhado.
-      </p>
-
-      <label style={S.label}>Sexo *</label>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:8 }}>
-        {([["M","Masculino"],["F","Feminino"],["N","Não informar"]] as const).map(([val,label]) => (
-          <button key={val}
-            style={{ padding:"10px 6px", border:form.sexo===val?"2px solid #FF6B35":"1.5px solid #e2e8f0", borderRadius:12, background:form.sexo===val?"#fff7f3":"#f8fafc", color:form.sexo===val?"#FF6B35":"#475569", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-            onClick={() => setForm({...form,sexo:val})}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <label style={S.label}>Data de nascimento *</label>
-      <input style={S.input} type="date"
-        max={new Date(new Date().setFullYear(new Date().getFullYear()-18)).toISOString().split("T")[0]}
-        value={form.dataNasc} onChange={e=>setForm({...form,dataNasc:e.target.value})} />
-      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, margin:"-6px 0 10px" }}>
-        🔞 Cadastro disponível apenas para maiores de 18 anos (CLT/LC 150).
-      </p>
-
-      {/* Especialidades com seção colapsável */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💼 Especialidades *</div>
-      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira selecionada ⭐</strong> é sua especialidade principal.</p>
-      {categoriasSelecionadas.length > 0 && (
-        <p style={{ color:"#FF6B35", fontSize:12, margin:"0 0 8px", fontWeight:700 }}>
-          {categoriasSelecionadas.length} selecionada{categoriasSelecionadas.length > 1 ? "s" : ""} · Principal: ⭐ {categoriasSelecionadas[0]}
-        </p>
-      )}
-      {/* Botão expandir/recolher habilidades */}
-      <button
-        style={{ width:"100%", padding:"11px 14px", borderRadius:12, border:"2px dashed #e2e8f0", background:"var(--bg-surface,#f8fafc)", color:"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}
-        onClick={() => setHabilidadesExpandidas(prev => !prev)}>
-        <span>{habilidadesExpandidas ? "🔼 Recolher habilidades" : "🔽 Ver todas as habilidades"}</span>
-        <span style={{ background:"#FF6B35", color:"#fff", borderRadius:20, padding:"2px 10px", fontSize:11 }}>{habilidadesExpandidas ? "−" : "+"}</span>
-      </button>
-      {habilidadesExpandidas && (
-        <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, marginBottom:12, background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px", border:"1px solid var(--border,#e2e8f0)" }}>
-          {Object.entries(CATEGORIAS_NEGOCIO).flatMap(([, info]) =>
-            info.funcoes.map(f => {
-              const sel = categoriasSelecionadas.includes(f);
-              const idx = categoriasSelecionadas.indexOf(f);
-              return (
-                <button key={f}
-                  style={{ padding:"7px 14px", borderRadius:20, border:`2px solid ${sel?"#FF6B35":"#e2e8f0"}`,
-                    background:sel?"#FF6B35":"#fff", color:sel?"#fff":"#475569",
-                    fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", position:"relative" as const }}
-                  onClick={() => setCategorias(prev => sel ? prev.filter(x=>x!==f) : [...prev, f])}>
-                  {f}{sel && idx === 0 ? " ⭐" : ""}
-                </button>
-              );
-            })
-          )}
-        </div>
-      )}
-
-      <label style={S.label}>Valor por diária (R$) *</label>
-      <input style={S.input} placeholder="Ex: 150" type="number" value={form.valor} onChange={e=>setForm({...form,valor:e.target.value})} />
-      {/* Banner de média de mercado por função */}
-      {categoriasSelecionadas[0] && MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]] && (() => {
-        const med = MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]];
-        const valorNum = Number(form.valor);
-        const abaixoMinimo = valorNum > 0 && !isNaN(valorNum) && valorNum < med.min;
-        return (
-          <>
-            <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:10, padding:"9px 12px", marginBottom:6, fontSize:12, color:"#166534" }}>
-              💡 Faixa em Campo Grande para <strong>{categoriasSelecionadas[0]}</strong>:{" "}
-              R$ {med.min} — R$ {med.max}/dia (média R$ {med.media})
+        {/* Header laranja com barra de XP */}
+        <div style={{ background:"linear-gradient(135deg,#FF6B35,#fb923c)", borderRadius:20, padding:"22px 22px 18px", marginTop:8, marginBottom:8, color:"#fff" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ fontSize:32 }}>👷</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:20, fontWeight:900, lineHeight:1.2 }}>Cadastro de Diarista</div>
+              <div style={{ fontSize:12, opacity:0.92, marginTop:2 }}>
+                Passo {passoDiarista} de 4 — {NOMES_PASSOS_DIA[passoDiarista]}
+              </div>
             </div>
-            {abaixoMinimo && (
-              <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:10, padding:"9px 12px", marginBottom:6, fontSize:12, color:"#9a3412", display:"flex", alignItems:"flex-start", gap:7 }}>
-                <span style={{ fontSize:14, flexShrink:0, lineHeight:1.4 }}>⚠️</span>
-                <span>Valor abaixo da faixa mínima de mercado. Ofertas assim costumam receber <strong>menos candidatos</strong>. Considere oferecer pelo menos R$ {med.min}.</span>
+          </div>
+          {/* Barra de XP — preenche conforme avança nos passos */}
+          <div style={{ marginTop:16 }} aria-label={`XP do cadastro: ${xpAcumulado} de 100`}>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:6, fontWeight:800 }}>
+              <span>⚡ XP do cadastro</span>
+              <span>{xpAcumulado}/100</span>
+            </div>
+            <div style={{ background:"rgba(255,255,255,.22)", height:8, borderRadius:6, overflow:"hidden" }}>
+              <div style={{ background:"#fff", height:8, width:`${xpAcumulado}%`, borderRadius:6, transition:"width .4s ease-out", boxShadow:"0 0 8px rgba(255,255,255,.5)" }} />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ background:"#fff7f3", border:"1px solid #fed7aa", borderRadius:12, padding:"12px 14px", marginTop:10, fontSize:12, color:"#9a3412", lineHeight:1.6 }}>
+          💡 Cada etapa concluída soma <strong>+25 XP</strong>. Quanto mais XP, mais visível seu perfil fica.
+        </div>
+
+        {/* ───────── PASSO 1 — Identidade ───────────────────────────────────── */}
+        {passoDiarista === 1 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto pessoal *</div>
+            <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:8, padding:"14px 16px", background:"var(--bg-surface,#f8fafc)", borderRadius:16, border: erroDia("foto") ? "1.5px solid #ef4444" : fotoUrl ? "1.5px solid #16a34a" : "1.5px solid var(--border,#e2e8f0)" }}>
+              {fotoUrl
+                ? <img loading="lazy" src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover" as const, flexShrink:0, border:"3px solid #FF6B35" }} alt="foto" />
+                : <div style={{ width:72, height:72, borderRadius:36, background:"#e2e8f0", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, flexShrink:0 }}>👤</div>
+              }
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:4 }}>
+                  {fotoUrl ? "✅ Foto adicionada!" : "Adicione sua foto"}
+                </div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, lineHeight:1.4 }}>
+                  Perfis com foto recebem <strong>3× mais contratações</strong>
+                </div>
+                <label style={{ display:"inline-block", padding:"8px 16px", background:fotoUrl?"#f0fdf4":"#FF6B35", color:fotoUrl?"#16a34a":"#fff", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                  {uploadingFoto ? "Enviando..." : fotoUrl ? "Trocar foto" : "📷 Escolher foto"}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" capture="user" style={{ display:"none" }}
+                    onChange={e => { if (e.target.files?.[0]) { handleFotoUpload(e.target.files[0]); marcarTocadoDia("foto"); setErrosDia(er => ({ ...er, foto: undefined })); } }} />
+                </label>
+              </div>
+            </div>
+            {erroDia("foto") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("foto")}</p>}
+
+            <label style={S.label}>Nome completo *</label>
+            <input style={S.input} placeholder="Ex: João da Silva" autoComplete="name"
+              value={form.nome}
+              onChange={e => { setForm({ ...form, nome: e.target.value }); revalidaDia("nome"); }}
+              onBlur={() => { marcarTocadoDia("nome"); setErrosDia(er => ({ ...er, nome: validarCampoDiarista("nome") })); }} />
+            {erroDia("nome") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroDia("nome")}</p>}
+
+            <label style={S.label}>Sexo *</label>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:8 }}>
+              {([["M","Masculino"],["F","Feminino"],["N","Não informar"]] as const).map(([val, label]) => (
+                <button key={val} type="button"
+                  style={{ padding:"10px 6px", border:form.sexo===val?"2px solid #FF6B35":"1.5px solid #e2e8f0", borderRadius:12, background:form.sexo===val?"#fff7f3":"#f8fafc", color:form.sexo===val?"#FF6B35":"#475569", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                  onClick={() => { setForm({ ...form, sexo: val }); marcarTocadoDia("sexo"); setErrosDia(er => ({ ...er, sexo: undefined })); }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {erroDia("sexo") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("sexo")}</p>}
+
+            <label style={S.label}>Data de nascimento *</label>
+            <input style={S.input} type="date"
+              max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split("T")[0]}
+              value={form.dataNasc}
+              onChange={e => { setForm({ ...form, dataNasc: e.target.value }); revalidaDia("dataNasc"); }}
+              onBlur={() => { marcarTocadoDia("dataNasc"); setErrosDia(er => ({ ...er, dataNasc: validarCampoDiarista("dataNasc") })); }} />
+            <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, margin:"-6px 0 6px" }}>
+              🔞 Cadastro disponível apenas para maiores de 18 anos (art. 7º, XXXIII, CF/88).
+            </p>
+            {erroDia("dataNasc") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("dataNasc")}</p>}
+          </>
+        )}
+
+        {/* ───────── PASSO 2 — Contato ─────────────────────────────────────── */}
+        {passoDiarista === 2 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📞 Como te encontramos</div>
+            <div style={{ background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:12, color:"#0369a1", lineHeight:1.5 }}>
+              🔒 Seu CPF e telefone <strong>nunca aparecem no perfil público</strong> — só pra contratantes que te selecionarem.
+            </div>
+
+            <label style={S.label}>Telefone (WhatsApp) *</label>
+            <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15} autoComplete="tel"
+              value={form.telefone}
+              onChange={e => { setForm({ ...form, telefone: maskTelefone(e.target.value) }); revalidaDia("telefone"); }}
+              onBlur={() => { marcarTocadoDia("telefone"); setErrosDia(er => ({ ...er, telefone: validarCampoDiarista("telefone") })); }} />
+            {erroDia("telefone") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroDia("telefone")}</p>}
+
+            <label style={S.label}>CPF *</label>
+            <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
+              value={form.cpf}
+              onChange={e => { setForm({ ...form, cpf: maskCPF(e.target.value) }); revalidaDia("cpf"); }}
+              onBlur={() => { marcarTocadoDia("cpf"); setErrosDia(er => ({ ...er, cpf: validarCampoDiarista("cpf") })); }} />
+            {erroDia("cpf") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroDia("cpf")}</p>}
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-2px 0 10px" }}>
+              Usado pra checar duplicidade. Você pode verificar o telefone via SMS depois pra subir o nível de confiança.
+            </p>
+          </>
+        )}
+
+        {/* ───────── PASSO 3 — Seu trabalho ───────────────────────────────── */}
+        {passoDiarista === 3 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💼 Especialidades *</div>
+            <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira ⭐</strong> é a principal.</p>
+            {categoriasSelecionadas.length > 0 && (
+              <p style={{ color:"#FF6B35", fontSize:12, margin:"0 0 8px", fontWeight:700 }}>
+                {categoriasSelecionadas.length} selecionada{categoriasSelecionadas.length > 1 ? "s" : ""} · Principal: ⭐ {categoriasSelecionadas[0]}
+              </p>
+            )}
+            <button type="button"
+              style={{ width:"100%", padding:"11px 14px", borderRadius:12, border:"2px dashed #e2e8f0", background:"var(--bg-surface,#f8fafc)", color:"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}
+              onClick={() => setHabilidadesExpandidas(prev => !prev)}>
+              <span>{habilidadesExpandidas ? "🔼 Recolher habilidades" : "🔽 Ver todas as habilidades"}</span>
+              <span style={{ background:"#FF6B35", color:"#fff", borderRadius:20, padding:"2px 10px", fontSize:11 }}>{habilidadesExpandidas ? "−" : "+"}</span>
+            </button>
+            {habilidadesExpandidas && (
+              <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, marginBottom:12, background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px", border:"1px solid var(--border,#e2e8f0)" }}>
+                {Object.entries(CATEGORIAS_NEGOCIO).flatMap(([, info]) =>
+                  info.funcoes.map(f => {
+                    const sel = categoriasSelecionadas.includes(f);
+                    const idx = categoriasSelecionadas.indexOf(f);
+                    return (
+                      <button key={f} type="button"
+                        style={{ padding:"7px 14px", borderRadius:20, border:`2px solid ${sel ? "#FF6B35" : "#e2e8f0"}`, background: sel ? "#FF6B35" : "#fff", color: sel ? "#fff" : "#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", position:"relative" as const }}
+                        onClick={() => { setCategorias(prev => sel ? prev.filter(x => x !== f) : [...prev, f]); marcarTocadoDia("categorias"); setErrosDia(er => ({ ...er, categorias: undefined })); }}>
+                        {f}{sel && idx === 0 ? " ⭐" : ""}
+                      </button>
+                    );
+                  })
+                )}
               </div>
             )}
+            {erroDia("categorias") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("categorias")}</p>}
+
+            <label style={S.label}>Valor por diária (R$) *</label>
+            <input style={S.input} placeholder="Ex: 150" type="number" inputMode="numeric"
+              value={form.valor}
+              onChange={e => { setForm({ ...form, valor: e.target.value }); revalidaDia("valor"); }}
+              onBlur={() => { marcarTocadoDia("valor"); setErrosDia(er => ({ ...er, valor: validarCampoDiarista("valor") })); }} />
+            {erroDia("valor") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 6px" }}>⚠ {erroDia("valor")}</p>}
+            {categoriasSelecionadas[0] && MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]] && (() => {
+              const med = MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]];
+              const valorNum = Number(form.valor);
+              const abaixoMinimo = valorNum > 0 && !isNaN(valorNum) && valorNum < med.min;
+              return (
+                <>
+                  <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:10, padding:"9px 12px", marginBottom:6, fontSize:12, color:"#166534" }}>
+                    💡 Faixa em Campo Grande para <strong>{categoriasSelecionadas[0]}</strong>:{" "}
+                    R$ {med.min} — R$ {med.max}/dia (média R$ {med.media})
+                  </div>
+                  {abaixoMinimo && (
+                    <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:10, padding:"9px 12px", marginBottom:6, fontSize:12, color:"#9a3412", display:"flex", alignItems:"flex-start", gap:7 }}>
+                      <span style={{ fontSize:14, flexShrink:0, lineHeight:1.4 }}>⚠️</span>
+                      <span>Valor abaixo da faixa mínima. Considere oferecer ao menos R$ {med.min} pra atrair mais contratantes.</span>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:18, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💰 Chave PIX *</div>
+            <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 8px", lineHeight:1.5 }}>
+              Aparece pro contratante facilitar o pagamento direto. O DiáriaJá não intermedia.
+            </p>
+            <label style={S.label}>Tipo de chave</label>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:6, marginBottom:8 }}>
+              {([["cpf","CPF"],["cnpj","CNPJ"],["email","E-mail"],["telefone","Celular"],["aleatoria","Aleatória"]] as const).map(([val, label]) => {
+                const ativo = form.pixTipo === val;
+                return (
+                  <button key={val} type="button"
+                    style={{ padding:"8px 4px", border: ativo ? "2px solid #FF6B35" : "1.5px solid #e2e8f0", borderRadius:10, background: ativo ? "#fff7f3" : "#f8fafc", color: ativo ? "#FF6B35" : "#475569", fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                    onClick={() => { setForm({ ...form, pixTipo: val, pixChave: "" }); setErrosDia(er => ({ ...er, pixChave: undefined })); }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <label style={S.label}>Chave PIX</label>
+            <input style={S.input}
+              placeholder={form.pixTipo === "cpf" ? "Mesmo CPF acima" : form.pixTipo === "cnpj" ? "CNPJ" : form.pixTipo === "email" ? "seu@email.com" : form.pixTipo === "telefone" ? "(67) 99999-9999" : "550e8400-e29b-41d4-a716-446655440000"}
+              inputMode={form.pixTipo === "email" ? "email" : "text"}
+              value={form.pixChave}
+              onChange={e => {
+                let v = e.target.value;
+                if (form.pixTipo === "cpf") v = maskCPF(v);
+                else if (form.pixTipo === "cnpj") v = maskCNPJ(v);
+                else if (form.pixTipo === "telefone") v = maskTelefone(v);
+                setForm({ ...form, pixChave: v });
+                revalidaDia("pixChave");
+              }}
+              onBlur={() => { marcarTocadoDia("pixChave"); setErrosDia(er => ({ ...er, pixChave: validarCampoDiarista("pixChave") })); }} />
+            {erroDia("pixChave") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroDia("pixChave")}</p>}
           </>
-        );
-      })()}
-      <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-2px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
-        📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>R$ 120 – R$ 250</strong> por diária
-      </p>
+        )}
 
-      {/* PIX — chave do diarista pra contratante mandar direto */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:18, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💰 Chave PIX *</div>
-      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 8px", lineHeight:1.5 }}>
-        Essa chave aparece pro contratante facilitar o pagamento direto pra você. O DiáriaJá não intermedia o pagamento — você recebe direto na sua conta.
-      </p>
-      <label style={S.label}>Tipo de chave</label>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:6, marginBottom:8 }}>
-        {([
-          ["cpf","CPF"], ["cnpj","CNPJ"], ["email","E-mail"], ["telefone","Celular"], ["aleatoria","Aleatória"],
-        ] as const).map(([val, label]) => {
-          const ativo = form.pixTipo === val;
-          return (
-            <button key={val}
-              style={{ padding:"8px 4px", border: ativo ? "2px solid #FF6B35" : "1.5px solid #e2e8f0", borderRadius:10, background: ativo ? "#fff7f3" : "#f8fafc", color: ativo ? "#FF6B35" : "#475569", fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-              onClick={() => setForm({...form, pixTipo: val, pixChave: ""})}>
-              {label}
-            </button>
-          );
-        })}
-      </div>
-      <label style={S.label}>Chave PIX</label>
-      <input style={S.input}
-        placeholder={form.pixTipo === "cpf" ? "Mesmo CPF acima" : form.pixTipo === "cnpj" ? "CNPJ" : form.pixTipo === "email" ? "seu@email.com" : form.pixTipo === "telefone" ? "(67) 99999-9999" : "550e8400-e29b-41d4-a716-446655440000"}
-        inputMode={form.pixTipo === "email" ? "email" : "text"}
-        value={form.pixChave}
-        onChange={e => {
-          let v = e.target.value;
-          if (form.pixTipo === "cpf") v = maskCPF(v);
-          else if (form.pixTipo === "cnpj") v = maskCNPJ(v);
-          else if (form.pixTipo === "telefone") v = maskTelefone(v);
-          setForm({...form, pixChave: v});
-        }} />
+        {/* ───────── PASSO 4 — Disponibilidade + Termos ───────────────────── */}
+        {passoDiarista === 4 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📅 Quando você atende *</div>
+            <label style={S.label}>Disponibilidade semanal</label>
+            <div style={S.diasRow}>
+              {DIAS.map(dia => (
+                <button key={dia} type="button"
+                  style={{ ...S.diaBtn, ...(agendaSelecionada.includes(dia) ? S.diaBtnAtivo : {}) }}
+                  onClick={() => { toggleDia(dia); setErrosDia(er => ({ ...er, agenda: undefined })); }}>
+                  {DIAS_LABEL[dia]}
+                </button>
+              ))}
+            </div>
+            <div style={S.switchRow}>
+              <span style={S.label}>Disponível agora</span>
+              <div style={{ ...S.toggle, ...(disponivelAgora ? S.toggleAtivo : {}) }}
+                onClick={() => { setDisponivel(!disponivelAgora); setErrosDia(er => ({ ...er, agenda: undefined })); }}>
+                <div style={{ ...S.toggleThumb, ...(disponivelAgora ? S.toggleThumbAtivo : {}) }} />
+              </div>
+            </div>
+            {erroDia("agenda") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("agenda")}</p>}
 
-      <label style={S.label}>Disponibilidade semanal</label>
-      <div style={S.diasRow}>
-        {DIAS.map(dia=>(
-          <button key={dia} style={{ ...S.diaBtn, ...(agendaSelecionada.includes(dia)?S.diaBtnAtivo:{}) }} onClick={()=>toggleDia(dia)}>{DIAS_LABEL[dia]}</button>
-        ))}
-      </div>
-      <div style={S.switchRow}>
-        <span style={S.label}>Disponível agora</span>
-        <div style={{ ...S.toggle, ...(disponivelAgora?S.toggleAtivo:{}) }} onClick={()=>setDisponivel(!disponivelAgora)}>
-          <div style={{ ...S.toggleThumb, ...(disponivelAgora?S.toggleThumbAtivo:{}) }} />
-        </div>
-      </div>
+            {/* Resumo dos dados antes do submit */}
+            <div style={{ background:"#fff", borderRadius:14, padding:"16px 18px", border:"1px solid #e2e8f0", marginTop:18 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>
+                Resumo do seu perfil
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"auto 1fr", gap:"8px 14px", fontSize:13 }}>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Nome</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.nome || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Especialidade</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{categoriasSelecionadas[0] || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Valor</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.valor ? `R$ ${form.valor}/dia` : "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Telefone</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.telefone || "—"}</span>
+              </div>
+            </div>
 
-      {authError && <p style={S.errorText}>{authError}</p>}
-      <button style={{ ...S.btnPrimary, marginTop:16 }} onClick={async () => {
-        setAuthError("");
-        if (!fotoUrl) { setAuthError("Adicione uma foto de perfil — empregadores não contratam quem não tem foto."); return; }
-        if (!form.nome.trim()) { setAuthError("Informe seu nome completo."); return; }
-        { const erroNome = validarNome(form.nome); if (erroNome) { setAuthError(erroNome); return; } }
-        if (!validarTelefone(form.telefone)) { setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX."); return; }
-        if (!validarCPF(form.cpf)) { setAuthError("CPF inválido. Verifique os dígitos e tente novamente."); return; }
-        if (!form.sexo) { setAuthError("Selecione seu sexo."); return; }
-        if (!form.dataNasc) { setAuthError("Informe sua data de nascimento."); return; }
-        if (calcularIdade(form.dataNasc) < 18) { setAuthError("Diaristas precisam ter 18 anos ou mais (CLT/LC 150)."); return; }
-        if (categoriasSelecionadas.length === 0) { setAuthError("Selecione ao menos uma especialidade."); return; }
-        { const erroPix = validarPix(form.pixChave, form.pixTipo); if (erroPix) { setAuthError(erroPix); return; } }
-        // Normaliza valores antes de gravar — banco fica com formato canônico,
-        // sem máscara visual. Quebra integração MP/PIX se mantiver formatado.
-        const telDigitos = form.telefone.replace(/\D/g, "");
-        const pixNorm =
-          form.pixTipo === "cpf" || form.pixTipo === "cnpj"
-            ? form.pixChave.replace(/\D/g, "")
-            : form.pixTipo === "telefone"
-              ? "+55" + form.pixChave.replace(/\D/g, "")
-              : form.pixChave.trim();
-        const ok = await saveProfile({
-          telefone: telDigitos,
-          funcao: categoriasSelecionadas[0] || "",
-          cpf: form.cpf,
-          sexo: form.sexo,
-          data_nascimento: form.dataNasc,
-          pix_chave: pixNorm,
-          pix_tipo: form.pixTipo as "cpf"|"cnpj"|"email"|"telefone"|"aleatoria",
-        });
-        if (ok) setTela("pedir-localizacao");
-      }}>Criar conta grátis →</button>
-    </div>
-  );
+            {/* Termos */}
+            <label aria-label="Aceite dos Termos de Uso"
+              style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", margin:"20px 0 4px", background:"#fff", borderRadius:12, padding:"14px 16px", border:`1.5px solid ${aceitaTermosDia ? "#FF6B35" : "#e2e8f0"}`, minHeight:60 }}>
+              <input type="checkbox" checked={aceitaTermosDia}
+                onChange={e => { setAceitaTermosDia(e.target.checked); marcarTocadoDia("aceitaTermos"); setErrosDia(er => ({ ...er, aceitaTermos: e.target.checked ? undefined : "Você precisa aceitar os Termos." })); }}
+                style={{ width:20, height:20, accentColor:"#FF6B35", flexShrink:0, marginTop:2 }} />
+              <span style={{ fontSize:13, color:"#475569", lineHeight:1.5 }}>
+                Li e aceito os{" "}
+                <span role="button" style={{ color:"#FF6B35", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
+                  onClick={e => { e.preventDefault(); setTipo("diarista"); setMostrarTermos(true); }}>
+                  Termos de Uso
+                </span>{" "}
+                e a Política de Privacidade do DiáriaJá.
+              </span>
+            </label>
+            {erroDia("aceitaTermos") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"4px 0 0" }}>⚠ {erroDia("aceitaTermos")}</p>}
+          </>
+        )}
+
+        {authError && (
+          <p style={{ color: authError.startsWith("✅") ? "#16a34a" : "#ef4444", fontSize:13, fontWeight:600, marginTop:14, textAlign:"center" }}>
+            {authError}
+          </p>
+        )}
+
+        {/* Navegação entre passos */}
+        {passoDiarista < 4 ? (
+          <button type="button"
+            style={{ width:"100%", padding:"16px", marginTop:24, marginBottom:24, background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", minHeight:48, fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 16px rgba(255,107,53,.35)", transition:"all .2s", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}
+            onClick={proximoPassoDia}>
+            <span>Continuar</span>
+            <span style={{ background:"rgba(255,255,255,.22)", padding:"3px 10px", borderRadius:14, fontSize:12, fontWeight:800 }}>+25 XP</span>
+          </button>
+        ) : (
+          <button type="button"
+            style={{ width:"100%", padding:"16px", marginTop:18, marginBottom:24, background: todoValidoDia && !submittingDia ? "#FF6B35" : "#cbd5e1", color: todoValidoDia && !submittingDia ? "#fff" : "#94a3b8", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor: todoValidoDia && !submittingDia ? "pointer" : "default", minHeight:48, fontFamily:"Inter, system-ui, sans-serif", boxShadow: todoValidoDia && !submittingDia ? "0 4px 16px rgba(255,107,53,.35)" : "none" }}
+            disabled={!todoValidoDia || submittingDia}
+            onClick={submitDia}>
+            {submittingDia ? "Criando conta..." : todoValidoDia ? "✓ Criar conta e ganhar +100 XP" : "Complete os campos pra continuar"}
+          </button>
+        )}
+
+        <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:13, marginTop:0, marginBottom:24, cursor:"pointer" }}
+          onClick={() => { setAuthError(""); setTela("login"); }}>
+          Já tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Entrar</span>
+        </p>
+      </div>
+    );
+  }
 
   // ── Chat Suporte DiáriaJá — Jájá IA (deve vir antes dos home-* para não ser bloqueado) ─
   if (chatSuporte) {
@@ -7903,7 +8666,8 @@ export default function App() {
               </div>
               <div style={{ padding:"12px 16px 32px", display:"flex", flexDirection:"column", gap:12 }}>
                 {candidaturas
-                  .filter(c => c.diaria_id === modalCandidatos.id && c.status === "pendente")
+                  // Filtra candidatos bloqueados pelo empregador (UGC safety)
+                  .filter(c => c.diaria_id === modalCandidatos.id && c.status === "pendente" && !usuariosBloqueados.has(c.diarista_id))
                   .slice(0, 5)
                   .map(c => {
                     const dp = candidatosProfiles[c.diarista_id];
@@ -8439,18 +9203,26 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Opção 2 — Assinar plano */}
-              <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
-                <div style={{ fontWeight:800, fontSize:14, color:"#9a3412", marginBottom:4 }}>🚀 Assinar Essencial — R$ 49/mês</div>
-                <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.5, marginBottom:12 }}>
-                  Seleções ilimitadas + vagas em destaque + badge verificado. Ideal para restaurantes, eventos e comércios.
-                </div>
-                <button
-                  style={{ width:"100%", padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+              {/* Opção 2 — Assinar plano. Valor lido das constants pra não dessincronizar */}
+              {(() => {
+                const ess = PLANOS_EMPREGADOR.find(p => p.id === "essencial");
+                const valor = ess?.valor ?? 24.90;
+                return (
+                  <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
+                    <div style={{ fontWeight:800, fontSize:14, color:"#9a3412", marginBottom:4 }}>
+                      🚀 Assinar Essencial — R$ {valor.toFixed(2).replace(".", ",")}/mês
+                    </div>
+                    <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.5, marginBottom:12 }}>
+                      Seleções ilimitadas, IA Jájá pra criar vagas, filtros avançados e destaque moderado.
+                    </div>
+                    <button
+                      style={{ width:"100%", padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => { setModalLimiteContato(false); setTela("planos"); }}>
-                  Ver planos →
-                </button>
-              </div>
+                      Ver planos →
+                    </button>
+                  </div>
+                );
+              })()}
 
               <button
                 style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -8462,6 +9234,64 @@ export default function App() {
         )}
 
         {/* ── Modal: Denúncia ── */}
+        {/* Modal: confirmar bloqueio de usuário */}
+        {modalBloquear && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:520, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}
+            onClick={() => !bloqueando && setModalBloquear(null)}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"22px 22px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize:32, marginBottom:6 }}>🚫</div>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Bloquear {modalBloquear.nome}?</div>
+              <p style={{ fontSize:13, color:"var(--text-2,#64748b)", margin:"0 0 16px", lineHeight:1.5 }}>
+                Você não verá mais conteúdo dessa pessoa em vagas, listas, chat ou candidaturas. Esta ação pode ser desfeita nas configurações.
+              </p>
+              <div style={{ display:"flex", gap:10 }}>
+                <button type="button"
+                  disabled={bloqueando}
+                  style={{ flex:1, padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor: bloqueando ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                  onClick={() => setModalBloquear(null)}>
+                  Cancelar
+                </button>
+                <button type="button"
+                  disabled={bloqueando}
+                  style={{ flex:1, padding:"12px", background:"#dc2626", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: bloqueando ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: bloqueando ? 0.6 : 1 }}
+                  onClick={() => bloquearUsuario(modalBloquear)}>
+                  {bloqueando ? "Bloqueando..." : "Bloquear"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: confirmar desbloqueio */}
+        {modalConfirmDesbloq && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:520, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}
+            onClick={() => !bloqueando && setModalConfirmDesbloq(null)}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"22px 22px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize:32, marginBottom:6 }}>↩️</div>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Desbloquear {modalConfirmDesbloq.nome}?</div>
+              <p style={{ fontSize:13, color:"var(--text-2,#64748b)", margin:"0 0 16px", lineHeight:1.5 }}>
+                Voltará a aparecer em buscas e poderá iniciar conversas com você novamente.
+              </p>
+              <div style={{ display:"flex", gap:10 }}>
+                <button type="button"
+                  disabled={bloqueando}
+                  style={{ flex:1, padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                  onClick={() => setModalConfirmDesbloq(null)}>
+                  Cancelar
+                </button>
+                <button type="button"
+                  disabled={bloqueando}
+                  style={{ flex:1, padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: bloqueando ? 0.6 : 1 }}
+                  onClick={() => desbloquearUsuario(modalConfirmDesbloq.id)}>
+                  {bloqueando ? "..." : "Desbloquear"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {modalDenunciar && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
@@ -8773,6 +9603,21 @@ export default function App() {
                       {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
                     </div>
                   </div>
+                  {/* Denunciar / bloquear diarista deste chat (UGC safety — Play Policy) */}
+                  {chatDiariaAtiva.diarista_aceite_id && (
+                    <>
+                      <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
+                        title="Denunciar usuário" aria-label="Denunciar este usuário"
+                        onClick={() => { setModalDenunciar({ tipo:"usuario", id: chatDiariaAtiva.diarista_aceite_id!, nome: dp?.nome || "Diarista" }); setMotivoDenuncia(""); }}>
+                        🚩
+                      </button>
+                      <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
+                        title="Bloquear usuário" aria-label="Bloquear este usuário"
+                        onClick={() => setModalBloquear({ id: chatDiariaAtiva.diarista_aceite_id!, nome: dp?.nome || "Diarista" })}>
+                        🚫
+                      </button>
+                    </>
+                  )}
                   {!confirmExcluirChat
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
                     : <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -8984,9 +9829,9 @@ export default function App() {
               )}
             </div>
 
-            {/* Plano atual */}
+            {/* Plano atual (dual track: do papel empregador) */}
             {(() => {
-              const planoAtivo = assinatura?.plano || "gratis";
+              const planoAtivo = plans.empregador;
               const planoInfo = PLANOS_EMPREGADOR.find(p => p.id === planoAtivo);
               return (
                 <div style={{ margin:"8px 16px 0", background: planoAtivo === "gratis" ? "var(--bg-surface,#f8fafc)" : "linear-gradient(135deg,#FF6B35,#e85d2e)", borderRadius:16, padding:"14px 16px", border: planoAtivo === "gratis" ? "1.5px solid var(--border,#e2e8f0)" : "none" }}>
@@ -9208,7 +10053,7 @@ export default function App() {
                 {profile?.is_admin && (
                   <button
                     style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); setTela("admin-painel"); }}>
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); setTela("admin-painel"); }}>
                     <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
@@ -10509,6 +11354,17 @@ export default function App() {
                       {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
                     </div>
                   </div>
+                  {/* Denunciar / bloquear contratante deste chat (UGC safety — Play Policy) */}
+                  <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
+                    title="Denunciar usuário" aria-label="Denunciar este usuário"
+                    onClick={() => { setModalDenunciar({ tipo:"usuario", id: chatDiariaAtiva.empregador_id, nome: chatDiariaAtiva.nome_negocio || "Contratante" }); setMotivoDenuncia(""); }}>
+                    🚩
+                  </button>
+                  <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
+                    title="Bloquear usuário" aria-label="Bloquear este usuário"
+                    onClick={() => setModalBloquear({ id: chatDiariaAtiva.empregador_id, nome: chatDiariaAtiva.nome_negocio || "Contratante" })}>
+                    🚫
+                  </button>
                   {!confirmExcluirChat
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
                     : <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -10943,7 +11799,7 @@ export default function App() {
 
             {/* Plano atual */}
             {(() => {
-              const planoAtivo = assinatura?.plano || "gratis";
+              const planoAtivo = plans.diarista;
               const planoInfo = PLANOS_DIARISTA.find(p => p.id === planoAtivo);
               return (
                 <div style={{ margin:"8px 16px 0", background: planoAtivo === "gratis" ? "var(--bg-surface,#f8fafc)" : "linear-gradient(135deg,#FF6B35,#e85d2e)", borderRadius:16, padding:"14px 16px", border: planoAtivo === "gratis" ? "1.5px solid var(--border,#e2e8f0)" : "none" }}>
@@ -11684,7 +12540,7 @@ export default function App() {
                 {profile?.is_admin && (
                   <button
                     style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); setTela("admin-painel"); }}>
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); setTela("admin-painel"); }}>
                     <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
@@ -11875,8 +12731,103 @@ export default function App() {
   // EDITAR PERFIL DIARISTA
   if (tela === "editar-perfil") return (
     <div style={S.page}>
-      <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+      <button style={S.back} onClick={() => { setCamposDestravadosEdit(new Set()); setTela("configuracoes"); }}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
+
+      {/* Banner: dados verificados ficam protegidos */}
+      {(profile?.telefone_verificado || profile?.cpf || profile?.data_nascimento) && (
+        <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:12, color:"#166534", lineHeight:1.5 }}>
+          🔒 CPF é <strong>permanente</strong>. Os demais campos podem ser mudados tocando em <strong>"✏️ Alterar"</strong> ao lado.
+        </div>
+      )}
+
+      {/* ── Painel de Verificações — sobe o nível de confiança ────────────── */}
+      {profile && (() => {
+        const temTel = !!(profile.telefone_verificado || telefoneVerificado);
+        const docOK = profile.documento_status === "aprovado";
+        const docEnv = profile.documento_status === "enviado";
+        const docRej = profile.documento_status === "rejeitado";
+        // Nível atual: Confiável > Verificado > Básico
+        const nivel = (temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico";
+        const nivelLabel = nivel === "confiavel" ? "Confiável" : nivel === "verificado" ? "Verificado" : "Básico";
+        const nivelCor = nivel === "confiavel" ? "#16a34a" : nivel === "verificado" ? "#3A86FF" : "#94a3b8";
+        const nivelDesc = nivel === "confiavel" ? "Selo máximo — você ganha prioridade nas buscas"
+                        : nivel === "verificado" ? "Falta enviar RG/CNH pra virar Confiável"
+                        : "Verifique telefone pra subir pra Verificado";
+        const Linha = (icone: string, label: string, statusTxt: string, statusCor: string, acao: () => void, podeAcao: boolean) => (
+          <div onClick={podeAcao ? acao : undefined}
+            style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, background:"#fff", border:"1px solid #e2e8f0", marginBottom:8, cursor: podeAcao ? "pointer" : "default" }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:"#f1f5f9", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{icone}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{label}</div>
+              <div style={{ fontSize:11, color: statusCor, marginTop:2, fontWeight:600 }}>{statusTxt}</div>
+            </div>
+            {podeAcao && <span style={{ color:"#FF6B35", fontSize:18, fontWeight:900 }}>›</span>}
+          </div>
+        );
+        return (
+          <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:16, padding:"14px 14px 8px", marginBottom:18 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div>
+                <div style={{ fontSize:12, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🛡️ Nível de confiança</div>
+                <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>{nivelDesc}</div>
+              </div>
+              <div style={{ background: nivelCor, color:"#fff", padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:800 }}>
+                {nivel === "confiavel" ? "✅" : nivel === "verificado" ? "🔵" : "⚪"} {nivelLabel}
+              </div>
+            </div>
+
+            {/* Progressão visual dos 3 níveis */}
+            <div style={{ display:"flex", gap:4, marginBottom:14 }}>
+              {[
+                { l:"Básico", ativo: true },
+                { l:"Verificado", ativo: nivel === "verificado" || nivel === "confiavel" },
+                { l:"Confiável", ativo: nivel === "confiavel" },
+              ].map(p => (
+                <div key={p.l} style={{ flex:1, textAlign:"center" as const }}>
+                  <div style={{ height:6, borderRadius:3, background: p.ativo ? nivelCor : "#e2e8f0", marginBottom:4, transition:"background .3s" }} />
+                  <div style={{ fontSize:10, fontWeight:700, color: p.ativo ? nivelCor : "#94a3b8" }}>{p.l}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Lista de verificações */}
+            {Linha("📱", "Telefone (WhatsApp)",
+              temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora",
+              temTel ? "#16a34a" : "#FF6B35",
+              () => setTela("verificar-telefone"),
+              !temTel)}
+
+            {Linha(docOK ? "✅" : docEnv ? "🔍" : docRej ? "❌" : "🆔",
+              "Documento (RG ou CNH)",
+              docOK ? "✅ Documento aprovado"
+                : docEnv ? "🔍 Em análise pela equipe"
+                : docRej ? "❌ Rejeitado — toque pra reenviar"
+                : "Suba pra Confiável enviando foto do seu documento",
+              docOK ? "#16a34a" : docEnv ? "#3A86FF" : docRej ? "#dc2626" : "#FF6B35",
+              () => setTela("verificar-documento"),
+              !docOK)}
+
+            {/* Antecedentes — selo extra (não conta pra nível, mas aparece no perfil) */}
+            {(() => {
+              const antOK = profile.antecedentes_status === "aprovado";
+              const antEnv = profile.antecedentes_status === "enviado";
+              const antRej = profile.antecedentes_status === "rejeitado";
+              return Linha(
+                antOK ? "✅" : antEnv ? "🔍" : antRej ? "❌" : "📋",
+                "Antecedentes criminais",
+                antOK ? "✅ Certidão aprovada — selo extra ativo"
+                  : antEnv ? "🔍 Em análise pela equipe"
+                  : antRej ? "❌ Rejeitada — toque pra reenviar"
+                  : "Opcional — selo extra via certidão negativa em PDF",
+                antOK ? "#16a34a" : antEnv ? "#3A86FF" : antRej ? "#dc2626" : "#64748b",
+                () => setTela("verificar-antecedentes"),
+                !antOK,
+              );
+            })()}
+          </div>
+        );
+      })()}
 
       {/* Foto de perfil */}
       <input ref={fotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
@@ -11901,13 +12852,50 @@ export default function App() {
       <label style={S.label}>Nome completo</label>
       <input style={S.input} value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
 
+      {/* Telefone — travado se já verificado por SMS */}
       <label style={S.label}>Telefone (WhatsApp)</label>
-      <input style={S.input} value={form.telefone} onChange={e=>setForm({...form,telefone:e.target.value})} />
+      {(profile?.telefone_verificado && !camposDestravadosEdit.has("telefone")) ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+          <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.3 }}>
+            {form.telefone || profile.telefone || "—"}
+          </span>
+          <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Verificado</span>
+          <button type="button"
+            style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => destravarCampoEdit("telefone")}>
+            ✏️ Alterar
+          </button>
+        </div>
+      ) : (
+        <>
+          <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15}
+            value={form.telefone}
+            onChange={e => setForm({ ...form, telefone: maskTelefone(e.target.value) })} />
+          {profile?.telefone_verificado && camposDestravadosEdit.has("telefone") && (
+            <p style={{ color:"#9a3412", fontSize:11, margin:"-6px 0 10px", lineHeight:1.5 }}>
+              ⚠️ Alterar o telefone vai exigir <strong>nova verificação por SMS</strong>.
+            </p>
+          )}
+        </>
+      )}
 
+      {/* CPF — permanente. UNIQUE no banco, vinculado ao perfil pra sempre.
+          Não há botão "Alterar": se o usuário precisar mudar (caso raro),
+          tem que abrir ticket de suporte. */}
       <label style={S.label}>CPF</label>
-      <input style={S.input} placeholder="000.000.000-00" value={form.cpf}
-        onChange={e => setForm({...form, cpf: maskCPF(e.target.value)})} />
-      <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
+      {profile?.cpf ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:6 }}>
+          <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.5 }}>
+            {(profile.cpf || "").replace(/(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})/, "$1.***.***-$4")}
+          </span>
+          <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>🔒 Permanente</span>
+        </div>
+      ) : (
+        <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
+          value={form.cpf}
+          onChange={e => setForm({ ...form, cpf: maskCPF(e.target.value) })} />
+      )}
+      <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-2px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
         🔒 Usado apenas para verificação de identidade. Nunca compartilhado.
       </p>
 
@@ -11922,9 +12910,26 @@ export default function App() {
         ))}
       </div>
 
+      {/* Data de nascimento — travada se já salva (não muda na vida real) */}
       <label style={S.label}>Data de nascimento</label>
-      <input style={S.input} type="date" value={form.dataNasc}
-        onChange={e=>setForm({...form,dataNasc:e.target.value})} />
+      {(profile?.data_nascimento && !camposDestravadosEdit.has("dataNasc")) ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+          <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700 }}>
+            {(() => { const d = form.dataNasc || profile.data_nascimento; if (!d) return "—"; const [y,m,dd] = d.split("-"); return `${dd}/${m}/${y}`; })()}
+          </span>
+          <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Salvo</span>
+          <button type="button"
+            style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => destravarCampoEdit("dataNasc")}>
+            ✏️ Alterar
+          </button>
+        </div>
+      ) : (
+        <input style={S.input} type="date"
+          max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split("T")[0]}
+          value={form.dataNasc}
+          onChange={e=>setForm({...form,dataNasc:e.target.value})} />
+      )}
 
       <label style={S.label}>Suas especialidades</label>
       <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"2px 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira ⭐</strong> será sua especialidade principal.</p>
@@ -11986,10 +12991,12 @@ export default function App() {
       <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-2px 0 6px", lineHeight:1.5 }}>
         Usamos seu CEP para mostrar vagas próximas a você. Não compartilhamos seu endereço exato.
       </p>
-      <div style={{ display:"flex", gap:8, marginBottom:4 }}>
+      {/* CEP com busca automática ao completar os 8 dígitos */}
+      <div style={{ position:"relative" as const, marginBottom:4 }}>
         <input
-          style={{ ...S.input, flex:1, marginBottom:0 }}
+          style={{ ...S.input, marginBottom:0, letterSpacing:0.5, paddingRight: buscandoCEPPerfil ? 110 : (form.cep.replace(/\D/g,"").length === 8 && (form.bairro || latPerfilCEP)) ? 110 : 14 }}
           placeholder="00000-000"
+          inputMode="numeric"
           maxLength={9}
           value={form.cep}
           onChange={e => {
@@ -11999,12 +13006,11 @@ export default function App() {
             if (raw.length === 8) buscarCEPPerfil(raw);
           }}
         />
-        <button
-          style={{ padding:"0 18px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0, opacity: buscandoCEPPerfil ? 0.6 : 1 }}
-          disabled={buscandoCEPPerfil}
-          onClick={() => buscarCEPPerfil(form.cep)}>
-          {buscandoCEPPerfil ? "…" : "Buscar"}
-        </button>
+        {buscandoCEPPerfil ? (
+          <span style={{ position:"absolute" as const, right:14, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#64748b", fontWeight:600 }}>Buscando...</span>
+        ) : (form.cep.replace(/\D/g,"").length === 8 && (form.bairro || latPerfilCEP)) ? (
+          <span style={{ position:"absolute" as const, right:14, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#16a34a", fontWeight:700 }}>✓ Encontrado</span>
+        ) : null}
       </div>
       {form.bairro && form.cidade && (
         <p style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:4 }}>📍 {form.bairro}, {form.cidade}</p>
@@ -12044,9 +13050,13 @@ export default function App() {
         if (erroNome) { setAuthError(erroNome); return; }
         if (!fotoUrl) { setAuthError("⚠️ Adicione uma foto de perfil para continuar."); return; }
         if (!form.cpf || !validarCPF(form.cpf)) { setAuthError("⚠️ CPF obrigatório e deve ser válido (dígitos verificadores conferidos)."); return; }
+        // Se o telefone foi destravado e mudou, invalida verificação anterior
+        const telDigitos = form.telefone.replace(/\D/g, "");
+        const telAntigo = (profile?.telefone || "").replace(/\D/g, "");
+        const telefoneAlterado = camposDestravadosEdit.has("telefone") && telDigitos !== telAntigo;
         const ok = await saveProfile({
           nome: form.nome,
-          telefone: form.telefone,
+          telefone: telDigitos,
           funcao: categoriasSelecionadas[0] || form.funcao,
           valor_diaria: Number(form.valor),
           bio: form.bio,
@@ -12054,13 +13064,22 @@ export default function App() {
           cpf: form.cpf,
           sexo: form.sexo,
           data_nascimento: form.dataNasc,
-          // Inclui lat/lng do CEP se o usuário geocodificou
+          // Telefone trocado → re-verificação acontece via redirect pra verificar-telefone
+          // (saveProfile descarta telefone_verificado; o flag continua refletindo o
+          // estado antigo até o usuário confirmar o novo OTP, momento em que a RPC
+          // confirmar_telefone_verificado faz o set server-side).
           ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
         });
         if (ok) {
-          setLatPerfilCEP(null); setLngPerfilCEP(null); // limpa estado temporário
+          setLatPerfilCEP(null); setLngPerfilCEP(null);
+          setCamposDestravadosEdit(new Set()); // re-trava campos verificados
           trackEvento("cadastro_concluido", session?.user?.id, "diarista");
-          setTela("home-diarista");
+          if (telefoneAlterado) {
+            setAuthError("✅ Salvo! Verifique o novo telefone por SMS.");
+            setTela("verificar-telefone");
+          } else {
+            setTela("home-diarista");
+          }
         }
       }}
       disabled={salvandoPerfil}
@@ -13217,8 +14236,100 @@ export default function App() {
   // EDITAR PERFIL EMPREGADOR
   if (tela === "editar-perfil-empregador") return (
     <div style={S.page}>
-      <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+      <button style={S.back} onClick={() => { setCamposDestravadosEdit(new Set()); setTela("configuracoes"); }}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
+
+      {/* Banner: CPF/CNPJ permanentes */}
+      {(profile?.telefone_verificado || profile?.cpf || profile?.cnpj) && (
+        <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:12, color:"#166534", lineHeight:1.5 }}>
+          🔒 CPF/CNPJ são <strong>permanentes</strong>. Demais campos podem ser mudados tocando em <strong>"✏️ Alterar"</strong>.
+        </div>
+      )}
+
+      {/* ── Painel de Verificações ───────────────────────────────────────── */}
+      {profile && (() => {
+        const temTel = !!(profile.telefone_verificado || telefoneVerificado);
+        const docOK = profile.documento_status === "aprovado";
+        const docEnv = profile.documento_status === "enviado";
+        const docRej = profile.documento_status === "rejeitado";
+        const nivel = (temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico";
+        const nivelLabel = nivel === "confiavel" ? "Confiável" : nivel === "verificado" ? "Verificado" : "Básico";
+        const nivelCor = nivel === "confiavel" ? "#16a34a" : nivel === "verificado" ? "#3A86FF" : "#94a3b8";
+        const nivelDesc = nivel === "confiavel" ? "Selo máximo — diaristas confiam mais em você"
+                        : nivel === "verificado" ? "Falta enviar RG/CNH pra virar Confiável"
+                        : "Verifique telefone pra subir pra Verificado";
+        const Linha = (icone: string, label: string, statusTxt: string, statusCor: string, acao: () => void, podeAcao: boolean) => (
+          <div onClick={podeAcao ? acao : undefined}
+            style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, background:"#fff", border:"1px solid #e2e8f0", marginBottom:8, cursor: podeAcao ? "pointer" : "default" }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:"#f1f5f9", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{icone}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{label}</div>
+              <div style={{ fontSize:11, color: statusCor, marginTop:2, fontWeight:600 }}>{statusTxt}</div>
+            </div>
+            {podeAcao && <span style={{ color:"#FF6B35", fontSize:18, fontWeight:900 }}>›</span>}
+          </div>
+        );
+        return (
+          <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:16, padding:"14px 14px 8px", marginBottom:18 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div>
+                <div style={{ fontSize:12, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🛡️ Nível de confiança</div>
+                <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>{nivelDesc}</div>
+              </div>
+              <div style={{ background: nivelCor, color:"#fff", padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:800 }}>
+                {nivel === "confiavel" ? "✅" : nivel === "verificado" ? "🔵" : "⚪"} {nivelLabel}
+              </div>
+            </div>
+
+            <div style={{ display:"flex", gap:4, marginBottom:14 }}>
+              {[
+                { l:"Básico", ativo: true },
+                { l:"Verificado", ativo: nivel === "verificado" || nivel === "confiavel" },
+                { l:"Confiável", ativo: nivel === "confiavel" },
+              ].map(p => (
+                <div key={p.l} style={{ flex:1, textAlign:"center" as const }}>
+                  <div style={{ height:6, borderRadius:3, background: p.ativo ? nivelCor : "#e2e8f0", marginBottom:4, transition:"background .3s" }} />
+                  <div style={{ fontSize:10, fontWeight:700, color: p.ativo ? nivelCor : "#94a3b8" }}>{p.l}</div>
+                </div>
+              ))}
+            </div>
+
+            {Linha("📱", "Telefone (WhatsApp)",
+              temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora",
+              temTel ? "#16a34a" : "#FF6B35",
+              () => setTela("verificar-telefone"),
+              !temTel)}
+
+            {Linha(docOK ? "✅" : docEnv ? "🔍" : docRej ? "❌" : "🆔",
+              "Documento (RG ou CNH)",
+              docOK ? "✅ Documento aprovado"
+                : docEnv ? "🔍 Em análise pela equipe"
+                : docRej ? "❌ Rejeitado — toque pra reenviar"
+                : "Suba pra Confiável enviando foto do seu documento",
+              docOK ? "#16a34a" : docEnv ? "#3A86FF" : docRej ? "#dc2626" : "#FF6B35",
+              () => setTela("verificar-documento"),
+              !docOK)}
+
+            {/* Antecedentes — selo extra (também disponível pro empregador) */}
+            {(() => {
+              const antOK = profile.antecedentes_status === "aprovado";
+              const antEnv = profile.antecedentes_status === "enviado";
+              const antRej = profile.antecedentes_status === "rejeitado";
+              return Linha(
+                antOK ? "✅" : antEnv ? "🔍" : antRej ? "❌" : "📋",
+                "Antecedentes criminais",
+                antOK ? "✅ Certidão aprovada — selo extra ativo"
+                  : antEnv ? "🔍 Em análise pela equipe"
+                  : antRej ? "❌ Rejeitada — toque pra reenviar"
+                  : "Opcional — selo extra via certidão negativa em PDF",
+                antOK ? "#16a34a" : antEnv ? "#3A86FF" : antRej ? "#dc2626" : "#64748b",
+                () => setTela("verificar-antecedentes"),
+                !antOK,
+              );
+            })()}
+          </div>
+        );
+      })()}
 
       {/* Foto/logo do negócio */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto / Logo do negócio</div>
@@ -13242,38 +14353,96 @@ export default function App() {
       <label style={S.label}>Nome completo</label>
       <input style={S.input} value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
 
+      {/* Telefone — travado se já verificado por SMS */}
       <label style={S.label}>Telefone (WhatsApp)</label>
-      <input style={S.input} placeholder="(67) 99999-9999" value={form.telefone} onChange={e=>setForm({...form,telefone:e.target.value})} />
+      {(profile?.telefone_verificado && !camposDestravadosEdit.has("telefone")) ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+          <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.3 }}>
+            {form.telefone || profile.telefone || "—"}
+          </span>
+          <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Verificado</span>
+          <button type="button"
+            style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => destravarCampoEdit("telefone")}>
+            ✏️ Alterar
+          </button>
+        </div>
+      ) : (
+        <>
+          <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15}
+            value={form.telefone}
+            onChange={e => setForm({ ...form, telefone: maskTelefone(e.target.value) })} />
+          {profile?.telefone_verificado && camposDestravadosEdit.has("telefone") && (
+            <p style={{ color:"#9a3412", fontSize:11, margin:"-6px 0 10px", lineHeight:1.5 }}>
+              ⚠️ Alterar o telefone vai exigir <strong>nova verificação por SMS</strong>.
+            </p>
+          )}
+        </>
+      )}
 
       <label style={S.label}>Nome do negócio / local</label>
       <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Nome do estabelecimento ou local — não coloque seu nome pessoal aqui.</p>
       <input style={S.input} placeholder="Ex: Restaurante do João, Família Silva, Bar Guinness..." value={form.nomeNegocio} onChange={e=>setForm({...form,nomeNegocio:e.target.value})} />
 
-      {/* Tipo de pessoa */}
+      {/* Tipo de pessoa — travado se já cadastrado (não muda na prática) */}
       <label style={S.label}>Tipo de pessoa</label>
-      <div style={{ display:"flex", gap:10, marginBottom:16 }}>
-        {[["fisica","👤 Pessoa Física"],["juridica","🏢 Pessoa Jurídica"]].map(([v,l])=>(
-          <button key={v}
-            style={{ flex:1, padding:"12px 8px", borderRadius:12, border:`2px solid ${form.pessoaTipo===v?(negocio?.cor||"#FF6B35"):"#e2e8f0"}`,
-              background:form.pessoaTipo===v?(negocio?.cor||"#FF6B35"):"#fff",
-              color:form.pessoaTipo===v?"#fff":"#475569",
-              fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-            onClick={()=>setForm({...form,pessoaTipo:v})}>{l}</button>
-        ))}
-      </div>
+      {((profile?.cpf || profile?.cnpj) && !camposDestravadosEdit.has("pessoaTipo")) ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+          <span style={{ flex:1, fontSize:14, color:"#166534", fontWeight:700 }}>
+            {form.pessoaTipo === "juridica" ? "🏢 Pessoa Jurídica" : "👤 Pessoa Física"}
+          </span>
+          <button type="button"
+            style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => destravarCampoEdit("pessoaTipo")}>
+            ✏️ Alterar
+          </button>
+        </div>
+      ) : (
+        <div style={{ display:"flex", gap:10, marginBottom:16 }}>
+          {[["fisica","👤 Pessoa Física"],["juridica","🏢 Pessoa Jurídica"]].map(([v,l])=>(
+            <button key={v} type="button"
+              style={{ flex:1, padding:"12px 8px", borderRadius:12, border:`2px solid ${form.pessoaTipo===v?(negocio?.cor||"#FF6B35"):"#e2e8f0"}`,
+                background:form.pessoaTipo===v?(negocio?.cor||"#FF6B35"):"#fff",
+                color:form.pessoaTipo===v?"#fff":"#475569",
+                fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+              onClick={()=>setForm({...form,pessoaTipo:v})}>{l}</button>
+          ))}
+        </div>
+      )}
 
-      {/* CPF ou CNPJ */}
+      {/* CPF ou CNPJ — permanente. UNIQUE no banco, vinculado pra sempre.
+          Não há botão "Alterar": caso raro de mudança vai por suporte. */}
       {form.pessoaTipo === "fisica" ? (
         <>
           <label style={S.label}>CPF</label>
-          <input style={S.input} placeholder="000.000.000-00" value={form.cpf}
-            onChange={e=>setForm({...form,cpf:maskCPF(e.target.value)})} />
+          {profile?.cpf ? (
+            <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+              <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.5 }}>
+                {(profile.cpf || "").replace(/(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})/, "$1.***.***-$4")}
+              </span>
+              <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>🔒 Permanente</span>
+            </div>
+          ) : (
+            <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
+              value={form.cpf}
+              onChange={e=>setForm({...form,cpf:maskCPF(e.target.value)})} />
+          )}
         </>
       ) : (
         <>
           <label style={S.label}>CNPJ</label>
-          <input style={S.input} placeholder="00.000.000/0000-00" value={form.cnpj}
-            onChange={e=>setForm({...form,cnpj:maskCNPJ(e.target.value)})} />
+          {profile?.cnpj ? (
+            <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+              <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.5 }}>
+                {profile.cnpj || "—"}
+              </span>
+              <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>🔒 Permanente</span>
+            </div>
+          ) : (
+            <input style={{ ...S.input, letterSpacing:1 }} placeholder="00.000.000/0000-00" inputMode="numeric" maxLength={18}
+              value={form.cnpj}
+              onChange={e=>setForm({...form,cnpj:maskCNPJ(e.target.value)})} />
+          )}
         </>
       )}
 
@@ -13285,20 +14454,24 @@ export default function App() {
         </div>
       )}
 
-      {/* Novo endereço via CEP */}
+      {/* Novo endereço via CEP — busca automática ao digitar os 8 dígitos */}
       <label style={S.label}>Atualizar endereço — CEP</label>
-      <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-        <input style={{ ...S.input, flex:1, marginBottom:0 }} placeholder="00000-000" value={form.cepEmp}
+      <div style={{ position:"relative" as const, marginBottom:8 }}>
+        <input
+          style={{ ...S.input, letterSpacing:0.5, marginBottom:0, paddingRight: buscandoCEPEmp ? 110 : (form.cepEmp.replace(/\D/g,"").length === 8 && form.ruaEmp) ? 110 : 14 }}
+          placeholder="00000-000" inputMode="numeric" maxLength={9}
+          value={form.cepEmp}
           onChange={e => {
             const v = e.target.value.replace(/\D/g,"").slice(0,8);
             const masked = v.length > 5 ? v.slice(0,5)+"-"+v.slice(5) : v;
             setForm({...form,cepEmp:masked});
             if (v.length === 8) buscarCEPEmp(v);
           }} />
-        <button style={{ ...S.btnSecondary, whiteSpace:"nowrap", padding:"10px 14px" }}
-          onClick={() => buscarCEPEmp(form.cepEmp)}>
-          {buscandoCEPEmp ? "..." : "Buscar"}
-        </button>
+        {buscandoCEPEmp ? (
+          <span style={{ position:"absolute" as const, right:14, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#64748b", fontWeight:600 }}>Buscando...</span>
+        ) : (form.cepEmp.replace(/\D/g,"").length === 8 && form.ruaEmp) ? (
+          <span style={{ position:"absolute" as const, right:14, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#16a34a", fontWeight:700 }}>✓ Encontrado</span>
+        ) : null}
       </div>
       <input style={S.input} placeholder="Rua / Av." value={form.ruaEmp} onChange={e=>setForm({...form,ruaEmp:e.target.value})} />
       <div style={{ display:"flex", gap:8 }}>
@@ -13329,18 +14502,31 @@ export default function App() {
         const enderecoAtualizado = form.ruaEmp
           ? `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp ? `, ${form.complementoEmp}` : ""} - ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} - CEP: ${form.cepEmp}`
           : undefined;
+        // Se o telefone foi destravado e mudou, invalida verificação anterior
+        const telDigitos = form.telefone.replace(/\D/g, "");
+        const telAntigo = (profile?.telefone || "").replace(/\D/g, "");
+        const telefoneAlterado = camposDestravadosEdit.has("telefone") && telDigitos !== telAntigo;
         const ok = await saveProfile({
           nome: form.nome,
-          telefone: form.telefone,
+          telefone: telDigitos,
           nome_negocio: form.nomeNegocio,
           cpf: form.pessoaTipo === "fisica" ? form.cpf : "",
           cnpj: form.pessoaTipo === "juridica" ? form.cnpj : "",
           pessoa_tipo: form.pessoaTipo,
+          ...(telefoneAlterado ? { telefone_verificado: false } : {}),
           ...(enderecoAtualizado ? { endereco_empregador: enderecoAtualizado } : {}),
-          // Inclui lat/lng do CEP se geocodificado
           ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
         });
-        if (ok) { setLatPerfilCEP(null); setLngPerfilCEP(null); setTela("configuracoes"); }
+        if (ok) {
+          setLatPerfilCEP(null); setLngPerfilCEP(null);
+          setCamposDestravadosEdit(new Set());
+          if (telefoneAlterado) {
+            setAuthError("✅ Salvo! Verifique o novo telefone por SMS.");
+            setTela("verificar-telefone");
+          } else {
+            setTela("configuracoes");
+          }
+        }
       }}
       disabled={salvandoPerfil}
     >{salvandoPerfil ? "Salvando..." : "Salvar alterações"}</button>
@@ -13434,7 +14620,7 @@ export default function App() {
             <button
               title="Recarregar"
               style={{ marginLeft:"auto", background:"rgba(255,255,255,.15)", border:"none", color:"#fff", borderRadius:10, padding:"8px 12px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-              onClick={() => { carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); }}>
+              onClick={() => { carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); }}>
               {carregandoAdminStats ? "⏳" : "🔄"}
             </button>
           </div>
@@ -13589,6 +14775,39 @@ export default function App() {
           )}
         </div>
 
+        {/* Antecedentes criminais pendentes */}
+        <div style={{ padding:"4px 16px 24px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>📋 Antecedentes pendentes</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{adminAntecedentesPendentes.length} aguardando</div>
+          </div>
+          {adminAntecedentesPendentes.length === 0 ? (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              ✅ Nenhuma certidão aguardando revisão.
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {adminAntecedentesPendentes.map(d => (
+                <div key={d.user_id}
+                  style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer", borderLeft:"4px solid #f59e0b" }}
+                  onClick={() => abrirAntecedentesParaRevisao(d)}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>
+                        {d.nome || "Usuário"}
+                      </div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                        {d.user_type === "diarista" ? "👷 Diarista" : "🏢 Contratante"} · Enviou {d.antecedentes_enviado_em ? new Date(d.antecedentes_enviado_em).toLocaleDateString("pt-BR") : "—"}
+                      </div>
+                    </div>
+                    <span style={{ background:"rgba(245,158,11,.18)", color:"#f59e0b", fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>Revisar</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* ── Modal drill-down: lista detalhada do card clicado ── */}
         {adminDrillTipo && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
@@ -13687,6 +14906,63 @@ export default function App() {
               <button
                 style={{ width:"100%", marginTop:8, padding:"10px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { setDocRevisao(null); setDocMotivoRejeicao(""); }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: revisão de antecedentes criminais */}
+        {antecedentesRevisao && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:700, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+            onClick={() => { setAntecedentesRevisao(null); setAntecedentesMotivoRejeicao(""); }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"18px", width:"100%", maxWidth:420, maxHeight:"92vh", overflowY:"auto" as const }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4 }}>📋 Revisar antecedentes</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:14 }}>{antecedentesRevisao.nome}</div>
+
+              {antecedentesRevisao.signedUrl ? (
+                antecedentesRevisao.url.toLowerCase().endsWith(".pdf") ? (
+                  <iframe src={antecedentesRevisao.signedUrl} title="Certidão de antecedentes" style={{ width:"100%", height:380, border:"1px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"#fff" }} />
+                ) : (
+                  <img loading="lazy" src={antecedentesRevisao.signedUrl} alt="Certidão" style={{ width:"100%", maxHeight:380, objectFit:"contain" as const, borderRadius:10, marginBottom:14, background:"#000" }} />
+                )
+              ) : (
+                <div style={{ width:"100%", height:200, background:"#f1f5f9", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", color:"#94a3b8", fontSize:13, marginBottom:14 }}>
+                  Carregando certidão…
+                </div>
+              )}
+
+              <div style={{ background:"#fff7ed", border:"1px solid #fed7aa", borderRadius:10, padding:"10px 12px", marginBottom:12, fontSize:11, color:"#9a3412", lineHeight:1.5 }}>
+                💡 Verificar: emitida ≤ 90 dias atrás · CPF bate com o do perfil · resultado "NADA CONSTA".
+              </div>
+
+              <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", display:"block", marginBottom:4, textTransform:"uppercase" as const, letterSpacing:0.3 }}>Motivo (obrigatório se rejeitar)</label>
+              <textarea
+                value={antecedentesMotivoRejeicao}
+                onChange={e => setAntecedentesMotivoRejeicao(e.target.value.slice(0, 500))}
+                placeholder="Ex: Certidão com mais de 90 dias — emita uma nova"
+                rows={2}
+                style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"vertical" as const, boxSizing:"border-box" as const, marginBottom:12, background:"var(--bg-app,#fff)", color:"var(--text-1,#0f172a)", outline:"none" }}
+              />
+
+              <div style={{ display:"flex", gap:8 }}>
+                <button
+                  disabled={revisandoAntecedentes}
+                  style={{ flex:1, padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:800, cursor: revisandoAntecedentes ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: revisandoAntecedentes ? 0.6 : 1 }}
+                  onClick={() => revisarAntecedentes("aprovado")}>
+                  ✅ Aprovar
+                </button>
+                <button
+                  disabled={revisandoAntecedentes || antecedentesMotivoRejeicao.trim().length < 3}
+                  style={{ flex:1, padding:"12px", background:"#ef4444", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:800, cursor: revisandoAntecedentes || antecedentesMotivoRejeicao.trim().length < 3 ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: revisandoAntecedentes || antecedentesMotivoRejeicao.trim().length < 3 ? 0.5 : 1 }}
+                  onClick={() => revisarAntecedentes("rejeitado")}>
+                  ❌ Rejeitar
+                </button>
+              </div>
+              <button
+                style={{ width:"100%", marginTop:8, padding:"10px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => { setAntecedentesRevisao(null); setAntecedentesMotivoRejeicao(""); }}>
                 Cancelar
               </button>
             </div>
@@ -13821,6 +15097,120 @@ export default function App() {
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
                 Sua identidade está verificada. Esse status fica salvo no seu perfil.
               </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── VERIFICAR ANTECEDENTES (upload de certidão negativa em PDF) ────────────
+  if (tela === "verificar-antecedentes") {
+    const voltarTela = modoAtual === "diarista" ? "editar-perfil" : "editar-perfil-empregador";
+    const antStatus = profile?.antecedentes_status || "nao_enviado";
+    const statusInfo: Record<string, { cor: string; icone: string; titulo: string; sub: string }> = {
+      nao_enviado: { cor:"#94a3b8", icone:"📋", titulo:"Certidão ainda não enviada", sub:"Envie o PDF da sua certidão negativa de antecedentes criminais pra ganhar o selo extra de confiança." },
+      enviado:     { cor:"#f59e0b", icone:"🔍", titulo:"Em análise",                 sub:"A equipe está conferindo a certidão. Você recebe um aviso em até 24h." },
+      aprovado:    { cor:"#16a34a", icone:"✅", titulo:"Certidão aprovada",          sub:"Você tem o selo de Antecedentes verificados — contratantes confiam mais em você." },
+      rejeitado:   { cor:"#ef4444", icone:"❌", titulo:"Certidão rejeitada",         sub: profile?.antecedentes_motivo_rejeicao || "Reenvie com mais qualidade ou dentro da validade (90 dias)." },
+    };
+    const info = statusInfo[antStatus];
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
+          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>📋</div>
+            <div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Antecedentes criminais</div>
+              <div style={{ fontSize:13, color:"#94a3b8" }}>Selo extra de confiança — opcional</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding:"16px" }}>
+          {/* Status atual */}
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", borderLeft:`4px solid ${info.cor}`, marginBottom:14 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:44, height:44, background: info.cor + "22", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>{info.icone}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{info.titulo}</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.5 }}>{info.sub}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Como obter — instruções */}
+          {(antStatus === "nao_enviado" || antStatus === "rejeitado") && (
+            <div style={{ background:"#fff7ed", border:"1px solid #fed7aa", borderRadius:12, padding:"14px 16px", marginBottom:14, fontSize:13, color:"#9a3412", lineHeight:1.6 }}>
+              <div style={{ fontWeight:800, marginBottom:6, color:"#7c2d12" }}>💡 Como conseguir a certidão (de graça):</div>
+              <ol style={{ margin:"0 0 8px 18px", padding:0 }}>
+                <li>Acesse <strong>servicos.pf.gov.br</strong> (Polícia Federal) ou o site da Polícia Civil do seu estado.</li>
+                <li>Solicite a <strong>Certidão de Antecedentes Criminais</strong>.</li>
+                <li>Baixe o PDF (é emitido na hora, sem custo).</li>
+                <li>Suba aqui embaixo.</li>
+              </ol>
+              <div style={{ fontSize:11, marginTop:8, color:"#7c2d12" }}>⚠️ A certidão tem validade de 90 dias. Após isso o selo expira e você precisa emitir uma nova.</div>
+            </div>
+          )}
+
+          {/* LGPD info */}
+          <div style={{ background:"rgba(58,134,255,.08)", border:"1px solid rgba(58,134,255,.3)", borderRadius:12, padding:"12px 14px", marginBottom:16, fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
+            🔒 <strong style={{ color:"var(--text-1,#0f172a)" }}>Privacidade (LGPD):</strong> sua certidão fica em local privado, vista só pela equipe de verificação. Nunca aparece no seu perfil público — só o selo "✅ Antecedentes verificados".
+          </div>
+
+          {/* Formulário de upload */}
+          {(antStatus === "nao_enviado" || antStatus === "rejeitado") && (
+            <>
+              <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Arquivo da certidão</div>
+              <label style={{ display:"block", padding:"24px 16px", background:"var(--bg-surface,#f8fafc)", border:"2px dashed var(--border,#e2e8f0)", borderRadius:14, textAlign:"center" as const, cursor:"pointer", marginBottom:12 }}>
+                <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp"
+                  style={{ display:"none" }}
+                  onChange={e => e.target.files?.[0] && onAntecedentesFileSelected(e.target.files[0])} />
+                {antecedentesFile ? (
+                  <div>
+                    <div style={{ fontSize:32, marginBottom:6 }}>📎</div>
+                    <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{antecedentesFile.name}</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>
+                      {(antecedentesFile.size / 1024 / 1024).toFixed(2)} MB · {antecedentesFile.type}
+                    </div>
+                    <div style={{ fontSize:11, color:"#FF6B35", marginTop:6, fontWeight:700 }}>Toque pra trocar</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontSize:36, marginBottom:6 }}>📄</div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Toque pra escolher o PDF</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>PDF preferencial · JPG/PNG/WEBP também aceitos · máx 5 MB</div>
+                  </div>
+                )}
+              </label>
+
+              {antecedentesPreview && antecedentesFile && antecedentesFile.type.startsWith("image/") && (
+                <img loading="lazy" src={antecedentesPreview} alt="Pré-visualização" style={{ width:"100%", maxHeight:280, objectFit:"contain" as const, borderRadius:12, background:"#000", marginBottom:12 }} />
+              )}
+
+              <button
+                disabled={!antecedentesFile || enviandoAntecedentes}
+                style={{ width:"100%", padding:"14px", background:!antecedentesFile||enviandoAntecedentes?"#94a3b8":"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:!antecedentesFile||enviandoAntecedentes?"not-allowed":"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity:!antecedentesFile||enviandoAntecedentes?0.6:1, boxShadow:!antecedentesFile||enviandoAntecedentes?"none":"0 4px 16px rgba(255,107,53,.4)" }}
+                onClick={enviarAntecedentes}>
+                {enviandoAntecedentes ? "Enviando..." : antecedentesFile ? "Enviar certidão" : "Escolha um arquivo acima"}
+              </button>
+            </>
+          )}
+
+          {/* Estado enviado/aprovado: feedback discreto */}
+          {antStatus === "enviado" && (
+            <div style={{ textAlign:"center" as const, padding:"24px 16px" }}>
+              <div style={{ fontSize:48, marginBottom:8 }}>🔍</div>
+              <div style={{ fontSize:14, fontWeight:700, color:"var(--text-1,#0f172a)" }}>Em análise pela equipe</div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:4 }}>Você recebe um aviso em até 24h.</div>
+            </div>
+          )}
+          {antStatus === "aprovado" && (
+            <div style={{ textAlign:"center" as const, padding:"24px 16px" }}>
+              <div style={{ fontSize:48, marginBottom:8 }}>✅</div>
+              <div style={{ fontSize:14, fontWeight:700, color:"#16a34a" }}>Antecedentes verificados!</div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:4 }}>Lembre-se de reenviar a cada 90 dias pra manter o selo ativo.</div>
             </div>
           )}
         </div>
@@ -14257,7 +15647,8 @@ export default function App() {
   if (tela === "planos") {
     const isEmp = modoAtual === "empregador";
     const planos = isEmp ? PLANOS_EMPREGADOR : PLANOS_DIARISTA;
-    const planoAtivo = assinatura?.plano || "gratis";
+    // Dual track: cada papel tem sua própria assinatura.
+    const planoAtivo = isEmp ? plans.empregador : plans.diarista;
 
     return (
       <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 80%)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>

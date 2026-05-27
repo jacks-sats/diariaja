@@ -4,13 +4,15 @@
 export interface Assinatura {
   id: string;
   user_id: string;
-  plano: string;
-  user_type: string;
-  status: string;
+  plano: "gratis" | "essencial" | "plus" | string; // string p/ aceitar legados ('pro','destaque') até migration rodar
+  user_type: "diarista" | "empregador" | string;   // qual papel essa assinatura cobre (dual track)
+  status: "pendente" | "ativo" | "pausado" | "cancelado" | string;
   mp_subscription_id?: string;
   valor: number;
   inicio: string;
   proximo_pagamento?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Diaria {
@@ -83,6 +85,12 @@ export interface UserProfile {
   documento_enviado_em?: string;
   documento_revisado_em?: string;
   documento_motivo_rejeicao?: string;
+  // ── Antecedentes criminais (certidão negativa em PDF) ────────────────
+  antecedentes_status?: "nao_enviado" | "enviado" | "aprovado" | "rejeitado";
+  antecedentes_url?: string;
+  antecedentes_enviado_em?: string;
+  antecedentes_revisado_em?: string;
+  antecedentes_motivo_rejeicao?: string;
   // Heartbeat de presença (painel admin "online agora")
   last_activity_at?: string;
   // PIX do diarista (recebe pagamentos da plataforma)

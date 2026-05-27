@@ -5,6 +5,7 @@
 // Variáveis de ambiente: MP_ACCESS_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, APP_URL
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { rateLimitOrReject } from "../_shared/rate-limit.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -44,6 +45,14 @@ Deno.serve(async (req) => {
     if (user.id !== user_id) {
       return json({ error: "Não autorizado para este usuário." }, 403);
     }
+
+    // Rate-limit: 5 tentativas / hora. Criar assinatura é raro — proteção
+    // contra abuso de criação de preapprovals do MP (custo + spam).
+    const blocked = await rateLimitOrReject(
+      { key: `create-subscription:user:${user.id}`, max: 5, windowSeconds: 3600, corsHeaders: CORS },
+      supabaseUser,
+    );
+    if (blocked) return blocked;
 
     // P2-6 auditoria: valida formato e tamanho do payer_email.
     // O MP exige que esse email bata com a conta MP do pagador, mas validamos
