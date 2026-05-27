@@ -4487,6 +4487,24 @@ export default function App() {
 
       {/* Card de login — fundo branco com sombra, contraste alto */}
       <div style={{ background:"#fff", borderRadius:24, padding:"24px 22px", boxShadow:"0 20px 60px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.05)", position:"relative", zIndex:1 }}>
+        {/* Entrar com Google — atalho rápido pra quem já tem conta */}
+        <button
+          type="button"
+          aria-label="Entrar com Google"
+          style={{ width:"100%", padding:"13px 16px", background:"#fff", color:"#0f172a", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:14, transition:"all .15s" }}
+          onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#e2e8f0"; }}
+          onClick={handleGoogleLogin}>
+          {GoogleSVG} <span>Entrar com Google</span>
+        </button>
+
+        {/* Divisor "ou" */}
+        <div style={{ display:"flex", alignItems:"center", gap:10, margin:"4px 0 16px" }}>
+          <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+          <span style={{ color:"#94a3b8", fontSize:11, fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>ou</span>
+          <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+        </div>
+
         {/* Toggle E-mail / CPF */}
         <div style={{ display:"flex", gap:4, background:"#f1f5f9", borderRadius:12, padding:4, marginBottom:18 }} role="tablist" aria-label="Método de login">
           {([
