@@ -12571,10 +12571,12 @@ export default function App() {
       <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-2px 0 6px", lineHeight:1.5 }}>
         Usamos seu CEP para mostrar vagas próximas a você. Não compartilhamos seu endereço exato.
       </p>
-      <div style={{ display:"flex", gap:8, marginBottom:4 }}>
+      {/* CEP com busca automática ao completar os 8 dígitos */}
+      <div style={{ position:"relative" as const, marginBottom:4 }}>
         <input
-          style={{ ...S.input, flex:1, marginBottom:0 }}
+          style={{ ...S.input, marginBottom:0, letterSpacing:0.5, paddingRight: buscandoCEPPerfil ? 110 : (form.cep.replace(/\D/g,"").length === 8 && (form.bairro || latPerfilCEP)) ? 110 : 14 }}
           placeholder="00000-000"
+          inputMode="numeric"
           maxLength={9}
           value={form.cep}
           onChange={e => {
@@ -12584,12 +12586,11 @@ export default function App() {
             if (raw.length === 8) buscarCEPPerfil(raw);
           }}
         />
-        <button
-          style={{ padding:"0 18px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0, opacity: buscandoCEPPerfil ? 0.6 : 1 }}
-          disabled={buscandoCEPPerfil}
-          onClick={() => buscarCEPPerfil(form.cep)}>
-          {buscandoCEPPerfil ? "…" : "Buscar"}
-        </button>
+        {buscandoCEPPerfil ? (
+          <span style={{ position:"absolute" as const, right:14, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#64748b", fontWeight:600 }}>Buscando...</span>
+        ) : (form.cep.replace(/\D/g,"").length === 8 && (form.bairro || latPerfilCEP)) ? (
+          <span style={{ position:"absolute" as const, right:14, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#16a34a", fontWeight:700 }}>✓ Encontrado</span>
+        ) : null}
       </div>
       {form.bairro && form.cidade && (
         <p style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:4 }}>📍 {form.bairro}, {form.cidade}</p>
@@ -13955,20 +13956,24 @@ export default function App() {
         </div>
       )}
 
-      {/* Novo endereço via CEP */}
+      {/* Novo endereço via CEP — busca automática ao digitar os 8 dígitos */}
       <label style={S.label}>Atualizar endereço — CEP</label>
-      <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-        <input style={{ ...S.input, flex:1, marginBottom:0 }} placeholder="00000-000" value={form.cepEmp}
+      <div style={{ position:"relative" as const, marginBottom:8 }}>
+        <input
+          style={{ ...S.input, letterSpacing:0.5, marginBottom:0, paddingRight: buscandoCEPEmp ? 110 : (form.cepEmp.replace(/\D/g,"").length === 8 && form.ruaEmp) ? 110 : 14 }}
+          placeholder="00000-000" inputMode="numeric" maxLength={9}
+          value={form.cepEmp}
           onChange={e => {
             const v = e.target.value.replace(/\D/g,"").slice(0,8);
             const masked = v.length > 5 ? v.slice(0,5)+"-"+v.slice(5) : v;
             setForm({...form,cepEmp:masked});
             if (v.length === 8) buscarCEPEmp(v);
           }} />
-        <button style={{ ...S.btnSecondary, whiteSpace:"nowrap", padding:"10px 14px" }}
-          onClick={() => buscarCEPEmp(form.cepEmp)}>
-          {buscandoCEPEmp ? "..." : "Buscar"}
-        </button>
+        {buscandoCEPEmp ? (
+          <span style={{ position:"absolute" as const, right:14, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#64748b", fontWeight:600 }}>Buscando...</span>
+        ) : (form.cepEmp.replace(/\D/g,"").length === 8 && form.ruaEmp) ? (
+          <span style={{ position:"absolute" as const, right:14, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#16a34a", fontWeight:700 }}>✓ Encontrado</span>
+        ) : null}
       </div>
       <input style={S.input} placeholder="Rua / Av." value={form.ruaEmp} onChange={e=>setForm({...form,ruaEmp:e.target.value})} />
       <div style={{ display:"flex", gap:8 }}>
