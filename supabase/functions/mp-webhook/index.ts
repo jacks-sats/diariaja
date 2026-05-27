@@ -189,11 +189,28 @@ Deno.serve(async (req) => {
       if (!payment.external_reference) return new Response("ok", { status: 200 });
 
       // ── Desbloqueio de contato (R$ 1) ──────────────────────────
-      // O cliente é redirecionado para /?contato_desbloqueado=sucesso
-      // e controla o contador via localStorage. O webhook apenas loga.
+      // Registra na tabela `contatos_desbloqueios` para que o cliente saiba
+      // quantos extras foram comprados no mês. UNIQUE em mp_payment_id
+      // garante idempotência mesmo com retries do webhook do MP.
       if (String(payment.external_reference).startsWith("contact_unlock::")) {
         const userId = String(payment.external_reference).split("::")[1] ?? "";
-        console.log(`Contato desbloqueado: user=${userId} payment=${paymentId} status=${payment.status}`);
+        if (payment.status === "approved" && userId) {
+          const { error: insErr } = await supabase
+            .from("contatos_desbloqueios")
+            .insert({
+              empregador_id:         userId,
+              mp_payment_id:         String(paymentId),
+              mp_external_reference: String(payment.external_reference),
+            });
+          // Erro de duplicidade (UNIQUE) é esperado em retries — ignora.
+          // Outros erros vamos logar pra debugging mas não bloqueamos o webhook
+          // (200 OK pra MP não ficar retentando indefinidamente).
+          if (insErr && !String(insErr.message ?? "").toLowerCase().includes("duplicate")) {
+            console.error(`[mp-webhook] insert contato_desbloqueio falhou:`, insErr);
+          }
+        } else {
+          console.log(`[mp-webhook] contact_unlock ignored: user=${userId} payment=${paymentId} status=${payment.status}`);
+        }
         return new Response("ok", { status: 200 });
       }
 

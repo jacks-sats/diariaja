@@ -367,13 +367,12 @@ export default function App() {
   const [criandoAssinatura, setCriandoAssinatura] = useState(false);
   const [modalLimiteContato, setModalLimiteContato] = useState(false);
   const [desbloqueandoContato, setDesbloqueandoContato] = useState(false);
-  // Contatos desbloqueados via R$ 1 neste mês (persiste em localStorage)
-  const [contatosDesbloqueados, setContatosDesbloqueados] = useState<number>(() => {
-    try {
-      const chave = "diariaja_contatos_desblo_" + new Date().toISOString().slice(0, 7);
-      return parseInt(localStorage.getItem(chave) || "0", 10);
-    } catch { return 0; }
-  });
+  // Contatos desbloqueados (pagos R$ 1 via MP) neste mês.
+  // Source of truth: tabela `contatos_desbloqueios` no banco. Antes morava em
+  // localStorage, mas era manipulável (URL `?contato_desbloqueado=sucesso`
+  // incrementava sem confirmação server-side). Hoje o mp-webhook INSERT na
+  // tabela; o client lê via RPC `contar_contatos_desbloqueados_mes`.
+  const [contatosDesbloqueados, setContatosDesbloqueados] = useState<number>(0);
 
   // Novas features v2
   const [modalTermoCiencia, setModalTermoCiencia] = useState<{diaria: Diaria, diaristaId: string} | null>(null);
@@ -1782,11 +1781,18 @@ export default function App() {
     }
 
     if (urlParams.get("contato_desbloqueado") === "sucesso") {
+      // Webhook do MP é fonte da verdade: insere na tabela contatos_desbloqueios
+      // quando o pagamento é aprovado. O client só recarrega a contagem.
+      // Pequeno atraso pra dar tempo do webhook processar antes do RPC retornar.
+      setTimeout(() => {
+        void supabase.rpc("contar_contatos_desbloqueados_mes").then(({ data }) => {
+          if (typeof data === "number") setContatosDesbloqueados(data);
+        });
+      }, 1200);
+      // Limpa chave antiga do localStorage (legado — não é mais source of truth)
       try {
         const chave = "diariaja_contatos_desblo_" + new Date().toISOString().slice(0, 7);
-        const atual = parseInt(localStorage.getItem(chave) || "0", 10);
-        localStorage.setItem(chave, String(atual + 1));
-        setContatosDesbloqueados(atual + 1);
+        localStorage.removeItem(chave);
       } catch { /* ignore */ }
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -1907,6 +1913,11 @@ export default function App() {
       setAgenda(data.agenda || []);
       setFotoUrl(data.foto_url || null);
       setCategorias(data.categorias || []);
+      // Carrega contador de contatos desbloqueados deste mês (server-side).
+      // Não bloqueia o fluxo se a RPC falhar (fica em 0 = mais restritivo).
+      void supabase.rpc("contar_contatos_desbloqueados_mes").then(({ data: cnt }) => {
+        if (typeof cnt === "number") setContatosDesbloqueados(cnt);
+      });
       // Portfólio agora vem do banco — sobrevive a troca de aparelho
       if (Array.isArray(data.portfolio_urls)) {
         setPortfolioUrls(data.portfolio_urls);
