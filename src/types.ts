@@ -83,6 +83,12 @@ export interface UserProfile {
   documento_enviado_em?: string;
   documento_revisado_em?: string;
   documento_motivo_rejeicao?: string;
+  // ── Antecedentes criminais (certidão negativa em PDF) ────────────────
+  antecedentes_status?: "nao_enviado" | "enviado" | "aprovado" | "rejeitado";
+  antecedentes_url?: string;
+  antecedentes_enviado_em?: string;
+  antecedentes_revisado_em?: string;
+  antecedentes_motivo_rejeicao?: string;
   // Heartbeat de presença (painel admin "online agora")
   last_activity_at?: string;
   // PIX do diarista (recebe pagamentos da plataforma)

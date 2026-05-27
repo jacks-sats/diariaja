@@ -314,6 +314,10 @@ export default function App() {
   const [docPreview, setDocPreview]               = useState<string | null>(null);
   const [docTipo, setDocTipo]                     = useState<"rg"|"cnh">("rg");
   const [enviandoDoc, setEnviandoDoc]             = useState(false);
+  // Antecedentes criminais — PDF (ou imagem) da certidão negativa
+  const [antecedentesFile, setAntecedentesFile]   = useState<File | null>(null);
+  const [antecedentesPreview, setAntecedentesPreview] = useState<string | null>(null);
+  const [enviandoAntecedentes, setEnviandoAntecedentes] = useState(false);
   const [adminDocsPendentes, setAdminDocsPendentes] = useState<{user_id:string; nome:string; user_type:string; documento_url:string; documento_enviado_em:string}[]>([]);
   const [docRevisao, setDocRevisao]               = useState<{user_id:string; nome:string; url:string; signedUrl?:string} | null>(null);
   const [docMotivoRejeicao, setDocMotivoRejeicao] = useState("");
@@ -3002,6 +3006,62 @@ export default function App() {
     if (docPreview) { URL.revokeObjectURL(docPreview); setDocPreview(null); }
     setToastSuccess("✅ Documento enviado! Aguarde a equipe revisar (até 24h).");
     trackEvento("documento_enviado", userId, modoAtual, { tipo: docTipo });
+  };
+
+  // ── Antecedentes criminais (certidão negativa em PDF) ─────────────────────
+  // Mesma mecânica do KYC mas em bucket separado pra simplificar retenção.
+  const onAntecedentesFileSelected = (file: File) => {
+    setAntecedentesFile(file);
+    if (antecedentesPreview) URL.revokeObjectURL(antecedentesPreview);
+    setAntecedentesPreview(file.type.startsWith("image/") ? URL.createObjectURL(file) : null);
+  };
+
+  const enviarAntecedentes = async () => {
+    if (!session?.user?.id || !antecedentesFile || enviandoAntecedentes) return;
+    if (antecedentesFile.size > 5 * 1024 * 1024) {
+      setToastError("Arquivo muito grande (máximo 5 MB).");
+      return;
+    }
+    const mimePermitidos = ["application/pdf","image/jpeg","image/png","image/webp"];
+    if (!mimePermitidos.includes(antecedentesFile.type)) {
+      setToastError("Tipo de arquivo não permitido. Envie PDF, JPG, PNG ou WEBP.");
+      return;
+    }
+
+    setEnviandoAntecedentes(true);
+    const userId = session.user.id;
+    const ext = antecedentesFile.name.split(".").pop()?.toLowerCase() || "pdf";
+    const path = `${userId}/certidao_${Date.now()}.${ext}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from("antecedentes")
+      .upload(path, antecedentesFile, { contentType: antecedentesFile.type, upsert: false });
+    if (uploadErr) {
+      setEnviandoAntecedentes(false);
+      setToastError("Falha no envio: " + uploadErr.message);
+      return;
+    }
+
+    // O trigger anti-escalada permite (nao_enviado | rejeitado) → enviado.
+    const { error: updErr } = await supabase
+      .from("user_profiles")
+      .update({
+        antecedentes_status:    "enviado",
+        antecedentes_url:       path,
+        antecedentes_enviado_em: new Date().toISOString(),
+      })
+      .eq("id", userId);
+
+    setEnviandoAntecedentes(false);
+    if (updErr) {
+      setToastError("Certidão subiu mas o status não foi salvo. Tente reenviar.");
+      return;
+    }
+    setProfile(prev => prev ? { ...prev, antecedentes_status: "enviado", antecedentes_url: path } : prev);
+    setAntecedentesFile(null);
+    if (antecedentesPreview) { URL.revokeObjectURL(antecedentesPreview); setAntecedentesPreview(null); }
+    setToastSuccess("✅ Certidão enviada! Aguarde a equipe revisar (até 24h).");
+    trackEvento("antecedentes_enviado", userId, modoAtual);
   };
 
   // Admin: lista documentos pendentes
@@ -12473,12 +12533,23 @@ export default function App() {
               () => setTela("verificar-documento"),
               !docOK)}
 
-            {/* Antecedentes — em breve (Frente B) */}
-            {Linha("📋", "Antecedentes criminais",
-              "Em breve — selo extra de confiança via certidão negativa",
-              "#94a3b8",
-              () => {},
-              false)}
+            {/* Antecedentes — selo extra (não conta pra nível, mas aparece no perfil) */}
+            {(() => {
+              const antOK = profile.antecedentes_status === "aprovado";
+              const antEnv = profile.antecedentes_status === "enviado";
+              const antRej = profile.antecedentes_status === "rejeitado";
+              return Linha(
+                antOK ? "✅" : antEnv ? "🔍" : antRej ? "❌" : "📋",
+                "Antecedentes criminais",
+                antOK ? "✅ Certidão aprovada — selo extra ativo"
+                  : antEnv ? "🔍 Em análise pela equipe"
+                  : antRej ? "❌ Rejeitada — toque pra reenviar"
+                  : "Opcional — selo extra via certidão negativa em PDF",
+                antOK ? "#16a34a" : antEnv ? "#3A86FF" : antRej ? "#dc2626" : "#64748b",
+                () => setTela("verificar-antecedentes"),
+                !antOK,
+              );
+            })()}
           </div>
         );
       })()}
@@ -13964,11 +14035,23 @@ export default function App() {
               () => setTela("verificar-documento"),
               !docOK)}
 
-            {Linha("📋", "Antecedentes criminais",
-              "Em breve — selo extra de confiança via certidão negativa",
-              "#94a3b8",
-              () => {},
-              false)}
+            {/* Antecedentes — selo extra (também disponível pro empregador) */}
+            {(() => {
+              const antOK = profile.antecedentes_status === "aprovado";
+              const antEnv = profile.antecedentes_status === "enviado";
+              const antRej = profile.antecedentes_status === "rejeitado";
+              return Linha(
+                antOK ? "✅" : antEnv ? "🔍" : antRej ? "❌" : "📋",
+                "Antecedentes criminais",
+                antOK ? "✅ Certidão aprovada — selo extra ativo"
+                  : antEnv ? "🔍 Em análise pela equipe"
+                  : antRej ? "❌ Rejeitada — toque pra reenviar"
+                  : "Opcional — selo extra via certidão negativa em PDF",
+                antOK ? "#16a34a" : antEnv ? "#3A86FF" : antRej ? "#dc2626" : "#64748b",
+                () => setTela("verificar-antecedentes"),
+                !antOK,
+              );
+            })()}
           </div>
         );
       })()}
@@ -14649,6 +14732,120 @@ export default function App() {
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
                 Sua identidade está verificada. Esse status fica salvo no seu perfil.
               </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── VERIFICAR ANTECEDENTES (upload de certidão negativa em PDF) ────────────
+  if (tela === "verificar-antecedentes") {
+    const voltarTela = modoAtual === "diarista" ? "editar-perfil" : "editar-perfil-empregador";
+    const antStatus = profile?.antecedentes_status || "nao_enviado";
+    const statusInfo: Record<string, { cor: string; icone: string; titulo: string; sub: string }> = {
+      nao_enviado: { cor:"#94a3b8", icone:"📋", titulo:"Certidão ainda não enviada", sub:"Envie o PDF da sua certidão negativa de antecedentes criminais pra ganhar o selo extra de confiança." },
+      enviado:     { cor:"#f59e0b", icone:"🔍", titulo:"Em análise",                 sub:"A equipe está conferindo a certidão. Você recebe um aviso em até 24h." },
+      aprovado:    { cor:"#16a34a", icone:"✅", titulo:"Certidão aprovada",          sub:"Você tem o selo de Antecedentes verificados — contratantes confiam mais em você." },
+      rejeitado:   { cor:"#ef4444", icone:"❌", titulo:"Certidão rejeitada",         sub: profile?.antecedentes_motivo_rejeicao || "Reenvie com mais qualidade ou dentro da validade (90 dias)." },
+    };
+    const info = statusInfo[antStatus];
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
+          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>📋</div>
+            <div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Antecedentes criminais</div>
+              <div style={{ fontSize:13, color:"#94a3b8" }}>Selo extra de confiança — opcional</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding:"16px" }}>
+          {/* Status atual */}
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", borderLeft:`4px solid ${info.cor}`, marginBottom:14 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:44, height:44, background: info.cor + "22", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>{info.icone}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{info.titulo}</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.5 }}>{info.sub}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Como obter — instruções */}
+          {(antStatus === "nao_enviado" || antStatus === "rejeitado") && (
+            <div style={{ background:"#fff7ed", border:"1px solid #fed7aa", borderRadius:12, padding:"14px 16px", marginBottom:14, fontSize:13, color:"#9a3412", lineHeight:1.6 }}>
+              <div style={{ fontWeight:800, marginBottom:6, color:"#7c2d12" }}>💡 Como conseguir a certidão (de graça):</div>
+              <ol style={{ margin:"0 0 8px 18px", padding:0 }}>
+                <li>Acesse <strong>servicos.pf.gov.br</strong> (Polícia Federal) ou o site da Polícia Civil do seu estado.</li>
+                <li>Solicite a <strong>Certidão de Antecedentes Criminais</strong>.</li>
+                <li>Baixe o PDF (é emitido na hora, sem custo).</li>
+                <li>Suba aqui embaixo.</li>
+              </ol>
+              <div style={{ fontSize:11, marginTop:8, color:"#7c2d12" }}>⚠️ A certidão tem validade de 90 dias. Após isso o selo expira e você precisa emitir uma nova.</div>
+            </div>
+          )}
+
+          {/* LGPD info */}
+          <div style={{ background:"rgba(58,134,255,.08)", border:"1px solid rgba(58,134,255,.3)", borderRadius:12, padding:"12px 14px", marginBottom:16, fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
+            🔒 <strong style={{ color:"var(--text-1,#0f172a)" }}>Privacidade (LGPD):</strong> sua certidão fica em local privado, vista só pela equipe de verificação. Nunca aparece no seu perfil público — só o selo "✅ Antecedentes verificados".
+          </div>
+
+          {/* Formulário de upload */}
+          {(antStatus === "nao_enviado" || antStatus === "rejeitado") && (
+            <>
+              <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Arquivo da certidão</div>
+              <label style={{ display:"block", padding:"24px 16px", background:"var(--bg-surface,#f8fafc)", border:"2px dashed var(--border,#e2e8f0)", borderRadius:14, textAlign:"center" as const, cursor:"pointer", marginBottom:12 }}>
+                <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp"
+                  style={{ display:"none" }}
+                  onChange={e => e.target.files?.[0] && onAntecedentesFileSelected(e.target.files[0])} />
+                {antecedentesFile ? (
+                  <div>
+                    <div style={{ fontSize:32, marginBottom:6 }}>📎</div>
+                    <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{antecedentesFile.name}</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>
+                      {(antecedentesFile.size / 1024 / 1024).toFixed(2)} MB · {antecedentesFile.type}
+                    </div>
+                    <div style={{ fontSize:11, color:"#FF6B35", marginTop:6, fontWeight:700 }}>Toque pra trocar</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontSize:36, marginBottom:6 }}>📄</div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Toque pra escolher o PDF</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>PDF preferencial · JPG/PNG/WEBP também aceitos · máx 5 MB</div>
+                  </div>
+                )}
+              </label>
+
+              {antecedentesPreview && antecedentesFile && antecedentesFile.type.startsWith("image/") && (
+                <img loading="lazy" src={antecedentesPreview} alt="Pré-visualização" style={{ width:"100%", maxHeight:280, objectFit:"contain" as const, borderRadius:12, background:"#000", marginBottom:12 }} />
+              )}
+
+              <button
+                disabled={!antecedentesFile || enviandoAntecedentes}
+                style={{ width:"100%", padding:"14px", background:!antecedentesFile||enviandoAntecedentes?"#94a3b8":"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:!antecedentesFile||enviandoAntecedentes?"not-allowed":"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity:!antecedentesFile||enviandoAntecedentes?0.6:1, boxShadow:!antecedentesFile||enviandoAntecedentes?"none":"0 4px 16px rgba(255,107,53,.4)" }}
+                onClick={enviarAntecedentes}>
+                {enviandoAntecedentes ? "Enviando..." : antecedentesFile ? "Enviar certidão" : "Escolha um arquivo acima"}
+              </button>
+            </>
+          )}
+
+          {/* Estado enviado/aprovado: feedback discreto */}
+          {antStatus === "enviado" && (
+            <div style={{ textAlign:"center" as const, padding:"24px 16px" }}>
+              <div style={{ fontSize:48, marginBottom:8 }}>🔍</div>
+              <div style={{ fontSize:14, fontWeight:700, color:"var(--text-1,#0f172a)" }}>Em análise pela equipe</div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:4 }}>Você recebe um aviso em até 24h.</div>
+            </div>
+          )}
+          {antStatus === "aprovado" && (
+            <div style={{ textAlign:"center" as const, padding:"24px 16px" }}>
+              <div style={{ fontSize:48, marginBottom:8 }}>✅</div>
+              <div style={{ fontSize:14, fontWeight:700, color:"#16a34a" }}>Antecedentes verificados!</div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:4 }}>Lembre-se de reenviar a cada 90 dias pra manter o selo ativo.</div>
             </div>
           )}
         </div>
