@@ -4135,6 +4135,33 @@ export default function App() {
     </div>
   );
 
+  // Modal global de confirmação de logout — JSX reutilizável inserido nas
+  // telas que têm botão "Sair da conta" (home-diarista, home-empregador,
+  // configuracoes). Era antes preso DENTRO da tela configuracoes, então
+  // clicar em "Sair" nas homes mudava state mas modal nunca aparecia.
+  const modalConfirmLogout = confirmLogout ? (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:9000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmLogout(false)}>
+      <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+        <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
+        <div style={{ fontSize:32, textAlign:"center" as const, marginBottom:12 }}>🚪</div>
+        <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center" as const, marginBottom:8 }}>Sair da conta?</div>
+        <div style={{ fontSize:14, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:24, lineHeight:1.6 }}>
+          Você precisará entrar de novo com e-mail/CPF e senha pra acessar o app.
+        </div>
+        <button
+          style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, minHeight:48 }}
+          onClick={() => setConfirmLogout(false)}>
+          Cancelar
+        </button>
+        <button
+          style={{ width:"100%", padding:"14px", background:"var(--bg-subtle,#f1f5f9)", color:"#dc2626", border:"none", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:48 }}
+          onClick={async () => { setConfirmLogout(false); await handleLogout(); }}>
+          Sair mesmo assim
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   // SPLASH
   if (tela === "splash") return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", position:"relative" as const, overflow:"hidden" as const }}>
@@ -5321,30 +5348,10 @@ export default function App() {
           </div>
         )}
 
-        {/* CRIT-5 auditoria: logout pede confirmação. Cancelar é o botão primário
-            (anti-tap-acidental); "Sair" fica em link secundário. */}
-        {confirmLogout && (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:500, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmLogout(false)}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
-              <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
-              <div style={{ fontSize:32, textAlign:"center", marginBottom:12 }}>🚪</div>
-              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:8 }}>Sair da conta?</div>
-              <div style={{ fontSize:14, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:24, lineHeight:1.6 }}>
-                Você precisará entrar de novo com e-mail/CPF e senha pra acessar o app.
-              </div>
-              <button
-                style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-                onClick={() => setConfirmLogout(false)}>
-                Cancelar
-              </button>
-              <button
-                style={{ width:"100%", padding:"14px", background:"var(--bg-subtle,#f1f5f9)", color:"#dc2626", border:"none", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                onClick={async () => { setConfirmLogout(false); await handleLogout(); }}>
-                Sair mesmo assim
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Modal de logout agora é global (constante `modalConfirmLogout`
+            declarada no escopo do componente App). Renderiza nesta tela
+            também porque o user pode clicar Sair daqui. */}
+        {modalConfirmLogout}
 
         {mostrarTermos && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.8)", zIndex:600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
@@ -6981,6 +6988,11 @@ export default function App() {
 
     return (
       <div style={{ ...S.appShell, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+
+        {/* Modal global de confirmação de logout (renderizado SEMPRE no escopo
+            dessa home — antes ficava preso em configuracoes e não aparecia
+            quando user clicava "Sair" em outras telas). */}
+        {modalConfirmLogout}
 
         {/* ── Header ── */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
@@ -9207,6 +9219,17 @@ export default function App() {
                     )}
                   </button>
                 )}
+                {/* Sair da conta — dentro do menu ⋮ (com confirmação modal global) */}
+                <button
+                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"#fef2f2", border:"1.5px solid #fecaca", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                  onClick={() => { setMenuOpcoes(false); setConfirmLogout(true); }}>
+                  <div style={{ width:40, height:40, borderRadius:20, background:"#fee2e2", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🚪</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:15, color:"#dc2626" }}>Sair da conta</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Encerrar sessão neste dispositivo</div>
+                  </div>
+                  <span style={{ fontSize:20, color:"#fca5a5" }}>›</span>
+                </button>
                 <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)", width:"100%", marginTop:4 }} onClick={() => setMenuOpcoes(false)}>Fechar</button>
               </div>
             </div>
@@ -9334,6 +9357,9 @@ export default function App() {
 
     return (
       <div style={{ ...S.appShell, paddingBottom: 76, background: "#f0f2f5" }}>
+
+        {/* Modal global de logout (mesmo motivo do home-empregador) */}
+        {modalConfirmLogout}
 
         {/* ── Header novo estilo ── */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
@@ -11669,6 +11695,17 @@ export default function App() {
                     )}
                   </button>
                 )}
+                {/* Sair da conta — dentro do menu ⋮ (com confirmação modal global) */}
+                <button
+                  style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"#fef2f2", border:"1.5px solid #fecaca", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                  onClick={() => { setMenuOpcoes(false); setConfirmLogout(true); }}>
+                  <div style={{ width:40, height:40, borderRadius:20, background:"#fee2e2", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🚪</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:15, color:"#dc2626" }}>Sair da conta</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Encerrar sessão neste dispositivo</div>
+                  </div>
+                  <span style={{ fontSize:20, color:"#fca5a5" }}>›</span>
+                </button>
                 <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)", width:"100%", marginTop:4 }} onClick={() => setMenuOpcoes(false)}>Fechar</button>
               </div>
             </div>
