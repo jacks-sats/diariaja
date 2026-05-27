@@ -12644,8 +12644,10 @@ export default function App() {
           cpf: form.cpf,
           sexo: form.sexo,
           data_nascimento: form.dataNasc,
-          // Invalida verificação anterior se trocou o telefone
-          ...(telefoneAlterado ? { telefone_verificado: false } : {}),
+          // Telefone trocado → re-verificação acontece via redirect pra verificar-telefone
+          // (saveProfile descarta telefone_verificado; o flag continua refletindo o
+          // estado antigo até o usuário confirmar o novo OTP, momento em que a RPC
+          // confirmar_telefone_verificado faz o set server-side).
           ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
         });
         if (ok) {
