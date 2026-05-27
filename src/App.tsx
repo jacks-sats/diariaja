@@ -7162,7 +7162,7 @@ export default function App() {
               onChange={e => { setForm({ ...form, dataNasc: e.target.value }); revalidaDia("dataNasc"); }}
               onBlur={() => { marcarTocadoDia("dataNasc"); setErrosDia(er => ({ ...er, dataNasc: validarCampoDiarista("dataNasc") })); }} />
             <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, margin:"-6px 0 6px" }}>
-              🔞 Cadastro disponível apenas para maiores de 18 anos (CLT/LC 150).
+              🔞 Cadastro disponível apenas para maiores de 18 anos (art. 7º, XXXIII, CF/88).
             </p>
             {erroDia("dataNasc") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("dataNasc")}</p>}
           </>
