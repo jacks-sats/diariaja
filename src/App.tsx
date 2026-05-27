@@ -3520,9 +3520,15 @@ export default function App() {
     // seleção pelo wrapper `selecionarCandidato`, não aqui.
   };
 
-  // Inicia pagamento de R$ 1 para desbloquear seleção de contato adicional
+  // Inicia pagamento de R$ 1 para desbloquear seleção de contato adicional.
+  // FIX 2026-05: enviava SUPABASE_ANON_KEY como Bearer — a Edge Function exige
+  // o JWT do user (auth.getUser()). Agora manda session.access_token e expõe
+  // o motivo real do erro em caso de falha (em vez do toast genérico).
   const desbloquearContato = async () => {
-    if (!session?.user) return;
+    if (!session?.user || !session.access_token) {
+      setToastError("Sessão expirada. Entre novamente e tente outra vez.");
+      return;
+    }
     setDesbloqueandoContato(true);
     try {
       const resp = await fetch(
@@ -3531,19 +3537,23 @@ export default function App() {
           method: "POST",
           headers: {
             "Content-Type":  "application/json",
-            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+            "Authorization": `Bearer ${session.access_token}`,
+            "apikey":        SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({ empregador_id: session.user.id }),
         }
       );
-      const data = await resp.json();
-      if (data.checkout_url) {
+      const data = await resp.json().catch(() => ({} as { checkout_url?: string; error?: string }));
+      if (resp.ok && data.checkout_url) {
         window.location.href = data.checkout_url;
-      } else {
-        setToastError("❌ Erro ao gerar link de pagamento. Tente novamente.");
+        return;
       }
-    } catch {
+      // Mostra o motivo real (vem da Edge Function) — ajuda diagnóstico.
+      const motivo = data.error || `HTTP ${resp.status}`;
+      setToastError(`❌ Não foi possível gerar link de pagamento: ${motivo}`);
+    } catch (err) {
       setToastError("❌ Erro de conexão. Verifique sua internet.");
+      console.warn("[desbloquearContato] erro:", err instanceof Error ? err.message : String(err));
     }
     setDesbloqueandoContato(false);
   };
@@ -9193,18 +9203,26 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Opção 2 — Assinar plano */}
-              <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
-                <div style={{ fontWeight:800, fontSize:14, color:"#9a3412", marginBottom:4 }}>🚀 Assinar Essencial — R$ 49/mês</div>
-                <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.5, marginBottom:12 }}>
-                  Seleções ilimitadas + vagas em destaque + badge verificado. Ideal para restaurantes, eventos e comércios.
-                </div>
-                <button
-                  style={{ width:"100%", padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+              {/* Opção 2 — Assinar plano. Valor lido das constants pra não dessincronizar */}
+              {(() => {
+                const ess = PLANOS_EMPREGADOR.find(p => p.id === "essencial");
+                const valor = ess?.valor ?? 24.90;
+                return (
+                  <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
+                    <div style={{ fontWeight:800, fontSize:14, color:"#9a3412", marginBottom:4 }}>
+                      🚀 Assinar Essencial — R$ {valor.toFixed(2).replace(".", ",")}/mês
+                    </div>
+                    <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.5, marginBottom:12 }}>
+                      Seleções ilimitadas, IA Jájá pra criar vagas, filtros avançados e destaque moderado.
+                    </div>
+                    <button
+                      style={{ width:"100%", padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => { setModalLimiteContato(false); setTela("planos"); }}>
-                  Ver planos →
-                </button>
-              </div>
+                      Ver planos →
+                    </button>
+                  </div>
+                );
+              })()}
 
               <button
                 style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
