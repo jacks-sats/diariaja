@@ -4,13 +4,15 @@
 export interface Assinatura {
   id: string;
   user_id: string;
-  plano: string;
-  user_type: string;
-  status: string;
+  plano: "gratis" | "essencial" | "plus" | string; // string p/ aceitar legados ('pro','destaque') até migration rodar
+  user_type: "diarista" | "empregador" | string;   // qual papel essa assinatura cobre (dual track)
+  status: "pendente" | "ativo" | "pausado" | "cancelado" | string;
   mp_subscription_id?: string;
   valor: number;
   inicio: string;
   proximo_pagamento?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Diaria {

@@ -69,6 +69,9 @@ import {
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
+import { usePlan } from "./hooks/usePlan";
+import { useLimits } from "./hooks/useLimits";
+import { usePermissions } from "./hooks/usePermissions";
 
 // ── Analytics: registra eventos de uso no Supabase ──────────────────────────
 async function trackEvento(
@@ -363,7 +366,13 @@ export default function App() {
   const [modalPix, setModalPix] = useState<Diaria | null>(null);
   // State modalPagamentoMP removido — DiáriaJá não intermedia valor da diária.
   // State criandoPagamento removido junto com iniciarPagamentoMP.
-  const [assinatura, setAssinatura] = useState<Assinatura | null>(null);
+  // Dual track: usuário 'ambos' pode ter 2 assinaturas ativas (1 diarista + 1
+  // empregador). A fonte da verdade é a tabela `assinaturas`. O campo legado
+  // `user_profiles.plano_ativo` ainda existe mas será deprecated.
+  const [assinaturas, setAssinaturas] = useState<Assinatura[]>([]);
+  // Diárias CONCLUÍDAS como diarista (vitalício) — usado pra CTA de upgrade.
+  // Carregado via RPC `contar_diarias_concluidas_diarista`.
+  const [diariasConcluidasComoDiarista, setDiariasConcluidasComoDiarista] = useState<number>(0);
   const [criandoAssinatura, setCriandoAssinatura] = useState(false);
   const [modalLimiteContato, setModalLimiteContato] = useState(false);
   const [desbloqueandoContato, setDesbloqueandoContato] = useState(false);
@@ -373,6 +382,15 @@ export default function App() {
   // incrementava sem confirmação server-side). Hoje o mp-webhook INSERT na
   // tabela; o client lê via RPC `contar_contatos_desbloqueados_mes`.
   const [contatosDesbloqueados, setContatosDesbloqueados] = useState<number>(0);
+
+  // ── Hooks centrais de monetização ─────────────────────────────────────────
+  // Único ponto de verdade no client pra: plano ativo por papel, limites de
+  // uso, e gates de feature. Sempre que precisar checar "o usuário pode X?",
+  // use `permissions.*` (ou consulte `pode_selecionar_candidato` no banco
+  // pra decisões críticas — ele é a fonte oficial).
+  const plans       = usePlan(assinaturas);
+  const limits      = useLimits(plans, diarias, contatosDesbloqueados, diariasConcluidasComoDiarista);
+  const permissions = usePermissions(plans);
 
   // Novas features v2
   const [modalTermoCiencia, setModalTermoCiencia] = useState<{diaria: Diaria, diaristaId: string} | null>(null);
@@ -771,10 +789,10 @@ export default function App() {
     if (assinaturaStatus === "sucesso") {
       setToastSuccess("🎉 Assinatura ativada! Aproveite seu plano.");
       window.history.replaceState({}, "", window.location.pathname);
-      // Recarrega assinatura do banco
+      // Recarrega TODAS as assinaturas (dual track: diarista + empregador)
       if (session?.user?.id) {
-        supabase.from("assinaturas").select("*").eq("user_id", session.user.id).eq("status", "ativo").maybeSingle()
-          .then(({ data }) => setAssinatura(data || null));
+        supabase.from("assinaturas").select("*").eq("user_id", session.user.id).eq("status", "ativo")
+          .then(({ data }) => setAssinaturas(Array.isArray(data) ? data : []));
       }
     }
   // BUG-M5 fix: inclui session.user.id para reprocessar quando sessão carrega após redirect OAuth
@@ -1923,9 +1941,13 @@ export default function App() {
         setPortfolioUrls(data.portfolio_urls);
         try { localStorage.setItem("diariaja_portfolio", JSON.stringify(data.portfolio_urls)); } catch {}
       }
-      // Carrega assinatura ativa
-      supabase.from("assinaturas").select("*").eq("user_id", userId).eq("status", "ativo").maybeSingle()
-        .then(({ data: sub }) => setAssinatura(sub || null));
+      // Carrega TODAS as assinaturas ativas (dual track: diarista + empregador)
+      supabase.from("assinaturas").select("*").eq("user_id", userId).eq("status", "ativo")
+        .then(({ data: subs }) => setAssinaturas(Array.isArray(subs) ? subs : []));
+      // Conta diárias CONCLUÍDAS como diarista (vitalício) — usado pra CTA de upgrade
+      void supabase.rpc("contar_diarias_concluidas_diarista").then(({ data: total }) => {
+        if (typeof total === "number") setDiariasConcluidasComoDiarista(total);
+      });
       // Restaura o modo e a tela salvos em localStorage (sobrevive ao reload)
       const modoSalvo = localStorage.getItem("diariaja_modo") as "empregador"|"diarista" | null;
       const telaSalva = (() => { try { return localStorage.getItem("diariaja_tela") || ""; } catch { return ""; } })();
@@ -3511,23 +3533,43 @@ export default function App() {
     setDesbloqueandoContato(false);
   };
 
-  // Wrapper: verifica limite de contatos e abre modal de termo antes de selecionar
-  const selecionarCandidato = (diaria: Diaria, diaristaId: string) => {
-    // Verifica limite para plano grátis (3 seleções/mês + extras desbloqueados)
-    const planoEmp = assinatura?.plano ?? "gratis";
-    if (planoEmp === "gratis") {
-      const mes = new Date().toISOString().slice(0, 7);
-      const selecionadasNoMes = diarias.filter(
-        d => d.diarista_aceite_id && d.created_at && d.created_at.slice(0, 7) === mes
-      ).length;
-      const limite = 3 + contatosDesbloqueados;
-      if (selecionadasNoMes >= limite) {
+  // Wrapper: verifica limite de contatos e abre modal de termo antes de selecionar.
+  // Source of truth: RPC `pode_selecionar_candidato` (banco). O client confia
+  // no resultado. Fallback pra heurística local SOMENTE em erro de rede (raro).
+  const selecionarCandidato = async (diaria: Diaria, diaristaId: string) => {
+    try {
+      const { data, error } = await supabase.rpc("pode_selecionar_candidato", {
+        p_diaria_id: diaria.id,
+      });
+      if (error) throw error;
+      const dec = data as {
+        permitido_gratis: boolean;
+        plano: string;
+        selecoes_mes: number;
+        limite_efetivo: number;
+        exige_cobranca_r1: boolean;
+      } | null;
+      if (dec?.exige_cobranca_r1) {
+        setModalLimiteContato(true);
+        trackEvento("limite_contato_atingido", session?.user?.id, "empregador", {
+          plano: dec.plano, selecoes_mes: dec.selecoes_mes,
+        });
+        return;
+      }
+      // Se a RPC autorizou (gratis dentro da cota, OU essencial/plus), segue.
+      setModalTermoCiencia({ diaria, diaristaId });
+      setTermoCienciaCheck(false);
+    } catch {
+      // Fallback defensivo: usa os limites do client (menos confiável).
+      // Em caso de erro de rede, melhor abrir modal de pagamento (conservador)
+      // do que liberar seleção indevida.
+      if (plans.empregador === "gratis" && limits.empregador.cobrancaR1Iminente) {
         setModalLimiteContato(true);
         return;
       }
+      setModalTermoCiencia({ diaria, diaristaId });
+      setTermoCienciaCheck(false);
     }
-    setModalTermoCiencia({ diaria, diaristaId });
-    setTermoCienciaCheck(false);
   };
 
   // Wrapper: abre o modal de termo antes de confirmar presença
@@ -9634,9 +9676,9 @@ export default function App() {
               )}
             </div>
 
-            {/* Plano atual */}
+            {/* Plano atual (dual track: do papel empregador) */}
             {(() => {
-              const planoAtivo = assinatura?.plano || "gratis";
+              const planoAtivo = plans.empregador;
               const planoInfo = PLANOS_EMPREGADOR.find(p => p.id === planoAtivo);
               return (
                 <div style={{ margin:"8px 16px 0", background: planoAtivo === "gratis" ? "var(--bg-surface,#f8fafc)" : "linear-gradient(135deg,#FF6B35,#e85d2e)", borderRadius:16, padding:"14px 16px", border: planoAtivo === "gratis" ? "1.5px solid var(--border,#e2e8f0)" : "none" }}>
@@ -11593,7 +11635,7 @@ export default function App() {
 
             {/* Plano atual */}
             {(() => {
-              const planoAtivo = assinatura?.plano || "gratis";
+              const planoAtivo = plans.diarista;
               const planoInfo = PLANOS_DIARISTA.find(p => p.id === planoAtivo);
               return (
                 <div style={{ margin:"8px 16px 0", background: planoAtivo === "gratis" ? "var(--bg-surface,#f8fafc)" : "linear-gradient(135deg,#FF6B35,#e85d2e)", borderRadius:16, padding:"14px 16px", border: planoAtivo === "gratis" ? "1.5px solid var(--border,#e2e8f0)" : "none" }}>
@@ -15441,7 +15483,8 @@ export default function App() {
   if (tela === "planos") {
     const isEmp = modoAtual === "empregador";
     const planos = isEmp ? PLANOS_EMPREGADOR : PLANOS_DIARISTA;
-    const planoAtivo = assinatura?.plano || "gratis";
+    // Dual track: cada papel tem sua própria assinatura.
+    const planoAtivo = isEmp ? plans.empregador : plans.diarista;
 
     return (
       <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 80%)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
