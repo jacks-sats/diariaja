@@ -1251,10 +1251,16 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Índice pra job de cleanup periódico (apaga chaves não tocadas há >24h)
-CREATE INDEX IF NOT EXISTS idx_rate_limits_stale
-  ON rate_limits(updated_at)
-  WHERE updated_at < NOW() - INTERVAL '24 hours';
+-- RLS: tabela só acessada via RPC SECURITY DEFINER (check_rate_limit,
+-- limpar_rate_limits_antigos). Sem política permissiva = anon/authenticated
+-- são bloqueados via REST direto. service_role passa por cima.
+ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY;
+
+-- Índice pra job de cleanup periódico (apaga chaves não tocadas há >24h).
+-- NÃO usamos partial index com NOW() no WHERE porque Postgres exige
+-- funções IMMUTABLE em predicados de índice (NOW() é STABLE, não IMMUTABLE).
+CREATE INDEX IF NOT EXISTS idx_rate_limits_updated_at
+  ON rate_limits(updated_at);
 
 -- RPC central de rate-limit. Atômica via UPSERT.
 -- Retorna TRUE quando permitido, FALSE quando bloqueado.
