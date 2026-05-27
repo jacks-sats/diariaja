@@ -336,8 +336,8 @@ export default function App() {
   // Recibo digital
   const [modalRecibo, setModalRecibo] = useState<Diaria | null>(null);
   const [modalPix, setModalPix] = useState<Diaria | null>(null);
-  const [modalPagamentoMP, setModalPagamentoMP] = useState<Diaria | null>(null);
-  const [criandoPagamento, setCriandoPagamento] = useState(false);
+  // State modalPagamentoMP removido — DiáriaJá não intermedia valor da diária.
+  // State criandoPagamento removido junto com iniciarPagamentoMP.
   const [assinatura, setAssinatura] = useState<Assinatura | null>(null);
   const [criandoAssinatura, setCriandoAssinatura] = useState(false);
   const [modalLimiteContato, setModalLimiteContato] = useState(false);
@@ -3248,12 +3248,12 @@ export default function App() {
 
     setModalCandidatos(null);
     setSelecionando(false);
-    setToastSuccess("✅ Candidato selecionado! Abrindo pagamento via Mercado Pago…");
-
-    // 4. Dispara o checkout MP IMEDIATAMENTE — antes o user precisava esperar o
-    // diarista confirmar pra só então pagar (gargalo + usuário pensava que tinha
-    // dado erro). Agora: seleciona → abre MP → ao pagar o diarista é notificado.
-    setTimeout(() => { void iniciarPagamentoMP({ ...diaria, status: "pendente", diarista_aceite_id: diaristaId }); }, 600);
+    setToastSuccess("✅ Candidato selecionado! O diarista vai receber a notificação.");
+    // IMPORTANTE: a plataforma NÃO intermedia o valor da diária. O pagamento
+    // entre contratante e diarista é combinado direto entre as partes (PIX,
+    // dinheiro, etc.). A taxa de seleção de R$ 1 (no plano grátis a partir
+    // da 4ª seleção do mês) é cobrada via create-contact-payment ANTES da
+    // seleção pelo wrapper `selecionarCandidato`, não aqui.
   };
 
   // Inicia pagamento de R$ 1 para desbloquear seleção de contato adicional
@@ -3458,39 +3458,10 @@ export default function App() {
     setCriandoAssinatura(false);
   };
 
-  // Cria preferência de pagamento MP e redireciona o empregador para o checkout
-  const iniciarPagamentoMP = async (diaria: Diaria) => {
-    if (!session?.user) return;
-    setCriandoPagamento(true);
-    try {
-      const resp = await fetch(
-        `${SUPABASE_URL}/functions/v1/create-payment`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-          },
-          body: JSON.stringify({ diaria_id: diaria.id, empregador_id: session.user.id }),
-        }
-      );
-      const data = await resp.json();
-      if (!resp.ok) {
-        setAuthError(data.error || "Erro ao iniciar pagamento. Tente novamente.");
-        setCriandoPagamento(false);
-        return;
-      }
-      // Redireciona pra checkout do MP (mesma aba — compatível com mobile/PWA;
-      // window.open em popup é bloqueado em mobile Chrome e Capacitor).
-      setModalPagamentoMP(null);
-      setToastSuccess("🏦 Abrindo Mercado Pago…");
-      // Pequeno delay pro toast aparecer antes do redirect
-      setTimeout(() => { window.location.href = data.checkout_url; }, 400);
-    } catch {
-      setAuthError("Erro de conexão ao iniciar pagamento.");
-    }
-    setCriandoPagamento(false);
-  };
+  // Função `iniciarPagamentoMP` removida — DiáriaJá não intermedia o
+  // valor da diária. Pagamento entre contratante e diarista é direto.
+  // A Edge Function `create-payment` permanece deployada caso o modelo
+  // mude no futuro, mas o frontend não a chama mais.
 
   const salvarDiaria = async () => {
     if (!session?.user) return;
@@ -7527,14 +7498,9 @@ export default function App() {
                                 💬 Chat
                               </button>
                             )}
-                            {/* Pagar via MP — só depois que o diarista confirmou (status "aceita") */}
-                            {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && dia.status === "aceita" && (
-                              <button
-                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
-                                onClick={e => { e.stopPropagation(); setModalPagamentoMP(dia); setAuthError(""); }}>
-                                💳 Pagar
-                              </button>
-                            )}
+                            {/* Botão "💳 Pagar" do valor total removido — a plataforma
+                                NÃO intermedia o valor da diária. Pagamento entre
+                                contratante e diarista é combinado direto entre eles. */}
                             {/* Ver candidatos — diária aberta */}
                             {dia.status === "aberta" && (() => {
                               const cands = candidaturas.filter(c => c.diaria_id === dia.id && c.status === "pendente");
@@ -7587,16 +7553,11 @@ export default function App() {
                             {dia.ganho_estimado_dia && <span style={{ fontSize:11, color:"#92400e" }}>💰 Estimativa: <strong>R$ {dia.ganho_estimado_dia}</strong></span>}
                           </div>
                         )}
-                        {/* Botão pagar via MP — só depois que o diarista confirmou (status "aceita") */}
-                        {dia.diarista_aceite_id && dia.pagamento_status !== "pago" && dia.status === "aceita" && (
-                          <button
-                            style={{ width:"100%", padding:"13px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:10, boxShadow:"0 4px 16px rgba(0,158,227,.4)", opacity: criandoPagamento ? 0.7 : 1 }}
-                            disabled={criandoPagamento}
-                            onClick={e => { e.stopPropagation(); setModalPagamentoMP(dia); setAuthError(""); }}>
-                            <svg width="20" height="20" viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="10" fill="#fff"/><text x="50%" y="60%" dominantBaseline="middle" textAnchor="middle" fontSize="28" fontWeight="900" fill="#009ee3">$</text></svg>
-                            {criandoPagamento ? "Aguarde..." : "Pagar via Mercado Pago"}
-                          </button>
-                        )}
+                        {/* Botão "Pagar via Mercado Pago" do valor total removido —
+                            DiáriaJá NÃO intermedia o valor da diária. O contratante
+                            paga direto pro diarista (PIX, dinheiro, etc.). A plataforma
+                            cobra apenas R$ 1 por seleção extra (no plano grátis após
+                            a 4ª seleção do mês) + planos premium opcionais. */}
 
                         {/* Diarista confirmou presença (aceita = confirmou, aguardando QR scan) */}
                         {dia.status === "aceita" && dia.diarista_aceite_id && (() => {
@@ -8295,74 +8256,10 @@ export default function App() {
           );
         })()}
 
-        {/* ── Modal: Pagamento Mercado Pago ── */}
-        {modalPagamentoMP && (() => {
-          const valorTotal  = modalPagamentoMP.valor;
-          const taxa        = Math.round(valorTotal * 0.015 * 100) / 100;
-          const valorDiar   = valorTotal - taxa;
-          return (
-            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:400, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
-              onClick={() => setModalPagamentoMP(null)}>
-              <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 48px", width:"100%", maxWidth:480 }}
-                onClick={e => e.stopPropagation()}>
-                <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 22px" }} />
-
-                {/* Header */}
-                <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:22 }}>
-                  <div style={{ width:48, height:48, borderRadius:14, background:"#e8f4fd", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>🏦</div>
-                  <div>
-                    <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)" }}>Pagar com Mercado Pago</div>
-                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>Pagamento seguro com split automático</div>
-                  </div>
-                </div>
-
-                {/* Resumo */}
-                <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:"16px 18px", marginBottom:16 }}>
-                  <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:12 }}>Resumo do pagamento</div>
-                  {[
-                    { k:"Serviço",             v: modalPagamentoMP.funcao || modalPagamentoMP.segmento },
-                    { k:"Data",                v: new Date(modalPagamentoMP.data+"T12:00:00").toLocaleDateString("pt-BR") },
-                    { k:"Valor do diarista",   v: `R$ ${valorDiar.toFixed(2)}` },
-                    { k:"Taxa DiáriaJá (1,5%)",v: `R$ ${taxa.toFixed(2)}` },
-                  ].map(r => (
-                    <div key={r.k} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
-                      <span style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>{r.k}</span>
-                      <span style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)" }}>{r.v}</span>
-                    </div>
-                  ))}
-                  <div style={{ display:"flex", justifyContent:"space-between", paddingTop:12, marginTop:4 }}>
-                    <span style={{ fontSize:15, fontWeight:800, color:"var(--text-1,#0f172a)" }}>Total</span>
-                    <span style={{ fontSize:22, fontWeight:900, color:"#009ee3" }}>R$ {valorTotal.toFixed(2)}</span>
-                  </div>
-                </div>
-
-                {/* Como funciona */}
-                <div style={{ background:"#f0f9ff", border:"1.5px solid #bae6fd", borderRadius:14, padding:"12px 14px", marginBottom:18 }}>
-                  <div style={{ fontSize:12, color:"#0369a1", lineHeight:1.7 }}>
-                    <strong>Como funciona:</strong>
-                    <br />1. Você paga agora via MP (cartão, PIX ou saldo)
-                    <br />2. O diarista recebe <strong>R$ {valorDiar.toFixed(2)}</strong> automaticamente após a conclusão
-                    <br />3. O DiáriaJá retém <strong>R$ {taxa.toFixed(2)}</strong> como taxa de conexão
-                  </div>
-                </div>
-
-                {authError && <p style={{ color:"#ef4444", fontSize:13, fontWeight:700, marginBottom:12, textAlign:"center" }}>{authError}</p>}
-
-                <button
-                  style={{ width:"100%", padding:"15px", background:"linear-gradient(135deg,#009ee3,#007eb5)", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, boxShadow:"0 4px 16px rgba(0,158,227,.4)", opacity: criandoPagamento ? 0.7 : 1 }}
-                  disabled={criandoPagamento}
-                  onClick={() => iniciarPagamentoMP(modalPagamentoMP)}>
-                  {criandoPagamento ? "Gerando link..." : "💳 Ir para o pagamento"}
-                </button>
-                <button
-                  style={{ width:"100%", padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                  onClick={() => { setModalPagamentoMP(null); setAuthError(""); }}>
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          );
-        })()}
+        {/* Modal de pagamento do valor total da diária REMOVIDO.
+            Razão: DiáriaJá NÃO intermedia o valor da diária. O contratante
+            paga direto pro diarista (PIX/dinheiro). A plataforma cobra
+            apenas R$ 1 pela seleção extra (no grátis) + planos opcionais. */}
 
         {/* ── Modal: PIX ── */}
         {modalPix && (() => {
