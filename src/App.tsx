@@ -510,6 +510,59 @@ export default function App() {
     4: ["aceitaTermos"],
   };
 
+  // ── Cadastro Diarista (PF) — Wizard de 4 passos ─────────────────────────
+  // Usa o `form` global como fonte de verdade (já compartilhado com editar-perfil),
+  // mas adiciona estado próprio de wizard: passo atual, erros tocados, termos.
+  type CampoDia = "foto" | "nome" | "sexo" | "dataNasc" | "telefone" | "cpf"
+                | "categorias" | "valor" | "pixChave" | "agenda" | "aceitaTermos";
+  const [passoDiarista, setPassoDiarista] = useState<1 | 2 | 3 | 4>(() => {
+    try {
+      const v = Number(localStorage.getItem("diariaja_cad_diarista_passo"));
+      if (v >= 1 && v <= 4) return v as 1 | 2 | 3 | 4;
+    } catch { /* ignore */ }
+    return 1;
+  });
+  useEffect(() => {
+    try { localStorage.setItem("diariaja_cad_diarista_passo", String(passoDiarista)); } catch { /* ignore */ }
+  }, [passoDiarista]);
+  const [errosDia, setErrosDia] = useState<Partial<Record<CampoDia, string>>>({});
+  const [tocadosDia, setTocadosDia] = useState<Partial<Record<CampoDia, boolean>>>({});
+  const [submittingDia, setSubmittingDia] = useState(false);
+  const [aceitaTermosDia, setAceitaTermosDia] = useState(false);
+  // Mapeamento de campos por passo do wizard PF (diarista) — usado pra validar
+  // incrementalmente e avançar.
+  const CAMPOS_POR_PASSO_DIA: Record<1 | 2 | 3 | 4, CampoDia[]> = {
+    1: ["foto", "nome", "sexo", "dataNasc"],
+    2: ["telefone", "cpf"],
+    3: ["categorias", "valor", "pixChave"],
+    4: ["agenda", "aceitaTermos"],
+  };
+
+  // ── Cadastro Empregador PF — Wizard de 3 passos ─────────────────────────
+  // Mesma estratégia: usa `form` global + estado próprio de wizard.
+  type CampoEmpPF = "nome" | "telefone" | "cpf" | "nomeNegocio" | "segmento"
+                  | "cep" | "endereco" | "aceitaTermos";
+  const [passoEmpregadorPF, setPassoEmpregadorPF] = useState<1 | 2 | 3 | 4>(() => {
+    try {
+      const v = Number(localStorage.getItem("diariaja_cad_emppf_passo"));
+      if (v >= 1 && v <= 4) return v as 1 | 2 | 3 | 4;
+    } catch { /* ignore */ }
+    return 1;
+  });
+  useEffect(() => {
+    try { localStorage.setItem("diariaja_cad_emppf_passo", String(passoEmpregadorPF)); } catch { /* ignore */ }
+  }, [passoEmpregadorPF]);
+  const [errosEmpPF, setErrosEmpPF] = useState<Partial<Record<CampoEmpPF, string>>>({});
+  const [tocadosEmpPF, setTocadosEmpPF] = useState<Partial<Record<CampoEmpPF, boolean>>>({});
+  const [submittingEmpPF, setSubmittingEmpPF] = useState(false);
+  const [aceitaTermosEmpPF, setAceitaTermosEmpPF] = useState(false);
+  const CAMPOS_POR_PASSO_EMPPF: Record<1 | 2 | 3 | 4, CampoEmpPF[]> = {
+    1: ["nome", "telefone", "cpf"],
+    2: ["nomeNegocio", "cep", "endereco"],
+    3: ["segmento"],
+    4: ["aceitaTermos"],
+  };
+
   // Configurações / Conta
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmSenha, setConfirmSenha] = useState("");
@@ -528,6 +581,13 @@ export default function App() {
   const [loginCpfInput, setLoginCpfInput] = useState("");
   // Menu de "mais opções" (três pontinhos) no header — atalho pra Configurações
   const [menuOpcoes, setMenuOpcoes] = useState(false);
+  // ── Editar Perfil — campos travados (verificados) que o usuário pode destravar ─
+  // Telefone verificado, CPF e data de nascimento ficam read-only por padrão.
+  // Botãozinho "Alterar" ao lado destrava só aquele campo. Limpamos ao sair da tela.
+  const [camposDestravadosEdit, setCamposDestravadosEdit] = useState<Set<string>>(new Set());
+  const destravarCampoEdit = (c: string) => setCamposDestravadosEdit(prev => {
+    const next = new Set(prev); next.add(c); return next;
+  });
   // Alterar senha — exige senha atual (proteção contra device roubado)
   const [senhaAtual, setSenhaAtual] = useState("");
   // Favoritos (empregador salva diaristas favoritos)
@@ -3834,6 +3894,59 @@ export default function App() {
     return erros;
   };
 
+  // ── Validadores do wizard PF (diarista) — opera sobre estado global do form ─
+  const validarCampoDiarista = (campo: CampoDia): string | undefined => {
+    switch (campo) {
+      case "foto":      return fotoUrl ? undefined : "Adicione uma foto de perfil.";
+      case "nome":      return validarNome(form.nome) || undefined;
+      case "sexo":      return form.sexo ? undefined : "Selecione seu sexo.";
+      case "dataNasc": {
+        if (!form.dataNasc) return "Informe a data de nascimento.";
+        if (calcularIdade(form.dataNasc) < 18) return "Você precisa ter 18 anos ou mais.";
+        return undefined;
+      }
+      case "telefone":  return validarTelefone(form.telefone) ? undefined : "Telefone inválido. (XX) 9XXXX-XXXX.";
+      case "cpf":       return validarCPF(form.cpf) ? undefined : "CPF inválido. Confira os dígitos.";
+      case "categorias": return categoriasSelecionadas.length > 0 ? undefined : "Selecione ao menos uma especialidade.";
+      case "valor": {
+        const n = Number(form.valor);
+        if (!form.valor || isNaN(n) || n <= 0) return "Informe um valor por diária.";
+        return undefined;
+      }
+      case "pixChave":  return validarPix(form.pixChave, form.pixTipo) || undefined;
+      case "agenda":    return (agendaSelecionada.length > 0 || disponivelAgora) ? undefined : 'Selecione ao menos um dia ou marque "Disponível agora".';
+      case "aceitaTermos": return aceitaTermosDia ? undefined : "Você precisa aceitar os Termos.";
+      default:          return undefined;
+    }
+  };
+  const validarTodoFormDiarista = (): Partial<Record<CampoDia, string>> => {
+    const erros: Partial<Record<CampoDia, string>> = {};
+    (["foto","nome","sexo","dataNasc","telefone","cpf","categorias","valor","pixChave","agenda","aceitaTermos"] as CampoDia[])
+      .forEach(c => { const e = validarCampoDiarista(c); if (e) erros[c] = e; });
+    return erros;
+  };
+
+  // ── Validadores do wizard Empregador PF ─────────────────────────────────────
+  const validarCampoEmpPF = (campo: CampoEmpPF): string | undefined => {
+    switch (campo) {
+      case "nome":     return validarNome(form.nome) || undefined;
+      case "telefone": return validarTelefone(form.telefone) ? undefined : "Telefone inválido. (XX) 9XXXX-XXXX.";
+      case "cpf":      return validarCPF(form.cpf) ? undefined : "CPF inválido.";
+      case "nomeNegocio": return form.nomeNegocio.trim() ? undefined : "Informe um nome (pessoal ou do estabelecimento).";
+      case "segmento": return (negocioSelecionado || profile?.segmento) ? undefined : "Selecione um segmento.";
+      case "cep":      return form.cepEmp.replace(/\D/g, "").length === 8 ? undefined : "CEP incompleto.";
+      case "endereco": return (form.ruaEmp.trim() && form.numeroEmp.trim() && form.bairroEmp.trim() && form.cidadeEmp.trim()) ? undefined : "Complete o endereço.";
+      case "aceitaTermos": return aceitaTermosEmpPF ? undefined : "Você precisa aceitar os Termos.";
+      default:         return undefined;
+    }
+  };
+  const validarTodoFormEmpPF = (): Partial<Record<CampoEmpPF, string>> => {
+    const erros: Partial<Record<CampoEmpPF, string>> = {};
+    (["nome","telefone","cpf","nomeNegocio","segmento","cep","endereco","aceitaTermos"] as CampoEmpPF[])
+      .forEach(c => { const e = validarCampoEmpPF(c); if (e) erros[c] = e; });
+    return erros;
+  };
+
   // Submit: signUp + INSERT user_profiles (via saveProfile depois do login)
   const submitCadastroEmpresa = async () => {
     setSubmittingEmp(true);
@@ -4351,57 +4464,50 @@ export default function App() {
 
   // LOGIN
   if (tela === "login") return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px" }}>
+    <div style={{ minHeight:"100vh", background:"linear-gradient(165deg,#0a1428 0%,#101b3a 45%,#1a2754 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 22px 40px", position:"relative" as const, overflow:"hidden" }}>
+      {/* Glow laranja decorativo no topo direito — assinatura da marca */}
+      <div aria-hidden style={{ position:"absolute", top:-100, right:-80, width:280, height:280, borderRadius:"50%", background:"radial-gradient(circle, rgba(255,107,53,.28) 0%, rgba(255,107,53,0) 70%)", pointerEvents:"none" }} />
+      <div aria-hidden style={{ position:"absolute", bottom:-120, left:-100, width:320, height:320, borderRadius:"50%", background:"radial-gradient(circle, rgba(58,134,255,.18) 0%, rgba(58,134,255,0) 70%)", pointerEvents:"none" }} />
 
-      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => { setAuthError(""); setTela("splash"); }}>
+      <button style={{ background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", color:"#cbd5e1", fontSize:13, fontWeight:700, cursor:"pointer", padding:"8px 14px", marginTop:48, alignSelf:"flex-start", borderRadius:20, fontFamily:"Inter, system-ui, sans-serif", backdropFilter:"blur(8px)" as const }}
+        aria-label="Voltar para a tela inicial"
+        onClick={() => { setAuthError(""); setTela("splash"); }}>
         ← Voltar
       </button>
 
-      {/* Logo compacta */}
-      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"24px 0 32px" }}>
-        <div style={{ fontSize:40, filter:"drop-shadow(0 0 16px #FF6B35)", marginBottom:8 }}>⚡</div>
-        <div style={{ fontSize:30, fontWeight:900, letterSpacing:-1 }}>
-          <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
+      {/* Hero */}
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"28px 0 26px", position:"relative", zIndex:1 }}>
+        <div style={{ width:72, height:72, borderRadius:36, background:"linear-gradient(135deg,#FF6B35,#fb923c)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:34, boxShadow:"0 8px 32px rgba(255,107,53,.45), 0 0 0 6px rgba(255,107,53,.1)", marginBottom:14 }}>⚡</div>
+        <div style={{ fontSize:32, fontWeight:900, letterSpacing:-1, color:"#fff" }}>
+          Diária<span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginTop:4 }}>Bem-vindo de volta</p>
+        <p style={{ color:"#cbd5e1", fontSize:14, marginTop:6, fontWeight:500 }}>Bom te ver de novo 👋</p>
+        <p style={{ color:"rgba(255,255,255,.55)", fontSize:12, marginTop:2 }}>Entre e continue de onde parou</p>
       </div>
 
-      {/* Card de login */}
-      <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
-        {/* Google — disponível pra qualquer tipo de conta que já existir.
-            Contas PJ criadas pelo fluxo "Empresa com CNPJ" também podem
-            voltar via Google se já tiverem associado o e-mail à conta. */}
-        <button
-          type="button"
-          aria-label="Entrar com Google"
-          style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }}
-          onClick={handleGoogleLogin}>
-          {GoogleSVG} Entrar com Google
-        </button>
-
-        <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
-          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou</span>
-          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-        </div>
-
-        {/* Toggle E-mail / CPF — alternativa de login */}
-        <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,.05)", borderRadius:10, padding:3, marginBottom:14 }}>
+      {/* Card de login — fundo branco com sombra, contraste alto */}
+      <div style={{ background:"#fff", borderRadius:24, padding:"24px 22px", boxShadow:"0 20px 60px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.05)", position:"relative", zIndex:1 }}>
+        {/* Toggle E-mail / CPF */}
+        <div style={{ display:"flex", gap:4, background:"#f1f5f9", borderRadius:12, padding:4, marginBottom:18 }} role="tablist" aria-label="Método de login">
           {([
-            { id: "email", label: "E-mail" },
-            { id: "cpf",   label: "CPF / CNPJ" },
+            { id: "email", label: "E-mail", ic: "✉️" },
+            { id: "cpf",   label: "CPF / CNPJ", ic: "🪪" },
           ] as const).map(opt => {
             const ativo = modoLogin === opt.id;
             return (
-              <button key={opt.id} type="button"
+              <button key={opt.id} type="button" role="tab" aria-selected={ativo}
                 onClick={() => { setAuthError(""); setModoLogin(opt.id); }}
                 style={{
-                  flex:1, padding:"8px 10px", border:"none", borderRadius:8,
-                  background: ativo ? "#FF6B35" : "transparent",
-                  color: ativo ? "#fff" : "var(--text-3,#94a3b8)",
+                  flex:1, padding:"10px 8px", border:"none", borderRadius:9,
+                  background: ativo ? "#fff" : "transparent",
+                  color: ativo ? "#FF6B35" : "#64748b",
                   fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif",
+                  boxShadow: ativo ? "0 2px 8px rgba(15,23,42,.08)" : "none",
+                  transition: "all .2s",
+                  display:"flex", alignItems:"center", justifyContent:"center", gap:6,
                 }}>
-                {opt.label}
+                <span style={{ fontSize:14 }}>{opt.ic}</span>
+                <span>{opt.label}</span>
               </button>
             );
           })}
@@ -4409,24 +4515,28 @@ export default function App() {
 
         {modoLogin === "email" ? (
           <>
-            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
+            <label htmlFor="login-email" style={{ fontSize:11, fontWeight:800, color:"#475569", textTransform:"uppercase" as const, letterSpacing:0.6, display:"block", marginBottom:8 }}>E-mail</label>
             <input
               id="login-email"
               aria-label="E-mail"
               type="email"
               autoComplete="email"
-              style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+              style={{ width:"100%", padding:"14px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, background:"#f8fafc", color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:14, transition:"border-color .15s, background .15s" }}
+              onFocus={e => { e.target.style.borderColor = "#FF6B35"; e.target.style.background = "#fff"; }}
+              onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.background = "#f8fafc"; }}
               placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
           </>
         ) : (
           <>
-            <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>CPF ou CNPJ</label>
+            <label htmlFor="login-cpf" style={{ fontSize:11, fontWeight:800, color:"#475569", textTransform:"uppercase" as const, letterSpacing:0.6, display:"block", marginBottom:8 }}>CPF ou CNPJ</label>
             <input
               id="login-cpf"
               aria-label="CPF ou CNPJ"
               inputMode="numeric"
               autoComplete="off"
-              style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12, letterSpacing:0.5 }}
+              style={{ width:"100%", padding:"14px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, background:"#f8fafc", color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:14, letterSpacing:0.5, transition:"border-color .15s, background .15s" }}
+              onFocus={e => { e.target.style.borderColor = "#FF6B35"; e.target.style.background = "#fff"; }}
+              onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.background = "#f8fafc"; }}
               placeholder="000.000.000-00"
               value={loginCpfInput}
               onChange={e => {
@@ -4436,51 +4546,73 @@ export default function App() {
           </>
         )}
 
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-          <label htmlFor="login-senha" style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>Senha</label>
-        </div>
-        <div style={{ position:"relative" as const }}>
+        <label htmlFor="login-senha" style={{ fontSize:11, fontWeight:800, color:"#475569", textTransform:"uppercase" as const, letterSpacing:0.6, display:"block", marginBottom:8 }}>Senha</label>
+        <div style={{ position:"relative" as const, marginBottom:6 }}>
           <input
             id="login-senha"
             aria-label="Senha"
             autoComplete="current-password"
-            style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none" }}
+            style={{ width:"100%", padding:"14px 48px 14px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, background:"#f8fafc", color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", transition:"border-color .15s, background .15s" }}
+            onFocus={e => { e.target.style.borderColor = "#FF6B35"; e.target.style.background = "#fff"; }}
+            onBlur={e => { e.target.style.borderColor = "#e2e8f0"; e.target.style.background = "#f8fafc"; }}
             placeholder="Sua senha" type={mostrarSenha ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
-          <button type="button" aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"} style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
+          <button type="button" aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+            style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:6, lineHeight:1, borderRadius:6 }}
             onClick={() => setMostrarSenha(p => !p)}>
             {mostrarSenha ? "🙈" : "👁️"}
           </button>
         </div>
 
-        {authError && <p style={{ color:"#f87171", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>{authError}</p>}
-
+        {/* Esqueci minha senha — alinhado à direita, cor da marca */}
         {modoLogin === "cpf" ? (
-          <p style={{ color:"#94a3b8", fontSize:11, marginTop:8, textAlign:"center" as const, lineHeight:1.5 }}>
-            Esqueceu a senha? Volte pro login por <strong style={{ color:"#fff", cursor:"pointer" }} onClick={() => { setAuthError(""); setModoLogin("email"); }}>e-mail</strong> pra recuperar.
+          <p style={{ color:"#94a3b8", fontSize:11, marginTop:10, textAlign:"center" as const, lineHeight:1.5 }}>
+            Esqueceu a senha? Volte pro login por{" "}
+            <strong style={{ color:"#FF6B35", cursor:"pointer", textDecoration:"underline" }}
+              onClick={() => { setAuthError(""); setModoLogin("email"); }}>e-mail</strong>{" "}
+            pra recuperar.
           </p>
         ) : resetSenhaEnviado ? (
-          <p style={{ color:"#4ade80", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>
-            ✅ Link enviado! Verifique seu e-mail (inclusive o spam).
+          <p style={{ color:"#16a34a", fontSize:13, fontWeight:700, marginTop:10, textAlign:"center", background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:10, padding:"10px 12px" }}>
+            ✅ Link enviado! Confira seu e-mail (e o spam).
           </p>
         ) : (
-          <p style={{ textAlign:"right", marginTop:8, marginBottom:0 }}>
-            <span
-              style={{ color:"#fbbf24", fontSize:14, fontWeight:600, cursor:"pointer", textDecoration:"underline" }}
+          <div style={{ textAlign:"right", marginTop:6, marginBottom:0 }}>
+            <button type="button"
+              style={{ background:"none", border:"none", color:"#FF6B35", fontSize:13, fontWeight:700, cursor:"pointer", padding:"4px 0", fontFamily:"Inter, system-ui, sans-serif", textDecoration:"underline" }}
               onClick={handleResetSenha}>
               {resetSenhaLoading ? "Enviando..." : "Esqueci minha senha"}
-            </span>
+            </button>
+          </div>
+        )}
+
+        {authError && (
+          <p role="alert" style={{ color:"#dc2626", fontSize:13, fontWeight:600, marginTop:12, textAlign:"center", background:"#fef2f2", border:"1px solid #fecaca", borderRadius:10, padding:"10px 12px" }}>
+            {authError}
           </p>
         )}
 
-        <button style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:16, opacity:authLoading?0.6:1, boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
+        <button
+          style={{ width:"100%", padding:"15px", background: authLoading ? "#fb923c" : "#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor: authLoading ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:16, opacity:authLoading?0.85:1, boxShadow:"0 8px 24px rgba(255,107,53,.45)", transition:"all .15s", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
           disabled={authLoading} onClick={modoLogin === "email" ? handleEmailLogin : handleCPFLogin}>
-          {authLoading ? "Entrando..." : "Entrar"}
+          {authLoading ? <><span aria-hidden style={{ display:"inline-block", width:14, height:14, border:"2px solid #fff", borderTopColor:"transparent", borderRadius:"50%", animation:"spin .8s linear infinite" }} /> Entrando...</> : <>Entrar <span aria-hidden>→</span></>}
         </button>
+
+        {/* Pequeno selo de segurança */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginTop:14, fontSize:11, color:"#94a3b8" }}>
+          <span aria-hidden>🔒</span>
+          <span>Conexão criptografada · sua senha é cifrada</span>
+        </div>
       </div>
 
-      <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:14, marginTop:20, cursor:"pointer" }} onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
-        Não tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Cadastre-se grátis</span>
-      </p>
+      {/* Footer — cadastro novo */}
+      <button type="button"
+        style={{ background:"none", border:"none", textAlign:"center", color:"#cbd5e1", fontSize:14, marginTop:22, cursor:"pointer", padding:"10px 14px", borderRadius:12, fontFamily:"Inter, system-ui, sans-serif", position:"relative", zIndex:1 }}
+        onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
+        Ainda não tem conta? <span style={{ color:"#FF6B35", fontWeight:800 }}>Cadastre-se grátis →</span>
+      </button>
+
+      {/* Animação do spinner */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 
@@ -6312,130 +6444,325 @@ export default function App() {
     );
   }
 
-  // CADASTRO EMPREGADOR
-  if (tela === "cadastro-empregador") return (
-    <div style={S.page}>
-      <button style={S.back} onClick={() => setTela("cadastro-tipo")}>← Voltar</button>
+  // CADASTRO EMPREGADOR PF — WIZARD DE 4 PASSOS
+  // Identidade → Local → Tipo de negócio → Confirma+Termos.
+  // Cada passo concede +25 XP. Após submit redireciona para pedir-localizacao.
+  if (tela === "cadastro-empregador") {
+    const NOMES_PASSOS_EMPPF: Record<1 | 2 | 3 | 4, string> = {
+      1: "Identidade",
+      2: "Local de atendimento",
+      3: "Tipo de negócio",
+      4: "Confirmação e termos",
+    };
+    const xpEmpPF = (passoEmpregadorPF - 1) * 25;
+    const erroEmpPF = (c: CampoEmpPF) => (tocadosEmpPF[c] ? errosEmpPF[c] : undefined);
+    const marcarTocadoEmpPF = (c: CampoEmpPF) => setTocadosEmpPF(t => ({ ...t, [c]: true }));
+    const revalidaEmpPF = (c: CampoEmpPF) => {
+      if (tocadosEmpPF[c]) setErrosEmpPF(e => ({ ...e, [c]: validarCampoEmpPF(c) }));
+    };
 
-      {/* Header */}
-      <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", borderRadius:20, padding:"20px 20px 18px", marginBottom:20, color:"#fff" }}>
-        <div style={{ fontSize:22, fontWeight:900 }}>🏢 Dados do Contratante</div>
-        <div style={{ fontSize:13, opacity:0.75, marginTop:4 }}>Preencha para criar sua conta</div>
-      </div>
+    const proximoPassoEmpPF = () => {
+      const campos = CAMPOS_POR_PASSO_EMPPF[passoEmpregadorPF];
+      const novosTocados = { ...tocadosEmpPF };
+      const novosErros: Partial<Record<CampoEmpPF, string>> = { ...errosEmpPF };
+      let temErro = false;
+      campos.forEach(c => {
+        novosTocados[c] = true;
+        const err = validarCampoEmpPF(c);
+        novosErros[c] = err;
+        if (err) temErro = true;
+      });
+      setTocadosEmpPF(novosTocados);
+      setErrosEmpPF(novosErros);
+      if (temErro) {
+        setAuthError("Corrija os campos destacados antes de continuar.");
+        return;
+      }
+      setAuthError("");
+      setPassoEmpregadorPF(p => (Math.min(4, p + 1) as 1 | 2 | 3 | 4));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
 
-      {/* Tipo de pessoa */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>👤 Tipo de pessoa *</div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
-        {([["fisica","👤","Pessoa Física","CPF"],["juridica","🏢","Pessoa Jurídica","CNPJ"]] as const).map(([tp, ic, lb, doc]) => (
-          <div key={tp}
-            style={{ background:form.pessoaTipo===tp?"#eff6ff":"#f8fafc", border:form.pessoaTipo===tp?"2px solid #3A86FF":"1.5px solid #e2e8f0", borderRadius:16, padding:"16px 12px", cursor:"pointer", textAlign:"center" as const }}
-            onClick={() => setForm({...form, pessoaTipo:tp})}>
-            <div style={{ fontSize:28 }}>{ic}</div>
-            <div style={{ fontWeight:800, fontSize:14, color:form.pessoaTipo===tp?"#1d4ed8":"#0f172a", marginTop:4 }}>{lb}</div>
-            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Documento: {doc}</div>
+    const errosTotaisEmpPF = validarTodoFormEmpPF();
+    const todoValidoEmpPF = Object.keys(errosTotaisEmpPF).length === 0;
+
+    const submitEmpPF = async () => {
+      setSubmittingEmpPF(true);
+      setAuthError("");
+      const errosF = validarTodoFormEmpPF();
+      setErrosEmpPF(errosF);
+      setTocadosEmpPF(Object.fromEntries((Object.keys(errosF) as CampoEmpPF[]).map(k => [k, true])));
+      if (Object.keys(errosF).length > 0) {
+        setSubmittingEmpPF(false);
+        setAuthError("Corrija os campos destacados antes de continuar.");
+        return;
+      }
+      const endEmp = `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp.trim() ? ` — ${form.complementoEmp}` : ""}, ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} — CEP ${form.cepEmp}`;
+      const segmentoEscolhido = negocioSelecionado || profile?.segmento || "";
+      const ok = await saveProfile({
+        nome_negocio: form.nomeNegocio.trim() || form.nome,
+        telefone: form.telefone.replace(/\D/g, ""),
+        cpf: form.cpf,
+        pessoa_tipo: "fisica",
+        segmento: segmentoEscolhido,
+        endereco_empregador: endEmp,
+        ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
+      });
+      setSubmittingEmpPF(false);
+      if (ok) {
+        setTabEmpregador("inicio");
+        trackEvento("cadastro_concluido", session?.user?.id, "empregador");
+        try { localStorage.removeItem("diariaja_cad_emppf_passo"); } catch { /* ignore */ }
+        setPassoEmpregadorPF(1);
+        setErrosEmpPF({});
+        setTocadosEmpPF({});
+        setAceitaTermosEmpPF(false);
+        setTela(profile?.lat ? "home-empregador" : "pedir-localizacao");
+      }
+    };
+
+    return (
+      <div style={S.page}>
+        <button style={S.back} onClick={() => {
+          if (passoEmpregadorPF === 1) { setAuthError(""); setTela("cadastro-tipo"); }
+          else { setAuthError(""); setPassoEmpregadorPF(p => (Math.max(1, p - 1) as 1 | 2 | 3 | 4)); window.scrollTo({ top: 0, behavior: "smooth" }); }
+        }}>← Voltar</button>
+
+        {/* Header escuro com barra de XP */}
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", borderRadius:20, padding:"22px 22px 18px", marginTop:8, marginBottom:8, color:"#fff" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ fontSize:32 }}>🏠</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:20, fontWeight:900, lineHeight:1.2 }}>Cadastro de Contratante</div>
+              <div style={{ fontSize:12, opacity:0.85, marginTop:2 }}>
+                Passo {passoEmpregadorPF} de 4 — {NOMES_PASSOS_EMPPF[passoEmpregadorPF]}
+              </div>
+            </div>
           </div>
-        ))}
-      </div>
-
-      {/* Identificação */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📋 Identificação</div>
-      <label style={S.label}>Nome completo *</label>
-      <input style={S.input} placeholder="Ex: Maria Oliveira" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
-      <label style={S.label}>Telefone (WhatsApp) *</label>
-      <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15}
-        value={form.telefone} onChange={e=>setForm({...form,telefone:maskTelefone(e.target.value)})} />
-
-      {form.pessoaTipo === "fisica" ? (
-        <>
-          <label style={S.label}>CPF *</label>
-          <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
-            value={form.cpf} onChange={e=>setForm({...form,cpf:maskCPF(e.target.value)})} />
-          <label style={S.label}>Nome do local / apelido *</label>
-          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Como será identificado nas vagas? Ex: Família Silva, Residência Oliveira…</p>
-          <input style={S.input} placeholder="Ex: Família Silva, Casa da Maria..." value={form.nomeNegocio} onChange={e=>setForm({...form,nomeNegocio:e.target.value})} />
-        </>
-      ) : (
-        <>
-          <label style={S.label}>CNPJ *</label>
-          <input style={{ ...S.input, letterSpacing:1 }} placeholder="00.000.000/0000-00" inputMode="numeric" maxLength={18}
-            value={form.cnpj} onChange={e=>setForm({...form,cnpj:maskCNPJ(e.target.value)})} />
-          <label style={S.label}>Nome do estabelecimento *</label>
-          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Nome da empresa/estabelecimento, não o seu nome pessoal.</p>
-          <input style={S.input} placeholder="Ex: Restaurante do João, Bar Guinness, Mercado Silva..." value={form.nomeNegocio} onChange={e=>setForm({...form,nomeNegocio:e.target.value})} />
-        </>
-      )}
-
-      {/* Endereço */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📍 Endereço do local *</div>
-      <div style={{ background:"#f0f9ff", border:"1.5px solid #bae6fd", borderRadius:12, padding:"10px 14px", marginBottom:12, fontSize:12, color:"#0369a1" }}>
-        Informe onde os serviços serão prestados (estabelecimento ou residência).
-      </div>
-
-      <label style={S.label}>CEP *</label>
-      <div style={{ position:"relative" }}>
-        <input style={{ ...S.input, letterSpacing:1, paddingRight: buscandoCEPEmp ? 110 : 14 }} placeholder="00000-000" inputMode="numeric" maxLength={9}
-          value={form.cepEmp}
-          onChange={e => {
-            let v = e.target.value.replace(/\D/g,"").slice(0,8);
-            if (v.length > 5) v = v.slice(0,5)+"-"+v.slice(5);
-            setForm(prev => ({...prev, cepEmp: v}));
-            if (v.replace(/\D/g,"").length === 8) buscarCEPEmp(v);
-          }} />
-        {buscandoCEPEmp && <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"var(--text-2,#64748b)", fontWeight:600 }}>Buscando...</span>}
-      </div>
-
-      <label style={S.label}>Logradouro *</label>
-      <input style={S.input} placeholder="Ex: Rua das Flores" value={form.ruaEmp} onChange={e=>setForm({...form,ruaEmp:e.target.value})} />
-
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr", gap:12 }}>
-        <div>
-          <label style={S.label}>Número *</label>
-          <input style={S.input} placeholder="Ex: 123" value={form.numeroEmp} onChange={e=>setForm({...form,numeroEmp:e.target.value})} />
+          <div style={{ marginTop:16 }} aria-label={`XP do cadastro: ${xpEmpPF} de 100`}>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:6, fontWeight:800 }}>
+              <span>⚡ XP do cadastro</span>
+              <span>{xpEmpPF}/100</span>
+            </div>
+            <div style={{ background:"rgba(255,255,255,.18)", height:8, borderRadius:6, overflow:"hidden" }}>
+              <div style={{ background:"#FF6B35", height:8, width:`${xpEmpPF}%`, borderRadius:6, transition:"width .4s ease-out", boxShadow:"0 0 8px rgba(255,107,53,.5)" }} />
+            </div>
+          </div>
         </div>
-        <div>
-          <label style={S.label}>Complemento</label>
-          <input style={S.input} placeholder="Sala, Bloco…" value={form.complementoEmp} onChange={e=>setForm({...form,complementoEmp:e.target.value})} />
+
+        <div style={{ background:"#fff7f3", border:"1px solid #fed7aa", borderRadius:12, padding:"12px 14px", marginTop:10, fontSize:12, color:"#9a3412", lineHeight:1.6 }}>
+          💡 Cada etapa concluída soma <strong>+25 XP</strong>. Cadastro rápido pra você começar a contratar.
         </div>
+
+        {/* ───────── PASSO 1 — Identidade ───────────────────────────────────── */}
+        {passoEmpregadorPF === 1 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>👤 Quem é você</div>
+
+            <label style={S.label}>Nome completo *</label>
+            <input style={S.input} placeholder="Ex: Maria Oliveira" autoComplete="name"
+              value={form.nome}
+              onChange={e => { setForm({ ...form, nome: e.target.value }); revalidaEmpPF("nome"); }}
+              onBlur={() => { marcarTocadoEmpPF("nome"); setErrosEmpPF(er => ({ ...er, nome: validarCampoEmpPF("nome") })); }} />
+            {erroEmpPF("nome") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroEmpPF("nome")}</p>}
+
+            <label style={S.label}>Telefone (WhatsApp) *</label>
+            <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15} autoComplete="tel"
+              value={form.telefone}
+              onChange={e => { setForm({ ...form, telefone: maskTelefone(e.target.value) }); revalidaEmpPF("telefone"); }}
+              onBlur={() => { marcarTocadoEmpPF("telefone"); setErrosEmpPF(er => ({ ...er, telefone: validarCampoEmpPF("telefone") })); }} />
+            {erroEmpPF("telefone") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroEmpPF("telefone")}</p>}
+
+            <label style={S.label}>CPF *</label>
+            <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
+              value={form.cpf}
+              onChange={e => { setForm({ ...form, cpf: maskCPF(e.target.value) }); revalidaEmpPF("cpf"); }}
+              onBlur={() => { marcarTocadoEmpPF("cpf"); setErrosEmpPF(er => ({ ...er, cpf: validarCampoEmpPF("cpf") })); }} />
+            {erroEmpPF("cpf") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroEmpPF("cpf")}</p>}
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-2px 0 10px" }}>
+              🔒 CPF nunca aparece no perfil público. Usado pra checar duplicidade.
+            </p>
+          </>
+        )}
+
+        {/* ───────── PASSO 2 — Local de atendimento ───────────────────────── */}
+        {passoEmpregadorPF === 2 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📍 Onde você atende</div>
+            <div style={{ background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:12, color:"#0369a1", lineHeight:1.5 }}>
+              Informe o local onde os serviços serão prestados (estabelecimento ou residência).
+            </div>
+
+            <label style={S.label}>Nome do local / apelido *</label>
+            <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Como será identificado nas vagas? Ex: Família Silva, Restaurante do João...</p>
+            <input style={S.input} placeholder="Ex: Família Silva, Casa da Maria..."
+              value={form.nomeNegocio}
+              onChange={e => { setForm({ ...form, nomeNegocio: e.target.value }); revalidaEmpPF("nomeNegocio"); }}
+              onBlur={() => { marcarTocadoEmpPF("nomeNegocio"); setErrosEmpPF(er => ({ ...er, nomeNegocio: validarCampoEmpPF("nomeNegocio") })); }} />
+            {erroEmpPF("nomeNegocio") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroEmpPF("nomeNegocio")}</p>}
+
+            <label style={S.label}>CEP *</label>
+            <div style={{ position:"relative" as const }}>
+              <input style={{ ...S.input, letterSpacing:1, paddingRight: buscandoCEPEmp ? 110 : 14 }} placeholder="00000-000" inputMode="numeric" maxLength={9}
+                value={form.cepEmp}
+                onChange={e => {
+                  let v = e.target.value.replace(/\D/g, "").slice(0, 8);
+                  if (v.length > 5) v = v.slice(0, 5) + "-" + v.slice(5);
+                  setForm(prev => ({ ...prev, cepEmp: v }));
+                  revalidaEmpPF("cep");
+                  if (v.replace(/\D/g, "").length === 8) buscarCEPEmp(v);
+                }}
+                onBlur={() => { marcarTocadoEmpPF("cep"); setErrosEmpPF(er => ({ ...er, cep: validarCampoEmpPF("cep") })); }} />
+              {buscandoCEPEmp && <span style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"var(--text-2,#64748b)", fontWeight:600 }}>Buscando...</span>}
+            </div>
+            {erroEmpPF("cep") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroEmpPF("cep")}</p>}
+
+            <label style={S.label}>Logradouro *</label>
+            <input style={S.input} placeholder="Ex: Rua das Flores"
+              value={form.ruaEmp}
+              onChange={e => { setForm({ ...form, ruaEmp: e.target.value }); revalidaEmpPF("endereco"); }}
+              onBlur={() => { marcarTocadoEmpPF("endereco"); setErrosEmpPF(er => ({ ...er, endereco: validarCampoEmpPF("endereco") })); }} />
+
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr", gap:12 }}>
+              <div>
+                <label style={S.label}>Número *</label>
+                <input style={S.input} placeholder="Ex: 123"
+                  value={form.numeroEmp}
+                  onChange={e => { setForm({ ...form, numeroEmp: e.target.value }); revalidaEmpPF("endereco"); }}
+                  onBlur={() => { marcarTocadoEmpPF("endereco"); setErrosEmpPF(er => ({ ...er, endereco: validarCampoEmpPF("endereco") })); }} />
+              </div>
+              <div>
+                <label style={S.label}>Complemento</label>
+                <input style={S.input} placeholder="Sala, Bloco…"
+                  value={form.complementoEmp}
+                  onChange={e => setForm({ ...form, complementoEmp: e.target.value })} />
+              </div>
+            </div>
+
+            <label style={S.label}>Bairro *</label>
+            <input style={S.input} placeholder="Ex: Centro"
+              value={form.bairroEmp}
+              onChange={e => { setForm({ ...form, bairroEmp: e.target.value }); revalidaEmpPF("endereco"); }}
+              onBlur={() => { marcarTocadoEmpPF("endereco"); setErrosEmpPF(er => ({ ...er, endereco: validarCampoEmpPF("endereco") })); }} />
+
+            <div style={{ display:"grid", gridTemplateColumns:"1.5fr 0.8fr", gap:12 }}>
+              <div>
+                <label style={S.label}>Cidade *</label>
+                <input style={S.input} placeholder="Campo Grande"
+                  value={form.cidadeEmp}
+                  onChange={e => { setForm({ ...form, cidadeEmp: e.target.value }); revalidaEmpPF("endereco"); }}
+                  onBlur={() => { marcarTocadoEmpPF("endereco"); setErrosEmpPF(er => ({ ...er, endereco: validarCampoEmpPF("endereco") })); }} />
+              </div>
+              <div>
+                <label style={S.label}>UF *</label>
+                <input style={S.input} placeholder="MS" maxLength={2}
+                  value={form.estadoEmp}
+                  onChange={e => setForm({ ...form, estadoEmp: e.target.value.toUpperCase().slice(0, 2) })} />
+              </div>
+            </div>
+            {erroEmpPF("endereco") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"4px 0 10px" }}>⚠ {erroEmpPF("endereco")}</p>}
+          </>
+        )}
+
+        {/* ───────── PASSO 3 — Tipo de negócio ─────────────────────────────── */}
+        {passoEmpregadorPF === 3 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>🎯 Tipo de negócio</div>
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:13, margin:"0 0 14px", lineHeight:1.5 }}>
+              Você verá apenas profissionais do seu setor. Pode mudar depois nas configurações.
+            </p>
+            <div style={S.negocioGrid}>
+              {Object.entries(CATEGORIAS_NEGOCIO).map(([nome, info]) => (
+                <div key={nome}
+                  style={{ ...S.negocioCard, ...(negocioSelecionado === nome ? { border:`2px solid ${info.cor}`, background:`${info.cor}18` } : {}) }}
+                  onClick={() => { setNegocio(nome); marcarTocadoEmpPF("segmento"); setErrosEmpPF(er => ({ ...er, segmento: undefined })); }}>
+                  <span style={S.negocioIcone}>{info.icone}</span>
+                  <span style={{ ...S.negocioLabel, color: negocioSelecionado === nome ? info.cor : "#0f172a" }}>{nome}</span>
+                  {("destaque" in info) && (info as { destaque: string }).destaque && (
+                    <span style={{ display:"inline-block", fontSize:10, fontWeight:800, color: info.cor, background:`${info.cor}18`, borderRadius:8, padding:"2px 7px", marginBottom:2 }}>
+                      {(info as { destaque: string }).destaque}
+                    </span>
+                  )}
+                  <span style={S.negocioFuncoes}>{info.funcoes.join(" · ")}</span>
+                </div>
+              ))}
+            </div>
+            {erroEmpPF("segmento") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"8px 0 0" }}>⚠ {erroEmpPF("segmento")}</p>}
+          </>
+        )}
+
+        {/* ───────── PASSO 4 — Confirmação + Termos ────────────────────────── */}
+        {passoEmpregadorPF === 4 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>✅ Confira seus dados</div>
+
+            <div style={{ background:"#fff", borderRadius:14, padding:"16px 18px", border:"1px solid #e2e8f0", marginTop:8 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>
+                Resumo
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"auto 1fr", gap:"8px 14px", fontSize:13 }}>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Nome</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.nome || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Local</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.nomeNegocio || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Telefone</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.telefone || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Endereço</span>
+                <span style={{ color:"#0f172a", fontWeight:700, fontSize:12, lineHeight:1.5 }}>
+                  {form.ruaEmp ? `${form.ruaEmp}, ${form.numeroEmp} — ${form.cidadeEmp}/${form.estadoEmp}` : "—"}
+                </span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Negócio</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{negocioSelecionado || profile?.segmento || "—"}</span>
+              </div>
+            </div>
+
+            <label aria-label="Aceite dos Termos de Uso"
+              style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", margin:"20px 0 4px", background:"#fff", borderRadius:12, padding:"14px 16px", border:`1.5px solid ${aceitaTermosEmpPF ? "#FF6B35" : "#e2e8f0"}`, minHeight:60 }}>
+              <input type="checkbox" checked={aceitaTermosEmpPF}
+                onChange={e => { setAceitaTermosEmpPF(e.target.checked); marcarTocadoEmpPF("aceitaTermos"); setErrosEmpPF(er => ({ ...er, aceitaTermos: e.target.checked ? undefined : "Você precisa aceitar os Termos." })); }}
+                style={{ width:20, height:20, accentColor:"#FF6B35", flexShrink:0, marginTop:2 }} />
+              <span style={{ fontSize:13, color:"#475569", lineHeight:1.5 }}>
+                Li e aceito os{" "}
+                <span role="button" style={{ color:"#FF6B35", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
+                  onClick={e => { e.preventDefault(); setTipo("empregador"); setMostrarTermos(true); }}>
+                  Termos de Uso
+                </span>{" "}
+                e a Política de Privacidade do DiáriaJá.
+              </span>
+            </label>
+            {erroEmpPF("aceitaTermos") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"4px 0 0" }}>⚠ {erroEmpPF("aceitaTermos")}</p>}
+          </>
+        )}
+
+        {authError && (
+          <p style={{ color: authError.startsWith("✅") ? "#16a34a" : "#ef4444", fontSize:13, fontWeight:600, marginTop:14, textAlign:"center" }}>
+            {authError}
+          </p>
+        )}
+
+        {passoEmpregadorPF < 4 ? (
+          <button type="button"
+            style={{ width:"100%", padding:"16px", marginTop:24, marginBottom:24, background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", minHeight:48, fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 16px rgba(255,107,53,.35)", transition:"all .2s", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}
+            onClick={proximoPassoEmpPF}>
+            <span>Continuar</span>
+            <span style={{ background:"rgba(255,255,255,.22)", padding:"3px 10px", borderRadius:14, fontSize:12, fontWeight:800 }}>+25 XP</span>
+          </button>
+        ) : (
+          <button type="button"
+            style={{ width:"100%", padding:"16px", marginTop:18, marginBottom:24, background: todoValidoEmpPF && !submittingEmpPF ? "#FF6B35" : "#cbd5e1", color: todoValidoEmpPF && !submittingEmpPF ? "#fff" : "#94a3b8", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor: todoValidoEmpPF && !submittingEmpPF ? "pointer" : "default", minHeight:48, fontFamily:"Inter, system-ui, sans-serif", boxShadow: todoValidoEmpPF && !submittingEmpPF ? "0 4px 16px rgba(255,107,53,.35)" : "none" }}
+            disabled={!todoValidoEmpPF || submittingEmpPF}
+            onClick={submitEmpPF}>
+            {submittingEmpPF ? "Criando conta..." : todoValidoEmpPF ? "✓ Criar conta e ganhar +100 XP" : "Complete os campos pra continuar"}
+          </button>
+        )}
+
+        <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:13, marginTop:0, marginBottom:24, cursor:"pointer" }}
+          onClick={() => { setAuthError(""); setTela("login"); }}>
+          Já tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Entrar</span>
+        </p>
       </div>
-
-      <label style={S.label}>Bairro *</label>
-      <input style={S.input} placeholder="Ex: Centro" value={form.bairroEmp} onChange={e=>setForm({...form,bairroEmp:e.target.value})} />
-
-      <div style={{ display:"grid", gridTemplateColumns:"1.5fr 0.8fr", gap:12 }}>
-        <div>
-          <label style={S.label}>Cidade *</label>
-          <input style={S.input} placeholder="Campo Grande" value={form.cidadeEmp} onChange={e=>setForm({...form,cidadeEmp:e.target.value})} />
-        </div>
-        <div>
-          <label style={S.label}>UF *</label>
-          <input style={S.input} placeholder="MS" maxLength={2} value={form.estadoEmp} onChange={e=>setForm({...form,estadoEmp:e.target.value.toUpperCase().slice(0,2)})} />
-        </div>
-      </div>
-
-      {authError && <p style={S.errorText}>{authError}</p>}
-      <button style={{ ...S.btnPrimary, marginTop:20 }} onClick={async () => {
-        setAuthError("");
-        if (!form.nome.trim()) { setAuthError("Informe seu nome completo."); return; }
-        { const erroNome = validarNome(form.nome); if (erroNome) { setAuthError(erroNome); return; } }
-        if (!validarTelefone(form.telefone)) { setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX."); return; }
-        if (form.pessoaTipo === "fisica" && !validarCPF(form.cpf)) { setAuthError("CPF inválido. Verifique os dígitos e tente novamente."); return; }
-        if (form.pessoaTipo === "juridica" && !validarCNPJ(form.cnpj)) { setAuthError("CNPJ inválido. Verifique os dígitos e tente novamente."); return; }
-        if (!form.cepEmp || !form.ruaEmp.trim() || !form.numeroEmp.trim()) { setAuthError("Preencha CEP, logradouro e número."); return; }
-        const endEmp = `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp.trim()?` — ${form.complementoEmp}`:""},  ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} — CEP ${form.cepEmp}`;
-        const ok = await saveProfile({
-          nome_negocio: form.pessoaTipo === "juridica" ? form.nomeNegocio : form.nome,
-          telefone: form.telefone.replace(/\D/g, ""), // só dígitos pra consistência
-          cpf: form.cpf,
-          cnpj: form.cnpj,
-          pessoa_tipo: form.pessoaTipo,
-          endereco_empregador: endEmp,
-          // Inclui lat/lng geocodificados do CEP se disponíveis
-          ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
-        });
-        if (ok) setTela("escolha-negocio");
-      }}>Continuar →</button>
-    </div>
-  );
+    );
+  }
 
   // ESCOLHA DE NEGÓCIO
   if (tela === "escolha-negocio") return (
@@ -6478,216 +6805,392 @@ export default function App() {
     </div>
   );
 
-  // CADASTRO DIARISTA
-  if (tela === "cadastro-diarista") return (
-    <div style={S.page}>
-      <button style={S.back} onClick={() => setTela("cadastro-tipo")}>← Voltar</button>
+  // CADASTRO DIARISTA — WIZARD DE 4 PASSOS (PF)
+  // Identidade → Contato → Trabalho → Disponibilidade+Termos.
+  // Cada passo concede +25 XP visualmente na barra do header (gamificação).
+  // Rascunho é o próprio `form` global (compartilhado com editar-perfil).
+  if (tela === "cadastro-diarista") {
+    const NOMES_PASSOS_DIA: Record<1 | 2 | 3 | 4, string> = {
+      1: "Identidade",
+      2: "Contato",
+      3: "Seu trabalho",
+      4: "Disponibilidade e termos",
+    };
+    const xpAcumulado = (passoDiarista - 1) * 25; // 0/25/50/75 ao entrar no passo
+    const erroDia = (c: CampoDia) => (tocadosDia[c] ? errosDia[c] : undefined);
+    const marcarTocadoDia = (c: CampoDia) => setTocadosDia(t => ({ ...t, [c]: true }));
+    const revalidaDia = (c: CampoDia) => {
+      if (tocadosDia[c]) setErrosDia(e => ({ ...e, [c]: validarCampoDiarista(c) }));
+    };
 
-      {/* Header */}
-      <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", borderRadius:20, padding:"20px 20px 18px", marginBottom:20, color:"#fff" }}>
-        <div style={{ fontSize:22, fontWeight:900 }}>👷 Perfil de Diarista</div>
-        <div style={{ fontSize:13, opacity:0.75, marginTop:4 }}>Preencha seus dados para começar a trabalhar</div>
-      </div>
+    const proximoPassoDia = () => {
+      const campos = CAMPOS_POR_PASSO_DIA[passoDiarista];
+      const novosTocados = { ...tocadosDia };
+      const novosErros: Partial<Record<CampoDia, string>> = { ...errosDia };
+      let temErro = false;
+      campos.forEach(c => {
+        novosTocados[c] = true;
+        const err = validarCampoDiarista(c);
+        novosErros[c] = err;
+        if (err) temErro = true;
+      });
+      setTocadosDia(novosTocados);
+      setErrosDia(novosErros);
+      if (temErro) {
+        setAuthError("Corrija os campos destacados antes de continuar.");
+        return;
+      }
+      setAuthError("");
+      setPassoDiarista(p => (Math.min(4, p + 1) as 1 | 2 | 3 | 4));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
 
-      {/* Foto pessoal */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto pessoal *</div>
-      <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20, padding:"14px 16px", background:"var(--bg-surface,#f8fafc)", borderRadius:16, border:"1.5px solid var(--border,#e2e8f0)" }}>
-        {fotoUrl
-          ? <img loading="lazy" src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover" as const, flexShrink:0, border:"3px solid #FF6B35" }} alt="foto" />
-          : <div style={{ width:72, height:72, borderRadius:36, background:"#e2e8f0", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, flexShrink:0 }}>👤</div>
-        }
-        <div style={{ flex:1 }}>
-          <div style={{ fontWeight:700, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:4 }}>
-            {fotoUrl ? "✅ Foto adicionada!" : "Adicione sua foto"}
-          </div>
-          <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, lineHeight:1.4 }}>
-            Perfis com foto recebem <strong>3× mais contratações</strong>
-          </div>
-          <label style={{ display:"inline-block", padding:"8px 16px", background:fotoUrl?"#f0fdf4":"#FF6B35", color:fotoUrl?"#16a34a":"#fff", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer" }}>
-            {uploadingFoto ? "Enviando..." : fotoUrl ? "Trocar foto" : "📷 Escolher foto"}
-            <input type="file" accept="image/jpeg,image/png,image/webp" capture="user" style={{ display:"none" }} onChange={e=>e.target.files?.[0]&&handleFotoUpload(e.target.files[0])} />
-          </label>
-        </div>
-      </div>
+    const errosTotais = validarTodoFormDiarista();
+    const todoValidoDia = Object.keys(errosTotais).length === 0;
 
-      {/* Dados pessoais */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📋 Dados pessoais</div>
+    const submitDia = async () => {
+      setSubmittingDia(true);
+      setAuthError("");
+      const errosF = validarTodoFormDiarista();
+      setErrosDia(errosF);
+      setTocadosDia(Object.fromEntries((Object.keys(errosF) as CampoDia[]).map(k => [k, true])));
+      if (Object.keys(errosF).length > 0) {
+        setSubmittingDia(false);
+        setAuthError("Corrija os campos destacados antes de continuar.");
+        return;
+      }
+      // Normaliza valores antes de gravar — banco fica com formato canônico.
+      const telDigitos = form.telefone.replace(/\D/g, "");
+      const pixNorm =
+        form.pixTipo === "cpf" || form.pixTipo === "cnpj"
+          ? form.pixChave.replace(/\D/g, "")
+          : form.pixTipo === "telefone"
+            ? "+55" + form.pixChave.replace(/\D/g, "")
+            : form.pixChave.trim();
+      const ok = await saveProfile({
+        telefone: telDigitos,
+        funcao: categoriasSelecionadas[0] || "",
+        cpf: form.cpf,
+        sexo: form.sexo,
+        data_nascimento: form.dataNasc,
+        pix_chave: pixNorm,
+        pix_tipo: form.pixTipo as "cpf" | "cnpj" | "email" | "telefone" | "aleatoria",
+      });
+      setSubmittingDia(false);
+      if (ok) {
+        trackEvento("cadastro_concluido", session?.user?.id, "diarista");
+        try { localStorage.removeItem("diariaja_cad_diarista_passo"); } catch { /* ignore */ }
+        setPassoDiarista(1);
+        setErrosDia({});
+        setTocadosDia({});
+        setAceitaTermosDia(false);
+        setTela("pedir-localizacao");
+      }
+    };
 
-      <label style={S.label}>Nome completo *</label>
-      <input style={S.input} placeholder="Ex: João da Silva" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
+    return (
+      <div style={S.page}>
+        <button style={S.back} onClick={() => {
+          if (passoDiarista === 1) { setAuthError(""); setTela("cadastro-tipo"); }
+          else { setAuthError(""); setPassoDiarista(p => (Math.max(1, p - 1) as 1 | 2 | 3 | 4)); window.scrollTo({ top: 0, behavior: "smooth" }); }
+        }}>← Voltar</button>
 
-      <label style={S.label}>Telefone (WhatsApp) *</label>
-      <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15}
-        value={form.telefone} onChange={e=>setForm({...form,telefone:maskTelefone(e.target.value)})} />
-
-      <label style={S.label}>CPF *</label>
-      <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
-        value={form.cpf} onChange={e=>setForm({...form,cpf:maskCPF(e.target.value)})} />
-      <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
-        🔒 Usado apenas para verificação de identidade. Nunca compartilhado.
-      </p>
-
-      <label style={S.label}>Sexo *</label>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:8 }}>
-        {([["M","Masculino"],["F","Feminino"],["N","Não informar"]] as const).map(([val,label]) => (
-          <button key={val}
-            style={{ padding:"10px 6px", border:form.sexo===val?"2px solid #FF6B35":"1.5px solid #e2e8f0", borderRadius:12, background:form.sexo===val?"#fff7f3":"#f8fafc", color:form.sexo===val?"#FF6B35":"#475569", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-            onClick={() => setForm({...form,sexo:val})}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <label style={S.label}>Data de nascimento *</label>
-      <input style={S.input} type="date"
-        max={new Date(new Date().setFullYear(new Date().getFullYear()-18)).toISOString().split("T")[0]}
-        value={form.dataNasc} onChange={e=>setForm({...form,dataNasc:e.target.value})} />
-      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, margin:"-6px 0 10px" }}>
-        🔞 Cadastro disponível apenas para maiores de 18 anos (CLT/LC 150).
-      </p>
-
-      {/* Especialidades com seção colapsável */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💼 Especialidades *</div>
-      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira selecionada ⭐</strong> é sua especialidade principal.</p>
-      {categoriasSelecionadas.length > 0 && (
-        <p style={{ color:"#FF6B35", fontSize:12, margin:"0 0 8px", fontWeight:700 }}>
-          {categoriasSelecionadas.length} selecionada{categoriasSelecionadas.length > 1 ? "s" : ""} · Principal: ⭐ {categoriasSelecionadas[0]}
-        </p>
-      )}
-      {/* Botão expandir/recolher habilidades */}
-      <button
-        style={{ width:"100%", padding:"11px 14px", borderRadius:12, border:"2px dashed #e2e8f0", background:"var(--bg-surface,#f8fafc)", color:"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}
-        onClick={() => setHabilidadesExpandidas(prev => !prev)}>
-        <span>{habilidadesExpandidas ? "🔼 Recolher habilidades" : "🔽 Ver todas as habilidades"}</span>
-        <span style={{ background:"#FF6B35", color:"#fff", borderRadius:20, padding:"2px 10px", fontSize:11 }}>{habilidadesExpandidas ? "−" : "+"}</span>
-      </button>
-      {habilidadesExpandidas && (
-        <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, marginBottom:12, background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px", border:"1px solid var(--border,#e2e8f0)" }}>
-          {Object.entries(CATEGORIAS_NEGOCIO).flatMap(([, info]) =>
-            info.funcoes.map(f => {
-              const sel = categoriasSelecionadas.includes(f);
-              const idx = categoriasSelecionadas.indexOf(f);
-              return (
-                <button key={f}
-                  style={{ padding:"7px 14px", borderRadius:20, border:`2px solid ${sel?"#FF6B35":"#e2e8f0"}`,
-                    background:sel?"#FF6B35":"#fff", color:sel?"#fff":"#475569",
-                    fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", position:"relative" as const }}
-                  onClick={() => setCategorias(prev => sel ? prev.filter(x=>x!==f) : [...prev, f])}>
-                  {f}{sel && idx === 0 ? " ⭐" : ""}
-                </button>
-              );
-            })
-          )}
-        </div>
-      )}
-
-      <label style={S.label}>Valor por diária (R$) *</label>
-      <input style={S.input} placeholder="Ex: 150" type="number" value={form.valor} onChange={e=>setForm({...form,valor:e.target.value})} />
-      {/* Banner de média de mercado por função */}
-      {categoriasSelecionadas[0] && MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]] && (() => {
-        const med = MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]];
-        const valorNum = Number(form.valor);
-        const abaixoMinimo = valorNum > 0 && !isNaN(valorNum) && valorNum < med.min;
-        return (
-          <>
-            <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:10, padding:"9px 12px", marginBottom:6, fontSize:12, color:"#166534" }}>
-              💡 Faixa em Campo Grande para <strong>{categoriasSelecionadas[0]}</strong>:{" "}
-              R$ {med.min} — R$ {med.max}/dia (média R$ {med.media})
+        {/* Header laranja com barra de XP */}
+        <div style={{ background:"linear-gradient(135deg,#FF6B35,#fb923c)", borderRadius:20, padding:"22px 22px 18px", marginTop:8, marginBottom:8, color:"#fff" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ fontSize:32 }}>👷</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:20, fontWeight:900, lineHeight:1.2 }}>Cadastro de Diarista</div>
+              <div style={{ fontSize:12, opacity:0.92, marginTop:2 }}>
+                Passo {passoDiarista} de 4 — {NOMES_PASSOS_DIA[passoDiarista]}
+              </div>
             </div>
-            {abaixoMinimo && (
-              <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:10, padding:"9px 12px", marginBottom:6, fontSize:12, color:"#9a3412", display:"flex", alignItems:"flex-start", gap:7 }}>
-                <span style={{ fontSize:14, flexShrink:0, lineHeight:1.4 }}>⚠️</span>
-                <span>Valor abaixo da faixa mínima de mercado. Ofertas assim costumam receber <strong>menos candidatos</strong>. Considere oferecer pelo menos R$ {med.min}.</span>
+          </div>
+          {/* Barra de XP — preenche conforme avança nos passos */}
+          <div style={{ marginTop:16 }} aria-label={`XP do cadastro: ${xpAcumulado} de 100`}>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:6, fontWeight:800 }}>
+              <span>⚡ XP do cadastro</span>
+              <span>{xpAcumulado}/100</span>
+            </div>
+            <div style={{ background:"rgba(255,255,255,.22)", height:8, borderRadius:6, overflow:"hidden" }}>
+              <div style={{ background:"#fff", height:8, width:`${xpAcumulado}%`, borderRadius:6, transition:"width .4s ease-out", boxShadow:"0 0 8px rgba(255,255,255,.5)" }} />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ background:"#fff7f3", border:"1px solid #fed7aa", borderRadius:12, padding:"12px 14px", marginTop:10, fontSize:12, color:"#9a3412", lineHeight:1.6 }}>
+          💡 Cada etapa concluída soma <strong>+25 XP</strong>. Quanto mais XP, mais visível seu perfil fica.
+        </div>
+
+        {/* ───────── PASSO 1 — Identidade ───────────────────────────────────── */}
+        {passoDiarista === 1 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto pessoal *</div>
+            <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:8, padding:"14px 16px", background:"var(--bg-surface,#f8fafc)", borderRadius:16, border: erroDia("foto") ? "1.5px solid #ef4444" : fotoUrl ? "1.5px solid #16a34a" : "1.5px solid var(--border,#e2e8f0)" }}>
+              {fotoUrl
+                ? <img loading="lazy" src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover" as const, flexShrink:0, border:"3px solid #FF6B35" }} alt="foto" />
+                : <div style={{ width:72, height:72, borderRadius:36, background:"#e2e8f0", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, flexShrink:0 }}>👤</div>
+              }
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:4 }}>
+                  {fotoUrl ? "✅ Foto adicionada!" : "Adicione sua foto"}
+                </div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, lineHeight:1.4 }}>
+                  Perfis com foto recebem <strong>3× mais contratações</strong>
+                </div>
+                <label style={{ display:"inline-block", padding:"8px 16px", background:fotoUrl?"#f0fdf4":"#FF6B35", color:fotoUrl?"#16a34a":"#fff", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                  {uploadingFoto ? "Enviando..." : fotoUrl ? "Trocar foto" : "📷 Escolher foto"}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" capture="user" style={{ display:"none" }}
+                    onChange={e => { if (e.target.files?.[0]) { handleFotoUpload(e.target.files[0]); marcarTocadoDia("foto"); setErrosDia(er => ({ ...er, foto: undefined })); } }} />
+                </label>
+              </div>
+            </div>
+            {erroDia("foto") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("foto")}</p>}
+
+            <label style={S.label}>Nome completo *</label>
+            <input style={S.input} placeholder="Ex: João da Silva" autoComplete="name"
+              value={form.nome}
+              onChange={e => { setForm({ ...form, nome: e.target.value }); revalidaDia("nome"); }}
+              onBlur={() => { marcarTocadoDia("nome"); setErrosDia(er => ({ ...er, nome: validarCampoDiarista("nome") })); }} />
+            {erroDia("nome") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroDia("nome")}</p>}
+
+            <label style={S.label}>Sexo *</label>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:8 }}>
+              {([["M","Masculino"],["F","Feminino"],["N","Não informar"]] as const).map(([val, label]) => (
+                <button key={val} type="button"
+                  style={{ padding:"10px 6px", border:form.sexo===val?"2px solid #FF6B35":"1.5px solid #e2e8f0", borderRadius:12, background:form.sexo===val?"#fff7f3":"#f8fafc", color:form.sexo===val?"#FF6B35":"#475569", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                  onClick={() => { setForm({ ...form, sexo: val }); marcarTocadoDia("sexo"); setErrosDia(er => ({ ...er, sexo: undefined })); }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {erroDia("sexo") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("sexo")}</p>}
+
+            <label style={S.label}>Data de nascimento *</label>
+            <input style={S.input} type="date"
+              max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split("T")[0]}
+              value={form.dataNasc}
+              onChange={e => { setForm({ ...form, dataNasc: e.target.value }); revalidaDia("dataNasc"); }}
+              onBlur={() => { marcarTocadoDia("dataNasc"); setErrosDia(er => ({ ...er, dataNasc: validarCampoDiarista("dataNasc") })); }} />
+            <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, margin:"-6px 0 6px" }}>
+              🔞 Cadastro disponível apenas para maiores de 18 anos (CLT/LC 150).
+            </p>
+            {erroDia("dataNasc") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("dataNasc")}</p>}
+          </>
+        )}
+
+        {/* ───────── PASSO 2 — Contato ─────────────────────────────────────── */}
+        {passoDiarista === 2 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📞 Como te encontramos</div>
+            <div style={{ background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:12, color:"#0369a1", lineHeight:1.5 }}>
+              🔒 Seu CPF e telefone <strong>nunca aparecem no perfil público</strong> — só pra contratantes que te selecionarem.
+            </div>
+
+            <label style={S.label}>Telefone (WhatsApp) *</label>
+            <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15} autoComplete="tel"
+              value={form.telefone}
+              onChange={e => { setForm({ ...form, telefone: maskTelefone(e.target.value) }); revalidaDia("telefone"); }}
+              onBlur={() => { marcarTocadoDia("telefone"); setErrosDia(er => ({ ...er, telefone: validarCampoDiarista("telefone") })); }} />
+            {erroDia("telefone") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroDia("telefone")}</p>}
+
+            <label style={S.label}>CPF *</label>
+            <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
+              value={form.cpf}
+              onChange={e => { setForm({ ...form, cpf: maskCPF(e.target.value) }); revalidaDia("cpf"); }}
+              onBlur={() => { marcarTocadoDia("cpf"); setErrosDia(er => ({ ...er, cpf: validarCampoDiarista("cpf") })); }} />
+            {erroDia("cpf") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroDia("cpf")}</p>}
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-2px 0 10px" }}>
+              Usado pra checar duplicidade. Você pode verificar o telefone via SMS depois pra subir o nível de confiança.
+            </p>
+          </>
+        )}
+
+        {/* ───────── PASSO 3 — Seu trabalho ───────────────────────────────── */}
+        {passoDiarista === 3 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💼 Especialidades *</div>
+            <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira ⭐</strong> é a principal.</p>
+            {categoriasSelecionadas.length > 0 && (
+              <p style={{ color:"#FF6B35", fontSize:12, margin:"0 0 8px", fontWeight:700 }}>
+                {categoriasSelecionadas.length} selecionada{categoriasSelecionadas.length > 1 ? "s" : ""} · Principal: ⭐ {categoriasSelecionadas[0]}
+              </p>
+            )}
+            <button type="button"
+              style={{ width:"100%", padding:"11px 14px", borderRadius:12, border:"2px dashed #e2e8f0", background:"var(--bg-surface,#f8fafc)", color:"#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:8, display:"flex", alignItems:"center", justifyContent:"space-between" }}
+              onClick={() => setHabilidadesExpandidas(prev => !prev)}>
+              <span>{habilidadesExpandidas ? "🔼 Recolher habilidades" : "🔽 Ver todas as habilidades"}</span>
+              <span style={{ background:"#FF6B35", color:"#fff", borderRadius:20, padding:"2px 10px", fontSize:11 }}>{habilidadesExpandidas ? "−" : "+"}</span>
+            </button>
+            {habilidadesExpandidas && (
+              <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, marginBottom:12, background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px", border:"1px solid var(--border,#e2e8f0)" }}>
+                {Object.entries(CATEGORIAS_NEGOCIO).flatMap(([, info]) =>
+                  info.funcoes.map(f => {
+                    const sel = categoriasSelecionadas.includes(f);
+                    const idx = categoriasSelecionadas.indexOf(f);
+                    return (
+                      <button key={f} type="button"
+                        style={{ padding:"7px 14px", borderRadius:20, border:`2px solid ${sel ? "#FF6B35" : "#e2e8f0"}`, background: sel ? "#FF6B35" : "#fff", color: sel ? "#fff" : "#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", position:"relative" as const }}
+                        onClick={() => { setCategorias(prev => sel ? prev.filter(x => x !== f) : [...prev, f]); marcarTocadoDia("categorias"); setErrosDia(er => ({ ...er, categorias: undefined })); }}>
+                        {f}{sel && idx === 0 ? " ⭐" : ""}
+                      </button>
+                    );
+                  })
+                )}
               </div>
             )}
+            {erroDia("categorias") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("categorias")}</p>}
+
+            <label style={S.label}>Valor por diária (R$) *</label>
+            <input style={S.input} placeholder="Ex: 150" type="number" inputMode="numeric"
+              value={form.valor}
+              onChange={e => { setForm({ ...form, valor: e.target.value }); revalidaDia("valor"); }}
+              onBlur={() => { marcarTocadoDia("valor"); setErrosDia(er => ({ ...er, valor: validarCampoDiarista("valor") })); }} />
+            {erroDia("valor") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 6px" }}>⚠ {erroDia("valor")}</p>}
+            {categoriasSelecionadas[0] && MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]] && (() => {
+              const med = MEDIAS_CAMPO_GRANDE[categoriasSelecionadas[0]];
+              const valorNum = Number(form.valor);
+              const abaixoMinimo = valorNum > 0 && !isNaN(valorNum) && valorNum < med.min;
+              return (
+                <>
+                  <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:10, padding:"9px 12px", marginBottom:6, fontSize:12, color:"#166534" }}>
+                    💡 Faixa em Campo Grande para <strong>{categoriasSelecionadas[0]}</strong>:{" "}
+                    R$ {med.min} — R$ {med.max}/dia (média R$ {med.media})
+                  </div>
+                  {abaixoMinimo && (
+                    <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:10, padding:"9px 12px", marginBottom:6, fontSize:12, color:"#9a3412", display:"flex", alignItems:"flex-start", gap:7 }}>
+                      <span style={{ fontSize:14, flexShrink:0, lineHeight:1.4 }}>⚠️</span>
+                      <span>Valor abaixo da faixa mínima. Considere oferecer ao menos R$ {med.min} pra atrair mais contratantes.</span>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:18, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💰 Chave PIX *</div>
+            <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 8px", lineHeight:1.5 }}>
+              Aparece pro contratante facilitar o pagamento direto. O DiáriaJá não intermedia.
+            </p>
+            <label style={S.label}>Tipo de chave</label>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:6, marginBottom:8 }}>
+              {([["cpf","CPF"],["cnpj","CNPJ"],["email","E-mail"],["telefone","Celular"],["aleatoria","Aleatória"]] as const).map(([val, label]) => {
+                const ativo = form.pixTipo === val;
+                return (
+                  <button key={val} type="button"
+                    style={{ padding:"8px 4px", border: ativo ? "2px solid #FF6B35" : "1.5px solid #e2e8f0", borderRadius:10, background: ativo ? "#fff7f3" : "#f8fafc", color: ativo ? "#FF6B35" : "#475569", fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                    onClick={() => { setForm({ ...form, pixTipo: val, pixChave: "" }); setErrosDia(er => ({ ...er, pixChave: undefined })); }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <label style={S.label}>Chave PIX</label>
+            <input style={S.input}
+              placeholder={form.pixTipo === "cpf" ? "Mesmo CPF acima" : form.pixTipo === "cnpj" ? "CNPJ" : form.pixTipo === "email" ? "seu@email.com" : form.pixTipo === "telefone" ? "(67) 99999-9999" : "550e8400-e29b-41d4-a716-446655440000"}
+              inputMode={form.pixTipo === "email" ? "email" : "text"}
+              value={form.pixChave}
+              onChange={e => {
+                let v = e.target.value;
+                if (form.pixTipo === "cpf") v = maskCPF(v);
+                else if (form.pixTipo === "cnpj") v = maskCNPJ(v);
+                else if (form.pixTipo === "telefone") v = maskTelefone(v);
+                setForm({ ...form, pixChave: v });
+                revalidaDia("pixChave");
+              }}
+              onBlur={() => { marcarTocadoDia("pixChave"); setErrosDia(er => ({ ...er, pixChave: validarCampoDiarista("pixChave") })); }} />
+            {erroDia("pixChave") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroDia("pixChave")}</p>}
           </>
-        );
-      })()}
-      <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-2px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
-        📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>R$ 120 – R$ 250</strong> por diária
-      </p>
+        )}
 
-      {/* PIX — chave do diarista pra contratante mandar direto */}
-      <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:18, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💰 Chave PIX *</div>
-      <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 8px", lineHeight:1.5 }}>
-        Essa chave aparece pro contratante facilitar o pagamento direto pra você. O DiáriaJá não intermedia o pagamento — você recebe direto na sua conta.
-      </p>
-      <label style={S.label}>Tipo de chave</label>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:6, marginBottom:8 }}>
-        {([
-          ["cpf","CPF"], ["cnpj","CNPJ"], ["email","E-mail"], ["telefone","Celular"], ["aleatoria","Aleatória"],
-        ] as const).map(([val, label]) => {
-          const ativo = form.pixTipo === val;
-          return (
-            <button key={val}
-              style={{ padding:"8px 4px", border: ativo ? "2px solid #FF6B35" : "1.5px solid #e2e8f0", borderRadius:10, background: ativo ? "#fff7f3" : "#f8fafc", color: ativo ? "#FF6B35" : "#475569", fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-              onClick={() => setForm({...form, pixTipo: val, pixChave: ""})}>
-              {label}
-            </button>
-          );
-        })}
-      </div>
-      <label style={S.label}>Chave PIX</label>
-      <input style={S.input}
-        placeholder={form.pixTipo === "cpf" ? "Mesmo CPF acima" : form.pixTipo === "cnpj" ? "CNPJ" : form.pixTipo === "email" ? "seu@email.com" : form.pixTipo === "telefone" ? "(67) 99999-9999" : "550e8400-e29b-41d4-a716-446655440000"}
-        inputMode={form.pixTipo === "email" ? "email" : "text"}
-        value={form.pixChave}
-        onChange={e => {
-          let v = e.target.value;
-          if (form.pixTipo === "cpf") v = maskCPF(v);
-          else if (form.pixTipo === "cnpj") v = maskCNPJ(v);
-          else if (form.pixTipo === "telefone") v = maskTelefone(v);
-          setForm({...form, pixChave: v});
-        }} />
+        {/* ───────── PASSO 4 — Disponibilidade + Termos ───────────────────── */}
+        {passoDiarista === 4 && (
+          <>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📅 Quando você atende *</div>
+            <label style={S.label}>Disponibilidade semanal</label>
+            <div style={S.diasRow}>
+              {DIAS.map(dia => (
+                <button key={dia} type="button"
+                  style={{ ...S.diaBtn, ...(agendaSelecionada.includes(dia) ? S.diaBtnAtivo : {}) }}
+                  onClick={() => { toggleDia(dia); setErrosDia(er => ({ ...er, agenda: undefined })); }}>
+                  {DIAS_LABEL[dia]}
+                </button>
+              ))}
+            </div>
+            <div style={S.switchRow}>
+              <span style={S.label}>Disponível agora</span>
+              <div style={{ ...S.toggle, ...(disponivelAgora ? S.toggleAtivo : {}) }}
+                onClick={() => { setDisponivel(!disponivelAgora); setErrosDia(er => ({ ...er, agenda: undefined })); }}>
+                <div style={{ ...S.toggleThumb, ...(disponivelAgora ? S.toggleThumbAtivo : {}) }} />
+              </div>
+            </div>
+            {erroDia("agenda") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("agenda")}</p>}
 
-      <label style={S.label}>Disponibilidade semanal</label>
-      <div style={S.diasRow}>
-        {DIAS.map(dia=>(
-          <button key={dia} style={{ ...S.diaBtn, ...(agendaSelecionada.includes(dia)?S.diaBtnAtivo:{}) }} onClick={()=>toggleDia(dia)}>{DIAS_LABEL[dia]}</button>
-        ))}
-      </div>
-      <div style={S.switchRow}>
-        <span style={S.label}>Disponível agora</span>
-        <div style={{ ...S.toggle, ...(disponivelAgora?S.toggleAtivo:{}) }} onClick={()=>setDisponivel(!disponivelAgora)}>
-          <div style={{ ...S.toggleThumb, ...(disponivelAgora?S.toggleThumbAtivo:{}) }} />
-        </div>
-      </div>
+            {/* Resumo dos dados antes do submit */}
+            <div style={{ background:"#fff", borderRadius:14, padding:"16px 18px", border:"1px solid #e2e8f0", marginTop:18 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>
+                Resumo do seu perfil
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"auto 1fr", gap:"8px 14px", fontSize:13 }}>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Nome</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.nome || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Especialidade</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{categoriasSelecionadas[0] || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Valor</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.valor ? `R$ ${form.valor}/dia` : "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Telefone</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{form.telefone || "—"}</span>
+              </div>
+            </div>
 
-      {authError && <p style={S.errorText}>{authError}</p>}
-      <button style={{ ...S.btnPrimary, marginTop:16 }} onClick={async () => {
-        setAuthError("");
-        if (!fotoUrl) { setAuthError("Adicione uma foto de perfil — empregadores não contratam quem não tem foto."); return; }
-        if (!form.nome.trim()) { setAuthError("Informe seu nome completo."); return; }
-        { const erroNome = validarNome(form.nome); if (erroNome) { setAuthError(erroNome); return; } }
-        if (!validarTelefone(form.telefone)) { setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX."); return; }
-        if (!validarCPF(form.cpf)) { setAuthError("CPF inválido. Verifique os dígitos e tente novamente."); return; }
-        if (!form.sexo) { setAuthError("Selecione seu sexo."); return; }
-        if (!form.dataNasc) { setAuthError("Informe sua data de nascimento."); return; }
-        if (calcularIdade(form.dataNasc) < 18) { setAuthError("Diaristas precisam ter 18 anos ou mais (CLT/LC 150)."); return; }
-        if (categoriasSelecionadas.length === 0) { setAuthError("Selecione ao menos uma especialidade."); return; }
-        { const erroPix = validarPix(form.pixChave, form.pixTipo); if (erroPix) { setAuthError(erroPix); return; } }
-        // Normaliza valores antes de gravar — banco fica com formato canônico,
-        // sem máscara visual. Quebra integração MP/PIX se mantiver formatado.
-        const telDigitos = form.telefone.replace(/\D/g, "");
-        const pixNorm =
-          form.pixTipo === "cpf" || form.pixTipo === "cnpj"
-            ? form.pixChave.replace(/\D/g, "")
-            : form.pixTipo === "telefone"
-              ? "+55" + form.pixChave.replace(/\D/g, "")
-              : form.pixChave.trim();
-        const ok = await saveProfile({
-          telefone: telDigitos,
-          funcao: categoriasSelecionadas[0] || "",
-          cpf: form.cpf,
-          sexo: form.sexo,
-          data_nascimento: form.dataNasc,
-          pix_chave: pixNorm,
-          pix_tipo: form.pixTipo as "cpf"|"cnpj"|"email"|"telefone"|"aleatoria",
-        });
-        if (ok) setTela("pedir-localizacao");
-      }}>Criar conta grátis →</button>
-    </div>
-  );
+            {/* Termos */}
+            <label aria-label="Aceite dos Termos de Uso"
+              style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", margin:"20px 0 4px", background:"#fff", borderRadius:12, padding:"14px 16px", border:`1.5px solid ${aceitaTermosDia ? "#FF6B35" : "#e2e8f0"}`, minHeight:60 }}>
+              <input type="checkbox" checked={aceitaTermosDia}
+                onChange={e => { setAceitaTermosDia(e.target.checked); marcarTocadoDia("aceitaTermos"); setErrosDia(er => ({ ...er, aceitaTermos: e.target.checked ? undefined : "Você precisa aceitar os Termos." })); }}
+                style={{ width:20, height:20, accentColor:"#FF6B35", flexShrink:0, marginTop:2 }} />
+              <span style={{ fontSize:13, color:"#475569", lineHeight:1.5 }}>
+                Li e aceito os{" "}
+                <span role="button" style={{ color:"#FF6B35", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
+                  onClick={e => { e.preventDefault(); setTipo("diarista"); setMostrarTermos(true); }}>
+                  Termos de Uso
+                </span>{" "}
+                e a Política de Privacidade do DiáriaJá.
+              </span>
+            </label>
+            {erroDia("aceitaTermos") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"4px 0 0" }}>⚠ {erroDia("aceitaTermos")}</p>}
+          </>
+        )}
+
+        {authError && (
+          <p style={{ color: authError.startsWith("✅") ? "#16a34a" : "#ef4444", fontSize:13, fontWeight:600, marginTop:14, textAlign:"center" }}>
+            {authError}
+          </p>
+        )}
+
+        {/* Navegação entre passos */}
+        {passoDiarista < 4 ? (
+          <button type="button"
+            style={{ width:"100%", padding:"16px", marginTop:24, marginBottom:24, background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", minHeight:48, fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 16px rgba(255,107,53,.35)", transition:"all .2s", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}
+            onClick={proximoPassoDia}>
+            <span>Continuar</span>
+            <span style={{ background:"rgba(255,255,255,.22)", padding:"3px 10px", borderRadius:14, fontSize:12, fontWeight:800 }}>+25 XP</span>
+          </button>
+        ) : (
+          <button type="button"
+            style={{ width:"100%", padding:"16px", marginTop:18, marginBottom:24, background: todoValidoDia && !submittingDia ? "#FF6B35" : "#cbd5e1", color: todoValidoDia && !submittingDia ? "#fff" : "#94a3b8", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor: todoValidoDia && !submittingDia ? "pointer" : "default", minHeight:48, fontFamily:"Inter, system-ui, sans-serif", boxShadow: todoValidoDia && !submittingDia ? "0 4px 16px rgba(255,107,53,.35)" : "none" }}
+            disabled={!todoValidoDia || submittingDia}
+            onClick={submitDia}>
+            {submittingDia ? "Criando conta..." : todoValidoDia ? "✓ Criar conta e ganhar +100 XP" : "Complete os campos pra continuar"}
+          </button>
+        )}
+
+        <p style={{ textAlign:"center", color:"var(--text-2,#64748b)", fontSize:13, marginTop:0, marginBottom:24, cursor:"pointer" }}
+          onClick={() => { setAuthError(""); setTela("login"); }}>
+          Já tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Entrar</span>
+        </p>
+      </div>
+    );
+  }
 
   // ── Chat Suporte DiáriaJá — Jájá IA (deve vir antes dos home-* para não ser bloqueado) ─
   if (chatSuporte) {
@@ -11875,8 +12378,15 @@ export default function App() {
   // EDITAR PERFIL DIARISTA
   if (tela === "editar-perfil") return (
     <div style={S.page}>
-      <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+      <button style={S.back} onClick={() => { setCamposDestravadosEdit(new Set()); setTela("configuracoes"); }}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
+
+      {/* Banner: dados verificados ficam protegidos */}
+      {(profile?.telefone_verificado || profile?.cpf || profile?.data_nascimento) && (
+        <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:12, color:"#166534", lineHeight:1.5 }}>
+          🔒 Campos verificados (telefone, CPF, data) ficam <strong>protegidos</strong>. Pra mudar algum, toque em <strong>"✏️ Alterar"</strong> ao lado dele.
+        </div>
+      )}
 
       {/* Foto de perfil */}
       <input ref={fotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
@@ -11901,13 +12411,53 @@ export default function App() {
       <label style={S.label}>Nome completo</label>
       <input style={S.input} value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
 
+      {/* Telefone — travado se já verificado por SMS */}
       <label style={S.label}>Telefone (WhatsApp)</label>
-      <input style={S.input} value={form.telefone} onChange={e=>setForm({...form,telefone:e.target.value})} />
+      {(profile?.telefone_verificado && !camposDestravadosEdit.has("telefone")) ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+          <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.3 }}>
+            {form.telefone || profile.telefone || "—"}
+          </span>
+          <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Verificado</span>
+          <button type="button"
+            style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => destravarCampoEdit("telefone")}>
+            ✏️ Alterar
+          </button>
+        </div>
+      ) : (
+        <>
+          <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15}
+            value={form.telefone}
+            onChange={e => setForm({ ...form, telefone: maskTelefone(e.target.value) })} />
+          {profile?.telefone_verificado && camposDestravadosEdit.has("telefone") && (
+            <p style={{ color:"#9a3412", fontSize:11, margin:"-6px 0 10px", lineHeight:1.5 }}>
+              ⚠️ Alterar o telefone vai exigir <strong>nova verificação por SMS</strong>.
+            </p>
+          )}
+        </>
+      )}
 
+      {/* CPF — travado se já cadastrado (UNIQUE no banco; raro mudar) */}
       <label style={S.label}>CPF</label>
-      <input style={S.input} placeholder="000.000.000-00" value={form.cpf}
-        onChange={e => setForm({...form, cpf: maskCPF(e.target.value)})} />
-      <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-6px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
+      {(profile?.cpf && !camposDestravadosEdit.has("cpf")) ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:6 }}>
+          <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.5 }}>
+            {(form.cpf || profile.cpf || "").replace(/(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})/, "$1.***.***-$4")}
+          </span>
+          <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Cadastrado</span>
+          <button type="button"
+            style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => destravarCampoEdit("cpf")}>
+            ✏️ Alterar
+          </button>
+        </div>
+      ) : (
+        <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
+          value={form.cpf}
+          onChange={e => setForm({ ...form, cpf: maskCPF(e.target.value) })} />
+      )}
+      <p style={{ color:"var(--text-2,#64748b)", fontSize:11, margin:"-2px 0 10px", display:"flex", alignItems:"center", gap:4 }}>
         🔒 Usado apenas para verificação de identidade. Nunca compartilhado.
       </p>
 
@@ -11922,9 +12472,26 @@ export default function App() {
         ))}
       </div>
 
+      {/* Data de nascimento — travada se já salva (não muda na vida real) */}
       <label style={S.label}>Data de nascimento</label>
-      <input style={S.input} type="date" value={form.dataNasc}
-        onChange={e=>setForm({...form,dataNasc:e.target.value})} />
+      {(profile?.data_nascimento && !camposDestravadosEdit.has("dataNasc")) ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+          <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700 }}>
+            {(() => { const d = form.dataNasc || profile.data_nascimento; if (!d) return "—"; const [y,m,dd] = d.split("-"); return `${dd}/${m}/${y}`; })()}
+          </span>
+          <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Salvo</span>
+          <button type="button"
+            style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => destravarCampoEdit("dataNasc")}>
+            ✏️ Alterar
+          </button>
+        </div>
+      ) : (
+        <input style={S.input} type="date"
+          max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split("T")[0]}
+          value={form.dataNasc}
+          onChange={e=>setForm({...form,dataNasc:e.target.value})} />
+      )}
 
       <label style={S.label}>Suas especialidades</label>
       <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"2px 0 4px" }}>Toque para selecionar. A <strong style={{ color:"#FF6B35" }}>primeira ⭐</strong> será sua especialidade principal.</p>
@@ -12044,9 +12611,13 @@ export default function App() {
         if (erroNome) { setAuthError(erroNome); return; }
         if (!fotoUrl) { setAuthError("⚠️ Adicione uma foto de perfil para continuar."); return; }
         if (!form.cpf || !validarCPF(form.cpf)) { setAuthError("⚠️ CPF obrigatório e deve ser válido (dígitos verificadores conferidos)."); return; }
+        // Se o telefone foi destravado e mudou, invalida verificação anterior
+        const telDigitos = form.telefone.replace(/\D/g, "");
+        const telAntigo = (profile?.telefone || "").replace(/\D/g, "");
+        const telefoneAlterado = camposDestravadosEdit.has("telefone") && telDigitos !== telAntigo;
         const ok = await saveProfile({
           nome: form.nome,
-          telefone: form.telefone,
+          telefone: telDigitos,
           funcao: categoriasSelecionadas[0] || form.funcao,
           valor_diaria: Number(form.valor),
           bio: form.bio,
@@ -12054,13 +12625,20 @@ export default function App() {
           cpf: form.cpf,
           sexo: form.sexo,
           data_nascimento: form.dataNasc,
-          // Inclui lat/lng do CEP se o usuário geocodificou
+          // Invalida verificação anterior se trocou o telefone
+          ...(telefoneAlterado ? { telefone_verificado: false } : {}),
           ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
         });
         if (ok) {
-          setLatPerfilCEP(null); setLngPerfilCEP(null); // limpa estado temporário
+          setLatPerfilCEP(null); setLngPerfilCEP(null);
+          setCamposDestravadosEdit(new Set()); // re-trava campos verificados
           trackEvento("cadastro_concluido", session?.user?.id, "diarista");
-          setTela("home-diarista");
+          if (telefoneAlterado) {
+            setAuthError("✅ Salvo! Verifique o novo telefone por SMS.");
+            setTela("verificar-telefone");
+          } else {
+            setTela("home-diarista");
+          }
         }
       }}
       disabled={salvandoPerfil}
@@ -13217,8 +13795,15 @@ export default function App() {
   // EDITAR PERFIL EMPREGADOR
   if (tela === "editar-perfil-empregador") return (
     <div style={S.page}>
-      <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+      <button style={S.back} onClick={() => { setCamposDestravadosEdit(new Set()); setTela("configuracoes"); }}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
+
+      {/* Banner: dados verificados ficam protegidos */}
+      {(profile?.telefone_verificado || profile?.cpf || profile?.cnpj) && (
+        <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:12, color:"#166534", lineHeight:1.5 }}>
+          🔒 Campos verificados (telefone, CPF/CNPJ) ficam <strong>protegidos</strong>. Pra mudar, toque em <strong>"✏️ Alterar"</strong> ao lado.
+        </div>
+      )}
 
       {/* Foto/logo do negócio */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto / Logo do negócio</div>
@@ -13242,38 +13827,105 @@ export default function App() {
       <label style={S.label}>Nome completo</label>
       <input style={S.input} value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} />
 
+      {/* Telefone — travado se já verificado por SMS */}
       <label style={S.label}>Telefone (WhatsApp)</label>
-      <input style={S.input} placeholder="(67) 99999-9999" value={form.telefone} onChange={e=>setForm({...form,telefone:e.target.value})} />
+      {(profile?.telefone_verificado && !camposDestravadosEdit.has("telefone")) ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+          <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.3 }}>
+            {form.telefone || profile.telefone || "—"}
+          </span>
+          <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Verificado</span>
+          <button type="button"
+            style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => destravarCampoEdit("telefone")}>
+            ✏️ Alterar
+          </button>
+        </div>
+      ) : (
+        <>
+          <input style={S.input} placeholder="(67) 99999-9999" inputMode="numeric" maxLength={15}
+            value={form.telefone}
+            onChange={e => setForm({ ...form, telefone: maskTelefone(e.target.value) })} />
+          {profile?.telefone_verificado && camposDestravadosEdit.has("telefone") && (
+            <p style={{ color:"#9a3412", fontSize:11, margin:"-6px 0 10px", lineHeight:1.5 }}>
+              ⚠️ Alterar o telefone vai exigir <strong>nova verificação por SMS</strong>.
+            </p>
+          )}
+        </>
+      )}
 
       <label style={S.label}>Nome do negócio / local</label>
       <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Nome do estabelecimento ou local — não coloque seu nome pessoal aqui.</p>
       <input style={S.input} placeholder="Ex: Restaurante do João, Família Silva, Bar Guinness..." value={form.nomeNegocio} onChange={e=>setForm({...form,nomeNegocio:e.target.value})} />
 
-      {/* Tipo de pessoa */}
+      {/* Tipo de pessoa — travado se já cadastrado (não muda na prática) */}
       <label style={S.label}>Tipo de pessoa</label>
-      <div style={{ display:"flex", gap:10, marginBottom:16 }}>
-        {[["fisica","👤 Pessoa Física"],["juridica","🏢 Pessoa Jurídica"]].map(([v,l])=>(
-          <button key={v}
-            style={{ flex:1, padding:"12px 8px", borderRadius:12, border:`2px solid ${form.pessoaTipo===v?(negocio?.cor||"#FF6B35"):"#e2e8f0"}`,
-              background:form.pessoaTipo===v?(negocio?.cor||"#FF6B35"):"#fff",
-              color:form.pessoaTipo===v?"#fff":"#475569",
-              fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-            onClick={()=>setForm({...form,pessoaTipo:v})}>{l}</button>
-        ))}
-      </div>
+      {((profile?.cpf || profile?.cnpj) && !camposDestravadosEdit.has("pessoaTipo")) ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+          <span style={{ flex:1, fontSize:14, color:"#166534", fontWeight:700 }}>
+            {form.pessoaTipo === "juridica" ? "🏢 Pessoa Jurídica" : "👤 Pessoa Física"}
+          </span>
+          <button type="button"
+            style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => destravarCampoEdit("pessoaTipo")}>
+            ✏️ Alterar
+          </button>
+        </div>
+      ) : (
+        <div style={{ display:"flex", gap:10, marginBottom:16 }}>
+          {[["fisica","👤 Pessoa Física"],["juridica","🏢 Pessoa Jurídica"]].map(([v,l])=>(
+            <button key={v} type="button"
+              style={{ flex:1, padding:"12px 8px", borderRadius:12, border:`2px solid ${form.pessoaTipo===v?(negocio?.cor||"#FF6B35"):"#e2e8f0"}`,
+                background:form.pessoaTipo===v?(negocio?.cor||"#FF6B35"):"#fff",
+                color:form.pessoaTipo===v?"#fff":"#475569",
+                fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+              onClick={()=>setForm({...form,pessoaTipo:v})}>{l}</button>
+          ))}
+        </div>
+      )}
 
-      {/* CPF ou CNPJ */}
+      {/* CPF ou CNPJ — travado se já salvo */}
       {form.pessoaTipo === "fisica" ? (
         <>
           <label style={S.label}>CPF</label>
-          <input style={S.input} placeholder="000.000.000-00" value={form.cpf}
-            onChange={e=>setForm({...form,cpf:maskCPF(e.target.value)})} />
+          {(profile?.cpf && !camposDestravadosEdit.has("cpf")) ? (
+            <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+              <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.5 }}>
+                {(form.cpf || profile.cpf || "").replace(/(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})/, "$1.***.***-$4")}
+              </span>
+              <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Cadastrado</span>
+              <button type="button"
+                style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => destravarCampoEdit("cpf")}>
+                ✏️ Alterar
+              </button>
+            </div>
+          ) : (
+            <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
+              value={form.cpf}
+              onChange={e=>setForm({...form,cpf:maskCPF(e.target.value)})} />
+          )}
         </>
       ) : (
         <>
           <label style={S.label}>CNPJ</label>
-          <input style={S.input} placeholder="00.000.000/0000-00" value={form.cnpj}
-            onChange={e=>setForm({...form,cnpj:maskCNPJ(e.target.value)})} />
+          {(profile?.cnpj && !camposDestravadosEdit.has("cnpj")) ? (
+            <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
+              <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.5 }}>
+                {form.cnpj || profile.cnpj || "—"}
+              </span>
+              <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Cadastrado</span>
+              <button type="button"
+                style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => destravarCampoEdit("cnpj")}>
+                ✏️ Alterar
+              </button>
+            </div>
+          ) : (
+            <input style={{ ...S.input, letterSpacing:1 }} placeholder="00.000.000/0000-00" inputMode="numeric" maxLength={18}
+              value={form.cnpj}
+              onChange={e=>setForm({...form,cnpj:maskCNPJ(e.target.value)})} />
+          )}
         </>
       )}
 
@@ -13329,18 +13981,31 @@ export default function App() {
         const enderecoAtualizado = form.ruaEmp
           ? `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp ? `, ${form.complementoEmp}` : ""} - ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} - CEP: ${form.cepEmp}`
           : undefined;
+        // Se o telefone foi destravado e mudou, invalida verificação anterior
+        const telDigitos = form.telefone.replace(/\D/g, "");
+        const telAntigo = (profile?.telefone || "").replace(/\D/g, "");
+        const telefoneAlterado = camposDestravadosEdit.has("telefone") && telDigitos !== telAntigo;
         const ok = await saveProfile({
           nome: form.nome,
-          telefone: form.telefone,
+          telefone: telDigitos,
           nome_negocio: form.nomeNegocio,
           cpf: form.pessoaTipo === "fisica" ? form.cpf : "",
           cnpj: form.pessoaTipo === "juridica" ? form.cnpj : "",
           pessoa_tipo: form.pessoaTipo,
+          ...(telefoneAlterado ? { telefone_verificado: false } : {}),
           ...(enderecoAtualizado ? { endereco_empregador: enderecoAtualizado } : {}),
-          // Inclui lat/lng do CEP se geocodificado
           ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
         });
-        if (ok) { setLatPerfilCEP(null); setLngPerfilCEP(null); setTela("configuracoes"); }
+        if (ok) {
+          setLatPerfilCEP(null); setLngPerfilCEP(null);
+          setCamposDestravadosEdit(new Set());
+          if (telefoneAlterado) {
+            setAuthError("✅ Salvo! Verifique o novo telefone por SMS.");
+            setTela("verificar-telefone");
+          } else {
+            setTela("configuracoes");
+          }
+        }
       }}
       disabled={salvandoPerfil}
     >{salvandoPerfil ? "Salvando..." : "Salvar alterações"}</button>
