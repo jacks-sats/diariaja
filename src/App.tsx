@@ -3248,7 +3248,12 @@ export default function App() {
 
     setModalCandidatos(null);
     setSelecionando(false);
-    setToastSuccess("✅ Candidato selecionado! Aguardando confirmação dele.");
+    setToastSuccess("✅ Candidato selecionado! Abrindo pagamento via Mercado Pago…");
+
+    // 4. Dispara o checkout MP IMEDIATAMENTE — antes o user precisava esperar o
+    // diarista confirmar pra só então pagar (gargalo + usuário pensava que tinha
+    // dado erro). Agora: seleciona → abre MP → ao pagar o diarista é notificado.
+    setTimeout(() => { void iniciarPagamentoMP({ ...diaria, status: "pendente", diarista_aceite_id: diaristaId }); }, 600);
   };
 
   // Inicia pagamento de R$ 1 para desbloquear seleção de contato adicional
@@ -3444,9 +3449,9 @@ export default function App() {
       );
       const data = await resp.json();
       if (!resp.ok) { setAuthError(data.error || "Erro ao criar assinatura."); setCriandoAssinatura(false); return; }
-      window.open(data.checkout_url, "_blank");
-      setToastSuccess("🏦 Checkout aberto! Conclua a assinatura na nova aba.");
-      setTela(modoAtual === "empregador" ? "home-empregador" : "home-diarista");
+      // Redireciona na mesma aba — popup é bloqueado em mobile.
+      setToastSuccess("🏦 Abrindo Mercado Pago…");
+      setTimeout(() => { window.location.href = data.checkout_url; }, 400);
     } catch {
       setAuthError("Erro de conexão.");
     }
@@ -3475,10 +3480,12 @@ export default function App() {
         setCriandoPagamento(false);
         return;
       }
-      // Redireciona para o checkout do MP
-      window.open(data.checkout_url, "_blank");
+      // Redireciona pra checkout do MP (mesma aba — compatível com mobile/PWA;
+      // window.open em popup é bloqueado em mobile Chrome e Capacitor).
       setModalPagamentoMP(null);
-      setToastSuccess("🏦 Checkout aberto! Conclua o pagamento na nova aba.");
+      setToastSuccess("🏦 Abrindo Mercado Pago…");
+      // Pequeno delay pro toast aparecer antes do redirect
+      setTimeout(() => { window.location.href = data.checkout_url; }, 400);
     } catch {
       setAuthError("Erro de conexão ao iniciar pagamento.");
     }
@@ -6933,10 +6940,7 @@ export default function App() {
             </div>
             {/* Sino + três pontinhos (mais opções) + botão trocar perfil */}
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              {tipo === "ambos" && (
-                <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
-                  onClick={() => setMenuTrocarPerfil(true)}>🔄</div>
-              )}
+              {/* Botão "trocar perfil" agora mora dentro do menu ⋮ (header limpo) */}
               <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
                 onClick={() => { setModalNotif(true); setNotifNaoLidas(0); }}>
                 🔔
@@ -9169,6 +9173,18 @@ export default function App() {
             <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 24px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ padding:"0 16px", display:"flex", flexDirection:"column" as const, gap:10 }}>
+                {tipo === "ambos" && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setMenuTrocarPerfil(true); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"#22c55e18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🔄</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Trocar perfil</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Alternar entre {modoAtual === "diarista" ? "diarista e contratante" : "contratante e diarista"}</div>
+                    </div>
+                    <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                  </button>
+                )}
                 <button
                   style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
                   onClick={() => { setMenuOpcoes(false); setTela("configuracoes"); }}>
@@ -9359,10 +9375,7 @@ export default function App() {
             </div>
             {/* Sino + três pontinhos (mais opções) + botão trocar perfil */}
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              {tipo === "ambos" && (
-                <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
-                  onClick={() => setMenuTrocarPerfil(true)}>🔄</div>
-              )}
+              {/* Botão "trocar perfil" agora mora dentro do menu ⋮ (header limpo) */}
               <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
                 onClick={() => { setModalNotif(true); setNotifNaoLidas(0); }}>
                 🔔
@@ -9810,14 +9823,15 @@ export default function App() {
                     <div
                       style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer", position:"relative" as const }}
                       onClick={() => { setVagaConfirm(dia); setVagaConfirmada(false); }}>
-                      {/* Selo de urgência no canto superior direito (Booking/Airbnb style) */}
+                      {/* Selos de urgência — no canto superior esquerdo pra não
+                          colidir com o valor da diária que mora no canto direito */}
                       {vagaRecente && (
-                        <div style={{ position:"absolute" as const, top:10, right:10, background:"#16a34a", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, boxShadow:"0 2px 6px rgba(22,163,74,.3)" }}>
+                        <div style={{ position:"absolute" as const, top:10, left:10, background:"#16a34a", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, boxShadow:"0 2px 6px rgba(22,163,74,.3)", zIndex:1 }}>
                           🆕 NOVA
                         </div>
                       )}
                       {!vagaRecente && candDessaVaga.length >= 3 && (
-                        <div style={{ position:"absolute" as const, top:10, right:10, background:"#FF6B35", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, boxShadow:"0 2px 6px rgba(255,107,53,.3)" }}>
+                        <div style={{ position:"absolute" as const, top:10, left:10, background:"#FF6B35", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, boxShadow:"0 2px 6px rgba(255,107,53,.3)", zIndex:1 }}>
                           🔥 {candDessaVaga.length} candidatos
                         </div>
                       )}
@@ -11636,6 +11650,18 @@ export default function App() {
             <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 24px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ padding:"0 16px", display:"flex", flexDirection:"column" as const, gap:10 }}>
+                {tipo === "ambos" && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setMenuTrocarPerfil(true); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"#22c55e18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🔄</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Trocar perfil</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Alternar entre {modoAtual === "diarista" ? "diarista e contratante" : "contratante e diarista"}</div>
+                    </div>
+                    <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                  </button>
+                )}
                 <button
                   style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
                   onClick={() => { setMenuOpcoes(false); setTela("configuracoes"); }}>
