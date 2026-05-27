@@ -42,30 +42,77 @@ const CORS = {
   "Access-Control-Allow-Headers": "authorization,content-type,apikey",
 };
 
+// Logging estruturado: cada log tem um trace_id por requisição pra correlacionar
+// frontend ↔ Edge Function ↔ Mercado Pago ↔ webhook. Aparece nos logs do Supabase.
+function log(traceId: string, etapa: string, detalhes?: Record<string, unknown>): void {
+  console.log(`[create-subscription][${traceId}] ${etapa}`, detalhes ?? "");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: CORS });
   }
 
+  const traceId = crypto.randomUUID().slice(0, 8);
+
+  // Guard rail: se NENHUM token MP está setado, retorna erro claro em vez
+  // de fazer "Bearer undefined" e MP devolver 401 sem contexto.
+  if (!MP_TOKEN) {
+    console.error(`[create-subscription][${traceId}] MP_TOKEN_AUSENTE`);
+    return json({
+      error:    "Configuração ausente: MP_SUBSCRIPTION_TOKEN (ou MP_ACCESS_TOKEN como fallback) não está nos secrets.",
+      trace_id: traceId,
+    }, 503);
+  }
+
   try {
+    log(traceId, "01_request_recebida", {
+      method: req.method,
+      hasAuth: !!req.headers.get("Authorization"),
+      hasApiKey: !!req.headers.get("apikey"),
+      origin: req.headers.get("origin") ?? "—",
+      tokenSource: Deno.env.get("MP_SUBSCRIPTION_TOKEN") ? "MP_SUBSCRIPTION_TOKEN" : "MP_ACCESS_TOKEN(fallback)",
+    });
+
     // ── Auth: confirma que o chamador é mesmo o user_id alegado ──
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return json({ error: "Não autorizado." }, 401);
+    if (!authHeader) {
+      log(traceId, "02_auth_ausente");
+      return json({ error: "Não autorizado.", trace_id: traceId }, 401);
+    }
 
     const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: { user }, error: authErr } = await supabaseUser.auth.getUser();
-    if (authErr || !user) return json({ error: "Token inválido ou expirado." }, 401);
+    if (authErr || !user) {
+      log(traceId, "02_auth_falhou", { error: authErr?.message });
+      return json({ error: "Token inválido ou expirado.", trace_id: traceId }, 401);
+    }
+    log(traceId, "02_auth_ok", { user_id_prefix: user.id.slice(0, 8) });
 
-    const { plano, user_id, user_type, payer_email } = await req.json();
+    const body = await req.json();
+    const { plano, user_id, user_type, payer_email } = body as {
+      plano?: string; user_id?: string; user_type?: string; payer_email?: string;
+    };
+
+    log(traceId, "03_body_parsed", {
+      plano, user_type,
+      user_id_prefix: user_id?.slice(0, 8) ?? "—",
+      payer_email_domain: payer_email?.split("@")[1] ?? "—",
+    });
 
     if (!plano || !user_id || !user_type || !payer_email) {
-      return json({ error: "Campos obrigatórios: plano, user_id, user_type, payer_email" }, 400);
+      log(traceId, "03_body_invalido", { plano, user_type, hasUserId: !!user_id, hasEmail: !!payer_email });
+      return json({
+        error: "Campos obrigatórios: plano, user_id, user_type, payer_email",
+        trace_id: traceId,
+      }, 400);
     }
 
     if (user.id !== user_id) {
-      return json({ error: "Não autorizado para este usuário." }, 403);
+      log(traceId, "04_user_mismatch");
+      return json({ error: "Não autorizado para este usuário.", trace_id: traceId }, 403);
     }
 
     // Rate-limit: 5 tentativas / hora. Criar assinatura é raro — proteção
@@ -74,25 +121,28 @@ Deno.serve(async (req) => {
       { key: `create-subscription:user:${user.id}`, max: 5, windowSeconds: 3600, corsHeaders: CORS },
       supabaseUser,
     );
-    if (blocked) return blocked;
-
-    // P2-6 auditoria: valida formato e tamanho do payer_email.
-    // O MP exige que esse email bata com a conta MP do pagador, mas validamos
-    // localmente pra rejeitar lixo antes do roundtrip e evitar logs sujos.
-    const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-    if (typeof payer_email !== "string" || payer_email.length > 254 || !EMAIL_RE.test(payer_email)) {
-      return json({ error: "payer_email inválido" }, 400);
+    if (blocked) {
+      log(traceId, "05_rate_limit_atingido");
+      return blocked;
     }
 
-    // user_type tem que ser 'diarista' ou 'empregador' (NÃO 'ambos').
-    // No client, 'ambos' nunca é mandado direto — o modoAtual escolhe um.
+    // P2-6 auditoria: valida formato e tamanho do payer_email.
+    const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    if (typeof payer_email !== "string" || payer_email.length > 254 || !EMAIL_RE.test(payer_email)) {
+      log(traceId, "06_email_invalido");
+      return json({ error: "payer_email inválido", trace_id: traceId }, 400);
+    }
+
     if (user_type !== "diarista" && user_type !== "empregador") {
-      return json({ error: "user_type deve ser 'diarista' ou 'empregador'." }, 400);
+      log(traceId, "07_user_type_invalido", { user_type });
+      return json({ error: "user_type deve ser 'diarista' ou 'empregador'.", trace_id: traceId }, 400);
     }
     const planoDef = PLANOS[user_type]?.[plano];
     if (!planoDef) {
-      return json({ error: `Plano '${plano}' não disponível para ${user_type}.` }, 400);
+      log(traceId, "08_plano_invalido", { plano, user_type });
+      return json({ error: `Plano '${plano}' não disponível para ${user_type}.`, trace_id: traceId }, 400);
     }
+    log(traceId, "08_plano_ok", { valor: planoDef.valor, nome: planoDef.nome });
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -116,6 +166,13 @@ Deno.serve(async (req) => {
       external_reference: `${user_id}::${plano}`,
     };
 
+    log(traceId, "09_mp_request_iniciada", {
+      url: "https://api.mercadopago.com/preapproval",
+      valor: planoDef.valor,
+      back_url: mpBody.back_url,
+    });
+
+    const mpT0 = Date.now();
     const mpResp = await fetch("https://api.mercadopago.com/preapproval", {
       method:  "POST",
       headers: {
@@ -124,12 +181,30 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify(mpBody),
     });
+    const mpDuracao = Date.now() - mpT0;
 
     const mpData = await mpResp.json();
 
+    log(traceId, "10_mp_response", {
+      status: mpResp.status,
+      ok: mpResp.ok,
+      duracao_ms: mpDuracao,
+      tem_init_point: !!mpData.init_point,
+      mp_id: mpData.id ?? null,
+    });
+
     if (!mpResp.ok || !mpData.init_point) {
-      console.error("Erro MP Subscription:", mpData);
-      return json({ error: "Erro ao criar assinatura no Mercado Pago", detalhe: mpData }, 502);
+      // Loga RESPOSTA COMPLETA do MP pra diagnóstico — não pseudonimizamos
+      // porque é mensagem de erro técnica, não PII.
+      console.error(`[create-subscription][${traceId}] MP_ERRO_DETALHE:`, JSON.stringify(mpData));
+      return json({
+        error:     `Mercado Pago recusou (HTTP ${mpResp.status})`,
+        trace_id:  traceId,
+        mp_status: mpResp.status,
+        mp_message: mpData?.message ?? mpData?.error ?? null,
+        mp_detail:  mpData?.cause ?? mpData?.causes ?? null,
+        mp_code:    mpData?.code ?? null,
+      }, 502);
     }
 
     // Registra no banco (pendente — webhook confirma)
@@ -151,13 +226,20 @@ Deno.serve(async (req) => {
       proximo_pagamento:   proximo.toISOString(),
     }, { onConflict: "user_id,user_type" });
 
-    if (dbErr) console.error("DB assinaturas error:", dbErr);
+    if (dbErr) {
+      console.error(`[create-subscription][${traceId}] DB_ERROR:`, dbErr);
+      log(traceId, "11_db_falhou", { error: dbErr.message });
+      // NÃO retornamos 500: o MP já criou a preference. Cliente pode pagar.
+      // Webhook reconcilia depois pelo external_reference.
+    } else {
+      log(traceId, "11_db_ok");
+    }
 
-    // plano_ativo só é atualizado pelo webhook do MP quando o pagamento é
-    // efetivamente autorizado — evita conceder plano por checkout abandonado.
+    log(traceId, "12_sucesso_redirecionando", { checkout_url_prefix: mpData.init_point.slice(0, 50) });
 
     return json({
       checkout_url:      mpData.init_point,
+      trace_id:          traceId,
       subscription_id:   mpData.id,
       plano,
       valor:             planoDef.valor,

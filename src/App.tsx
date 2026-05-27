@@ -3777,15 +3777,24 @@ export default function App() {
   // Inicia assinatura de plano via Mercado Pago Preapproval
   const iniciarAssinatura = async (planoId: string) => {
     if (!session?.user) return;
+    // eslint-disable-next-line no-console
+    console.log("[iniciarAssinatura] iniciando", { planoId, user_type: modoAtual, user_id_prefix: session.user.id.slice(0, 8) });
     setCriandoAssinatura(planoId);
     try {
+      const { data: { session: sess } } = await supabase.auth.getSession();
+      if (!sess?.access_token) {
+        setAuthError("Sessão expirada. Faça login de novo.");
+        setCriandoAssinatura(false);
+        return;
+      }
       const resp = await fetch(
         `${SUPABASE_URL}/functions/v1/create-subscription`,
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+            "Content-Type":  "application/json",
+            "Authorization": `Bearer ${sess.access_token}`,
+            "apikey":         SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({
             plano:      planoId,
@@ -3795,12 +3804,26 @@ export default function App() {
           }),
         }
       );
-      const data = await resp.json();
-      if (!resp.ok) { setAuthError(data.error || "Erro ao criar assinatura."); setCriandoAssinatura(false); return; }
-      setToastSuccess("🏦 Abrindo Mercado Pago…");
-      setTimeout(() => { window.location.href = data.checkout_url; }, 400);
+      const data = await resp.json().catch(() => ({} as { error?: string; checkout_url?: string; trace_id?: string; mp_message?: string }));
+      // eslint-disable-next-line no-console
+      console.log("[iniciarAssinatura] resposta", { status: resp.status, ok: resp.ok, trace_id: data.trace_id, has_url: !!data.checkout_url });
+
+      if (resp.ok && data.checkout_url) {
+        setToastSuccess("🏦 Abrindo Mercado Pago…");
+        setTimeout(() => { window.location.href = data.checkout_url!; }, 400);
+        return;
+      }
+      // Falha — mostra a mensagem REAL do MP/server no toast, com trace_id
+      const dataMaybe = data as { error?: string; mp_message?: string; mp_status?: number; trace_id?: string };
+      const motivo = dataMaybe.mp_message || dataMaybe.error || `HTTP ${resp.status}`;
+      const trace = dataMaybe.trace_id ? ` (id: ${dataMaybe.trace_id})` : "";
+      setAuthError(`❌ ${motivo}${trace}`);
+      // eslint-disable-next-line no-console
+      console.error("[iniciarAssinatura] falhou", data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      // eslint-disable-next-line no-console
+      console.error("[iniciarAssinatura] exception", err);
       setAuthError(`Erro de conexão: ${msg}`);
     }
     setCriandoAssinatura(false);
