@@ -1979,6 +1979,10 @@ export default function App() {
       sexo: updates.sexo ?? profile?.sexo ?? form.sexo ?? "",
       data_nascimento: updates.data_nascimento ?? profile?.data_nascimento ?? form.dataNasc ?? "",
       endereco_empregador: updates.endereco_empregador ?? profile?.endereco_empregador ?? "",
+      // PIX do diarista — coletado no wizard de cadastro e no editar-perfil.
+      // Falta isso aqui fazia o wizard "salvar" sem persistir o PIX (silent drop).
+      pix_chave: updates.pix_chave ?? profile?.pix_chave,
+      pix_tipo:  updates.pix_tipo  ?? profile?.pix_tipo,
     };
     const { error } = await supabase.from("user_profiles").upsert(full);
     setSalvandoPerfil(false);
