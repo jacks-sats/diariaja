@@ -93,6 +93,58 @@ export interface UserProfile {
   termos_versao?: string;
 }
 
+// ── Já Decola — Sistema educacional gamificado ─────────────────────────────
+export interface AcademyCurso {
+  id: string;
+  slug: string;
+  titulo: string;
+  descricao: string;
+  icone: string;
+  cor: string;
+  audiencia: "diarista" | "empregador" | "ambos";
+  nivel: "basico" | "intermediario" | "avancado";
+  ordem: number;
+  pontos_score: number;
+  selo_titulo?: string;
+  selo_icone?: string;
+  publicado: boolean;
+}
+export interface AcademyModulo {
+  id: string;
+  curso_id: string;
+  ordem: number;
+  titulo: string;
+  descricao: string;
+}
+export interface AcademyAula {
+  id: string;
+  modulo_id: string;
+  ordem: number;
+  tipo: "texto" | "video" | "dica";
+  titulo: string;
+  conteudo: string;
+  tempo_min_seg: number;
+}
+export interface AcademyPerguntaCliente {
+  pergunta_id: string;
+  ordem: number;
+  pergunta: string;
+  opcoes: { id: string; texto: string }[];
+}
+export interface AcademyProgressoAula {
+  user_id: string;
+  aula_id: string;
+  iniciada_em: string;
+  concluida_em: string | null;
+  tempo_gasto_seg: number;
+}
+export interface AcademyCertificado {
+  user_id: string;
+  curso_id: string;
+  concluido_em: string;
+  pontuacao: number;
+}
+
 // ── Sistema de níveis de confiabilidade ────────────────────────────────────
 // Cada nível destrava funcionalidades e aumenta a confiança na plataforma.
 export type NivelConfiabilidade = 1 | 2 | 3 | 4;

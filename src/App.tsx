@@ -52,7 +52,7 @@ async function enviarPush(
   } catch { /* push é best-effort — falhas não interrompem o fluxo */ }
 }
 // ── Separação de concerns ────────────────────────────────────────────────────
-import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite, ReputacaoEmpregador, SuporteTicket, SuporteResposta, AdminStats } from "./types";
+import type { Assinatura, Diaria, UserProfile, Topico, ComentarioComunidade, Convite, ReputacaoEmpregador, SuporteTicket, SuporteResposta, AdminStats, AcademyCurso, AcademyModulo, AcademyAula, AcademyPerguntaCliente, AcademyProgressoAula, AcademyCertificado } from "./types";
 import {
   FUNCOES_DELIVERY, CATEGORIAS_NEGOCIO, MEDIAS_CAMPO_GRANDE,
   PLANOS_EMPREGADOR, PLANOS_DIARISTA,
@@ -258,6 +258,23 @@ export default function App() {
   const [formTicket, setFormTicket]               = useState({ assunto: "", mensagem: "" });
   const [criandoTicket, setCriandoTicket]         = useState(false);
   const [ticketsNovos, setTicketsNovos]           = useState(0); // badge admin pra tickets em tempo real
+
+  // ── Já Decola (Academy) ─────────────────────────────────────────────────
+  const [academyCursos, setAcademyCursos]                 = useState<AcademyCurso[]>([]);
+  const [academyCertificados, setAcademyCertificados]     = useState<AcademyCertificado[]>([]);
+  const [academyCursoAberto, setAcademyCursoAberto]       = useState<AcademyCurso | null>(null);
+  const [academyModulos, setAcademyModulos]               = useState<AcademyModulo[]>([]);
+  const [academyAulas, setAcademyAulas]                   = useState<AcademyAula[]>([]);
+  const [academyProgresso, setAcademyProgresso]           = useState<Record<string, AcademyProgressoAula>>({});
+  const [academyAulaAberta, setAcademyAulaAberta]         = useState<AcademyAula | null>(null);
+  const [academyAulaInicio, setAcademyAulaInicio]         = useState<number>(0); // timestamp ms
+  const [academyAulaModuloId, setAcademyAulaModuloId]     = useState<string | null>(null);
+  const [academyModulosAprovados, setAcademyModulosAprovados] = useState<Set<string>>(new Set());
+  // Quiz
+  const [academyQuizPerguntas, setAcademyQuizPerguntas]   = useState<AcademyPerguntaCliente[]>([]);
+  const [academyQuizRespostas, setAcademyQuizRespostas]   = useState<Record<string, string>>({});
+  const [academyQuizResultado, setAcademyQuizResultado]   = useState<{ acertos: number; total: number; passou: boolean; cooldown_ate?: string; curso_concluido?: boolean } | null>(null);
+  const [academyQuizMostrando, setAcademyQuizMostrando]   = useState(false);
 
   // KYC — upload/revisão de RG ou CNH
   const [docFile, setDocFile]                     = useState<File | null>(null);
@@ -1936,6 +1953,153 @@ export default function App() {
       setAuthError("Erro de conexão. Tente novamente.");
     }
     setAuthLoading(false);
+  };
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Já Decola (Academy) — funções de carregamento e interação
+  // ────────────────────────────────────────────────────────────────────────
+
+  // Carrega cursos disponíveis pro user atual (filtra por audiencia) e certificados já obtidos.
+  const carregarAcademyCursos = async () => {
+    if (!session?.user) return;
+    const audUser = modoAtual === "diarista" ? "diarista" : "empregador";
+    // Cursos pro tipo do user OU "ambos"
+    const { data: cursos } = await supabase
+      .from("academy_cursos")
+      .select("*")
+      .in("audiencia", [audUser, "ambos"])
+      .eq("publicado", true)
+      .order("ordem");
+    setAcademyCursos((cursos || []) as AcademyCurso[]);
+
+    const { data: certs } = await supabase
+      .from("academy_certificados")
+      .select("*")
+      .eq("user_id", session.user.id);
+    setAcademyCertificados((certs || []) as AcademyCertificado[]);
+  };
+
+  // Abre o curso: carrega módulos, aulas e progresso do user.
+  const abrirCursoAcademy = async (curso: AcademyCurso) => {
+    if (!session?.user) return;
+    setAcademyCursoAberto(curso);
+    setAcademyAulaAberta(null);
+    setAcademyQuizMostrando(false);
+    setAcademyQuizResultado(null);
+
+    const { data: mods } = await supabase
+      .from("academy_modulos").select("*")
+      .eq("curso_id", curso.id).order("ordem");
+    const modulos = (mods || []) as AcademyModulo[];
+    setAcademyModulos(modulos);
+
+    if (modulos.length > 0) {
+      const modIds = modulos.map(m => m.id);
+      const { data: aulas } = await supabase
+        .from("academy_aulas").select("*")
+        .in("modulo_id", modIds).order("ordem");
+      setAcademyAulas((aulas || []) as AcademyAula[]);
+
+      const { data: prog } = await supabase
+        .from("academy_progresso_aulas").select("*")
+        .eq("user_id", session.user.id)
+        .in("aula_id", (aulas || []).map((a: AcademyAula) => a.id));
+      const progMap: Record<string, AcademyProgressoAula> = {};
+      (prog || []).forEach((p: AcademyProgressoAula) => { progMap[p.aula_id] = p; });
+      setAcademyProgresso(progMap);
+
+      // Módulos com quiz aprovado (passou=true)
+      const { data: tents } = await supabase
+        .from("academy_quiz_tentativas").select("modulo_id, passou")
+        .eq("user_id", session.user.id).eq("passou", true)
+        .in("modulo_id", modIds);
+      setAcademyModulosAprovados(new Set((tents || []).map((t: { modulo_id: string }) => t.modulo_id)));
+    } else {
+      setAcademyAulas([]);
+      setAcademyProgresso({});
+      setAcademyModulosAprovados(new Set());
+    }
+    setTela("academy-curso");
+  };
+
+  // Abre uma aula (marca início pro tempo gasto)
+  const abrirAula = (aula: AcademyAula, moduloId: string) => {
+    setAcademyAulaAberta(aula);
+    setAcademyAulaModuloId(moduloId);
+    setAcademyAulaInicio(Date.now());
+    setAcademyQuizMostrando(false);
+    setAcademyQuizResultado(null);
+    setTela("academy-aula");
+    window.scrollTo({ top: 0 });
+  };
+
+  // Conclui aula (chama RPC com tempo gasto, valida server-side).
+  const concluirAulaAtual = async (): Promise<boolean> => {
+    if (!academyAulaAberta || !session?.user) return false;
+    const tempo = Math.floor((Date.now() - academyAulaInicio) / 1000);
+    if (tempo < academyAulaAberta.tempo_min_seg) {
+      setToastError(`⏱️ Leia até o fim — espere ${academyAulaAberta.tempo_min_seg - tempo}s`);
+      return false;
+    }
+    const { data, error } = await supabase.rpc("academy_concluir_aula", {
+      p_aula_id: academyAulaAberta.id, p_tempo_gasto_seg: tempo,
+    });
+    if (error) { setToastError("Não foi possível concluir a aula. Tente de novo."); return false; }
+    if (data) {
+      // Atualiza progresso local
+      setAcademyProgresso(prev => ({
+        ...prev,
+        [academyAulaAberta.id]: {
+          user_id: session.user.id, aula_id: academyAulaAberta.id,
+          iniciada_em: new Date(academyAulaInicio).toISOString(),
+          concluida_em: new Date().toISOString(), tempo_gasto_seg: tempo,
+        },
+      }));
+    }
+    return true;
+  };
+
+  // Carrega quiz do módulo (perguntas + opções RANDOMIZADAS via RPC)
+  const abrirQuizModulo = async (moduloId: string) => {
+    setAcademyAulaModuloId(moduloId);
+    setAcademyQuizRespostas({});
+    setAcademyQuizResultado(null);
+    const { data, error } = await supabase.rpc("academy_listar_perguntas_quiz", {
+      p_modulo_id: moduloId,
+    });
+    if (error) { setToastError("Não foi possível carregar o quiz."); return; }
+    setAcademyQuizPerguntas((data || []) as AcademyPerguntaCliente[]);
+    setAcademyQuizMostrando(true);
+    window.scrollTo({ top: 0 });
+  };
+
+  // Submete quiz: server valida acertos, calcula passou, emite certificado.
+  const submeterQuizModulo = async () => {
+    if (!academyAulaModuloId) return;
+    const respostas = Object.entries(academyQuizRespostas).map(([pergunta_id, opcao_id]) => ({ pergunta_id, opcao_id }));
+    if (respostas.length !== academyQuizPerguntas.length) {
+      setToastError("Responda todas as perguntas antes de enviar."); return;
+    }
+    const { data, error } = await supabase.rpc("academy_submeter_quiz", {
+      p_modulo_id: academyAulaModuloId, p_respostas: respostas,
+    });
+    if (error) { setToastError("Erro ao enviar quiz. Tente de novo."); return; }
+    const resultado = data as { erro?: string; acertos: number; total: number; passou: boolean; cooldown_ate?: string; curso_concluido?: boolean };
+    if (resultado?.erro === "cooldown") {
+      setToastError(`⏱️ Aguarde ${new Date(resultado.cooldown_ate!).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })} pra tentar de novo`);
+      return;
+    }
+    setAcademyQuizResultado(resultado);
+    if (resultado.passou) {
+      setAcademyModulosAprovados(prev => { const s = new Set(prev); s.add(academyAulaModuloId!); return s; });
+      if (resultado.curso_concluido) {
+        // Recarrega certificados e dispara confetti
+        carregarAcademyCursos();
+        setTimeout(() => { dispararConfetti(); setToastSuccess("🎉 Curso concluído! Selo desbloqueado."); }, 300);
+      } else {
+        setToastSuccess("✅ Módulo concluído! Próximo está liberado.");
+      }
+    }
   };
 
   // Minimal-first signup: valida + cria conta + persiste perfil mínimo + vai
@@ -4429,6 +4593,296 @@ export default function App() {
     </div>
   );
 
+  // ─── JÁ DECOLA — Tela 1: Lista de cursos ─────────────────────────────────
+  if (tela === "academy") {
+    const voltarHome = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    const certIds = new Set(academyCertificados.map(c => c.curso_id));
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        {/* Header gradiente */}
+        <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"48px 20px 28px", color:"#fff" }}>
+          <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
+          <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+            <div style={{ width:56, height:56, background:"rgba(255,255,255,.18)", borderRadius:16, display:"flex", alignItems:"center", justifyContent:"center", fontSize:30 }}>🚀</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:24, fontWeight:900, letterSpacing:-0.3 }}>Já Decola</div>
+              <div style={{ fontSize:13, opacity:0.9 }}>Aprenda, ganhe selos, decole na plataforma</div>
+            </div>
+          </div>
+          {/* Stats do user */}
+          <div style={{ display:"flex", gap:10, marginTop:18 }}>
+            <div style={{ flex:1, background:"rgba(255,255,255,.15)", borderRadius:12, padding:"10px 12px" }}>
+              <div style={{ fontSize:22, fontWeight:900 }}>{academyCertificados.length}</div>
+              <div style={{ fontSize:11, opacity:0.85 }}>Cursos concluídos</div>
+            </div>
+            <div style={{ flex:1, background:"rgba(255,255,255,.15)", borderRadius:12, padding:"10px 12px" }}>
+              <div style={{ fontSize:22, fontWeight:900 }}>
+                {academyCertificados.reduce((s, c) => {
+                  const curso = academyCursos.find(x => x.id === c.curso_id);
+                  return s + (curso?.pontos_score || 0);
+                }, 0)}
+              </div>
+              <div style={{ fontSize:11, opacity:0.85 }}>Pontos no score</div>
+            </div>
+            <div style={{ flex:1, background:"rgba(255,255,255,.15)", borderRadius:12, padding:"10px 12px" }}>
+              <div style={{ fontSize:22, fontWeight:900 }}>
+                {academyCertificados.length === 0 ? "🌱" : academyCertificados.length < 3 ? "🚀" : academyCertificados.length < 5 ? "⭐" : "👑"}
+              </div>
+              <div style={{ fontSize:11, opacity:0.85 }}>
+                {academyCertificados.length === 0 ? "Iniciante" : academyCertificados.length < 3 ? "Decolagem" : academyCertificados.length < 5 ? "Profissional" : "Mestre"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Lista de cursos */}
+        <div style={{ padding:"16px" }}>
+          {academyCursos.length === 0 ? (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"30px 20px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              <div style={{ fontSize:40, marginBottom:8 }}>📚</div>
+              <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Em breve, mais cursos</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>Conteúdos novos toda semana — fique de olho!</div>
+            </div>
+          ) : (
+            academyCursos.map(curso => {
+              const concluido = certIds.has(curso.id);
+              return (
+                <div key={curso.id} role="button" tabIndex={0}
+                  style={{
+                    background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", marginBottom:12,
+                    boxShadow:"0 2px 10px rgba(0,0,0,.06)", cursor:"pointer", border: concluido ? `2px solid ${curso.cor}` : "1px solid var(--border,#e2e8f0)",
+                    position:"relative" as const, overflow:"hidden" as const,
+                  }}
+                  onClick={() => abrirCursoAcademy(curso)}>
+                  {concluido && (
+                    <div style={{ position:"absolute" as const, top:0, right:0, background:curso.cor, color:"#fff", fontSize:10, fontWeight:800, padding:"4px 10px", borderBottomLeftRadius:10 }}>
+                      ✓ CONCLUÍDO
+                    </div>
+                  )}
+                  <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+                    <div style={{ width:54, height:54, background:`${curso.cor}18`, borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0 }}>{curso.icone}</div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:2 }}>{curso.titulo}</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.4 }}>{curso.descricao}</div>
+                      <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" as const }}>
+                        <span style={{ background:`${curso.cor}15`, color:curso.cor, fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>
+                          +{curso.pontos_score} pontos
+                        </span>
+                        <span style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", fontSize:10, fontWeight:700, padding:"3px 8px", borderRadius:20 }}>
+                          {curso.nivel === "basico" ? "Básico" : curso.nivel === "intermediario" ? "Intermediário" : "Avançado"}
+                        </span>
+                        {curso.selo_titulo && (
+                          <span style={{ background:"#fbbf2418", color:"#92400e", fontSize:10, fontWeight:700, padding:"3px 8px", borderRadius:20 }}>
+                            {curso.selo_icone} {curso.selo_titulo}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── JÁ DECOLA — Tela 2: Detalhe do curso (lista de módulos + aulas) ─────
+  if (tela === "academy-curso") {
+    if (!academyCursoAberto) { setTela("academy"); return null; }
+    const curso = academyCursoAberto;
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        <div style={{ background:`linear-gradient(135deg, ${curso.cor}, ${curso.cor}cc)`, padding:"48px 20px 28px", color:"#fff" }}>
+          <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela("academy")}>← Voltar</button>
+          <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+            <div style={{ width:56, height:56, background:"rgba(255,255,255,.18)", borderRadius:16, display:"flex", alignItems:"center", justifyContent:"center", fontSize:30 }}>{curso.icone}</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:22, fontWeight:900, letterSpacing:-0.3 }}>{curso.titulo}</div>
+              <div style={{ fontSize:12, opacity:0.9 }}>{academyModulos.length} módulos · +{curso.pontos_score} pontos</div>
+            </div>
+          </div>
+          <div style={{ fontSize:13, opacity:0.92, marginTop:14, lineHeight:1.5 }}>{curso.descricao}</div>
+        </div>
+
+        <div style={{ padding:"16px" }}>
+          {academyModulos.map((modulo, idx) => {
+            const aulasMod = academyAulas.filter(a => a.modulo_id === modulo.id);
+            const concluidasMod = aulasMod.filter(a => academyProgresso[a.id]?.concluida_em).length;
+            const quizAprovado = academyModulosAprovados.has(modulo.id);
+            const moduloLiberado = idx === 0 || academyModulosAprovados.has(academyModulos[idx-1].id);
+            return (
+              <div key={modulo.id} style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.05)", opacity: moduloLiberado ? 1 : 0.5 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                  <div style={{ width:32, height:32, borderRadius:16, background: quizAprovado ? "#16a34a" : moduloLiberado ? curso.cor : "#cbd5e1", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:13 }}>
+                    {quizAprovado ? "✓" : idx + 1}
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{modulo.titulo}</div>
+                    <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>
+                      {concluidasMod}/{aulasMod.length} aulas · {quizAprovado ? "Quiz aprovado ✓" : "Quiz pendente"}
+                    </div>
+                  </div>
+                </div>
+                {moduloLiberado && (
+                  <>
+                    {aulasMod.map(aula => {
+                      const feita = !!academyProgresso[aula.id]?.concluida_em;
+                      return (
+                        <div key={aula.id} role="button" tabIndex={0}
+                          style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", cursor:"pointer", borderTop:"1px dashed var(--border-sub,#f1f5f9)" }}
+                          onClick={() => abrirAula(aula, modulo.id)}>
+                          <span style={{ fontSize:16, opacity: feita ? 1 : 0.4 }}>{feita ? "✅" : "📄"}</span>
+                          <span style={{ flex:1, fontSize:13, fontWeight:600, color: feita ? "var(--text-2,#64748b)" : "var(--text-1,#0f172a)" }}>{aula.titulo}</span>
+                          <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{Math.ceil(aula.tempo_min_seg/15)} min</span>
+                        </div>
+                      );
+                    })}
+                    {/* Botão de Quiz quando todas as aulas do módulo estão concluídas */}
+                    {aulasMod.length > 0 && concluidasMod === aulasMod.length && !quizAprovado && (
+                      <button
+                        style={{ width:"100%", padding:"12px", marginTop:10, background:curso.cor, color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:44 }}
+                        onClick={() => abrirQuizModulo(modulo.id)}>
+                        🎯 Fazer o quiz do módulo
+                      </button>
+                    )}
+                  </>
+                )}
+                {!moduloLiberado && (
+                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", paddingLeft:42 }}>
+                    🔒 Termine o módulo anterior pra desbloquear
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── JÁ DECOLA — Tela 3: Aula individual (ou quiz quando ativo) ──────────
+  if (tela === "academy-aula") {
+    if (academyQuizMostrando) {
+      // Renderiza QUIZ
+      return (
+        <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+          <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px", color:"#fff" }}>
+            <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
+              onClick={() => { setAcademyQuizMostrando(false); setTela("academy-curso"); }}>← Voltar</button>
+            <div style={{ fontSize:24, fontWeight:900 }}>🎯 Quiz do módulo</div>
+            <div style={{ fontSize:12, color:"#94a3b8", marginTop:4 }}>Acerte ao menos 70% pra liberar o próximo módulo.</div>
+          </div>
+
+          {academyQuizResultado ? (
+            <div style={{ padding:"20px 16px" }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"24px 20px", textAlign:"center" as const, boxShadow:"0 2px 12px rgba(0,0,0,.07)" }}>
+                <div style={{ fontSize:48, marginBottom:8 }}>{academyQuizResultado.passou ? "🎉" : "💪"}</div>
+                <div style={{ fontWeight:900, fontSize:20, color:"var(--text-1,#0f172a)", marginBottom:6 }}>
+                  {academyQuizResultado.passou ? "Você passou!" : "Quase lá!"}
+                </div>
+                <div style={{ fontSize:14, color:"var(--text-2,#64748b)", marginBottom:18 }}>
+                  Acertou <strong>{academyQuizResultado.acertos}</strong> de {academyQuizResultado.total} ({Math.round((academyQuizResultado.acertos / academyQuizResultado.total) * 100)}%)
+                </div>
+                {academyQuizResultado.passou ? (
+                  <button
+                    style={{ width:"100%", padding:"14px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:48 }}
+                    onClick={() => { setAcademyQuizMostrando(false); setTela("academy-curso"); }}>
+                    Continuar →
+                  </button>
+                ) : (
+                  <>
+                    <div style={{ background:"#fef3c7", color:"#92400e", borderRadius:10, padding:"10px 14px", marginBottom:14, fontSize:12, fontWeight:700 }}>
+                      ⏱️ Releia o módulo e tente de novo em 1 hora.
+                    </div>
+                    <button
+                      style={{ width:"100%", padding:"14px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:48 }}
+                      onClick={() => { setAcademyQuizMostrando(false); setTela("academy-curso"); }}>
+                      Voltar ao curso
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding:"16px" }}>
+              {academyQuizPerguntas.map((p, i) => (
+                <div key={p.pergunta_id} style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"16px 18px", marginBottom:12, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", marginBottom:4 }}>Pergunta {i+1} de {academyQuizPerguntas.length}</div>
+                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:12, lineHeight:1.5 }}>{p.pergunta}</div>
+                  {p.opcoes.map(op => {
+                    const sel = academyQuizRespostas[p.pergunta_id] === op.id;
+                    return (
+                      <div key={op.id} role="button" tabIndex={0}
+                        style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", marginBottom:6, borderRadius:10, cursor:"pointer", border: sel ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)", background: sel ? "#FF6B3510" : "transparent", minHeight:48 }}
+                        onClick={() => setAcademyQuizRespostas(prev => ({ ...prev, [p.pergunta_id]: op.id }))}>
+                        <div style={{ width:20, height:20, borderRadius:10, border: sel ? "6px solid #FF6B35" : "2px solid #cbd5e1", flexShrink:0, transition:"all .15s" }} />
+                        <span style={{ flex:1, fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.4 }}>{op.texto}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              <button
+                style={{ width:"100%", padding:"15px", marginTop:8, background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 16px rgba(255,107,53,.4)", minHeight:48 }}
+                onClick={submeterQuizModulo}>
+                ✓ Enviar respostas
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Renderiza AULA normal
+    if (!academyAulaAberta) { setTela("academy-curso"); return null; }
+    const aula = academyAulaAberta;
+    const curso = academyCursoAberto;
+    const aulasMod = academyAulas.filter(a => a.modulo_id === academyAulaModuloId);
+    const idxAtual = aulasMod.findIndex(a => a.id === aula.id);
+    const proxAula = idxAtual >= 0 && idxAtual < aulasMod.length - 1 ? aulasMod[idxAtual + 1] : null;
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        <div style={{ background: curso ? `linear-gradient(135deg, ${curso.cor}, ${curso.cor}cc)` : "linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"48px 20px 22px", color:"#fff" }}>
+          <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:12 }} onClick={() => setTela("academy-curso")}>← Voltar ao curso</button>
+          <div style={{ fontSize:11, fontWeight:700, opacity:0.85, marginBottom:4 }}>Aula {idxAtual+1} de {aulasMod.length}</div>
+          <div style={{ fontSize:22, fontWeight:900, lineHeight:1.2 }}>{aula.titulo}</div>
+        </div>
+
+        <div style={{ padding:"22px 18px" }}>
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"18px 20px", boxShadow:"0 2px 10px rgba(0,0,0,.05)" }}>
+            <div style={{ fontSize:14, color:"var(--text-1,#0f172a)", lineHeight:1.7, whiteSpace:"pre-wrap" as const }}>
+              {aula.conteudo.split("\n").map((linha, i) => {
+                if (linha.startsWith("**") && linha.endsWith("**")) {
+                  return <div key={i} style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", margin:"12px 0 4px" }}>{linha.replace(/\*\*/g, "")}</div>;
+                }
+                // ✅ ❌ 🚩 etc no início = destaque
+                return <div key={i} style={{ marginBottom: linha.trim() === "" ? 4 : 8 }}>{linha}</div>;
+              })}
+            </div>
+          </div>
+
+          <button
+            style={{ width:"100%", padding:"15px", marginTop:18, background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 16px rgba(255,107,53,.4)", minHeight:48 }}
+            onClick={async () => {
+              const ok = await concluirAulaAtual();
+              if (!ok) return;
+              if (proxAula) {
+                abrirAula(proxAula, academyAulaModuloId!);
+              } else {
+                // Última aula do módulo — volta pra tela do curso (botão de quiz aparece lá)
+                setTela("academy-curso");
+                setToastSuccess("✅ Aula concluída!");
+              }
+            }}>
+            {proxAula ? "✓ Concluir e ir pra próxima" : "✓ Concluir aula"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // CONFIGURAÇÕES
   if (tela === "configuracoes") {
     const voltarHome = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
@@ -4566,6 +5020,9 @@ export default function App() {
           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Plataforma</div>
           <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
             {[
+              { icon:"🚀", label:"Já Decola — Academia",
+                sub: `${academyCertificados.length} curso${academyCertificados.length === 1 ? "" : "s"} concluído${academyCertificados.length === 1 ? "" : "s"} · Aprenda e desbloqueie selos`,
+                action:() => { carregarAcademyCursos(); setTela("academy"); } },
               { icon:"💎", label:"Meu plano",
                 sub: profile?.plano_ativo && profile.plano_ativo !== "gratis"
                   ? `Plano ${profile.plano_ativo} ativo`
