@@ -9465,6 +9465,14 @@ export default function App() {
                       {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
                     </div>
                   </div>
+                  {/* Denunciar diarista deste chat (UGC safety — Play Policy) */}
+                  {chatDiariaAtiva.diarista_aceite_id && (
+                    <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
+                      title="Denunciar usuário" aria-label="Denunciar este usuário"
+                      onClick={() => { setModalDenunciar({ tipo:"usuario", id: chatDiariaAtiva.diarista_aceite_id!, nome: dp?.nome || "Diarista" }); setMotivoDenuncia(""); }}>
+                      🚩
+                    </button>
+                  )}
                   {!confirmExcluirChat
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
                     : <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -11201,6 +11209,12 @@ export default function App() {
                       {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
                     </div>
                   </div>
+                  {/* Denunciar contratante deste chat (UGC safety — Play Policy) */}
+                  <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
+                    title="Denunciar usuário" aria-label="Denunciar este usuário"
+                    onClick={() => { setModalDenunciar({ tipo:"usuario", id: chatDiariaAtiva.empregador_id, nome: chatDiariaAtiva.nome_negocio || "Contratante" }); setMotivoDenuncia(""); }}>
+                    🚩
+                  </button>
                   {!confirmExcluirChat
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
                     : <div style={{ display:"flex", gap:6, alignItems:"center" }}>

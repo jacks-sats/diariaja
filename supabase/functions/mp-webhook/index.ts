@@ -28,6 +28,22 @@ function timingSafeEqualHex(a: string, b: string): boolean {
   return diff === 0;
 }
 
+// Pseudonimiza ID antes de logar — primeiros 8 chars do SHA-256 hex.
+// Suficiente pra correlacionar eventos do mesmo user/payment sem vazar
+// o identificador real em dump de logs do Supabase (retidos ~7 dias e
+// acessíveis a qualquer dev com acesso ao painel).
+async function pseudo(id: string | undefined | null): Promise<string> {
+  if (!id) return "—";
+  try {
+    const buf = new TextEncoder().encode(String(id));
+    const hash = await crypto.subtle.digest("SHA-256", buf);
+    const arr = Array.from(new Uint8Array(hash));
+    return arr.slice(0, 4).map(b => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return "—";
+  }
+}
+
 // Valida a assinatura HMAC-SHA256 enviada pelo MP no header x-signature
 async function validarAssinatura(req: Request, body: string): Promise<boolean> {
   // Fail-closed: sem secret em produção a função não aceita nada.
@@ -171,7 +187,7 @@ Deno.serve(async (req) => {
           .eq("id", userId);
       }
 
-      console.log(`Assinatura ${subId}: ${novoStatus} (user ${userId}, plano ${plano})`);
+      console.log(`Assinatura ${await pseudo(subId)}: ${novoStatus} (user ${await pseudo(userId)}, plano ${plano})`);
       return new Response("ok", { status: 200 });
     }
 
@@ -209,7 +225,7 @@ Deno.serve(async (req) => {
             console.error(`[mp-webhook] insert contato_desbloqueio falhou:`, insErr);
           }
         } else {
-          console.log(`[mp-webhook] contact_unlock ignored: user=${userId} payment=${paymentId} status=${payment.status}`);
+          console.log(`[mp-webhook] contact_unlock ignored: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
         }
         return new Response("ok", { status: 200 });
       }
@@ -252,7 +268,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      console.log(`Pagamento ${paymentId}: ${novoStatus} (diária ${diariaId})`);
+      console.log(`Pagamento ${await pseudo(String(paymentId))}: ${novoStatus} (diária ${await pseudo(String(diariaId))})`);
       return new Response("ok", { status: 200 });
     }
 

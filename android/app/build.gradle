@@ -1,5 +1,13 @@
 apply plugin: 'com.android.application'
 
+// Versionamento dinâmico:
+//  - versionCode pode ser sobrescrito via env DIARIAJA_VERSION_CODE (CI).
+//  - versionName pode ser sobrescrito via env DIARIAJA_VERSION_NAME.
+// Defaults razoáveis pra build local sem env (mas SEMPRE bumpar antes de
+// subir nova release na Play Console).
+def computedVersionCode = (System.getenv("DIARIAJA_VERSION_CODE") ?: "1").toInteger()
+def computedVersionName = System.getenv("DIARIAJA_VERSION_NAME") ?: "1.0.0"
+
 android {
     namespace "com.diariaja.app"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +15,8 @@ android {
         applicationId "com.diariaja.app"
         minSdk rootProject.ext.minSdkVersion
         targetSdk rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode computedVersionCode
+        versionName computedVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -18,8 +26,15 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled false
+            // Ofuscação + shrink (Play exige na prática; reduz tamanho do APK
+            // e dificulta engenharia reversa do bundle JS embarcado).
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            // Mantém debug rápido — sem ofuscação
+            minifyEnabled false
         }
     }
 }

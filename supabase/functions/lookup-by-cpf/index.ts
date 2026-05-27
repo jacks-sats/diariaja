@@ -58,57 +58,79 @@ function validarCNPJ(cnpj: string): boolean {
   return dv2 === parseInt(c[13]);
 }
 
+// Tempo MÍNIMO de resposta pra mitigar timing oracle. Qualquer caminho
+// (CPF inválido, válido-mas-não-cadastrado, encontrado) tem que demorar
+// pelo menos isso. Senão atacante mede latência e enumera CPFs cadastrados.
+// 450ms é folga sobre o pior caso real (auth.admin.getUserById costuma
+// resolver em 100-300ms).
+const TEMPO_MIN_RESPOSTA_MS = 450;
+
+async function comTempoMinimo<T>(promise: Promise<T>, minMs: number): Promise<T> {
+  const inicio = Date.now();
+  const resultado = await promise;
+  const decorrido = Date.now() - inicio;
+  const restante = minMs - decorrido;
+  if (restante > 0) {
+    await new Promise<void>((r) => setTimeout(r, restante));
+  }
+  return resultado;
+}
+
+async function processar(req: Request): Promise<Response> {
+  const body = await req.json().catch(() => ({} as any));
+  const docRaw = (body.cpf ?? body.cnpj ?? "").toString();
+  const digits = docRaw.replace(/\D/g, "");
+
+  // Aceita CPF (11) ou CNPJ (14). Valida algoritmo de DV nos 2 casos.
+  let docFormatado: string;
+  if (digits.length === 11) {
+    if (!validarCPF(digits)) {
+      return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
+    }
+    docFormatado = `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}-${digits.slice(9)}`;
+  } else if (digits.length === 14) {
+    if (!validarCNPJ(digits)) {
+      return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
+    }
+    docFormatado = `${digits.slice(0,2)}.${digits.slice(2,5)}.${digits.slice(5,8)}/${digits.slice(8,12)}-${digits.slice(12)}`;
+  } else {
+    return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
+  }
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // Cadastros antigos podem ter sido salvos com ou sem máscara — tenta ambos.
+  const campo = digits.length === 11 ? "cpf" : "cnpj";
+  const { data: rows } = await supabase
+    .from("user_profiles")
+    .select("id")
+    .or(`${campo}.eq.${digits},${campo}.eq.${docFormatado}`)
+    .limit(1);
+
+  const profile = rows?.[0];
+  if (!profile?.id) {
+    return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
+  }
+
+  const { data: { user }, error } = await supabase.auth.admin.getUserById(profile.id);
+  if (error || !user?.email) {
+    return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
+  }
+
+  return new Response(JSON.stringify({ email: user.email }), { headers: headersJson });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: CORS });
   }
-
+  // Garante tempo mínimo de resposta em TODOS os caminhos (sucesso ou erro)
+  // pra fechar o timing oracle de enumeração.
   try {
-    const body = await req.json().catch(() => ({} as any));
-    const docRaw = (body.cpf ?? body.cnpj ?? "").toString();
-    const digits = docRaw.replace(/\D/g, "");
-
-    // Aceita CPF (11) ou CNPJ (14). Valida algoritmo de DV nos 2 casos.
-    let docFormatado: string;
-    if (digits.length === 11) {
-      if (!validarCPF(digits)) {
-        return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
-      }
-      docFormatado = `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}-${digits.slice(9)}`;
-    } else if (digits.length === 14) {
-      if (!validarCNPJ(digits)) {
-        return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
-      }
-      docFormatado = `${digits.slice(0,2)}.${digits.slice(2,5)}.${digits.slice(5,8)}/${digits.slice(8,12)}-${digits.slice(12)}`;
-    } else {
-      return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
-    }
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-    // Cadastros antigos podem ter sido salvos com ou sem máscara —
-    // tenta ambos.
-    const campo = digits.length === 11 ? "cpf" : "cnpj";
-    const { data: rows } = await supabase
-      .from("user_profiles")
-      .select("id")
-      .or(`${campo}.eq.${digits},${campo}.eq.${docFormatado}`)
-      .limit(1);
-
-    const profile = rows?.[0];
-    if (!profile?.id) {
-      return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
-    }
-
-    // Busca o e-mail no auth.users
-    const { data: { user }, error } = await supabase.auth.admin.getUserById(profile.id);
-    if (error || !user?.email) {
-      return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
-    }
-
-    return new Response(JSON.stringify({ email: user.email }), { headers: headersJson });
+    return await comTempoMinimo(processar(req), TEMPO_MIN_RESPOSTA_MS);
   } catch {
-    // Não loga detalhes pra não vazar informação
+    // Em erro inesperado, também respeita o tempo mínimo.
+    await new Promise<void>((r) => setTimeout(r, TEMPO_MIN_RESPOSTA_MS));
     return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
   }
 });
