@@ -265,6 +265,22 @@ export default function App() {
   // Painel admin + tickets de suporte (privados, 1-on-1 user × admin)
   const [adminStats, setAdminStats]               = useState<AdminStats | null>(null);
   const [carregandoAdminStats, setCarregandoAdminStats] = useState(false);
+  // Métricas extras + séries + drill-down
+  const [adminExtras, setAdminExtras]             = useState<{
+    total_diaristas: number; total_empregadores: number; total_pj: number;
+    total_kyc_aprovado: number; total_kyc_pendente: number;
+    diarias_concluidas: number; diarias_canceladas: number; diarias_total: number;
+    taxa_conclusao_pct: number; cursos_concluidos: number; candidaturas_total: number;
+    avaliacoes_medias_dia: number; assinaturas_ativas: number;
+  } | null>(null);
+  const [adminSerieUsuarios, setAdminSerieUsuarios] = useState<{ dia: string; valor: number }[]>([]);
+  const [adminSerieDiarias, setAdminSerieDiarias]   = useState<{ dia: string; valor: number }[]>([]);
+  type AdminDrillItem = { id: string; titulo: string; subtitulo: string; badge: string; badge_cor: string; criado_em: string };
+  const [adminDrillTipo, setAdminDrillTipo]       = useState<string | null>(null);
+  const [adminDrillTitulo, setAdminDrillTitulo]   = useState("");
+  const [adminDrillIcone, setAdminDrillIcone]     = useState("");
+  const [adminDrillLista, setAdminDrillLista]     = useState<AdminDrillItem[]>([]);
+  const [carregandoDrill, setCarregandoDrill]     = useState(false);
   const [adminTickets, setAdminTickets]           = useState<(SuporteTicket & { user_nome?: string })[]>([]);
   const [meusTickets, setMeusTickets]             = useState<SuporteTicket[]>([]);
   const [ticketAtivo, setTicketAtivo]             = useState<(SuporteTicket & { user_nome?: string }) | null>(null);
@@ -2662,7 +2678,29 @@ export default function App() {
     setCarregandoAdminStats(true);
     const { data, error } = await supabase.rpc("admin_stats");
     if (!error && data?.[0]) setAdminStats(data[0] as AdminStats);
+    // Em paralelo: extras + 2 séries temporais pra os gráficos
+    const [extras, serieU, serieD] = await Promise.all([
+      supabase.rpc("admin_metricas_extras"),
+      supabase.rpc("admin_metricas_serie", { p_metrica: "novos_usuarios", p_dias: 14 }),
+      supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_criadas", p_dias: 14 }),
+    ]);
+    if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
+    if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
+    if (!serieD.error && serieD.data) setAdminSerieDiarias(serieD.data);
     setCarregandoAdminStats(false);
+  };
+
+  // Abre modal drill-down ao clicar num card de stat (carrega RPC com lista
+  // detalhada do tipo solicitado)
+  const abrirDrillAdmin = async (tipo: string, titulo: string, icone: string) => {
+    setAdminDrillTipo(tipo);
+    setAdminDrillTitulo(titulo);
+    setAdminDrillIcone(icone);
+    setAdminDrillLista([]);
+    setCarregandoDrill(true);
+    const { data, error } = await supabase.rpc("admin_drill_lista", { p_tipo: tipo, p_limit: 50 });
+    if (!error && data) setAdminDrillLista(data as AdminDrillItem[]);
+    setCarregandoDrill(false);
   };
 
   // Carrega todos os tickets ordenados por última atualização (visão admin)
@@ -13277,15 +13315,72 @@ export default function App() {
     if (!profile?.is_admin) { setTela("configuracoes"); return null; }
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     const tk = adminTickets;
-    const cardStat = (label: string, valor: number | string, cor: string, icone: string) => (
-      <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:10 }}>
-        <div style={{ width:40, height:40, background:cor+"22", color:cor, borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{icone}</div>
-        <div>
+    // Card stat clicável que abre drill-down. Se `drillTipo` é null, não é clicável.
+    const cardStat = (label: string, valor: number | string, cor: string, icone: string, drillTipo?: string) => (
+      <div role={drillTipo ? "button" : undefined} tabIndex={drillTipo ? 0 : undefined}
+        style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:10, cursor: drillTipo ? "pointer" : "default", transition:"transform .1s" }}
+        onClick={() => { if (drillTipo) abrirDrillAdmin(drillTipo, label, icone); }}>
+        <div style={{ width:40, height:40, background:cor+"22", color:cor, borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{icone}</div>
+        <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>{label}</div>
           <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1 }}>{valor}</div>
         </div>
+        {drillTipo && <span style={{ color:"#cbd5e1", fontSize:16, flexShrink:0 }}>›</span>}
       </div>
     );
+
+    // Mini-gráfico de barras CSS puro pra séries temporais
+    const MiniBars = ({ data, cor, label }: { data: { dia: string; valor: number }[]; cor: string; label: string }) => {
+      const max = Math.max(1, ...data.map(d => d.valor));
+      const total = data.reduce((s, d) => s + d.valor, 0);
+      return (
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:12 }}>
+            <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)" }}>{label}</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>14 dias · {total} no total</div>
+          </div>
+          <div style={{ display:"flex", alignItems:"flex-end", gap:3, height:60 }}>
+            {data.map(d => {
+              const pct = (d.valor / max) * 100;
+              return (
+                <div key={d.dia} title={`${new Date(d.dia + "T00:00:00").toLocaleDateString("pt-BR", { day:"2-digit", month:"2-digit" })}: ${d.valor}`}
+                  style={{ flex:1, display:"flex", flexDirection:"column" as const, justifyContent:"flex-end", alignItems:"center", gap:2 }}>
+                  <div style={{ width:"100%", height:`${Math.max(2, pct)}%`, background: d.valor > 0 ? cor : "var(--bg-subtle,#f1f5f9)", borderRadius:"3px 3px 0 0", transition:"height .3s" }} />
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", marginTop:4, fontSize:9, color:"var(--text-3,#94a3b8)" }}>
+            <span>{data.length > 0 ? new Date(data[0].dia + "T00:00:00").toLocaleDateString("pt-BR", { day:"2-digit", month:"2-digit" }) : ""}</span>
+            <span>hoje</span>
+          </div>
+        </div>
+      );
+    };
+
+    // Card de barra horizontal — comparação (ex: diaristas vs empregadores)
+    const CardComparacao = ({ titulo, dados }: { titulo: string; dados: { label: string; valor: number; cor: string }[] }) => {
+      const total = Math.max(1, dados.reduce((s, d) => s + d.valor, 0));
+      return (
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+          <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:12 }}>{titulo}</div>
+          {dados.map(d => {
+            const pct = Math.round((d.valor / total) * 100);
+            return (
+              <div key={d.label} style={{ marginBottom:8 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:3 }}>
+                  <span style={{ color:"var(--text-2,#64748b)", fontWeight:700 }}>{d.label}</span>
+                  <span style={{ color:"var(--text-1,#0f172a)", fontWeight:800 }}>{d.valor} <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:600 }}>({pct}%)</span></span>
+                </div>
+                <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:4, height:6, overflow:"hidden" }}>
+                  <div style={{ background:d.cor, height:6, width:`${pct}%`, borderRadius:4, transition:"width .4s" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
         {/* Header */}
@@ -13313,12 +13408,12 @@ export default function App() {
           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Visão geral</div>
           {adminStats ? (
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              {cardStat("Usuários", adminStats.total_usuarios, "#3A86FF", "👥")}
-              {cardStat("Online agora", adminStats.online_agora, "#16a34a", "🟢")}
-              {cardStat("Novos hoje", adminStats.novos_hoje, "#FF6B35", "✨")}
-              {cardStat("Últimos 7 dias", adminStats.novos_semana, "#a855f7", "📈")}
-              {cardStat("Diárias ativas", adminStats.diarias_ativas, "#f59e0b", "💼")}
-              {cardStat("Tickets abertos", adminStats.tickets_abertos, "#ef4444", "📨")}
+              {cardStat("Usuários", adminStats.total_usuarios, "#3A86FF", "👥", "usuarios_total")}
+              {cardStat("Online agora", adminStats.online_agora, "#16a34a", "🟢", "online_agora")}
+              {cardStat("Novos hoje", adminStats.novos_hoje, "#FF6B35", "✨", "novos_hoje")}
+              {cardStat("Últimos 7 dias", adminStats.novos_semana, "#a855f7", "📈", "novos_semana")}
+              {cardStat("Diárias ativas", adminStats.diarias_ativas, "#f59e0b", "💼", "diarias_ativas")}
+              {cardStat("Tickets abertos", adminStats.tickets_abertos, "#ef4444", "📨", "tickets_abertos")}
             </div>
           ) : (
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
@@ -13326,6 +13421,58 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {/* ── GRÁFICOS — séries temporais de 14 dias ── */}
+        {adminStats && (
+          <div style={{ padding:"4px 16px 16px" }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📊 Tendências (14 dias)</div>
+            <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+              <MiniBars data={adminSerieUsuarios} cor="#3A86FF" label="Novos usuários por dia" />
+              <MiniBars data={adminSerieDiarias} cor="#f59e0b" label="Diárias criadas por dia" />
+            </div>
+          </div>
+        )}
+
+        {/* ── MÉTRICAS EXTRAS — distribuição + funil de conclusão ── */}
+        {adminExtras && (
+          <div style={{ padding:"4px 16px 16px" }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📈 Distribuição & funil</div>
+            <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+              <CardComparacao
+                titulo="Tipos de usuário"
+                dados={[
+                  { label:"Diaristas", valor: adminExtras.total_diaristas, cor:"#FF6B35" },
+                  { label:"Empregadores PF", valor: Math.max(0, adminExtras.total_empregadores - adminExtras.total_pj), cor:"#3A86FF" },
+                  { label:"Empresas PJ", valor: adminExtras.total_pj, cor:"#a855f7" },
+                ]}
+              />
+              <CardComparacao
+                titulo="KYC dos usuários"
+                dados={[
+                  { label:"Aprovados", valor: adminExtras.total_kyc_aprovado, cor:"#16a34a" },
+                  { label:"Em análise", valor: adminExtras.total_kyc_pendente, cor:"#f59e0b" },
+                ]}
+              />
+              <CardComparacao
+                titulo="Funil de diárias"
+                dados={[
+                  { label:"Concluídas ✓", valor: adminExtras.diarias_concluidas, cor:"#16a34a" },
+                  { label:"Canceladas ✗", valor: adminExtras.diarias_canceladas, cor:"#ef4444" },
+                  { label:"Em andamento", valor: Math.max(0, adminExtras.diarias_total - adminExtras.diarias_concluidas - adminExtras.diarias_canceladas), cor:"#f59e0b" },
+                ]}
+              />
+              {/* Cards de números curtos */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                {cardStat("Taxa conclusão", `${adminExtras.taxa_conclusao_pct}%`, "#16a34a", "📊")}
+                {cardStat("Candidaturas", adminExtras.candidaturas_total, "#3A86FF", "📝")}
+                {cardStat("Assinaturas ativas", adminExtras.assinaturas_ativas, "#a855f7", "💎")}
+                {cardStat("Cursos concluídos", adminExtras.cursos_concluidos, "#FF6B35", "🎓")}
+                {cardStat("Avaliação média", adminExtras.avaliacoes_medias_dia ? `${Number(adminExtras.avaliacoes_medias_dia).toFixed(1)}★` : "—", "#fbbf24", "⭐")}
+                {cardStat("Total diárias", adminExtras.diarias_total, "#64748b", "💼")}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Lista de tickets */}
         <div style={{ padding:"4px 16px 16px" }}>
@@ -13404,6 +13551,55 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {/* ── Modal drill-down: lista detalhada do card clicado ── */}
+        {adminDrillTipo && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
+            onClick={() => setAdminDrillTipo(null)}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:480, maxHeight:"85vh", display:"flex", flexDirection:"column" as const }}
+              onClick={e => e.stopPropagation()}>
+              {/* Handle + header */}
+              <div style={{ padding:"10px 20px 0" }}>
+                <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 14px" }} />
+                <div style={{ display:"flex", alignItems:"center", gap:12, paddingBottom:12, borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+                  <div style={{ fontSize:26 }}>{adminDrillIcone}</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)" }}>{adminDrillTitulo}</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>
+                      {carregandoDrill ? "Carregando…" : `${adminDrillLista.length} item${adminDrillLista.length === 1 ? "" : "s"}`}
+                    </div>
+                  </div>
+                  <button style={{ background:"none", border:"none", fontSize:24, cursor:"pointer", color:"#94a3b8", padding:4 }} onClick={() => setAdminDrillTipo(null)}>×</button>
+                </div>
+              </div>
+              {/* Lista scrollable */}
+              <div style={{ flex:1, overflowY:"auto" as const, padding:"12px 16px 20px" }}>
+                {carregandoDrill ? (
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                    {[1,2,3].map(i => <div key={i} style={{ height:60, background:"linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%)", backgroundSize:"200% 100%", animation:"skl 1.4s infinite", borderRadius:12 }} />)}
+                  </div>
+                ) : adminDrillLista.length === 0 ? (
+                  <div style={{ textAlign:"center" as const, color:"var(--text-3,#94a3b8)", padding:"32px 0", fontSize:13 }}>
+                    Nenhum item encontrado.
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                    {adminDrillLista.map(item => (
+                      <div key={item.id}
+                        style={{ background:"var(--bg-surface,#f8fafc)", border:"1px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px" }}>
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:3 }}>
+                          <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)", overflow:"hidden" as const, textOverflow:"ellipsis" as const, whiteSpace:"nowrap" as const, flex:1, minWidth:0 }}>{item.titulo}</div>
+                          <span style={{ background: item.badge_cor + "22", color: item.badge_cor, fontSize:10, fontWeight:800, padding:"2px 8px", borderRadius:20, flexShrink:0, textTransform:"uppercase" as const, letterSpacing:0.3 }}>{item.badge}</span>
+                        </div>
+                        <div style={{ fontSize:11, color:"var(--text-2,#64748b)" }}>{item.subtitulo}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modal: revisão de documento */}
         {docRevisao && (
