@@ -2,7 +2,8 @@
 // Cria uma assinatura recorrente mensal no Mercado Pago
 // e registra na tabela assinaturas do Supabase
 //
-// Variáveis de ambiente: MP_ACCESS_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, APP_URL
+// Variáveis de ambiente: MP_SUBSCRIPTION_TOKEN (preferencial) ou
+// MP_ACCESS_TOKEN (fallback), SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, APP_URL
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { rateLimitOrReject } from "../_shared/rate-limit.ts";
@@ -10,7 +11,11 @@ import { rateLimitOrReject } from "../_shared/rate-limit.ts";
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-const MP_TOKEN          = Deno.env.get("MP_ACCESS_TOKEN")!;
+// Preapproval (Assinaturas) precisa do token de uma aplicação MP cadastrada
+// como "Assinaturas". MP_ACCESS_TOKEN é da app de CheckoutPro e dá erro
+// PA_UNAUTHORIZED_RESULT_FROM_POLICIES no Preapproval. Fallback pra
+// MP_ACCESS_TOKEN só se MP_SUBSCRIPTION_TOKEN não estiver setada (dev).
+const MP_TOKEN          = Deno.env.get("MP_SUBSCRIPTION_TOKEN") ?? Deno.env.get("MP_ACCESS_TOKEN")!;
 const APP_URL           = Deno.env.get("APP_URL") ?? "https://diariaja.vercel.app";
 
 // Definição dos planos por papel (espelho do frontend — PLANOS_EMPREGADOR
