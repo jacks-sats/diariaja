@@ -12402,9 +12402,86 @@ export default function App() {
       {/* Banner: dados verificados ficam protegidos */}
       {(profile?.telefone_verificado || profile?.cpf || profile?.data_nascimento) && (
         <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:12, color:"#166534", lineHeight:1.5 }}>
-          🔒 Campos verificados (telefone, CPF, data) ficam <strong>protegidos</strong>. Pra mudar algum, toque em <strong>"✏️ Alterar"</strong> ao lado dele.
+          🔒 CPF é <strong>permanente</strong>. Os demais campos podem ser mudados tocando em <strong>"✏️ Alterar"</strong> ao lado.
         </div>
       )}
+
+      {/* ── Painel de Verificações — sobe o nível de confiança ────────────── */}
+      {profile && (() => {
+        const temTel = !!(profile.telefone_verificado || telefoneVerificado);
+        const docOK = profile.documento_status === "aprovado";
+        const docEnv = profile.documento_status === "enviado";
+        const docRej = profile.documento_status === "rejeitado";
+        // Nível atual: Confiável > Verificado > Básico
+        const nivel = (temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico";
+        const nivelLabel = nivel === "confiavel" ? "Confiável" : nivel === "verificado" ? "Verificado" : "Básico";
+        const nivelCor = nivel === "confiavel" ? "#16a34a" : nivel === "verificado" ? "#3A86FF" : "#94a3b8";
+        const nivelDesc = nivel === "confiavel" ? "Selo máximo — você ganha prioridade nas buscas"
+                        : nivel === "verificado" ? "Falta enviar RG/CNH pra virar Confiável"
+                        : "Verifique telefone pra subir pra Verificado";
+        const Linha = (icone: string, label: string, statusTxt: string, statusCor: string, acao: () => void, podeAcao: boolean) => (
+          <div onClick={podeAcao ? acao : undefined}
+            style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, background:"#fff", border:"1px solid #e2e8f0", marginBottom:8, cursor: podeAcao ? "pointer" : "default" }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:"#f1f5f9", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{icone}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{label}</div>
+              <div style={{ fontSize:11, color: statusCor, marginTop:2, fontWeight:600 }}>{statusTxt}</div>
+            </div>
+            {podeAcao && <span style={{ color:"#FF6B35", fontSize:18, fontWeight:900 }}>›</span>}
+          </div>
+        );
+        return (
+          <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:16, padding:"14px 14px 8px", marginBottom:18 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div>
+                <div style={{ fontSize:12, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🛡️ Nível de confiança</div>
+                <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>{nivelDesc}</div>
+              </div>
+              <div style={{ background: nivelCor, color:"#fff", padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:800 }}>
+                {nivel === "confiavel" ? "✅" : nivel === "verificado" ? "🔵" : "⚪"} {nivelLabel}
+              </div>
+            </div>
+
+            {/* Progressão visual dos 3 níveis */}
+            <div style={{ display:"flex", gap:4, marginBottom:14 }}>
+              {[
+                { l:"Básico", ativo: true },
+                { l:"Verificado", ativo: nivel === "verificado" || nivel === "confiavel" },
+                { l:"Confiável", ativo: nivel === "confiavel" },
+              ].map(p => (
+                <div key={p.l} style={{ flex:1, textAlign:"center" as const }}>
+                  <div style={{ height:6, borderRadius:3, background: p.ativo ? nivelCor : "#e2e8f0", marginBottom:4, transition:"background .3s" }} />
+                  <div style={{ fontSize:10, fontWeight:700, color: p.ativo ? nivelCor : "#94a3b8" }}>{p.l}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Lista de verificações */}
+            {Linha("📱", "Telefone (WhatsApp)",
+              temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora",
+              temTel ? "#16a34a" : "#FF6B35",
+              () => setTela("verificar-telefone"),
+              !temTel)}
+
+            {Linha(docOK ? "✅" : docEnv ? "🔍" : docRej ? "❌" : "🆔",
+              "Documento (RG ou CNH)",
+              docOK ? "✅ Documento aprovado"
+                : docEnv ? "🔍 Em análise pela equipe"
+                : docRej ? "❌ Rejeitado — toque pra reenviar"
+                : "Suba pra Confiável enviando foto do seu documento",
+              docOK ? "#16a34a" : docEnv ? "#3A86FF" : docRej ? "#dc2626" : "#FF6B35",
+              () => setTela("verificar-documento"),
+              !docOK)}
+
+            {/* Antecedentes — em breve (Frente B) */}
+            {Linha("📋", "Antecedentes criminais",
+              "Em breve — selo extra de confiança via certidão negativa",
+              "#94a3b8",
+              () => {},
+              false)}
+          </div>
+        );
+      })()}
 
       {/* Foto de perfil */}
       <input ref={fotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
@@ -12456,19 +12533,16 @@ export default function App() {
         </>
       )}
 
-      {/* CPF — travado se já cadastrado (UNIQUE no banco; raro mudar) */}
+      {/* CPF — permanente. UNIQUE no banco, vinculado ao perfil pra sempre.
+          Não há botão "Alterar": se o usuário precisar mudar (caso raro),
+          tem que abrir ticket de suporte. */}
       <label style={S.label}>CPF</label>
-      {(profile?.cpf && !camposDestravadosEdit.has("cpf")) ? (
+      {profile?.cpf ? (
         <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:6 }}>
           <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.5 }}>
-            {(form.cpf || profile.cpf || "").replace(/(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})/, "$1.***.***-$4")}
+            {(profile.cpf || "").replace(/(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})/, "$1.***.***-$4")}
           </span>
-          <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Cadastrado</span>
-          <button type="button"
-            style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-            onClick={() => destravarCampoEdit("cpf")}>
-            ✏️ Alterar
-          </button>
+          <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>🔒 Permanente</span>
         </div>
       ) : (
         <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
@@ -13819,12 +13893,85 @@ export default function App() {
       <button style={S.back} onClick={() => { setCamposDestravadosEdit(new Set()); setTela("configuracoes"); }}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
 
-      {/* Banner: dados verificados ficam protegidos */}
+      {/* Banner: CPF/CNPJ permanentes */}
       {(profile?.telefone_verificado || profile?.cpf || profile?.cnpj) && (
         <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:12, color:"#166534", lineHeight:1.5 }}>
-          🔒 Campos verificados (telefone, CPF/CNPJ) ficam <strong>protegidos</strong>. Pra mudar, toque em <strong>"✏️ Alterar"</strong> ao lado.
+          🔒 CPF/CNPJ são <strong>permanentes</strong>. Demais campos podem ser mudados tocando em <strong>"✏️ Alterar"</strong>.
         </div>
       )}
+
+      {/* ── Painel de Verificações ───────────────────────────────────────── */}
+      {profile && (() => {
+        const temTel = !!(profile.telefone_verificado || telefoneVerificado);
+        const docOK = profile.documento_status === "aprovado";
+        const docEnv = profile.documento_status === "enviado";
+        const docRej = profile.documento_status === "rejeitado";
+        const nivel = (temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico";
+        const nivelLabel = nivel === "confiavel" ? "Confiável" : nivel === "verificado" ? "Verificado" : "Básico";
+        const nivelCor = nivel === "confiavel" ? "#16a34a" : nivel === "verificado" ? "#3A86FF" : "#94a3b8";
+        const nivelDesc = nivel === "confiavel" ? "Selo máximo — diaristas confiam mais em você"
+                        : nivel === "verificado" ? "Falta enviar RG/CNH pra virar Confiável"
+                        : "Verifique telefone pra subir pra Verificado";
+        const Linha = (icone: string, label: string, statusTxt: string, statusCor: string, acao: () => void, podeAcao: boolean) => (
+          <div onClick={podeAcao ? acao : undefined}
+            style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, background:"#fff", border:"1px solid #e2e8f0", marginBottom:8, cursor: podeAcao ? "pointer" : "default" }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:"#f1f5f9", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{icone}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{label}</div>
+              <div style={{ fontSize:11, color: statusCor, marginTop:2, fontWeight:600 }}>{statusTxt}</div>
+            </div>
+            {podeAcao && <span style={{ color:"#FF6B35", fontSize:18, fontWeight:900 }}>›</span>}
+          </div>
+        );
+        return (
+          <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:16, padding:"14px 14px 8px", marginBottom:18 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div>
+                <div style={{ fontSize:12, fontWeight:800, color:"#64748b", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🛡️ Nível de confiança</div>
+                <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>{nivelDesc}</div>
+              </div>
+              <div style={{ background: nivelCor, color:"#fff", padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:800 }}>
+                {nivel === "confiavel" ? "✅" : nivel === "verificado" ? "🔵" : "⚪"} {nivelLabel}
+              </div>
+            </div>
+
+            <div style={{ display:"flex", gap:4, marginBottom:14 }}>
+              {[
+                { l:"Básico", ativo: true },
+                { l:"Verificado", ativo: nivel === "verificado" || nivel === "confiavel" },
+                { l:"Confiável", ativo: nivel === "confiavel" },
+              ].map(p => (
+                <div key={p.l} style={{ flex:1, textAlign:"center" as const }}>
+                  <div style={{ height:6, borderRadius:3, background: p.ativo ? nivelCor : "#e2e8f0", marginBottom:4, transition:"background .3s" }} />
+                  <div style={{ fontSize:10, fontWeight:700, color: p.ativo ? nivelCor : "#94a3b8" }}>{p.l}</div>
+                </div>
+              ))}
+            </div>
+
+            {Linha("📱", "Telefone (WhatsApp)",
+              temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora",
+              temTel ? "#16a34a" : "#FF6B35",
+              () => setTela("verificar-telefone"),
+              !temTel)}
+
+            {Linha(docOK ? "✅" : docEnv ? "🔍" : docRej ? "❌" : "🆔",
+              "Documento (RG ou CNH)",
+              docOK ? "✅ Documento aprovado"
+                : docEnv ? "🔍 Em análise pela equipe"
+                : docRej ? "❌ Rejeitado — toque pra reenviar"
+                : "Suba pra Confiável enviando foto do seu documento",
+              docOK ? "#16a34a" : docEnv ? "#3A86FF" : docRej ? "#dc2626" : "#FF6B35",
+              () => setTela("verificar-documento"),
+              !docOK)}
+
+            {Linha("📋", "Antecedentes criminais",
+              "Em breve — selo extra de confiança via certidão negativa",
+              "#94a3b8",
+              () => {},
+              false)}
+          </div>
+        );
+      })()}
 
       {/* Foto/logo do negócio */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto / Logo do negócio</div>
@@ -13905,21 +14052,17 @@ export default function App() {
         </div>
       )}
 
-      {/* CPF ou CNPJ — travado se já salvo */}
+      {/* CPF ou CNPJ — permanente. UNIQUE no banco, vinculado pra sempre.
+          Não há botão "Alterar": caso raro de mudança vai por suporte. */}
       {form.pessoaTipo === "fisica" ? (
         <>
           <label style={S.label}>CPF</label>
-          {(profile?.cpf && !camposDestravadosEdit.has("cpf")) ? (
+          {profile?.cpf ? (
             <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
               <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.5 }}>
-                {(form.cpf || profile.cpf || "").replace(/(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})/, "$1.***.***-$4")}
+                {(profile.cpf || "").replace(/(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})/, "$1.***.***-$4")}
               </span>
-              <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Cadastrado</span>
-              <button type="button"
-                style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                onClick={() => destravarCampoEdit("cpf")}>
-                ✏️ Alterar
-              </button>
+              <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>🔒 Permanente</span>
             </div>
           ) : (
             <input style={{ ...S.input, letterSpacing:1 }} placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
@@ -13930,17 +14073,12 @@ export default function App() {
       ) : (
         <>
           <label style={S.label}>CNPJ</label>
-          {(profile?.cnpj && !camposDestravadosEdit.has("cnpj")) ? (
+          {profile?.cnpj ? (
             <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", border:"1.5px solid #bbf7d0", borderRadius:12, background:"#f0fdf4", marginBottom:12 }}>
               <span style={{ flex:1, fontSize:15, color:"#166534", fontWeight:700, letterSpacing:0.5 }}>
-                {form.cnpj || profile.cnpj || "—"}
+                {profile.cnpj || "—"}
               </span>
-              <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>✅ Cadastrado</span>
-              <button type="button"
-                style={{ background:"none", border:"1.5px solid #FF6B35", color:"#FF6B35", borderRadius:10, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                onClick={() => destravarCampoEdit("cnpj")}>
-                ✏️ Alterar
-              </button>
+              <span style={{ fontSize:11, fontWeight:800, color:"#16a34a", background:"#dcfce7", padding:"4px 10px", borderRadius:8 }}>🔒 Permanente</span>
             </div>
           ) : (
             <input style={{ ...S.input, letterSpacing:1 }} placeholder="00.000.000/0000-00" inputMode="numeric" maxLength={18}
