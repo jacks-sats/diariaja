@@ -133,11 +133,40 @@
         100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
       }
 
+      /* Splash — pulso suave do logo (atrai olhar nos 1ºs segundos) */
+      @keyframes spl-pulse {
+        0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 40px #FF6B35) drop-shadow(0 0 12px #FF6B35bb); }
+        50%      { transform: scale(1.08); filter: drop-shadow(0 0 60px #FF6B35) drop-shadow(0 0 20px #FF6B35dd); }
+      }
+
+      /* Splash — partículas flutuantes sutis no fundo */
+      @keyframes spl-float {
+        0%   { transform: translateY(0) translateX(0); opacity: .15; }
+        50%  { opacity: .35; }
+        100% { transform: translateY(-40px) translateX(10px); opacity: 0; }
+      }
+
+      /* Splash — texto da headline aparece de baixo (fade-up) */
+      @keyframes spl-fadein {
+        0%   { opacity: 0; transform: translateY(12px); }
+        100% { opacity: 1; transform: translateY(0); }
+      }
+
+      /* Splash — carrossel horizontal lento (-100% loop) */
+      @keyframes spl-marquee {
+        0%   { transform: translateX(0); }
+        100% { transform: translateX(-50%); }
+      }
+
       /* Respeita preferência do usuário por menos movimento (acessibilidade) */
       @media (prefers-reduced-motion: reduce) {
         @keyframes skl { from {} to {} }
         @keyframes cft { from {} to {} }
         @keyframes bounce { from {} to {} }
+        @keyframes spl-pulse { from {} to {} }
+        @keyframes spl-float { from {} to {} }
+        @keyframes spl-fadein { from {} to {} }
+        @keyframes spl-marquee { from {} to {} }
       }
     </style>
   </head>

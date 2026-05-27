@@ -4128,58 +4128,111 @@ export default function App() {
 
   // SPLASH
   if (tela === "splash") return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", position:"relative", overflow:"hidden" }}>
+    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", position:"relative" as const, overflow:"hidden" as const }}>
 
-      {/* Brilho de fundo centralizado */}
-      <div style={{ position:"absolute", top:"8%", left:"50%", transform:"translateX(-50%)", width:320, height:320, background:"radial-gradient(circle,rgba(255,107,53,.2) 0%,transparent 70%)", pointerEvents:"none" }} />
-      {/* Segundo brilho sutil na base */}
-      <div style={{ position:"absolute", bottom:0, left:"50%", transform:"translateX(-50%)", width:360, height:180, background:"radial-gradient(ellipse,rgba(255,107,53,.08) 0%,transparent 70%)", pointerEvents:"none" }} />
+      {/* ── Brilhos de fundo + partículas flutuantes sutis ── */}
+      <div style={{ position:"absolute" as const, top:"4%", left:"50%", transform:"translateX(-50%)", width:340, height:340, background:"radial-gradient(circle,rgba(255,107,53,.22) 0%,transparent 70%)", pointerEvents:"none" as const }} />
+      <div style={{ position:"absolute" as const, top:"20%", right:"-8%", width:200, height:200, background:"radial-gradient(circle,rgba(59,130,246,.15) 0%,transparent 70%)", pointerEvents:"none" as const }} />
+      <div style={{ position:"absolute" as const, bottom:0, left:"50%", transform:"translateX(-50%)", width:380, height:200, background:"radial-gradient(ellipse,rgba(255,107,53,.08) 0%,transparent 70%)", pointerEvents:"none" as const }} />
+      {/* Partículas flutuantes (5 pontos animados) */}
+      {[
+        { l:"15%", t:"25%", s:5, d:"0s",   c:"#FF6B35" },
+        { l:"82%", t:"18%", s:4, d:"1.2s", c:"#fbbf24" },
+        { l:"25%", t:"45%", s:3, d:"2.5s", c:"#3A86FF" },
+        { l:"75%", t:"55%", s:4, d:"0.8s", c:"#FF6B35" },
+        { l:"50%", t:"15%", s:3, d:"3.2s", c:"#a78bfa" },
+      ].map((p, i) => (
+        <div key={i} style={{
+          position:"absolute" as const, left:p.l, top:p.t,
+          width:p.s, height:p.s, borderRadius:"50%",
+          background:p.c, opacity:0.3,
+          animation:`spl-float 5s ${p.d} ease-in infinite`,
+          pointerEvents:"none" as const, boxShadow:`0 0 ${p.s * 2}px ${p.c}`,
+        }} />
+      ))}
 
-      {/* ── HERO minimalista — logo + tagline ── */}
-      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px 28px", minHeight:"60vh" }}>
+      {/* ── HERO ── */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", padding:"40px 24px 16px", minHeight:"55vh", position:"relative" as const, zIndex:1 }}>
 
-        {/* Raio com glow */}
-        <div style={{ fontSize:88, filter:"drop-shadow(0 0 40px #FF6B35) drop-shadow(0 0 12px #FF6B35bb)", marginBottom:18, lineHeight:1 }}>⚡</div>
+        {/* Raio com glow + pulse animation */}
+        <div style={{ fontSize:80, marginBottom:14, lineHeight:1, animation:"spl-pulse 3s ease-in-out infinite" }}>⚡</div>
 
         {/* Logo */}
-        <div style={{ fontSize:56, fontWeight:900, letterSpacing:-2, lineHeight:1, marginBottom:10 }}>
+        <div style={{ fontSize:48, fontWeight:900, letterSpacing:-1.8, lineHeight:1, marginBottom:8, animation:"spl-fadein .8s ease-out" }}>
           <span style={{ color:"#ffffff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
 
         {/* Linha gradiente */}
-        <div style={{ width:220, height:2, background:"linear-gradient(90deg,transparent,#FF6B35,transparent)", marginBottom:24 }} />
+        <div style={{ width:180, height:2, background:"linear-gradient(90deg,transparent,#FF6B35,transparent)", marginBottom:22 }} />
 
-        {/* Tagline */}
-        <p style={{ fontSize:16, color:"#94a3b8", textAlign:"center", lineHeight:1.6, margin:"0 0 6px", fontWeight:400 }}>
-          Contrate ou encontre serviços por diária
+        {/* Headline emocional */}
+        <h1 style={{ fontSize:26, color:"#fff", textAlign:"center" as const, lineHeight:1.2, margin:"0 0 10px", fontWeight:900, letterSpacing:-0.5, animation:"spl-fadein 1s ease-out .2s both" }}>
+          Trabalho perto.<br />Confiança do seu lado.
+        </h1>
+
+        {/* Sub funcional */}
+        <p style={{ fontSize:14, color:"#94a3b8", textAlign:"center" as const, lineHeight:1.6, margin:"0 0 18px", maxWidth:320, animation:"spl-fadein 1s ease-out .4s both" }}>
+          Marketplace de diárias com pagamento seguro · Começou em Campo Grande/MS
         </p>
-        <p style={{ fontSize:22, color:"#FF6B35", textAlign:"center", lineHeight:1.4, margin:0, fontWeight:900, letterSpacing:-0.3 }}>
-          em Campo Grande/MS
-        </p>
+
+        {/* Carrossel marquee de categorias (auto-scroll horizontal) */}
+        <div style={{ width:"100%", overflow:"hidden" as const, mask:"linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)", WebkitMask:"linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)", marginBottom:14, animation:"spl-fadein 1s ease-out .6s both" }}>
+          <div style={{ display:"flex", gap:10, width:"max-content", animation:"spl-marquee 30s linear infinite" }}>
+            {[...Array(2)].flatMap((_, dup) => [
+              { ic:"🏠", lab:"Diarista" },
+              { ic:"🔧", lab:"Reparos" },
+              { ic:"💆", lab:"Beleza" },
+              { ic:"👶", lab:"Cuidador" },
+              { ic:"🌿", lab:"Jardim" },
+              { ic:"🚚", lab:"Logística" },
+              { ic:"🍳", lab:"Cozinha" },
+              { ic:"🎉", lab:"Eventos" },
+            ].map((c, i) => (
+              <div key={`${dup}-${i}`} style={{ background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:20, padding:"8px 14px", display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                <span style={{ fontSize:14 }}>{c.ic}</span>
+                <span style={{ fontSize:12, color:"#f1f5f9", fontWeight:700, whiteSpace:"nowrap" as const }}>{c.lab}</span>
+              </div>
+            )))}
+          </div>
+        </div>
+
+        {/* Selos de confiança */}
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const, justifyContent:"center" as const, animation:"spl-fadein 1s ease-out .8s both" }}>
+          {[
+            { ic:"💳", lab:"Mercado Pago" },
+            { ic:"🪪", lab:"CPF/CNPJ verificado" },
+            { ic:"⭐", lab:"Avaliações reais" },
+          ].map(s => (
+            <div key={s.lab} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"5px 10px", display:"flex", alignItems:"center", gap:5 }}>
+              <span style={{ fontSize:11 }}>{s.ic}</span>
+              <span style={{ fontSize:10, color:"#cbd5e1", fontWeight:600 }}>{s.lab}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* ── Botões ── */}
-      <div style={{ padding:"0 24px 44px", display:"flex", flexDirection:"column", gap:12 }}>
+      {/* ── CTAs ── */}
+      <div style={{ padding:"0 24px 32px", display:"flex", flexDirection:"column" as const, gap:10, position:"relative" as const, zIndex:1, animation:"spl-fadein 1s ease-out 1s both" }}>
 
-        {/* Entrar — laranja sólido */}
+        {/* CTA primário — Começar grátis */}
         <button
-          style={{ width:"100%", padding:"16px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:17, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 6px 24px rgba(255,107,53,.55)", letterSpacing:0.3 }}
-          onClick={() => setTela("login")}>
-          Entrar
-        </button>
-
-        {/* Cadastrar — fundo branco quase opaco, texto laranja: contraste máximo */}
-        <button
-          style={{ width:"100%", padding:"15px", background:"rgba(255,255,255,.93)", color:"#FF6B35", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", letterSpacing:0.2 }}
+          style={{ width:"100%", padding:"17px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:17, fontWeight:900, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 8px 28px rgba(255,107,53,.55)", letterSpacing:0.2, minHeight:54, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
           onClick={() => setTela("cadastro-tipo")}>
-          Cadastrar agora
+          Começar grátis <span style={{ fontSize:18 }}>→</span>
         </button>
 
-        <p style={{ textAlign:"center", color:"var(--text-label,#475569)", fontSize:11, margin:"6px 0 0", lineHeight:1.8 }}>
-          Ao entrar você concorda com nossos{" "}
-          <span style={{ color:"#FF6B35", cursor:"pointer" }} onClick={() => setTela("suporte")}>Termos de uso</span>
-          {"  ·  "}
-          <span style={{ color:"#FF6B35", cursor:"pointer" }} onClick={() => setModalQuemSomos(true)}>Quem Somos</span>
+        {/* CTA secundário — Já tenho conta */}
+        <button
+          style={{ width:"100%", padding:"13px", background:"transparent", color:"#cbd5e1", border:"1.5px solid rgba(255,255,255,.18)", borderRadius:16, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:46 }}
+          onClick={() => setTela("login")}>
+          Já tenho conta · <span style={{ color:"#FF6B35", fontWeight:800 }}>Entrar</span>
+        </button>
+
+        <p style={{ textAlign:"center" as const, color:"#475569", fontSize:11, margin:"6px 0 0", lineHeight:1.7 }}>
+          Ao continuar você aceita os{" "}
+          <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setTela("suporte")}>Termos</span>
+          {" · "}
+          <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setModalQuemSomos(true)}>Quem Somos</span>
         </p>
       </div>
 
