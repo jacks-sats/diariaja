@@ -125,6 +125,23 @@ function QRScannerComponent({ onResult, onError, onClose }: {
   return <div id="qr-reader" style={{ width:"100%", borderRadius:12, overflow:"hidden" }} />;
 }
 
+// Helper: mostra notificação local compatível com mobile/PWA.
+// Em Android Chrome/PWA, `mostrarNotificacaoLocal(...)` é PROIBIDO — só funciona via
+// ServiceWorkerRegistration.showNotification(). Em desktop, ambos funcionam.
+// Esta função tenta SW primeiro (robusto pra mobile) e cai pro `new Notification`
+// no fallback (que funciona em desktop e em alguns browsers antigos).
+const mostrarNotificacaoLocal = (titulo: string, options?: NotificationOptions): void => {
+  if (typeof window === "undefined") return;
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.ready
+      .then(reg => reg.showNotification(titulo, options))
+      .catch(() => { try { mostrarNotificacaoLocal(titulo, options); } catch { /* mobile sem SW pronto: ignorar */ } });
+  } else {
+    try { mostrarNotificacaoLocal(titulo, options); } catch { /* ignore */ }
+  }
+};
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1086,7 +1103,7 @@ export default function App() {
     if (diariastHoje.length > 0 && typeof Notification !== "undefined" && Notification.permission === "granted") {
       notifHojeEnviadaRef.current = true;
       diariastHoje.forEach(d => {
-        new Notification("📅 Você tem uma diária hoje!", {
+        mostrarNotificacaoLocal("📅 Você tem uma diária hoje!", {
           body: `${d.nome_negocio} às ${d.horario_inicio}`,
           icon: "/vite.svg",
         });
@@ -1147,23 +1164,23 @@ export default function App() {
           }
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             if (updated.status === "aceita" && oldStatus === "pendente") {
-              new Notification("✅ Diarista confirmou presença!", {
+              mostrarNotificacaoLocal("✅ Diarista confirmou presença!", {
                 body: `O profissional confirmou presença na vaga de ${vaga}. Escaneie o QR Code dele!`,
                 icon: "/vite.svg",
               });
             } else if (updated.status === "aceita" && oldStatus === "aberta") {
-              new Notification("🎉 Diarista confirmado!", {
+              mostrarNotificacaoLocal("🎉 Diarista confirmado!", {
                 body: `Alguém aceitou sua vaga de ${vaga}!`,
                 icon: "/vite.svg",
               });
             } else if (updated.status === "aberta" && oldStatus === "aceita") {
               // Diarista desistiu — vaga voltou a ser aberta
-              new Notification("⚠️ Diarista desistiu!", {
+              mostrarNotificacaoLocal("⚠️ Diarista desistiu!", {
                 body: `O diarista desistiu da vaga de ${vaga}. Ela está disponível novamente.${motivo}`,
                 icon: "/vite.svg",
               });
             } else if (updated.status === "cancelada" && oldStatus !== "cancelada") {
-              new Notification("❌ Diária cancelada pelo diarista", {
+              mostrarNotificacaoLocal("❌ Diária cancelada pelo diarista", {
                 body: `A vaga de ${vaga} foi cancelada.${motivo}`,
                 icon: "/vite.svg",
               });
@@ -1200,7 +1217,7 @@ export default function App() {
             // BUG-3 fix: toast in-app garantido independente de permissão de push
             setToastSuccess(`🎯 ${local} escolheu você! Vá em "Vagas" e confirme sua presença.`);
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              new Notification("🎯 Você foi selecionado!", {
+              mostrarNotificacaoLocal("🎯 Você foi selecionado!", {
                 body: `${local} escolheu você para a vaga! Abra o app e confirme sua presença.`,
                 icon: "/vite.svg",
               });
@@ -1209,7 +1226,7 @@ export default function App() {
             // BUG-5 fix: toast in-app quando empregador confirma chegada via QR
             setToastSuccess(`🔄 Sua chegada foi confirmada em ${local}. Bom trabalho!`);
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              new Notification("🔄 Chegada confirmada!", {
+              mostrarNotificacaoLocal("🔄 Chegada confirmada!", {
                 body: `Sua presença em ${local} foi confirmada. Bom trabalho!`,
                 icon: "/vite.svg",
               });
@@ -1222,7 +1239,7 @@ export default function App() {
               localStorage.setItem("diariaja_cancels", JSON.stringify(cancels));
             } catch {}
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              new Notification("❌ Diária cancelada pelo empregador", {
+              mostrarNotificacaoLocal("❌ Diária cancelada pelo empregador", {
                 body: `Sua diária em ${local} foi cancelada.${updated.motivo_cancelamento ? " Motivo: " + updated.motivo_cancelamento : ""}`,
                 icon: "/vite.svg",
               });
@@ -1233,7 +1250,7 @@ export default function App() {
             setToastSuccess(`🎉 Diária concluída em ${local}! Gere seu recibo e avalie o contratante.`);
             setTimeout(() => setModalReciboDiarista(updated), 500);
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              new Notification("🎉 Diária concluída!", {
+              mostrarNotificacaoLocal("🎉 Diária concluída!", {
                 body: `Sua diária em ${local} foi encerrada. Avalie o empregador!`,
                 icon: "/vite.svg",
               });
@@ -1267,7 +1284,7 @@ export default function App() {
           const nomeVaga = vaga?.funcao || vaga?.segmento || "sua vaga";
           setToastSuccess(`👋 Novo candidato na vaga de ${nomeVaga}! Toque em "Diárias" para ver.`);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            new Notification("👋 Novo candidato!", {
+            mostrarNotificacaoLocal("👋 Novo candidato!", {
               body: `Um diarista demonstrou interesse na sua vaga de ${nomeVaga}!`,
               icon: "/vite.svg",
             });
@@ -1312,7 +1329,7 @@ export default function App() {
             setMeuInteresse(prev => { const n = { ...prev }; delete n[updated.diaria_id]; return n; });
             setToastError("⚠️ Uma vaga na qual você tinha interesse foi cancelada pelo empregador.");
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              new Notification("❌ Vaga cancelada pelo empregador", {
+              mostrarNotificacaoLocal("❌ Vaga cancelada pelo empregador", {
                 body: "Uma diária na qual você tinha interesse foi removida. Verifique as vagas disponíveis.",
                 icon: "/vite.svg",
               });
@@ -1339,7 +1356,7 @@ export default function App() {
           setConvitesRecebidos(prev => [novoConvite, ...prev]);
           setToastSuccess(`📨 ${novoConvite.contratante_nome || "Um contratante"} te convidou para uma diária!`);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            new Notification("📨 Novo convite de diária!", {
+            mostrarNotificacaoLocal("📨 Novo convite de diária!", {
               body: `${novoConvite.contratante_nome} quer te contratar para ${novoConvite.funcao} em ${new Date(novoConvite.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}`,
               icon: "/vite.svg",
             });
@@ -1366,7 +1383,7 @@ export default function App() {
           if (updated.status === "aceito") {
             setToastSuccess(`✅ ${updated.diarista_nome} aceitou seu convite para ${new Date(updated.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}!`);
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              new Notification("✅ Convite aceito!", {
+              mostrarNotificacaoLocal("✅ Convite aceito!", {
                 body: `${updated.diarista_nome} confirmou presença para ${new Date(updated.data_servico + "T00:00:00").toLocaleDateString("pt-BR")} às ${updated.horario_servico}`,
                 icon: "/vite.svg",
               });
@@ -1393,7 +1410,7 @@ export default function App() {
             setSuporteNaoLidos(prev => prev + 1);
             setToastSuccess(`🔧 Novo pedido de suporte de ${t.autor_nome}!`);
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              new Notification("🔧 Novo pedido de suporte!", {
+              mostrarNotificacaoLocal("🔧 Novo pedido de suporte!", {
                 body: `${t.autor_nome}: "${t.titulo}"`,
                 icon: "/vite.svg",
               });
@@ -1450,7 +1467,7 @@ export default function App() {
             setTicketsNovos(prev => prev + 1);
             setToastSuccess("📨 Nova mensagem em um ticket de suporte!");
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              new Notification("📨 Suporte", { body: "Usuário respondeu em um ticket.", icon: "/icon-192.png" });
+              mostrarNotificacaoLocal("📨 Suporte", { body: "Usuário respondeu em um ticket.", icon: "/icon-192.png" });
             }
           }
         }
@@ -1483,7 +1500,7 @@ export default function App() {
           if (tk?.user_id !== userId) return;
           setToastSuccess("💬 A equipe respondeu no seu ticket!");
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            new Notification("DiáriaJá — Suporte", {
+            mostrarNotificacaoLocal("DiáriaJá — Suporte", {
               body: "A equipe respondeu seu ticket. Toque para abrir.",
               icon: "/icon-192.png",
             });
@@ -6791,7 +6808,28 @@ export default function App() {
 
   // HOME EMPREGADOR
   if (tela === "home-empregador") {
-    if (!negocio) { setTimeout(() => setTela("escolha-negocio"), 0); return null; }
+    // Hotfix: se o profile carregou COM segmento salvo mas o state local
+    // `negocioSelecionado` ainda está null (típico no refresh), sincroniza
+    // pelo profile antes de redirecionar. Evita loop infinito de cair em
+    // escolha-negocio em todo refresh do empregador.
+    if (!negocio) {
+      if (profile?.segmento && profile.segmento !== negocioSelecionado) {
+        setTimeout(() => setNegocio(profile.segmento), 0);
+        return (
+          <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", display:"flex", alignItems:"center", justifyContent:"center", color:"var(--text-2,#64748b)", fontSize:13 }}>
+            Carregando…
+          </div>
+        );
+      }
+      // Sem segmento no profile e sem state — aí sim vai pra escolha
+      if (!profile || !profile.segmento) {
+        setTimeout(() => setTela("escolha-negocio"), 0);
+        return null;
+      }
+      // Edge case: segmento existe no profile mas é inválido / não está em CATEGORIAS_NEGOCIO
+      setTimeout(() => setTela("escolha-negocio"), 0);
+      return null;
+    }
     // Usa constante global pré-computada (evita recalcular a cada render)
     const funcoes = TODAS_AS_FUNCOES;
     const iniciaisEmp = profile?.nome?.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase() || "?";
