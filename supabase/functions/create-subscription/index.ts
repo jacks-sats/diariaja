@@ -149,8 +149,11 @@ Deno.serve(async (req) => {
     });
 
   } catch (err) {
-    console.error(err);
-    return json({ error: "Erro interno" }, 500);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[create-subscription] uncaught:", msg, err);
+    // Retorna o motivo real pro client em vez de "Erro interno" cego — facilita
+    // diagnóstico em produção (MP fora do ar, body malformado, etc.).
+    return json({ error: `Erro: ${msg.slice(0, 200)}` }, 500);
   }
 });
 

@@ -373,7 +373,9 @@ export default function App() {
   // Diárias CONCLUÍDAS como diarista (vitalício) — usado pra CTA de upgrade.
   // Carregado via RPC `contar_diarias_concluidas_diarista`.
   const [diariasConcluidasComoDiarista, setDiariasConcluidasComoDiarista] = useState<number>(0);
-  const [criandoAssinatura, setCriandoAssinatura] = useState(false);
+  // false = nenhum loading, string = qual plano (id) está carregando.
+  // Permite mostrar "Aguarde..." só no botão clicado, não nos 2.
+  const [criandoAssinatura, setCriandoAssinatura] = useState<false | string>(false);
   const [modalLimiteContato, setModalLimiteContato] = useState(false);
   const [desbloqueandoContato, setDesbloqueandoContato] = useState(false);
   // Contatos desbloqueados (pagos R$ 1 via MP) neste mês.
@@ -3769,7 +3771,7 @@ export default function App() {
   // Inicia assinatura de plano via Mercado Pago Preapproval
   const iniciarAssinatura = async (planoId: string) => {
     if (!session?.user) return;
-    setCriandoAssinatura(true);
+    setCriandoAssinatura(planoId);
     try {
       const resp = await fetch(
         `${SUPABASE_URL}/functions/v1/create-subscription`,
@@ -3789,11 +3791,11 @@ export default function App() {
       );
       const data = await resp.json();
       if (!resp.ok) { setAuthError(data.error || "Erro ao criar assinatura."); setCriandoAssinatura(false); return; }
-      // Redireciona na mesma aba — popup é bloqueado em mobile.
       setToastSuccess("🏦 Abrindo Mercado Pago…");
       setTimeout(() => { window.location.href = data.checkout_url; }, 400);
-    } catch {
-      setAuthError("Erro de conexão.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAuthError(`Erro de conexão: ${msg}`);
     }
     setCriandoAssinatura(false);
   };
@@ -15720,14 +15722,20 @@ export default function App() {
                 </div>
 
                 {/* Botão de ação */}
-                {p.valor > 0 && !ativo && (
-                  <button
-                    style={{ width:"100%", padding:"14px", background:p.cor, color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 16px ${p.cor}44`, opacity: criandoAssinatura ? 0.7 : 1 }}
-                    disabled={criandoAssinatura}
-                    onClick={() => { setAuthError(""); iniciarAssinatura(p.id); }}>
-                    {criandoAssinatura ? "Aguarde..." : `Assinar ${p.nome} — R$ ${p.valor}/mês`}
-                  </button>
-                )}
+                {p.valor > 0 && !ativo && (() => {
+                  // Loading só no botão clicado (não nos 2 ao mesmo tempo).
+                  const loadingEste = criandoAssinatura === p.id;
+                  const algumLoading = criandoAssinatura !== false;
+                  const valorBR = p.valor.toFixed(2).replace(".", ",");
+                  return (
+                    <button
+                      style={{ width:"100%", padding:"14px", background:p.cor, color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: algumLoading ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 16px ${p.cor}44`, opacity: algumLoading && !loadingEste ? 0.4 : algumLoading ? 0.7 : 1 }}
+                      disabled={algumLoading}
+                      onClick={() => { setAuthError(""); iniciarAssinatura(p.id); }}>
+                      {loadingEste ? "Aguarde..." : `Assinar ${p.nome} — R$ ${valorBR}/mês`}
+                    </button>
+                  );
+                })()}
                 {ativo && p.valor > 0 && (
                   <div style={{ textAlign:"center", fontSize:13, color:"#4ade80", fontWeight:700, marginTop:4 }}>
                     ✅ Você já está neste plano
