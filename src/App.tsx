@@ -4686,12 +4686,12 @@ export default function App() {
               const secoesDiarista = isDiarista ? [
                 { titulo:"8. Trabalho Autônomo (diarista)", body:`Você se cadastra como TRABALHADOR AUTÔNOMO. Não há vínculo empregatício com o DiáriaJá nem com os contratantes que você atender via plataforma.\n\nO DiáriaJá não recolhe INSS, FGTS, IR ou demais encargos trabalhistas. Você é responsável por suas próprias obrigações fiscais e previdenciárias. Recomendamos formalização como MEI (Microempreendedor Individual) para garantir cobertura previdenciária.` },
                 { titulo:"9. Riscos e Responsabilidade do Profissional", body:`Você reconhece que prestar serviços autônomos envolve riscos próprios da atividade (deslocamento, acidentes, conflitos, inadimplemento do contratante). O DiáriaJá não fornece seguro nem cobertura para esses riscos.\n\nAvalie o ambiente de trabalho ANTES de aceitar uma diária. Se sentir-se inseguro, recuse. Em caso de denúncia ou acidente, registre boletim de ocorrência e acione o suporte.` },
-                { titulo:"10. Pagamento ao Diarista", body:`O pagamento será repassado à chave PIX cadastrada no seu perfil após a conclusão e confirmação da diária. Confira sempre se a chave está correta e atualizada — o DiáriaJá não se responsabiliza por valores enviados a chave PIX incorreta informada pelo usuário.` },
+                { titulo:"10. Pagamento ao Diarista", body:`O DiáriaJá NÃO intermedia o pagamento entre você e o contratante. A combinação e o repasse do valor da diária acontecem DIRETAMENTE entre as partes (PIX, dinheiro, etc.).\n\nA plataforma cobra apenas uma taxa de uso via Mercado Pago do contratante. O valor da diária em si é negociado e pago fora da plataforma.\n\nA chave PIX cadastrada no seu perfil serve para o contratante te identificar facilmente, mas o DiáriaJá NÃO é responsável por valores combinados nem por inadimplência.` },
               ] : [];
               const secoesContratante = isContratante ? [
                 { titulo:"8. Responsabilidade do Contratante", body:`Ao publicar e contratar uma diária, você assume responsabilidade pelo AMBIENTE DE TRABALHO oferecido ao diarista: segurança, condições de higiene, equipamentos e EPIs (quando aplicável).\n\nÉ proibido contratar serviços ilegais, perigosos sem proteção, ou contrários à dignidade da pessoa. Atividades insalubres ou perigosas exigem precauções específicas — informe ao diarista antecipadamente.` },
                 { titulo:"9. Ausência de Vínculo Empregatício", body:`A relação com o diarista é de PRESTAÇÃO AUTÔNOMA DE SERVIÇO, sem vínculo CLT. Atenção: contratar o mesmo profissional por mais de 2 dias/semana de forma habitual pode configurar vínculo doméstico (LC nº 150/2015), cabendo a você avaliar as obrigações legais.` },
-                { titulo:"10. Pagamento da Diária", body:`O pagamento é feito via Mercado Pago no momento do aceite. A plataforma cobra ${"1,5%"} sobre o valor da diária como taxa de serviço, devida pelo contratante. O valor líquido é repassado ao diarista após a conclusão.` },
+                { titulo:"10. Pagamento da Diária", body:`O DiáriaJá é uma plataforma de anúncios e NÃO intermedia o pagamento da diária. O valor combinado com o diarista é pago DIRETAMENTE pra ele (PIX, dinheiro, etc.).\n\nO Mercado Pago aparece no app apenas pra cobrar a TAXA DE USO da plataforma (o valor da diária NÃO passa pela plataforma).\n\nVocê é responsável pelo cumprimento do que combinou com o diarista. Em caso de divergência, registre tudo pelo chat do app — a conversa é prova.` },
               ] : [];
               const secoesFinal = [
                 { titulo: `${secoesGerais.length + secoesDiarista.length + secoesContratante.length + 1}. Informações`,
@@ -6591,10 +6591,10 @@ export default function App() {
         📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>R$ 120 – R$ 250</strong> por diária
       </p>
 
-      {/* PIX — chave do diarista pra receber pagamentos */}
+      {/* PIX — chave do diarista pra contratante mandar direto */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:18, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💰 Chave PIX *</div>
       <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 8px", lineHeight:1.5 }}>
-        A plataforma usa essa chave pra te repassar o valor após cada diária concluída.
+        Essa chave aparece pro contratante facilitar o pagamento direto pra você. O DiáriaJá não intermedia o pagamento — você recebe direto na sua conta.
       </p>
       <label style={S.label}>Tipo de chave</label>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:6, marginBottom:8 }}>
@@ -11017,31 +11017,16 @@ export default function App() {
               </div>
             )}
 
-            {/* Pagamento info */}
-            <div style={{ margin:"8px 16px 0", background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"14px 16px" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-                <div style={{ fontSize:22, flexShrink:0 }}>💸</div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>Recebimento via PIX</div>
-                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>O contratante paga via Mercado Pago e o repasse chega no seu PIX em até 1 dia útil.</div>
-                </div>
-              </div>
-            </div>
+            {/* Card "Recebimento via PIX" removido — prometia intermediação que
+                a plataforma NÃO faz hoje. DiáriaJá é canal de anúncios; o
+                pagamento entre contratante e diarista é combinado entre eles.
+                O Mercado Pago é usado apenas pra cobrança da taxa da plataforma. */}
+
+            {/* Card "Mudar para modo Empregador" removido — duplicava a ação
+                que já mora no menu ⋮ (3 pontinhos) → "🔄 Trocar perfil". */}
 
             {/* Ações */}
             <div style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:10 }}>
-              <button
-                style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35", fontWeight:800 }}
-                onClick={() => {
-                  setAuthError("");
-                  if (tipo === "ambos" && profile?.segmento) {
-                    setNegocio(profile.segmento); setModoAtual("empregador"); setTela("home-empregador");
-                  } else {
-                    setForm({ ...form, nomeNegocio: profile?.nome_negocio || "" }); setNegocio(null); setTela("setup-empregador");
-                  }
-                }}>
-                🏢 {tipo === "ambos" ? "Mudar para modo Empregador" : "Também sou empregador"}
-              </button>
               <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
                 🏘️ Comunidade
               </button>
