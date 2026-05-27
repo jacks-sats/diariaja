@@ -322,6 +322,11 @@ export default function App() {
   const [docRevisao, setDocRevisao]               = useState<{user_id:string; nome:string; url:string; signedUrl?:string} | null>(null);
   const [docMotivoRejeicao, setDocMotivoRejeicao] = useState("");
   const [revisandoDoc, setRevisandoDoc]           = useState(false);
+  // Admin — revisão de antecedentes criminais (espelha o de KYC)
+  const [adminAntecedentesPendentes, setAdminAntecedentesPendentes] = useState<{user_id:string; nome:string; user_type:string; antecedentes_url:string; antecedentes_enviado_em:string}[]>([]);
+  const [antecedentesRevisao, setAntecedentesRevisao] = useState<{user_id:string; nome:string; url:string; signedUrl?:string} | null>(null);
+  const [antecedentesMotivoRejeicao, setAntecedentesMotivoRejeicao] = useState("");
+  const [revisandoAntecedentes, setRevisandoAntecedentes] = useState(false);
 
   // Filtro/sort de vagas (diarista)
   const [modalFiltro, setModalFiltro] = useState(false);
@@ -3115,6 +3120,55 @@ export default function App() {
     setDocRevisao(null);
     setDocMotivoRejeicao("");
     await carregarDocsPendentes();
+  };
+
+  // ── Admin: revisão de antecedentes criminais (espelha o KYC) ──────────────
+  const carregarAntecedentesPendentes = async () => {
+    if (!profile?.is_admin) return;
+    const { data, error } = await supabase.rpc("admin_antecedentes_pendentes");
+    if (!error && data) setAdminAntecedentesPendentes(data as { user_id:string; nome:string; user_type:string; antecedentes_url:string; antecedentes_enviado_em:string }[]);
+  };
+
+  const abrirAntecedentesParaRevisao = async (d: {user_id:string; nome:string; antecedentes_url:string}) => {
+    setAntecedentesRevisao({ user_id: d.user_id, nome: d.nome, url: d.antecedentes_url });
+    setAntecedentesMotivoRejeicao("");
+    const { data } = await supabase.storage
+      .from("antecedentes")
+      .createSignedUrl(d.antecedentes_url, 300);
+    if (data?.signedUrl) {
+      setAntecedentesRevisao(prev => prev ? { ...prev, signedUrl: data.signedUrl } : null);
+    }
+  };
+
+  const revisarAntecedentes = async (decisao: "aprovado" | "rejeitado") => {
+    if (!profile?.is_admin || !antecedentesRevisao || revisandoAntecedentes) return;
+    if (decisao === "rejeitado" && antecedentesMotivoRejeicao.trim().length < 3) {
+      setToastError("Informe o motivo da rejeição (mínimo 3 caracteres).");
+      return;
+    }
+    setRevisandoAntecedentes(true);
+    const { error } = await supabase.rpc("revisar_antecedentes", {
+      p_user_id: antecedentesRevisao.user_id,
+      p_decisao: decisao,
+      p_motivo: decisao === "rejeitado" ? antecedentesMotivoRejeicao.trim() : null,
+    });
+    setRevisandoAntecedentes(false);
+    if (error) {
+      setToastError("Falha ao revisar: " + error.message);
+      return;
+    }
+    enviarPush(
+      [antecedentesRevisao.user_id],
+      decisao === "aprovado" ? "✅ Antecedentes aprovados!" : "❌ Antecedentes rejeitados",
+      decisao === "aprovado"
+        ? "Sua certidão de antecedentes foi aprovada. Selo extra ativo no seu perfil!"
+        : `Motivo: ${antecedentesMotivoRejeicao.trim()}. Você pode reenviar pelo app.`,
+      { tipo: "confirmacao", url: "/?tela=editar-perfil" },
+    );
+    setToastSuccess(`✅ Antecedentes ${decisao}.`);
+    setAntecedentesRevisao(null);
+    setAntecedentesMotivoRejeicao("");
+    await carregarAntecedentesPendentes();
   };
 
   // ── COMUNIDADE ───────────────────────────────────────────────────────────
@@ -9789,7 +9843,7 @@ export default function App() {
                 {profile?.is_admin && (
                   <button
                     style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); setTela("admin-painel"); }}>
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); setTela("admin-painel"); }}>
                     <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
@@ -12265,7 +12319,7 @@ export default function App() {
                 {profile?.is_admin && (
                   <button
                     style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); setTela("admin-painel"); }}>
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); setTela("admin-painel"); }}>
                     <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
@@ -14345,7 +14399,7 @@ export default function App() {
             <button
               title="Recarregar"
               style={{ marginLeft:"auto", background:"rgba(255,255,255,.15)", border:"none", color:"#fff", borderRadius:10, padding:"8px 12px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-              onClick={() => { carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); }}>
+              onClick={() => { carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); }}>
               {carregandoAdminStats ? "⏳" : "🔄"}
             </button>
           </div>
@@ -14500,6 +14554,39 @@ export default function App() {
           )}
         </div>
 
+        {/* Antecedentes criminais pendentes */}
+        <div style={{ padding:"4px 16px 24px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>📋 Antecedentes pendentes</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{adminAntecedentesPendentes.length} aguardando</div>
+          </div>
+          {adminAntecedentesPendentes.length === 0 ? (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              ✅ Nenhuma certidão aguardando revisão.
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {adminAntecedentesPendentes.map(d => (
+                <div key={d.user_id}
+                  style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer", borderLeft:"4px solid #f59e0b" }}
+                  onClick={() => abrirAntecedentesParaRevisao(d)}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>
+                        {d.nome || "Usuário"}
+                      </div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                        {d.user_type === "diarista" ? "👷 Diarista" : "🏢 Contratante"} · Enviou {d.antecedentes_enviado_em ? new Date(d.antecedentes_enviado_em).toLocaleDateString("pt-BR") : "—"}
+                      </div>
+                    </div>
+                    <span style={{ background:"rgba(245,158,11,.18)", color:"#f59e0b", fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>Revisar</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* ── Modal drill-down: lista detalhada do card clicado ── */}
         {adminDrillTipo && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
@@ -14598,6 +14685,63 @@ export default function App() {
               <button
                 style={{ width:"100%", marginTop:8, padding:"10px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { setDocRevisao(null); setDocMotivoRejeicao(""); }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: revisão de antecedentes criminais */}
+        {antecedentesRevisao && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:700, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+            onClick={() => { setAntecedentesRevisao(null); setAntecedentesMotivoRejeicao(""); }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"18px", width:"100%", maxWidth:420, maxHeight:"92vh", overflowY:"auto" as const }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4 }}>📋 Revisar antecedentes</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:14 }}>{antecedentesRevisao.nome}</div>
+
+              {antecedentesRevisao.signedUrl ? (
+                antecedentesRevisao.url.toLowerCase().endsWith(".pdf") ? (
+                  <iframe src={antecedentesRevisao.signedUrl} title="Certidão de antecedentes" style={{ width:"100%", height:380, border:"1px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"#fff" }} />
+                ) : (
+                  <img loading="lazy" src={antecedentesRevisao.signedUrl} alt="Certidão" style={{ width:"100%", maxHeight:380, objectFit:"contain" as const, borderRadius:10, marginBottom:14, background:"#000" }} />
+                )
+              ) : (
+                <div style={{ width:"100%", height:200, background:"#f1f5f9", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", color:"#94a3b8", fontSize:13, marginBottom:14 }}>
+                  Carregando certidão…
+                </div>
+              )}
+
+              <div style={{ background:"#fff7ed", border:"1px solid #fed7aa", borderRadius:10, padding:"10px 12px", marginBottom:12, fontSize:11, color:"#9a3412", lineHeight:1.5 }}>
+                💡 Verificar: emitida ≤ 90 dias atrás · CPF bate com o do perfil · resultado "NADA CONSTA".
+              </div>
+
+              <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", display:"block", marginBottom:4, textTransform:"uppercase" as const, letterSpacing:0.3 }}>Motivo (obrigatório se rejeitar)</label>
+              <textarea
+                value={antecedentesMotivoRejeicao}
+                onChange={e => setAntecedentesMotivoRejeicao(e.target.value.slice(0, 500))}
+                placeholder="Ex: Certidão com mais de 90 dias — emita uma nova"
+                rows={2}
+                style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"vertical" as const, boxSizing:"border-box" as const, marginBottom:12, background:"var(--bg-app,#fff)", color:"var(--text-1,#0f172a)", outline:"none" }}
+              />
+
+              <div style={{ display:"flex", gap:8 }}>
+                <button
+                  disabled={revisandoAntecedentes}
+                  style={{ flex:1, padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:800, cursor: revisandoAntecedentes ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: revisandoAntecedentes ? 0.6 : 1 }}
+                  onClick={() => revisarAntecedentes("aprovado")}>
+                  ✅ Aprovar
+                </button>
+                <button
+                  disabled={revisandoAntecedentes || antecedentesMotivoRejeicao.trim().length < 3}
+                  style={{ flex:1, padding:"12px", background:"#ef4444", color:"#fff", border:"none", borderRadius:10, fontSize:14, fontWeight:800, cursor: revisandoAntecedentes || antecedentesMotivoRejeicao.trim().length < 3 ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: revisandoAntecedentes || antecedentesMotivoRejeicao.trim().length < 3 ? 0.5 : 1 }}
+                  onClick={() => revisarAntecedentes("rejeitado")}>
+                  ❌ Rejeitar
+                </button>
+              </div>
+              <button
+                style={{ width:"100%", marginTop:8, padding:"10px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => { setAntecedentesRevisao(null); setAntecedentesMotivoRejeicao(""); }}>
                 Cancelar
               </button>
             </div>

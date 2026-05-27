@@ -146,6 +146,39 @@ REVOKE ALL ON FUNCTION revisar_antecedentes(UUID, TEXT, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION revisar_antecedentes(UUID, TEXT, TEXT) TO authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- 3b. RPC pra admin listar pendentes (espelho de admin_documentos_pendentes)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION admin_antecedentes_pendentes()
+RETURNS TABLE (
+  user_id                  UUID,
+  nome                     TEXT,
+  user_type                TEXT,
+  antecedentes_url         TEXT,
+  antecedentes_enviado_em  TIMESTAMPTZ
+)
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM user_profiles WHERE id = auth.uid() AND is_admin = TRUE) THEN
+    RAISE EXCEPTION 'Acesso negado: somente administradores.';
+  END IF;
+
+  RETURN QUERY
+    SELECT
+      up.id,
+      up.nome,
+      up.user_type,
+      up.antecedentes_url,
+      up.antecedentes_enviado_em
+    FROM user_profiles up
+    WHERE up.antecedentes_status = 'enviado'
+    ORDER BY up.antecedentes_enviado_em ASC NULLS LAST;
+END $$;
+
+GRANT EXECUTE ON FUNCTION admin_antecedentes_pendentes() TO authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- 4. Storage bucket "antecedentes" (privado) — criar manualmente se ainda
 --    não existir. Bucket separado de "documentos" pra simplificar policies e
 --    permitir retenção/expurgo independentes (antecedentes têm validade legal
