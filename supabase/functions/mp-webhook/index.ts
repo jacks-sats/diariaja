@@ -165,11 +165,14 @@ Deno.serve(async (req) => {
       };
       const novoStatus = statusMap[sub.status] ?? "pendente";
 
-      // Atualiza a assinatura no banco
+      // Atualiza a assinatura no banco.
+      // IMPORTANTE (dual track): user pode ter 2 assinaturas (1 diarista +
+      // 1 empregador). Escopa por mp_subscription_id (gravado em
+      // create-subscription) pra mexer só na linha correta.
       await supabase
         .from("assinaturas")
-        .update({ status: novoStatus, mp_subscription_id: subId, updated_at: new Date().toISOString() })
-        .eq("user_id", userId);
+        .update({ status: novoStatus, updated_at: new Date().toISOString() })
+        .eq("mp_subscription_id", subId);
 
       // Se ativou → atualiza plano_ativo no perfil
       if (novoStatus === "ativo") {

@@ -13,11 +13,18 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const MP_TOKEN          = Deno.env.get("MP_ACCESS_TOKEN")!;
 const APP_URL           = Deno.env.get("APP_URL") ?? "https://diariaja.vercel.app";
 
-// Definição dos planos (espelho do frontend)
-const PLANOS: Record<string, { valor: number; nome: string }> = {
-  essencial: { valor: 49, nome: "Trampojá Essencial" },
-  pro:       { valor: 99, nome: "Trampojá Pro"       },
-  destaque:  { valor: 19, nome: "Trampojá Destaque"  },
+// Definição dos planos por papel (espelho do frontend — PLANOS_EMPREGADOR
+// e PLANOS_DIARISTA em src/constants.ts). Dual track: diarista e empregador
+// têm preços diferentes pro mesmo "tier".
+const PLANOS: Record<string, Record<string, { valor: number; nome: string }>> = {
+  diarista: {
+    essencial: { valor:  9.90, nome: "DiáriaJá Essencial — Diarista"   },
+    plus:      { valor: 19.90, nome: "DiáriaJá Plus — Diarista"        },
+  },
+  empregador: {
+    essencial: { valor: 24.90, nome: "DiáriaJá Essencial — Contratante" },
+    plus:      { valor: 49.90, nome: "DiáriaJá Plus — Contratante"      },
+  },
 };
 
 Deno.serve(async (req) => {
@@ -62,8 +69,15 @@ Deno.serve(async (req) => {
       return json({ error: "payer_email inválido" }, 400);
     }
 
-    const planoDef = PLANOS[plano];
-    if (!planoDef) return json({ error: "Plano inválido" }, 400);
+    // user_type tem que ser 'diarista' ou 'empregador' (NÃO 'ambos').
+    // No client, 'ambos' nunca é mandado direto — o modoAtual escolhe um.
+    if (user_type !== "diarista" && user_type !== "empregador") {
+      return json({ error: "user_type deve ser 'diarista' ou 'empregador'." }, 400);
+    }
+    const planoDef = PLANOS[user_type]?.[plano];
+    if (!planoDef) {
+      return json({ error: `Plano '${plano}' não disponível para ${user_type}.` }, 400);
+    }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -107,6 +121,10 @@ Deno.serve(async (req) => {
     const proximo = new Date();
     proximo.setMonth(proximo.getMonth() + 1);
 
+    // Dual track: UNIQUE composta (user_id, user_type) — onConflict tem que
+    // bater com a constraint nova `uq_assinaturas_user_role` da migration
+    // monetizacao_dual_track.sql. Antes era só user_id, mas isso quebrou
+    // quando o mesmo user pode ter 2 assinaturas (1 por papel).
     const { error: dbErr } = await supabase.from("assinaturas").upsert({
       user_id,
       plano,
@@ -116,7 +134,7 @@ Deno.serve(async (req) => {
       valor:               planoDef.valor,
       inicio:              agora.toISOString(),
       proximo_pagamento:   proximo.toISOString(),
-    }, { onConflict: "user_id" });
+    }, { onConflict: "user_id,user_type" });
 
     if (dbErr) console.error("DB assinaturas error:", dbErr);
 
