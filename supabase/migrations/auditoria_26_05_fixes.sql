@@ -202,9 +202,16 @@ CREATE TRIGGER trg_clamp_last_activity_at
 -- ---------------------------------------------------------------------------
 -- SECURITY DEFINER sem REVOKE FROM PUBLIC permitia qualquer authenticated
 -- rodar e expirar vagas em massa (DoS de concorrência).
-REVOKE ALL ON FUNCTION expirar_vagas_vencidas() FROM PUBLIC;
-REVOKE ALL ON FUNCTION expirar_vagas_vencidas() FROM authenticated;
-REVOKE ALL ON FUNCTION expirar_vagas_vencidas() FROM anon;
+-- Defensivo: só faz REVOKE se a função existir (caso este projeto não tenha
+-- a migration cron_expirar_vagas.sql aplicada).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'expirar_vagas_vencidas') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION expirar_vagas_vencidas() FROM PUBLIC';
+    EXECUTE 'REVOKE ALL ON FUNCTION expirar_vagas_vencidas() FROM authenticated';
+    EXECUTE 'REVOKE ALL ON FUNCTION expirar_vagas_vencidas() FROM anon';
+  END IF;
+END $$;
 -- service_role mantém execução (default tem todos os privilégios).
 
 -- ---------------------------------------------------------------------------
