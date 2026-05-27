@@ -578,6 +578,17 @@ export default function App() {
   // Persiste a tela atual para não sair da página ao recarregar
   useEffect(() => { localStorage.setItem("diariaja_tela", tela); }, [tela]);
 
+  // Carrega lista de cursos do Já Decola sempre que a Comunidade abre,
+  // pra que o card destacado mostre a contagem real de selos.
+  // Também recarrega ao entrar nas telas academy* (atualiza contadores).
+  useEffect(() => {
+    if (!session?.user) return;
+    if (tela === "comunidade" || tela === "academy" || tela === "academy-curso") {
+      carregarAcademyCursos();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tela, session?.user?.id, modoAtual]);
+
   // Confetti quando user atinge 100% de completude do perfil (1ª vez apenas).
   // Marcador em localStorage por user_id pra evitar replay em refresh ou re-login.
   useEffect(() => {
@@ -4043,6 +4054,42 @@ export default function App() {
     );
   };
 
+  // Banner rotativo do Já Decola — inserido entre cards de vaga (home-diarista)
+  // e entre cards de profissionais (home-empregador). A cada 6 cards aparece 1
+  // banner; mensagem varia por índice pra não ficar repetitivo.
+  const BannerJaDecolaInline = ({ index, paraDiarista }: { index: number; paraDiarista: boolean }) => {
+    const mensagensDiarista = [
+      { icone:"🚀", titulo:"Vire diarista 5★",        desc:"Curso rápido em Já Decola · ganhe selo no perfil" },
+      { icone:"⭐", titulo:"Mais avaliações positivas", desc:"Aprenda atendimento em 5 minutos · destaque na busca" },
+      { icone:"🏆", titulo:"Suba de nível na plataforma", desc:"Cursos gratuitos · selos visíveis ao contratante" },
+    ];
+    const mensagensEmpregador = [
+      { icone:"🎓", titulo:"Como contratar com segurança", desc:"Curso rápido em Já Decola · evite golpes e conflitos" },
+      { icone:"🛡️", titulo:"Vire contratante 5★",          desc:"Boas práticas · selos de confiança no perfil" },
+      { icone:"🚀", titulo:"Crie vagas que atraem os melhores", desc:"Aprenda em 5 minutos a criar vaga perfeita" },
+    ];
+    const arr = paraDiarista ? mensagensDiarista : mensagensEmpregador;
+    const m = arr[index % arr.length];
+    return (
+      <div role="button" tabIndex={0}
+        style={{
+          background:"linear-gradient(135deg,#FF6B35,#f59e0b)",
+          borderRadius:18, padding:"14px 16px", color:"#fff",
+          cursor:"pointer", boxShadow:"0 4px 16px rgba(255,107,53,.3)",
+          display:"flex", alignItems:"center", gap:12, marginBottom:10,
+        }}
+        onClick={() => { carregarAcademyCursos(); setTela("academy"); }}>
+        <div style={{ width:44, height:44, background:"rgba(255,255,255,.18)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{m.icone}</div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:10, fontWeight:800, opacity:0.85, letterSpacing:0.3, textTransform:"uppercase" as const }}>Já Decola · Academia</div>
+          <div style={{ fontSize:14, fontWeight:900, lineHeight:1.25, marginTop:1 }}>{m.titulo}</div>
+          <div style={{ fontSize:11, opacity:0.92, marginTop:2 }}>{m.desc}</div>
+        </div>
+        <div style={{ fontSize:20, opacity:0.9, flexShrink:0 }}>→</div>
+      </div>
+    );
+  };
+
   // LOADING
   // ── Barra de progresso global (aparece em qualquer operação assíncrona) ─────
   const anyLoading = loading || salvandoPerfil || authLoading || salvandoDiaria || enviandoAvalMutua || selecionando;
@@ -5037,9 +5084,7 @@ export default function App() {
           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Plataforma</div>
           <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
             {[
-              { icon:"🚀", label:"Já Decola — Academia",
-                sub: `${academyCertificados.length} curso${academyCertificados.length === 1 ? "" : "s"} concluído${academyCertificados.length === 1 ? "" : "s"} · Aprenda e desbloqueie selos`,
-                action:() => { carregarAcademyCursos(); setTela("academy"); } },
+              // Já Decola movido pra dentro da Comunidade (acesso pela tab/menu Comunidade)
               { icon:"💎", label:"Meu plano",
                 sub: profile?.plano_ativo && profile.plano_ativo !== "gratis"
                   ? `Plano ${profile.plano_ativo} ativo`
@@ -7085,9 +7130,12 @@ export default function App() {
                     const iniciais = d.nome.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
                     const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(d.funcao));
                     const funcCor = funcCatEntry ? funcCatEntry[1].cor : bg;
+                    // Banner rotativo do Já Decola: aparece após cada 6 cards
+                    const mostrarBannerAposCard = (i + 1) % 6 === 0 && i < diaristasReaisVisiveis.length - 1;
 
                     return (
-                      <div key={d.id}
+                      <React.Fragment key={d.id}>
+                      <div
                         style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer" }}
                         onClick={() => { setDiaristaSelecionadaReal(d); setTela("perfil-diarista-real"); }}>
 
@@ -7144,6 +7192,10 @@ export default function App() {
                           </div>
                         </div>
                       </div>
+                      {mostrarBannerAposCard && (
+                        <BannerJaDecolaInline index={Math.floor(i / 6)} paraDiarista={false} />
+                      )}
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -9734,7 +9786,7 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                vagasFiltradas.map(dia => {
+                vagasFiltradas.map((dia, idx) => {
                   const segInfo = CATEGORIAS_NEGOCIO[dia.segmento as keyof typeof CATEGORIAS_NEGOCIO];
                   const cor = segInfo?.cor || "#FF6B35";
                   const iniciais = empresaIniciais(dia.nome_negocio || dia.segmento);
@@ -9749,9 +9801,13 @@ export default function App() {
                   const candDessaVaga = candidaturas.filter(c => c.diaria_id === dia.id);
                   const idadeMs = dia.created_at ? Date.now() - new Date(dia.created_at).getTime() : Infinity;
                   const vagaRecente = idadeMs < 6 * 60 * 60 * 1000; // criada nas últimas 6h
+                  // Banner rotativo do Já Decola: aparece após cada 6 cards
+                  // (não aparece se for o último card da lista).
+                  const mostrarBannerAposCard = (idx + 1) % 6 === 0 && idx < vagasFiltradas.length - 1;
 
                   return (
-                    <div key={dia.id}
+                    <React.Fragment key={dia.id}>
+                    <div
                       style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer", position:"relative" as const }}
                       onClick={() => { setVagaConfirm(dia); setVagaConfirmada(false); }}>
                       {/* Selo de urgência no canto superior direito (Booking/Airbnb style) */}
@@ -9961,6 +10017,10 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                    {mostrarBannerAposCard && (
+                      <BannerJaDecolaInline index={Math.floor(idx / 6)} paraDiarista={true} />
+                    )}
+                    </React.Fragment>
                   );
                 })
               )}
@@ -13878,6 +13938,36 @@ export default function App() {
         {/* Toasts */}
         {toastSuccess && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, whiteSpace:"nowrap" }}>{toastSuccess}</div>}
         {toastError   && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999 }}>{toastError}</div>}
+
+        {/* ── Já Decola — card destacado dentro da Comunidade ── */}
+        <div role="button" tabIndex={0}
+          style={{
+            margin:"12px 16px 0",
+            background:"linear-gradient(135deg,#FF6B35,#f59e0b)",
+            borderRadius:18, padding:"16px 18px",
+            color:"#fff", cursor:"pointer",
+            boxShadow:"0 4px 20px rgba(255,107,53,.35)",
+            position:"relative" as const, overflow:"hidden" as const,
+          }}
+          onClick={() => { carregarAcademyCursos(); setTela("academy"); }}>
+          <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+            <div style={{ width:54, height:54, background:"rgba(255,255,255,.18)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0 }}>🚀</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:11, fontWeight:800, opacity:0.85, letterSpacing:0.3, textTransform:"uppercase" as const }}>Já Decola · Academia</div>
+              <div style={{ fontSize:16, fontWeight:900, lineHeight:1.2, marginTop:2 }}>
+                {academyCertificados.length === 0
+                  ? "Aprenda e desbloqueie selos"
+                  : academyCertificados.length === 1
+                  ? "Continue evoluindo — você tem 1 selo!"
+                  : `Você tem ${academyCertificados.length} selos. Bora pro próximo?`}
+              </div>
+              <div style={{ fontSize:11, opacity:0.92, marginTop:4 }}>
+                Cursos rápidos · +pontos no score · destaque na busca
+              </div>
+            </div>
+            <div style={{ fontSize:24, opacity:0.85, flexShrink:0 }}>→</div>
+          </div>
+        </div>
 
         {/* Lista */}
         <div style={{ padding:"12px 16px", display:"flex", flexDirection:"column" as const, gap:10 }}>
