@@ -544,6 +544,27 @@ export default function App() {
   // Persiste a tela atual para não sair da página ao recarregar
   useEffect(() => { localStorage.setItem("diariaja_tela", tela); }, [tela]);
 
+  // Confetti quando user atinge 100% de completude do perfil (1ª vez apenas).
+  // Marcador em localStorage por user_id pra evitar replay em refresh ou re-login.
+  useEffect(() => {
+    if (!profile || !session?.user) return;
+    const comp = calcCompletude({
+      foto_url: profile.foto_url, cpf: profile.cpf, cnpj: profile.cnpj,
+      telefone: profile.telefone, telefone_verificado: profile.telefone_verificado,
+      bio: profile.bio, endereco_empregador: profile.endereco_empregador,
+      lat: profile.lat, pix_chave: profile.pix_chave, mp_user_id: profile.mp_user_id,
+    }, 0, null);
+    if (comp.pct < 100) return;
+    const k = `diariaja_confetti_perfil_${session.user.id}`;
+    try {
+      if (localStorage.getItem(k) === "1") return;
+      localStorage.setItem(k, "1");
+    } catch { return; }
+    // Dispara após pequeno delay pra sentir mais natural
+    setTimeout(() => { dispararConfetti(); setToastSuccess("🎉 Perfil 100% completo! Você ganhou destaque na busca."); }, 400);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.foto_url, profile?.cpf, profile?.cnpj, profile?.telefone_verificado, profile?.bio, profile?.endereco_empregador, profile?.pix_chave, profile?.mp_user_id]);
+
   // Rascunho do cadastro empresarial — salva campos não-sensíveis a cada
   // mudança, restaura ao reabrir a tela. Senha e checkbox de termos NÃO são
   // salvos (segurança + LGPD: aceite tem que ser ato consciente, não restored).
@@ -3776,6 +3797,71 @@ export default function App() {
     </svg>
   );
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Helpers visuais de retenção e UX premium (auditoria 26/05 — Fase 2)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Skeleton de loading — mostra estrutura do card antes do dado chegar.
+  // Substitui spinner "Carregando..." em listas. Padrão de apps premium.
+  const SkeletonCard = ({ altura = 96 }: { altura?: number }) => (
+    <div style={{
+      background: "var(--bg-card,#fff)", borderRadius: 14, padding: 14,
+      marginBottom: 10, display: "flex", gap: 12, alignItems: "center",
+      boxShadow: "0 2px 8px rgba(0,0,0,.04)", height: altura, boxSizing: "border-box" as const,
+    }}>
+      <div style={{ width: 52, height: 52, borderRadius: 26, background: "linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%)", backgroundSize: "200% 100%", animation: "skl 1.4s infinite" }} />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ height: 14, width: "65%", borderRadius: 4, background: "linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%)", backgroundSize: "200% 100%", animation: "skl 1.4s infinite" }} />
+        <div style={{ height: 10, width: "40%", borderRadius: 4, background: "linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%)", backgroundSize: "200% 100%", animation: "skl 1.4s infinite" }} />
+      </div>
+    </div>
+  );
+  const SkeletonList = ({ count = 3, altura = 96 }: { count?: number; altura?: number }) => (
+    <div style={{ padding: "12px 16px 0" }}>
+      {Array.from({ length: count }).map((_, i) => <SkeletonCard key={i} altura={altura} />)}
+    </div>
+  );
+
+  // Confetti celebratório — usa CSS puro (sem dependência externa). Spawna
+  // ~40 divs coloridas que caem por 2 segundos. Chamado em momentos de glória:
+  // perfil completo (100%), 1ª diária concluída, KYC aprovado, etc.
+  const dispararConfetti = () => {
+    if (typeof document === "undefined") return;
+    const cores = ["#FF6B35", "#3A86FF", "#22c55e", "#fbbf24", "#a855f7"];
+    const container = document.createElement("div");
+    container.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:99999;overflow:hidden";
+    document.body.appendChild(container);
+    for (let i = 0; i < 40; i++) {
+      const p = document.createElement("div");
+      const cor = cores[i % cores.length];
+      const left = Math.random() * 100;
+      const delay = Math.random() * 0.5;
+      const dur = 1.8 + Math.random() * 1.4;
+      const tam = 6 + Math.random() * 6;
+      p.style.cssText = `position:absolute;top:-20px;left:${left}%;width:${tam}px;height:${tam}px;background:${cor};border-radius:${Math.random() > 0.5 ? "50%" : "2px"};opacity:.9;animation:cft ${dur}s ${delay}s linear forwards;transform:rotate(${Math.random()*360}deg)`;
+      container.appendChild(p);
+    }
+    setTimeout(() => { container.remove(); }, 3500);
+  };
+
+  // Badge "✓ Verificado" — destaca diaristas/empregadores com nível ≥ 3
+  // (telefone + CPF + doc aprovado). Padrão Mercado Livre/Booking.
+  const BadgeVerificado = ({ nivel, tamanho = "sm" }: { nivel: number; tamanho?: "sm" | "md" }) => {
+    if (nivel < 3) return null;
+    const fs = tamanho === "md" ? 11 : 9;
+    const pad = tamanho === "md" ? "3px 8px" : "2px 6px";
+    return (
+      <span style={{
+        display: "inline-flex", alignItems: "center", gap: 3,
+        background: nivel >= 4 ? "linear-gradient(135deg,#16a34a,#22c55e)" : "linear-gradient(135deg,#3A86FF,#60a5fa)",
+        color: "#fff", padding: pad, borderRadius: 20, fontSize: fs, fontWeight: 800,
+        boxShadow: "0 1px 3px rgba(0,0,0,.12)",
+      }}>
+        ✓ {nivel >= 4 ? "Premium" : "Verificado"}
+      </span>
+    );
+  };
+
   // LOADING
   // ── Barra de progresso global (aparece em qualquer operação assíncrona) ─────
   const anyLoading = loading || salvandoPerfil || authLoading || salvandoDiaria || enviandoAvalMutua || selecionando;
@@ -6877,7 +6963,19 @@ export default function App() {
                                   <img loading="lazy" src={dp?.foto_url || supabase.storage.from("avatars").getPublicUrl(`${dia.diarista_aceite_id}.jpg`).data.publicUrl} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }} style={{ position:"absolute", inset:0, width:52, height:52, borderRadius:26, objectFit:"cover" as const, border:"2px solid #FF6B3540" }} />
                                 </div>
                                 <div style={{ flex:1, minWidth:0 }}>
-                                  <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Carregando..."}</div>
+                                  <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
+                                    <span style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Carregando..."}</span>
+                                    {dp && (() => {
+                                      const n = calcularNivelConfiabilidade({
+                                        telefone_verificado: dp.telefone_verificado,
+                                        email_confirmado: true, // assume email confirmado se o user é visível na lista
+                                        cpf: dp.cpf, cnpj: dp.cnpj,
+                                        documento_status: dp.documento_status,
+                                        mfa_enabled: false,
+                                      });
+                                      return <BadgeVerificado nivel={n.nivel} tamanho="sm" />;
+                                    })()}
+                                  </div>
                                   <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, display:"flex", alignItems:"center", gap:6 }}>
                                     {dp?.funcao && <span style={{ color:"#FF6B35", fontWeight:700 }}>{dp.funcao}</span>}
                                     {qtdDiarias !== null && <span>· ✅ {qtdDiarias} diária{qtdDiarias !== 1 ? "s" : ""}</span>}
@@ -8644,6 +8742,11 @@ export default function App() {
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
                   <span style={{ background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>👷 Diarista</span>
+                  {!loading && vagasFiltradas.length > 0 && (
+                    <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:600 }}>
+                      · {vagasFiltradas.length === 1 ? "1 vaga perto" : `${vagasFiltradas.length} vagas perto`}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -8735,6 +8838,54 @@ export default function App() {
                 )}
                 <span style={{ fontSize:12, fontWeight:700, color:cor, marginLeft:"auto" }}>Completar agora →</span>
               </div>
+            </div>
+          );
+        })()}
+
+        {/* ── Banner "🔥 Vaga nova perto de você (últimas 24h)" — urgência social ── */}
+        {(() => {
+          if (loading || !profile) return null;
+          const agoraMs = Date.now();
+          const seg24h = 24 * 60 * 60 * 1000;
+          // Vagas das últimas 24h, dentro de 10km, da função do user
+          const vagasRecentes = vagasReais.filter(d => {
+            if (!d.created_at) return false;
+            const idadeMs = agoraMs - new Date(d.created_at).getTime();
+            if (idadeMs > seg24h) return false;
+            if (d.status !== "aberta" && d.status !== "ativa") return false;
+            if (d.empregador_id === session?.user?.id) return false;
+            if (profile?.funcao && d.funcao && d.funcao !== profile.funcao) {
+              // se a função do user é específica, só vagas dessa função
+              return false;
+            }
+            // Distância: só vale se ambos têm lat/lng
+            if (profile?.lat && profile?.lng && d.lat && d.lng) {
+              const km = haversineKm(profile.lat, profile.lng, d.lat!, d.lng!);
+              if (km > 10) return false;
+            }
+            return true;
+          });
+          if (vagasRecentes.length === 0) return null;
+          // Mais recente, ordenada
+          const mais = [...vagasRecentes].sort((a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          )[0];
+          const horas = Math.max(1, Math.round((agoraMs - new Date(mais.created_at).getTime()) / (60 * 60 * 1000)));
+          return (
+            <div
+              role="button" tabIndex={0}
+              style={{ background:"linear-gradient(135deg,#16a34a,#22c55e)", margin:"12px 16px 0", borderRadius:18, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, cursor:"pointer", boxShadow:"0 4px 20px rgba(34,197,94,.35)" }}
+              onClick={() => { window.scrollTo({ top: 999, behavior: "smooth" }); }}>
+              <div style={{ fontSize:28, flexShrink:0 }}>🔥</div>
+              <div style={{ flex:1, minWidth:0, color:"#fff" }}>
+                <div style={{ fontSize:13, fontWeight:900, lineHeight:1.3 }}>
+                  {vagasRecentes.length === 1 ? "Vaga nova perto de você!" : `${vagasRecentes.length} vagas novas perto de você!`}
+                </div>
+                <div style={{ fontSize:11, fontWeight:600, opacity:0.95, marginTop:2 }}>
+                  {mais.funcao || mais.segmento} · R$ {Number(mais.valor).toLocaleString("pt-BR")} · há {horas}h
+                </div>
+              </div>
+              <div style={{ fontSize:18, color:"#fff", flexShrink:0 }}>→</div>
             </div>
           );
         })()}
@@ -8965,27 +9116,35 @@ export default function App() {
                   }
                 </div>
               )}
-              {vagasFiltradas.length === 0 ? (
+              {loading ? (
+                <SkeletonList count={4} altura={100} />
+              ) : vagasFiltradas.length === 0 ? (
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"36px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                   <div style={{ width:80, height:80, borderRadius:40, background:"var(--bg-subtle,#f1f5f9)", display:"inline-flex", alignItems:"center", justifyContent:"center", marginBottom:12 }}>
                     <Inbox size={36} color="var(--text-3,#94a3b8)" strokeWidth={1.5} />
                   </div>
-                  <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Nenhuma vaga no momento</div>
-                  <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:16 }}>
-                    Ainda não há vagas para sua especialidade por aqui. Indique a plataforma para empregadores da sua cidade!
+                  <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:8 }}>
+                    {categoriasSelecionadas.length > 0 || filtroValorMin > 0 || filtroRaioKm < 50 ? "Nenhuma vaga com esses filtros" : "Por enquanto, nada por aqui 🌱"}
                   </div>
-                  <button
-                    style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, padding:"12px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 14px rgba(255,107,53,.4)" }}
-                    onClick={() => {
-                      if (navigator.share) {
-                        navigator.share({ title:"DiáriaJá", text:"Encontre mão de obra qualificada no DiáriaJá!", url:"https://diariaja.vercel.app" });
-                      } else {
-                        navigator.clipboard?.writeText("https://diariaja.vercel.app");
-                        setToastSuccess("🔗 Link copiado!");
-                      }
-                    }}>
-                    📨 Indicar para empregadores
-                  </button>
+                  <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:20 }}>
+                    {categoriasSelecionadas.length > 0 || filtroValorMin > 0 || filtroRaioKm < 50
+                      ? "Tente afrouxar os filtros — talvez tenha algo bom logo ao lado."
+                      : "Vagas chegam o tempo todo. Enquanto isso, deixe seu perfil 100% completo pra aparecer no topo quando o empregador buscar."}
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+                    {(categoriasSelecionadas.length > 0 || filtroValorMin > 0 || filtroRaioKm < 50) && (
+                      <button
+                        style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, padding:"13px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 14px rgba(255,107,53,.4)", minHeight:46 }}
+                        onClick={() => { setCategorias([]); setFiltroValorMin(0); setFiltroRaioKm(50); }}>
+                        ✨ Limpar todos os filtros
+                      </button>
+                    )}
+                    <button
+                      style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"1px solid var(--border,#e2e8f0)", borderRadius:14, padding:"13px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:46 }}
+                      onClick={() => setTela("editar-perfil")}>
+                      📋 Completar meu perfil
+                    </button>
+                  </div>
                 </div>
               ) : (
                 vagasFiltradas.map(dia => {
@@ -8999,11 +9158,26 @@ export default function App() {
                   const duracao = minTotal > 0 ? ` · ${Math.floor(minTotal/60)}h${minTotal%60>0?String(minTotal%60).padStart(2,"0")+"min":""}` : "";
                   const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(dia.funcao));
                   const funcCor = funcCatEntry ? funcCatEntry[1].cor : "#64748b";
+                  // Urgência social (FOMO): candidaturas nas últimas 24h pra essa vaga
+                  const candDessaVaga = candidaturas.filter(c => c.diaria_id === dia.id);
+                  const idadeMs = dia.created_at ? Date.now() - new Date(dia.created_at).getTime() : Infinity;
+                  const vagaRecente = idadeMs < 6 * 60 * 60 * 1000; // criada nas últimas 6h
 
                   return (
                     <div key={dia.id}
-                      style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer" }}
+                      style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer", position:"relative" as const }}
                       onClick={() => { setVagaConfirm(dia); setVagaConfirmada(false); }}>
+                      {/* Selo de urgência no canto superior direito (Booking/Airbnb style) */}
+                      {vagaRecente && (
+                        <div style={{ position:"absolute" as const, top:10, right:10, background:"#16a34a", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, boxShadow:"0 2px 6px rgba(22,163,74,.3)" }}>
+                          🆕 NOVA
+                        </div>
+                      )}
+                      {!vagaRecente && candDessaVaga.length >= 3 && (
+                        <div style={{ position:"absolute" as const, top:10, right:10, background:"#FF6B35", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, boxShadow:"0 2px 6px rgba(255,107,53,.3)" }}>
+                          🔥 {candDessaVaga.length} candidatos
+                        </div>
+                      )}
 
                       <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
                         {/* Logo empresa — foto ou iniciais */}

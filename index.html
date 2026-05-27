@@ -119,6 +119,26 @@
         0%, 60%, 100% { transform: translateY(0); opacity: .6; }
         30%            { transform: translateY(-6px); opacity: 1; }
       }
+
+      /* Skeleton shimmer — substitui spinner em listas (UX premium) */
+      @keyframes skl {
+        0%   { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      /* Confetti — anima partículas caindo em momentos de glória */
+      @keyframes cft {
+        0%   { transform: translateY(0) rotate(0deg);   opacity: .95; }
+        80%  { opacity: .85; }
+        100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+      }
+
+      /* Respeita preferência do usuário por menos movimento (acessibilidade) */
+      @media (prefers-reduced-motion: reduce) {
+        @keyframes skl { from {} to {} }
+        @keyframes cft { from {} to {} }
+        @keyframes bounce { from {} to {} }
+      }
     </style>
   </head>
   <body>
