@@ -440,6 +440,25 @@ export default function App() {
   const cnpjsDuplicadosRef = useRef<Set<string>>(new Set());
   const cnpjsLivresRef = useRef<Set<string>>(new Set());
   const [verificandoCnpjEmp, setVerificandoCnpjEmp] = useState(false);
+  // Wizard PJ: passo atual (1..4). Persistido em localStorage pra não perder
+  // o lugar se o user trocar de tela ou recarregar.
+  const [passoEmpresa, setPassoEmpresa] = useState<1 | 2 | 3 | 4>(() => {
+    try {
+      const v = Number(localStorage.getItem("diariaja_cad_empresa_passo"));
+      if (v >= 1 && v <= 4) return v as 1 | 2 | 3 | 4;
+    } catch { /* ignore */ }
+    return 1;
+  });
+  useEffect(() => {
+    try { localStorage.setItem("diariaja_cad_empresa_passo", String(passoEmpresa)); } catch { /* ignore */ }
+  }, [passoEmpresa]);
+  // Mapeamento de campos por passo do wizard PJ — usado pra validar incremental
+  const CAMPOS_POR_PASSO_EMP: Record<1 | 2 | 3 | 4, Array<keyof FormEmpresa>> = {
+    1: ["cnpj", "nomeFantasia", "email", "telefone"],
+    2: ["razaoSocial", "cep", "rua", "numero", "bairro", "cidade", "estado"],
+    3: ["responsavelNome", "responsavelCpf", "senha", "confirmaSenha"],
+    4: ["aceitaTermos"],
+  };
 
   // Configurações / Conta
   const [novaSenha, setNovaSenha] = useState("");
@@ -1676,11 +1695,31 @@ export default function App() {
             if (data?.user_type) {
               await checkProfile(session.user.id);
             } else {
-              // FIX 2: usa o ref para não perder o tipo selecionado antes do redirect OAuth
+              // Profile não existe ainda. Pode ser primeiro login via Google OAuth.
+              // Estratégia minimal-first: se o user já escolheu o tipo antes (tipoRef),
+              // criamos um perfil mínimo automaticamente e mandamos direto pra home.
+              // O resto do onboarding vira o banner "Complete seu perfil".
               const t = tipoRef.current;
-              if (t === "empregador") setTela("cadastro-empregador");
-              else if (t === "diarista") setTela("cadastro-diarista");
-              else setTela("cadastro-tipo");
+              if (t === "empregador" || t === "diarista") {
+                // Pega nome/foto do Google se disponível
+                const meta = (session.user.user_metadata || {}) as Record<string, unknown>;
+                const nomeGoogle = String(meta.full_name || meta.name || "").trim();
+                const fotoGoogle = String(meta.avatar_url || meta.picture || "").trim();
+                try {
+                  await supabase.from("user_profiles").upsert({
+                    id: session.user.id,
+                    user_type: t,
+                    nome: nomeGoogle,
+                    foto_url: fotoGoogle || "",
+                    pessoa_tipo: "fisica",
+                  }, { onConflict: "id" });
+                } catch { /* RLS pode bloquear em "Confirm email" — re-tenta no próximo login */ }
+                if (t === "empregador") setTela("home-empregador");
+                else setTela("home-diarista");
+              } else {
+                // Sem tipo selecionado — primeira vez via Google direto. Manda escolher.
+                setTela("cadastro-tipo");
+              }
               setLoading(false);
             }
           } catch {
@@ -1875,32 +1914,99 @@ export default function App() {
     setAuthLoading(false);
   };
 
+  // Minimal-first signup: valida + cria conta + persiste perfil mínimo + vai
+  // direto pra home apropriada. Detalhes do perfil (CPF, foto, função, etc.)
+  // ficam pra depois via banner "Complete seu perfil".
   const handleEmailSignup = async () => {
     if (!checkTermos) { setAuthError("Você precisa aceitar os Termos de Uso para criar uma conta."); return; }
+    if (!form.nome.trim()) { setAuthError("Informe seu nome completo."); return; }
+    { const erroNome = validarNome(form.nome); if (erroNome) { setAuthError(erroNome); return; } }
+    if (!validarTelefone(form.telefone)) { setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX."); return; }
     if (!validarEmail(form.email)) { setAuthError("E-mail inválido. Confira e tente novamente."); return; }
     { const erroSenha = validarSenhaForte(form.senha); if (erroSenha) { setAuthError(erroSenha); return; } }
+
+    // Rate limit local — 3 falhas seguidas trava por 30s. Anti-spam/UX +
+    // proteção a complementar o rate-limit do Supabase server-side.
+    try {
+      const RL_KEY = "diariaja_signup_rl";
+      const raw = localStorage.getItem(RL_KEY);
+      const rl = raw ? JSON.parse(raw) as { fails: number; lockedUntil: number } : { fails: 0, lockedUntil: 0 };
+      if (rl.lockedUntil > Date.now()) {
+        const seg = Math.ceil((rl.lockedUntil - Date.now()) / 1000);
+        setAuthError(`Muitas tentativas. Aguarde ${seg}s antes de tentar novamente.`);
+        return;
+      }
+    } catch { /* ignore */ }
+
     setAuthError(""); setAuthLoading(true);
-    const { data: signupData, error } = await supabase.auth.signUp({ email: form.email, password: form.senha });
+    const { data: signupData, error } = await supabase.auth.signUp({
+      email: form.email.trim(),
+      password: form.senha,
+      // Coloca nome em user_metadata pra ficar acessível em logs/admin.
+      options: { data: { full_name: form.nome.trim(), user_type: tipo } },
+    });
     if (error) {
-      setAuthError(traduzirErroAuth(error.message));
-    } else {
-      // Audit trail do aceite (LGPD). Quando "Confirm email" está ON, signupData.session
-      // é null e o profile/RLS não aceitam INSERT ainda — usamos RPC SECURITY DEFINER
-      // que persiste assim que houver sessão. Se ainda não houver sessão, marca localStorage
-      // como backup e o app re-tenta no primeiro login via onAuthStateChange.
+      // Incrementa contador de tentativas falhas (rate limit local)
       try {
-        if (signupData?.session) {
-          await supabase.rpc("aceitar_termos", { p_versao: TERMOS_VERSAO });
-        }
-      } catch { /* falha silenciosa — backup em localStorage abaixo */ }
-      try {
-        localStorage.setItem("diariaja_termos_" + TERMOS_VERSAO, "1");
-        localStorage.setItem("diariaja_termos_data", new Date().toISOString());
-        // Marcador pra re-tentar persistir após confirm-email no primeiro login
-        localStorage.setItem("diariaja_termos_pendente_db", "1");
+        const RL_KEY = "diariaja_signup_rl";
+        const raw = localStorage.getItem(RL_KEY);
+        const rl = raw ? JSON.parse(raw) as { fails: number; lockedUntil: number } : { fails: 0, lockedUntil: 0 };
+        const fails = rl.fails + 1;
+        const lockedUntil = fails >= 3 ? Date.now() + 30_000 : 0;
+        localStorage.setItem(RL_KEY, JSON.stringify({ fails: fails % 5, lockedUntil }));
       } catch { /* ignore */ }
+      setAuthError(traduzirErroAuth(error.message));
+      setAuthLoading(false);
+      return;
     }
+    // Sucesso → zera contador
+    try { localStorage.removeItem("diariaja_signup_rl"); } catch { /* ignore */ }
+
+    // Audit trail do aceite (LGPD). Quando "Confirm email" está ON, signupData.session
+    // é null e o profile/RLS não aceitam INSERT ainda — usamos RPC SECURITY DEFINER
+    // que persiste assim que houver sessão.
+    try { localStorage.setItem("diariaja_termos_" + TERMOS_VERSAO, "1"); } catch { /* ignore */ }
+    try { localStorage.setItem("diariaja_termos_data", new Date().toISOString()); } catch { /* ignore */ }
+    try { localStorage.setItem("diariaja_termos_pendente_db", "1"); } catch { /* ignore */ }
+
+    // Pra criar o perfil precisamos de sessão. Se "Confirm email" está OFF,
+    // signupData.session já vem. Se está ON, tentamos signInWithPassword.
+    let activeSession = signupData?.session ?? null;
+    if (!activeSession) {
+      const { data: signInData } = await supabase.auth.signInWithPassword({
+        email: form.email.trim(), password: form.senha,
+      });
+      activeSession = signInData?.session ?? null;
+    }
+
+    if (!activeSession) {
+      // Confirm email ligado e não conseguimos pre-logar. Mostra mensagem clara.
+      setAuthError("✅ Conta criada! Confirme seu e-mail para entrar (verifique também o spam).");
+      setAuthLoading(false);
+      return;
+    }
+
+    // Persiste aceite de termos no banco
+    try { await supabase.rpc("aceitar_termos", { p_versao: TERMOS_VERSAO }); } catch { /* ok — RPC tenta de novo no próximo login */ }
+
+    // Cria/atualiza perfil mínimo (nome, telefone, user_type). Resto fica pro
+    // banner "Complete seu perfil" na home.
+    const ok = await saveProfile({
+      user_type: tipo ?? undefined,
+      nome: form.nome.trim(),
+      telefone: form.telefone.replace(/\D/g, ""),
+      pessoa_tipo: "fisica",  // signup pelo cadastro-auth é sempre PF; PJ usa cadastro-empresa
+    });
     setAuthLoading(false);
+    if (!ok) {
+      setAuthError("Conta criada, mas falhou ao salvar dados básicos. Tente entrar de novo.");
+      return;
+    }
+    // Direto pra home — sem passar pelos forms gigantes. O banner "Complete
+    // seu perfil" guia o resto do onboarding incrementalmente.
+    if (tipo === "diarista") setTela("home-diarista");
+    else if (tipo === "empregador") setTela("home-empregador");
+    else setTela("cadastro-tipo");  // fallback defensivo
   };
 
   const handleResetSenha = async () => {
@@ -4056,9 +4162,26 @@ export default function App() {
           </>
         )}
 
+        {/* Minimal-first: só 4 campos. Banner contextual mostra o que vem depois. */}
+        <p style={{ color:"#94a3b8", fontSize:11, margin:"0 0 12px", textAlign:"center" as const }}>
+          ⚡ Só 4 campos. Em 1 minuto você está dentro do app.
+        </p>
+
+        <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Nome completo</label>
+        <input id="cad-nome" aria-label="Nome completo" type="text" autoComplete="name"
+          style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+          placeholder="Ex: Maria Oliveira" value={form.nome}
+          onChange={e => setForm({ ...form, nome: e.target.value })} />
+
+        <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Telefone (WhatsApp)</label>
+        <input id="cad-tel" aria-label="Telefone" type="tel" inputMode="numeric" autoComplete="tel" maxLength={15}
+          style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+          placeholder="(67) 99999-9999" value={form.telefone}
+          onChange={e => setForm({ ...form, telefone: maskTelefone(e.target.value) })} />
+
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
         <input id="cad-email" aria-label="E-mail" type="email" autoComplete="email" style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
-          placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
+          placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value.trim()})} />
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
         <div style={{ position:"relative" as const }}>
@@ -4069,6 +4192,30 @@ export default function App() {
             {mostrarSenhaCadastro ? "🙈" : "👁️"}
           </button>
         </div>
+
+        {/* Password strength meter — feedback visual de força da senha (Onda D) */}
+        {form.senha.length > 0 && (() => {
+          const s = form.senha;
+          let nivel = 0;
+          if (s.length >= 8) nivel++;
+          if (s.length >= 12) nivel++;
+          if (/[A-Z]/.test(s) && /[a-z]/.test(s)) nivel++;
+          if (/[0-9]/.test(s) && /[^A-Za-z0-9]/.test(s)) nivel++;
+          const cores = ["#ef4444", "#f59e0b", "#fbbf24", "#22c55e", "#16a34a"];
+          const rotulos = ["Muito fraca", "Fraca", "Razoável", "Boa", "Forte"];
+          return (
+            <div style={{ marginTop:6 }}>
+              <div style={{ display:"flex", gap:4 }}>
+                {[0,1,2,3].map(i => (
+                  <div key={i} style={{ flex:1, height:4, borderRadius:2, background: i < nivel ? cores[nivel] : "rgba(255,255,255,.1)", transition:"background .2s" }} />
+                ))}
+              </div>
+              <p style={{ fontSize:11, color: cores[nivel], fontWeight:700, margin:"4px 0 0" }}>
+                Força: {rotulos[nivel]}
+              </p>
+            </div>
+          );
+        })()}
 
         {authError && <p style={{ color:"#f87171", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>{authError}</p>}
 
@@ -4991,230 +5138,351 @@ export default function App() {
       </div>
     );
 
+    // Nomes dos passos pra header e progresso visual
+    const NOMES_PASSOS: Record<1 | 2 | 3 | 4, string> = {
+      1: "Dados da empresa",
+      2: "Endereço",
+      3: "Responsável e Acesso",
+      4: "Verificação e Termos",
+    };
+
+    // Avança pra próximo passo SE os campos do passo atual forem válidos.
+    // Marca todos como tocados pra mostrar erros vermelhos na primeira tentativa.
+    const proximoPassoEmpresa = () => {
+      const campos = CAMPOS_POR_PASSO_EMP[passoEmpresa];
+      const novosTocados = { ...tocadosEmp };
+      const novosErros: Partial<Record<keyof FormEmpresa, string>> = { ...errosEmp };
+      let temErro = false;
+      campos.forEach(c => {
+        novosTocados[c] = true;
+        const err = validarCampoEmpresa(c, formEmp[c], formEmp);
+        novosErros[c] = err;
+        if (err) temErro = true;
+      });
+      setTocadosEmp(novosTocados);
+      setErrosEmp(novosErros);
+      if (temErro) {
+        setAuthError("Corrija os campos destacados antes de continuar.");
+        // Tenta levar o foco pro primeiro campo com erro (UX em form longo)
+        const primeiroErro = campos.find(c => novosErros[c]);
+        if (primeiroErro) {
+          const el = document.getElementById(`empresa-${primeiroErro}`);
+          if (el && "scrollIntoView" in el) { (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" }); (el as HTMLElement).focus?.(); }
+        }
+        return;
+      }
+      setAuthError("");
+      setPassoEmpresa((p) => (Math.min(4, p + 1) as 1 | 2 | 3 | 4));
+      // Volta ao topo da tela ao mudar de passo (UX em mobile)
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
     return (
       <div style={{ minHeight:"100vh", background:"#f0f2f5", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", padding:"0 20px 40px" }}>
         <button
-          style={{ background:"none", border:"none", color:"#475569", fontSize:15, cursor:"pointer", padding:"32px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }}
-          onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
+          style={{ background:"none", border:"none", color:"#475569", fontSize:15, cursor:"pointer", padding:"32px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif", minHeight:44 }}
+          onClick={() => {
+            // Passo 1 → volta pra escolha de tipo. Passos 2-4 → passo anterior.
+            if (passoEmpresa === 1) { setAuthError(""); setTela("cadastro-tipo"); }
+            else { setAuthError(""); setPassoEmpresa((p) => (Math.max(1, p - 1) as 1 | 2 | 3 | 4)); window.scrollTo({ top: 0, behavior: "smooth" }); }
+          }}>
           ← Voltar
         </button>
 
-        {/* Header — tom corporativo: azul (#3A86FF) em vez do laranja da marca */}
-        <div style={{ background:"linear-gradient(135deg,#1e3a8a,#3A86FF)", borderRadius:20, padding:"22px 22px 20px", marginTop:16, marginBottom:8, color:"#fff" }}>
+        {/* Header — tom corporativo: azul. Inclui stepper de progresso. */}
+        <div style={{ background:"linear-gradient(135deg,#1e3a8a,#3A86FF)", borderRadius:20, padding:"22px 22px 18px", marginTop:16, marginBottom:8, color:"#fff" }}>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ fontSize:32 }}>🏢</div>
-            <div>
+            <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:20, fontWeight:900, lineHeight:1.2 }}>Cadastro de Empresa</div>
-              <div style={{ fontSize:12, opacity:0.85, marginTop:2 }}>Conta corporativa com CNPJ verificado</div>
+              <div style={{ fontSize:12, opacity:0.85, marginTop:2 }}>Passo {passoEmpresa} de 4 — {NOMES_PASSOS[passoEmpresa]}</div>
             </div>
+          </div>
+          {/* Stepper visual: 4 barras horizontais, preenchidas conforme progresso */}
+          <div style={{ display:"flex", gap:6, marginTop:16 }} aria-label={`Progresso: passo ${passoEmpresa} de 4`}>
+            {[1, 2, 3, 4].map((n) => (
+              <div key={n} style={{
+                flex:1, height:6, borderRadius:3,
+                background: n < passoEmpresa ? "#fff" : n === passoEmpresa ? "#fff" : "rgba(255,255,255,.25)",
+                opacity: n < passoEmpresa ? 1 : n === passoEmpresa ? 0.95 : 1,
+                transition: "background .3s",
+              }} />
+            ))}
           </div>
         </div>
 
         <div style={{ background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:12, padding:"12px 14px", marginTop:10, fontSize:12, color:"#1e40af", lineHeight:1.6 }}>
-          🔒 Empresas usam um cadastro dedicado pra garantir conformidade. CNPJ e CPF do responsável são privados — não aparecem no perfil público.
+          🔒 Empresas têm um cadastro dedicado pra garantir conformidade. CNPJ e CPF do responsável são privados — nunca aparecem no perfil público.
         </div>
 
-        {/* ── ACESSO ────────────────────────────────────────────────────────── */}
-        <Secao icone="🔑" titulo="Acesso" desc="E-mail e senha pra entrar" />
+        {/* ───────── PASSO 1 — Dados da empresa ─────────────────────────────── */}
+        {passoEmpresa === 1 && (
+          <>
+            <Secao icone="🏢" titulo="Dados da empresa" desc="Identificação fiscal — não compartilhamos com ninguém" />
 
-        {Label("E-mail corporativo")}
-        <input type="email" inputMode="email" autoComplete="email"
-          style={estiloInput("email")} placeholder="contato@empresa.com.br"
-          value={formEmp.email}
-          onChange={e => setCampo("email", e.target.value.trim())}
-          onBlur={blur("email")} />
-        {ErroInline("email")}
+            {Label("CNPJ")}
+            <div style={{ position:"relative" as const }}>
+              <input id="empresa-cnpj" inputMode="numeric" maxLength={18}
+                style={estiloInput("cnpj", { letterSpacing:0.5, paddingRight: verificandoCnpjEmp ? 90 : undefined })}
+                placeholder="00.000.000/0000-00"
+                value={formEmp.cnpj}
+                onChange={e => {
+                  const masked = maskCNPJ(e.target.value);
+                  setCampo("cnpj", masked);
+                  const dig = masked.replace(/\D/g, "");
+                  if (dig.length === 14 && validarCNPJ(dig)) verificarCnpjDuplicadoEmpresa(dig);
+                }}
+                onBlur={blur("cnpj")} />
+              {verificandoCnpjEmp && <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"#64748b", fontWeight:600 }}>Verificando...</span>}
+            </div>
+            {ErroInline("cnpj")}
 
-        {Label("Senha")}
-        <div style={{ position:"relative" as const }}>
-          <input
-            type={mostrarSenhaEmp ? "text" : "password"} autoComplete="new-password"
-            style={estiloInput("senha", { paddingRight:46 })}
-            placeholder="Mín. 10 caracteres com letras e números"
-            value={formEmp.senha}
-            onChange={e => setCampo("senha", e.target.value)}
-            onBlur={blur("senha")} />
-          <button type="button" aria-label={mostrarSenhaEmp ? "Ocultar senha" : "Mostrar senha"}
-            style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
-            onClick={() => setMostrarSenhaEmp(p => !p)}>
-            {mostrarSenhaEmp ? "🙈" : "👁️"}
-          </button>
-        </div>
-        {ErroInline("senha")}
+            {Label("Nome Fantasia")}
+            <input id="empresa-nomeFantasia" style={estiloInput("nomeFantasia")}
+              placeholder="Ex: Sabor Brasileiro"
+              value={formEmp.nomeFantasia}
+              onChange={e => setCampo("nomeFantasia", e.target.value)}
+              onBlur={blur("nomeFantasia")} />
+            {ErroInline("nomeFantasia")}
 
-        {Label("Confirmar senha")}
-        <div style={{ position:"relative" as const }}>
-          <input
-            type={mostrarConfirmaSenhaEmp ? "text" : "password"} autoComplete="new-password"
-            style={estiloInput("confirmaSenha", { paddingRight:46 })}
-            placeholder="Repita a senha"
-            value={formEmp.confirmaSenha}
-            onChange={e => setCampo("confirmaSenha", e.target.value)}
-            onBlur={blur("confirmaSenha")} />
-          <button type="button" aria-label={mostrarConfirmaSenhaEmp ? "Ocultar senha" : "Mostrar senha"}
-            style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
-            onClick={() => setMostrarConfirmaSenhaEmp(p => !p)}>
-            {mostrarConfirmaSenhaEmp ? "🙈" : "👁️"}
-          </button>
-        </div>
-        {ErroInline("confirmaSenha")}
+            {Label("E-mail corporativo")}
+            <input id="empresa-email" type="email" inputMode="email" autoComplete="email"
+              style={estiloInput("email")} placeholder="contato@empresa.com.br"
+              value={formEmp.email}
+              onChange={e => setCampo("email", e.target.value.trim())}
+              onBlur={blur("email")} />
+            {ErroInline("email")}
 
-        {/* ── EMPRESA ───────────────────────────────────────────────────────── */}
-        <Secao icone="🏢" titulo="Dados da empresa" desc="Identificação fiscal" />
+            {Label("Telefone (WhatsApp)")}
+            <input id="empresa-telefone" inputMode="numeric" maxLength={15} autoComplete="tel"
+              style={estiloInput("telefone")}
+              placeholder="(67) 99999-9999"
+              value={formEmp.telefone}
+              onChange={e => setCampo("telefone", maskTelefone(e.target.value))}
+              onBlur={blur("telefone")} />
+            {ErroInline("telefone")}
+          </>
+        )}
 
-        {Label("CNPJ")}
-        <div style={{ position:"relative" as const }}>
-          <input inputMode="numeric" maxLength={18}
-            style={estiloInput("cnpj", { letterSpacing:0.5, paddingRight: verificandoCnpjEmp ? 90 : undefined })}
-            placeholder="00.000.000/0000-00"
-            value={formEmp.cnpj}
-            onChange={e => {
-              const masked = maskCNPJ(e.target.value);
-              setCampo("cnpj", masked);
-              const dig = masked.replace(/\D/g, "");
-              if (dig.length === 14 && validarCNPJ(dig)) {
-                // dispara checagem assíncrona de duplicidade (best-effort)
-                verificarCnpjDuplicadoEmpresa(dig);
-              }
-            }}
-            onBlur={blur("cnpj")} />
-          {verificandoCnpjEmp && <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"#64748b", fontWeight:600 }}>Verificando...</span>}
-        </div>
-        {ErroInline("cnpj")}
+        {/* ───────── PASSO 2 — Endereço + Razão Social ──────────────────────── */}
+        {passoEmpresa === 2 && (
+          <>
+            <Secao icone="📍" titulo="Endereço e razão social" desc="Onde a empresa está registrada" />
 
-        {Label("Razão Social")}
-        <input style={estiloInput("razaoSocial")}
-          placeholder="Ex: Restaurante Sabor Brasileiro LTDA"
-          value={formEmp.razaoSocial}
-          onChange={e => setCampo("razaoSocial", e.target.value)}
-          onBlur={blur("razaoSocial")} />
-        {ErroInline("razaoSocial")}
+            {Label("Razão Social")}
+            <input id="empresa-razaoSocial" style={estiloInput("razaoSocial")}
+              placeholder="Ex: Restaurante Sabor Brasileiro LTDA"
+              value={formEmp.razaoSocial}
+              onChange={e => setCampo("razaoSocial", e.target.value)}
+              onBlur={blur("razaoSocial")} />
+            {ErroInline("razaoSocial")}
 
-        {Label("Nome Fantasia")}
-        <input style={estiloInput("nomeFantasia")}
-          placeholder="Ex: Sabor Brasileiro"
-          value={formEmp.nomeFantasia}
-          onChange={e => setCampo("nomeFantasia", e.target.value)}
-          onBlur={blur("nomeFantasia")} />
-        {ErroInline("nomeFantasia")}
+            {Label("CEP")}
+            <div style={{ position:"relative" }}>
+              <input id="empresa-cep" inputMode="numeric" maxLength={9}
+                style={estiloInput("cep", { letterSpacing:0.5, paddingRight: buscandoCEPEmpresa ? 110 : undefined })}
+                placeholder="00000-000"
+                value={formEmp.cep}
+                onChange={e => {
+                  let v = e.target.value.replace(/\D/g, "").slice(0, 8);
+                  if (v.length > 5) v = v.slice(0, 5) + "-" + v.slice(5);
+                  setCampo("cep", v);
+                  if (v.replace(/\D/g, "").length === 8) buscarCEPEmpresa(v);
+                }}
+                onBlur={blur("cep")} />
+              {buscandoCEPEmpresa && <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"#64748b", fontWeight:600 }}>Buscando...</span>}
+            </div>
+            {ErroInline("cep")}
 
-        {Label("Telefone (WhatsApp)")}
-        <input inputMode="numeric" maxLength={15} autoComplete="tel"
-          style={estiloInput("telefone")}
-          placeholder="(67) 99999-9999"
-          value={formEmp.telefone}
-          onChange={e => setCampo("telefone", maskTelefone(e.target.value))}
-          onBlur={blur("telefone")} />
-        {ErroInline("telefone")}
+            {Label("Logradouro")}
+            <input id="empresa-rua" style={estiloInput("rua")} placeholder="Ex: Avenida Afonso Pena"
+              value={formEmp.rua}
+              onChange={e => setCampo("rua", e.target.value)}
+              onBlur={blur("rua")} />
+            {ErroInline("rua")}
 
-        {/* ── ENDEREÇO ──────────────────────────────────────────────────────── */}
-        <Secao icone="📍" titulo="Endereço da empresa" desc="Onde os serviços serão prestados" />
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr", gap:12 }}>
+              <div>
+                {Label("Número")}
+                <input id="empresa-numero" style={estiloInput("numero")} placeholder="123"
+                  value={formEmp.numero}
+                  onChange={e => setCampo("numero", e.target.value)}
+                  onBlur={blur("numero")} />
+                {ErroInline("numero")}
+              </div>
+              <div>
+                {Label("Complemento", false)}
+                <input style={estiloInput("complemento")} placeholder="Sala, Bloco…"
+                  value={formEmp.complemento}
+                  onChange={e => setCampo("complemento", e.target.value)} />
+              </div>
+            </div>
 
-        {Label("CEP")}
-        <div style={{ position:"relative" }}>
-          <input inputMode="numeric" maxLength={9}
-            style={estiloInput("cep", { letterSpacing:0.5, paddingRight: buscandoCEPEmpresa ? 110 : undefined })}
-            placeholder="00000-000"
-            value={formEmp.cep}
-            onChange={e => {
-              let v = e.target.value.replace(/\D/g, "").slice(0, 8);
-              if (v.length > 5) v = v.slice(0, 5) + "-" + v.slice(5);
-              setCampo("cep", v);
-              if (v.replace(/\D/g, "").length === 8) buscarCEPEmpresa(v);
-            }}
-            onBlur={blur("cep")} />
-          {buscandoCEPEmpresa && <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"#64748b", fontWeight:600 }}>Buscando...</span>}
-        </div>
-        {ErroInline("cep")}
+            {Label("Bairro")}
+            <input id="empresa-bairro" style={estiloInput("bairro")} placeholder="Ex: Centro"
+              value={formEmp.bairro}
+              onChange={e => setCampo("bairro", e.target.value)}
+              onBlur={blur("bairro")} />
+            {ErroInline("bairro")}
 
-        {Label("Logradouro")}
-        <input style={estiloInput("rua")} placeholder="Ex: Avenida Afonso Pena"
-          value={formEmp.rua}
-          onChange={e => setCampo("rua", e.target.value)}
-          onBlur={blur("rua")} />
-        {ErroInline("rua")}
+            <div style={{ display:"grid", gridTemplateColumns:"1.5fr 0.8fr", gap:12 }}>
+              <div>
+                {Label("Cidade")}
+                <input id="empresa-cidade" style={estiloInput("cidade")} placeholder="Campo Grande"
+                  value={formEmp.cidade}
+                  onChange={e => setCampo("cidade", e.target.value)}
+                  onBlur={blur("cidade")} />
+                {ErroInline("cidade")}
+              </div>
+              <div>
+                {Label("UF")}
+                <input id="empresa-estado" style={estiloInput("estado", { textTransform:"uppercase" })} placeholder="MS" maxLength={2}
+                  value={formEmp.estado}
+                  onChange={e => setCampo("estado", e.target.value.toUpperCase().slice(0, 2))}
+                  onBlur={blur("estado")} />
+                {ErroInline("estado")}
+              </div>
+            </div>
+          </>
+        )}
 
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr", gap:12 }}>
-          <div>
-            {Label("Número")}
-            <input style={estiloInput("numero")} placeholder="123"
-              value={formEmp.numero}
-              onChange={e => setCampo("numero", e.target.value)}
-              onBlur={blur("numero")} />
-            {ErroInline("numero")}
-          </div>
-          <div>
-            {Label("Complemento", false)}
-            <input style={estiloInput("complemento")} placeholder="Sala, Bloco…"
-              value={formEmp.complemento}
-              onChange={e => setCampo("complemento", e.target.value)} />
-          </div>
-        </div>
+        {/* ───────── PASSO 3 — Responsável legal + Senha de acesso ──────────── */}
+        {passoEmpresa === 3 && (
+          <>
+            <Secao icone="👤" titulo="Responsável legal" desc="Quem responde pela conta da empresa" />
 
-        {Label("Bairro")}
-        <input style={estiloInput("bairro")} placeholder="Ex: Centro"
-          value={formEmp.bairro}
-          onChange={e => setCampo("bairro", e.target.value)}
-          onBlur={blur("bairro")} />
-        {ErroInline("bairro")}
+            {Label("Nome do responsável")}
+            <input id="empresa-responsavelNome" style={estiloInput("responsavelNome")} autoComplete="name"
+              placeholder="Nome completo"
+              value={formEmp.responsavelNome}
+              onChange={e => setCampo("responsavelNome", e.target.value)}
+              onBlur={blur("responsavelNome")} />
+            {ErroInline("responsavelNome")}
 
-        <div style={{ display:"grid", gridTemplateColumns:"1.5fr 0.8fr", gap:12 }}>
-          <div>
-            {Label("Cidade")}
-            <input style={estiloInput("cidade")} placeholder="Campo Grande"
-              value={formEmp.cidade}
-              onChange={e => setCampo("cidade", e.target.value)}
-              onBlur={blur("cidade")} />
-            {ErroInline("cidade")}
-          </div>
-          <div>
-            {Label("UF")}
-            <input style={estiloInput("estado", { textTransform:"uppercase" })} placeholder="MS" maxLength={2}
-              value={formEmp.estado}
-              onChange={e => setCampo("estado", e.target.value.toUpperCase().slice(0, 2))}
-              onBlur={blur("estado")} />
-            {ErroInline("estado")}
-          </div>
-        </div>
+            {Label("CPF do responsável")}
+            <input id="empresa-responsavelCpf" inputMode="numeric" maxLength={14}
+              style={estiloInput("responsavelCpf", { letterSpacing:0.5 })}
+              placeholder="000.000.000-00"
+              value={formEmp.responsavelCpf}
+              onChange={e => setCampo("responsavelCpf", maskCPF(e.target.value))}
+              onBlur={blur("responsavelCpf")} />
+            {ErroInline("responsavelCpf")}
 
-        {/* ── RESPONSÁVEL ───────────────────────────────────────────────────── */}
-        <Secao icone="👤" titulo="Responsável legal" desc="Pessoa que responde pela conta" />
+            <Secao icone="🔑" titulo="Crie uma senha" desc="Pra entrar na conta da empresa" />
 
-        {Label("Nome do responsável")}
-        <input style={estiloInput("responsavelNome")} autoComplete="name"
-          placeholder="Nome completo"
-          value={formEmp.responsavelNome}
-          onChange={e => setCampo("responsavelNome", e.target.value)}
-          onBlur={blur("responsavelNome")} />
-        {ErroInline("responsavelNome")}
+            {Label("Senha")}
+            <div style={{ position:"relative" as const }}>
+              <input id="empresa-senha"
+                type={mostrarSenhaEmp ? "text" : "password"} autoComplete="new-password"
+                style={estiloInput("senha", { paddingRight:46 })}
+                placeholder="Mín. 10 caracteres com letras e números"
+                value={formEmp.senha}
+                onChange={e => setCampo("senha", e.target.value)}
+                onBlur={blur("senha")} />
+              <button type="button" aria-label={mostrarSenhaEmp ? "Ocultar senha" : "Mostrar senha"}
+                style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
+                onClick={() => setMostrarSenhaEmp(p => !p)}>
+                {mostrarSenhaEmp ? "🙈" : "👁️"}
+              </button>
+            </div>
+            {ErroInline("senha")}
 
-        {Label("CPF do responsável")}
-        <input inputMode="numeric" maxLength={14}
-          style={estiloInput("responsavelCpf", { letterSpacing:0.5 })}
-          placeholder="000.000.000-00"
-          value={formEmp.responsavelCpf}
-          onChange={e => setCampo("responsavelCpf", maskCPF(e.target.value))}
-          onBlur={blur("responsavelCpf")} />
-        {ErroInline("responsavelCpf")}
+            {/* Strength meter — visual feedback de força da senha */}
+            {formEmp.senha.length > 0 && (() => {
+              const s = formEmp.senha;
+              let nivel = 0;
+              if (s.length >= 8) nivel++;
+              if (s.length >= 12) nivel++;
+              if (/[A-Z]/.test(s) && /[a-z]/.test(s)) nivel++;
+              if (/[0-9]/.test(s) && /[^A-Za-z0-9]/.test(s)) nivel++;
+              const cores = ["#ef4444", "#f59e0b", "#3A86FF", "#16a34a", "#16a34a"];
+              const rotulos = ["Muito fraca", "Fraca", "Razoável", "Boa", "Forte"];
+              return (
+                <div style={{ marginTop:6 }}>
+                  <div style={{ display:"flex", gap:4 }}>
+                    {[0,1,2,3].map(i => (
+                      <div key={i} style={{ flex:1, height:4, borderRadius:2, background: i < nivel ? cores[nivel] : "#e2e8f0", transition:"background .2s" }} />
+                    ))}
+                  </div>
+                  <p style={{ fontSize:11, color: cores[nivel], fontWeight:700, margin:"4px 0 0" }}>
+                    Força: {rotulos[nivel]}
+                  </p>
+                </div>
+              );
+            })()}
 
-        {/* ── TERMOS ────────────────────────────────────────────────────────── */}
-        <label
-          aria-label="Aceite dos Termos de Uso"
-          style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", margin:"24px 0 4px", background:"#fff", borderRadius:12, padding:"14px 16px", border:`1.5px solid ${formEmp.aceitaTermos ? "#3A86FF" : "#e2e8f0"}` }}>
-          <input type="checkbox"
-            checked={formEmp.aceitaTermos}
-            onChange={e => { setCampo("aceitaTermos", e.target.checked); setTocadosEmp(t => ({ ...t, aceitaTermos: true })); }}
-            style={{ width:18, height:18, accentColor:"#3A86FF", flexShrink:0, marginTop:2 }} />
-          <span style={{ fontSize:12, color:"#475569", lineHeight:1.5 }}>
-            Li e aceito os{" "}
-            <span role="button" style={{ color:"#3A86FF", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
-              onClick={e => { e.preventDefault(); setTipo("empresa"); setMostrarTermos(true); }}>
-              Termos de Uso
-            </span>{" "}
-            e a Política de Privacidade do DiáriaJá. Declaro que sou o responsável legal pela empresa e tenho autorização pra cadastrá-la.
-          </span>
-        </label>
-        {ErroInline("aceitaTermos")}
+            {Label("Confirmar senha")}
+            <div style={{ position:"relative" as const }}>
+              <input id="empresa-confirmaSenha"
+                type={mostrarConfirmaSenhaEmp ? "text" : "password"} autoComplete="new-password"
+                style={estiloInput("confirmaSenha", { paddingRight:46 })}
+                placeholder="Repita a senha"
+                value={formEmp.confirmaSenha}
+                onChange={e => setCampo("confirmaSenha", e.target.value)}
+                onBlur={blur("confirmaSenha")} />
+              <button type="button" aria-label={mostrarConfirmaSenhaEmp ? "Ocultar senha" : "Mostrar senha"}
+                style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
+                onClick={() => setMostrarConfirmaSenhaEmp(p => !p)}>
+                {mostrarConfirmaSenhaEmp ? "🙈" : "👁️"}
+              </button>
+            </div>
+            {ErroInline("confirmaSenha")}
+          </>
+        )}
+
+        {/* ───────── PASSO 4 — Verificação e Termos ─────────────────────────── */}
+        {passoEmpresa === 4 && (
+          <>
+            <Secao icone="✅" titulo="Última etapa" desc="Confira os dados e aceite os termos" />
+
+            {/* Resumo dos dados informados — última conferência antes de criar */}
+            <div style={{ background:"#fff", borderRadius:14, padding:"16px 18px", border:"1px solid #e2e8f0", marginTop:8 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>
+                Resumo
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"auto 1fr", gap:"8px 14px", fontSize:13 }}>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Empresa</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{formEmp.nomeFantasia || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>CNPJ</span>
+                <span style={{ color:"#0f172a", fontWeight:700, letterSpacing:0.3 }}>{formEmp.cnpj || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>E-mail</span>
+                <span style={{ color:"#0f172a", fontWeight:700, overflow:"hidden", textOverflow:"ellipsis" as const, whiteSpace:"nowrap" as const }}>{formEmp.email || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Telefone</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{formEmp.telefone || "—"}</span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Endereço</span>
+                <span style={{ color:"#0f172a", fontWeight:700, fontSize:12, lineHeight:1.5 }}>
+                  {formEmp.rua ? `${formEmp.rua}, ${formEmp.numero} — ${formEmp.cidade}/${formEmp.estado}` : "—"}
+                </span>
+                <span style={{ color:"#94a3b8", fontWeight:600 }}>Responsável</span>
+                <span style={{ color:"#0f172a", fontWeight:700 }}>{formEmp.responsavelNome || "—"}</span>
+              </div>
+            </div>
+
+            {/* Termos */}
+            <label
+              aria-label="Aceite dos Termos de Uso"
+              style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", margin:"20px 0 4px", background:"#fff", borderRadius:12, padding:"14px 16px", border:`1.5px solid ${formEmp.aceitaTermos ? "#3A86FF" : "#e2e8f0"}`, minHeight:60 }}>
+              <input type="checkbox"
+                checked={formEmp.aceitaTermos}
+                onChange={e => { setCampo("aceitaTermos", e.target.checked); setTocadosEmp(t => ({ ...t, aceitaTermos: true })); }}
+                style={{ width:20, height:20, accentColor:"#3A86FF", flexShrink:0, marginTop:2 }} />
+              <span style={{ fontSize:13, color:"#475569", lineHeight:1.5 }}>
+                Li e aceito os{" "}
+                <span role="button" style={{ color:"#3A86FF", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
+                  onClick={e => { e.preventDefault(); setTipo("empresa"); setMostrarTermos(true); }}>
+                  Termos de Uso
+                </span>{" "}
+                e a Política de Privacidade do DiáriaJá. Declaro que sou o responsável legal pela empresa.
+              </span>
+            </label>
+            {ErroInline("aceitaTermos")}
+
+            {/* Selo de segurança / confiança */}
+            <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:12, padding:"12px 14px", marginTop:14, fontSize:12, color:"#166534", lineHeight:1.6 }}>
+              🛡️ <strong>Cadastro seguro:</strong> validamos CNPJ no momento do envio, criptografamos sua senha e nunca exibimos CPF/CNPJ publicamente.
+            </div>
+          </>
+        )}
 
         {authError && (
           <p style={{ color: authError.startsWith("✅") ? "#16a34a" : "#ef4444", fontSize:13, fontWeight:600, marginTop:14, textAlign:"center" }}>
@@ -5222,21 +5490,38 @@ export default function App() {
           </p>
         )}
 
-        <button
-          style={{
-            width:"100%", padding:"15px", marginTop:18, marginBottom:24,
-            background: todoValido && !submittingEmp ? "#3A86FF" : "#cbd5e1",
-            color: todoValido && !submittingEmp ? "#fff" : "#94a3b8",
-            border:"none", borderRadius:14, fontSize:16, fontWeight:800,
-            cursor: todoValido && !submittingEmp ? "pointer" : "default",
-            fontFamily:"Inter, system-ui, sans-serif",
-            boxShadow: todoValido && !submittingEmp ? "0 4px 16px rgba(58,134,255,.35)" : "none",
-            transition:"all .2s",
-          }}
-          disabled={!todoValido || submittingEmp}
-          onClick={submitCadastroEmpresa}>
-          {submittingEmp ? "Criando conta..." : todoValido ? "Criar conta empresarial →" : "Preencha todos os campos obrigatórios"}
-        </button>
+        {/* ──────── NAVEGAÇÃO ENTRE PASSOS ──────────────────────────────────── */}
+        {passoEmpresa < 4 ? (
+          <button
+            style={{
+              width:"100%", padding:"16px", marginTop:24, marginBottom:24,
+              background:"#3A86FF", color:"#fff",
+              border:"none", borderRadius:14, fontSize:16, fontWeight:800,
+              cursor:"pointer", minHeight:48,
+              fontFamily:"Inter, system-ui, sans-serif",
+              boxShadow:"0 4px 16px rgba(58,134,255,.35)",
+              transition:"all .2s",
+            }}
+            onClick={proximoPassoEmpresa}>
+            Continuar →
+          </button>
+        ) : (
+          <button
+            style={{
+              width:"100%", padding:"16px", marginTop:18, marginBottom:24,
+              background: todoValido && !submittingEmp ? "#3A86FF" : "#cbd5e1",
+              color: todoValido && !submittingEmp ? "#fff" : "#94a3b8",
+              border:"none", borderRadius:14, fontSize:16, fontWeight:800,
+              cursor: todoValido && !submittingEmp ? "pointer" : "default", minHeight:48,
+              fontFamily:"Inter, system-ui, sans-serif",
+              boxShadow: todoValido && !submittingEmp ? "0 4px 16px rgba(58,134,255,.35)" : "none",
+              transition:"all .2s",
+            }}
+            disabled={!todoValido || submittingEmp}
+            onClick={submitCadastroEmpresa}>
+            {submittingEmp ? "Criando conta..." : todoValido ? "✓ Criar conta empresarial" : "Aceite os termos pra continuar"}
+          </button>
+        )}
 
         <p style={{ textAlign:"center", color:"#475569", fontSize:13, marginTop:0, marginBottom:24, cursor:"pointer" }}
           onClick={() => { setAuthError(""); setTela("login"); }}>
@@ -5966,6 +6251,43 @@ export default function App() {
             {toastError}
           </div>
         )}
+
+        {/* ── Banner "Complete seu perfil" — só aparece se < 100% completo ── */}
+        {profile && (() => {
+          const compData = {
+            foto_url: profile.foto_url, cpf: profile.cpf, cnpj: profile.cnpj,
+            telefone: profile.telefone, telefone_verificado: profile.telefone_verificado,
+            bio: profile.bio, endereco_empregador: profile.endereco_empregador,
+            lat: profile.lat, pix_chave: profile.pix_chave, mp_user_id: profile.mp_user_id,
+          };
+          const comp = calcCompletude(compData, 0, null);
+          if (comp.pct >= 100) return null;
+          const cor = comp.pct >= 60 ? "#3A86FF" : comp.pct >= 30 ? "#f59e0b" : "#dc2626";
+          const nivelLabel = comp.pct >= 60 ? "Quase lá — falta pouco!" : comp.pct >= 30 ? "Em construção" : "Vamos começar";
+          const proxItem = comp.itens.find(i => !i.preenchido);
+          return (
+            <div role="button" tabIndex={0}
+              style={{ margin:"12px 16px 0", background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", border:`1.5px solid ${cor}30`, cursor:"pointer" }}
+              onClick={() => setTela("editar-perfil-empregador")}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)" }}>📋 Complete seu perfil</div>
+                  <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:1 }}>{nivelLabel} — quanto mais completo, mais profissionalismo você transmite</div>
+                </div>
+                <div style={{ fontSize:20, fontWeight:900, color:cor, marginLeft:8 }}>{comp.pct}%</div>
+              </div>
+              <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden" }}>
+                <div style={{ background:cor, height:8, width:`${comp.pct}%`, borderRadius:20, transition:"width .4s" }} />
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
+                {proxItem && (
+                  <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>Próximo: {proxItem.icone} {proxItem.label}</span>
+                )}
+                <span style={{ fontSize:12, fontWeight:700, color:cor, marginLeft:"auto" }}>Completar agora →</span>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── ABA INÍCIO ── */}
         {tabEmpregador === "inicio" && (
@@ -8315,6 +8637,43 @@ export default function App() {
             {toastError}
           </div>
         )}
+
+        {/* ── Banner "Complete seu perfil" — só aparece se < 100% completo ── */}
+        {profile && (() => {
+          const compData = {
+            foto_url: profile.foto_url, cpf: profile.cpf, cnpj: profile.cnpj,
+            telefone: profile.telefone, telefone_verificado: profile.telefone_verificado,
+            bio: profile.bio, endereco_empregador: profile.endereco_empregador,
+            lat: profile.lat, pix_chave: profile.pix_chave, mp_user_id: profile.mp_user_id,
+          };
+          const comp = calcCompletude(compData, 0, null);
+          if (comp.pct >= 100) return null;
+          const cor = comp.pct >= 60 ? "#3A86FF" : comp.pct >= 30 ? "#f59e0b" : "#dc2626";
+          const nivelLabel = comp.pct >= 60 ? "Quase lá — falta pouco!" : comp.pct >= 30 ? "Em construção" : "Vamos começar";
+          const proxItem = comp.itens.find(i => !i.preenchido);
+          return (
+            <div role="button" tabIndex={0}
+              style={{ margin:"12px 16px 0", background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", border:`1.5px solid ${cor}30`, cursor:"pointer" }}
+              onClick={() => setTela("editar-perfil")}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)" }}>📋 Complete seu perfil</div>
+                  <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:1 }}>{nivelLabel} — quanto mais completo, mais confiança você inspira</div>
+                </div>
+                <div style={{ fontSize:20, fontWeight:900, color:cor, marginLeft:8 }}>{comp.pct}%</div>
+              </div>
+              <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden" }}>
+                <div style={{ background:cor, height:8, width:`${comp.pct}%`, borderRadius:20, transition:"width .4s" }} />
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
+                {proxItem && (
+                  <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>Próximo: {proxItem.icone} {proxItem.label}</span>
+                )}
+                <span style={{ fontSize:12, fontWeight:700, color:cor, marginLeft:"auto" }}>Completar agora →</span>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Banner: selecionado aguardando confirmação ── */}
         {minhasDiarias.filter(d => d.status === "pendente").length > 0 && (
