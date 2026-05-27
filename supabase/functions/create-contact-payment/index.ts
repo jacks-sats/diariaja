@@ -47,8 +47,12 @@ Deno.serve(async (req) => {
       return json({ error: "Não autorizado para este empregador." }, 403);
     }
 
-    // Cria preferência de R$ 1,00 para desbloqueio de contato
-    const idempotencyKey = `contact-unlock-${empregador_id}-${new Date().toISOString().slice(0, 13)}`;
+    // Cria preferência de R$ 1,00 para desbloqueio de contato.
+    // P1-6 auditoria: antes a key truncava em `slice(0, 13)` (até a hora) — dois
+    // desbloqueios na mesma hora retornavam a MESMA preference do MP, então um
+    // 2º desbloqueio na mesma hora era "grátis" (MP devolvia a init_point já
+    // paga). Agora cada chamada tem key única com millisegundos + random.
+    const idempotencyKey = `contact-unlock-${empregador_id}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 
     const preferencia = {
       items: [

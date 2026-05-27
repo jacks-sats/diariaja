@@ -45,6 +45,14 @@ Deno.serve(async (req) => {
       return json({ error: "Não autorizado para este usuário." }, 403);
     }
 
+    // P2-6 auditoria: valida formato e tamanho do payer_email.
+    // O MP exige que esse email bata com a conta MP do pagador, mas validamos
+    // localmente pra rejeitar lixo antes do roundtrip e evitar logs sujos.
+    const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    if (typeof payer_email !== "string" || payer_email.length > 254 || !EMAIL_RE.test(payer_email)) {
+      return json({ error: "payer_email inválido" }, 400);
+    }
+
     const planoDef = PLANOS[plano];
     if (!planoDef) return json({ error: "Plano inválido" }, 400);
 

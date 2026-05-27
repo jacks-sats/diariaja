@@ -465,6 +465,7 @@ export default function App() {
   const [confirmSenha, setConfirmSenha] = useState("");
   const [alterandoSenha, setAlterandoSenha] = useState(false);
   const [confirmDeleteConta, setConfirmDeleteConta] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false); // CRIT-5 auditoria
   const [deletandoConta, setDeletandoConta] = useState(false);
   const [telefoneVerificado, setTelefoneVerificado] = useState<boolean>(() => {
     try { return localStorage.getItem("diariaja_tel_verif") === "1"; } catch { return false; }
@@ -1841,7 +1842,9 @@ export default function App() {
     if (m.includes("missing email") || m.includes("missing email or phone")) return "Informe seu e-mail.";
     if (m.includes("invalid login credentials") || m.includes("invalid credentials")) return "E-mail ou senha incorretos. Verifique seus dados ou use 'Esqueci minha senha'.";
     if (m.includes("email not confirmed")) return "⚠️ Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada (inclusive o spam).";
-    if (m.includes("user already registered") || m.includes("already registered")) return "Este e-mail já está cadastrado. Faça login.";
+    // P1-21: mensagem antiga ("Este e-mail já está cadastrado") era enumeração de
+    // conta. Agora sugere ambos os caminhos sem confirmar existência.
+    if (m.includes("user already registered") || m.includes("already registered")) return "Se você já tem conta, faça login. Caso contrário, verifique se digitou o e-mail certo.";
     if (m.includes("password should be at least")) return "A senha deve ter pelo menos 6 caracteres.";
     if (m.includes("invalid email")) return "E-mail inválido. Verifique e tente novamente.";
     if (m.includes("email rate limit") || m.includes("rate limit")) return "Muitas tentativas. Aguarde alguns minutos e tente novamente.";
@@ -2041,8 +2044,30 @@ export default function App() {
     if (error) setAuthError(traduzirErroAuth(error.message));
   };
 
+  // P0-2 auditoria: inicia OAuth do Mercado Pago com nonce one-time (anti-CSRF).
+  // Chama RPC `criar_oauth_state('mercadopago')` que insere uma linha em
+  // `oauth_states` com TTL 10 min, vinculada ao auth.uid() atual. Devolve o
+  // `state` que o MP nos devolverá no callback — a Edge Function consome
+  // (DELETE), valida exp e descobre a quem aquele token pertence.
+  // Reativa o botão "Conectar Mercado Pago" no perfil-diarista-real chamando esta função.
+  const iniciarOAuthMP = async () => {
+    if (!session?.user) return;
+    const { data, error } = await supabase.rpc("criar_oauth_state", { p_provider: "mercadopago" });
+    if (error || !data) {
+      setToastError("Não foi possível iniciar a conexão com o Mercado Pago. Tente novamente.");
+      return;
+    }
+    const mpClientId = import.meta.env.VITE_MP_CLIENT_ID as string;
+    const redirect = `${SUPABASE_URL}/functions/v1/mp-oauth`;
+    const url = `https://auth.mercadopago.com.br/authorization?client_id=${mpClientId}&response_type=code&platform_id=mp&state=${encodeURIComponent(String(data))}&redirect_uri=${encodeURIComponent(redirect)}`;
+    window.location.href = url;
+  };
+
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    // P1-15 auditoria: scope "global" invalida todas as sessões do usuário em
+    // todos os dispositivos. Importante pra cenário "perdi o celular" — outras
+    // sessões abertas viram inválidas no servidor.
+    await supabase.auth.signOut({ scope: "global" });
     // Limpa TODO o estado local para não vazar dados entre usuários no mesmo dispositivo
     const keysToRemove = [
       "diariaja_tela", "diariaja_modo", "diariaja_dark",
@@ -2103,6 +2128,14 @@ export default function App() {
     if (!session?.user) return;
     // Reseta o input para permitir selecionar o mesmo arquivo novamente
     if (fotoInputRef.current) fotoInputRef.current.value = "";
+
+    // Valida MIME (anti-XSS armazenado via SVG com <script>). P1-4 da auditoria.
+    // O bucket também deve ter allowlist server-side — ver bucket_mime_allowlist.sql.
+    const MIMES_PERMITIDOS = ["image/jpeg", "image/png", "image/webp"];
+    if (!MIMES_PERMITIDOS.includes(file.type)) {
+      setToastError("❌ Use uma imagem JPG, PNG ou WEBP. Outros formatos não são aceitos.");
+      return;
+    }
 
     // Valida tamanho (max 5 MB)
     if (file.size > 5 * 1024 * 1024) {
@@ -3129,6 +3162,12 @@ export default function App() {
   const handlePortfolioUpload = async (file: File) => {
     if (!session?.user) return;
     if (portfolioUrls.length >= 3) { setToastError("Máximo de 3 fotos no portfólio."); return; }
+    // Anti-XSS: aceitar só rasters seguros. Mesmo do avatar (P1-4).
+    const MIMES_PERMITIDOS = ["image/jpeg", "image/png", "image/webp"];
+    if (!MIMES_PERMITIDOS.includes(file.type)) {
+      setToastError("❌ Use uma imagem JPG, PNG ou WEBP.");
+      return;
+    }
     if (file.size > 5 * 1024 * 1024) {
       setToastError("❌ Foto muito grande. Use uma imagem menor que 5 MB.");
       return;
@@ -4489,7 +4528,7 @@ export default function App() {
         <div style={{ padding:"12px 16px 4px" }}>
           <div style={{ fontSize:11, fontWeight:800, color:"#ef4444", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Zona de perigo</div>
           <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", borderBottom:"1px solid var(--border-sub,#f1f5f9)", cursor:"pointer" }} onClick={handleLogout}>
+            <div style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", borderBottom:"1px solid var(--border-sub,#f1f5f9)", cursor:"pointer" }} onClick={() => setConfirmLogout(true)}>
               <div style={{ width:40, height:40, background:"#fef2f2", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🚪</div>
               <div style={{ flex:1 }}>
                 <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Sair da conta</div>
@@ -4567,6 +4606,31 @@ export default function App() {
                 style={{ width:"100%", padding:"14px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => setConfirmDeleteConta(false)}>
                 Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* CRIT-5 auditoria: logout pede confirmação. Cancelar é o botão primário
+            (anti-tap-acidental); "Sair" fica em link secundário. */}
+        {confirmLogout && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:500, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmLogout(false)}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+              <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
+              <div style={{ fontSize:32, textAlign:"center", marginBottom:12 }}>🚪</div>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:8 }}>Sair da conta?</div>
+              <div style={{ fontSize:14, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:24, lineHeight:1.6 }}>
+                Você precisará entrar de novo com e-mail/CPF e senha pra acessar o app.
+              </div>
+              <button
+                style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
+                onClick={() => setConfirmLogout(false)}>
+                Cancelar
+              </button>
+              <button
+                style={{ width:"100%", padding:"14px", background:"var(--bg-subtle,#f1f5f9)", color:"#dc2626", border:"none", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={async () => { setConfirmLogout(false); await handleLogout(); }}>
+                Sair mesmo assim
               </button>
             </div>
           </div>
@@ -5712,7 +5776,7 @@ export default function App() {
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto pessoal *</div>
       <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20, padding:"14px 16px", background:"var(--bg-surface,#f8fafc)", borderRadius:16, border:"1.5px solid var(--border,#e2e8f0)" }}>
         {fotoUrl
-          ? <img src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover" as const, flexShrink:0, border:"3px solid #FF6B35" }} alt="foto" />
+          ? <img loading="lazy" src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover" as const, flexShrink:0, border:"3px solid #FF6B35" }} alt="foto" />
           : <div style={{ width:72, height:72, borderRadius:36, background:"#e2e8f0", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, flexShrink:0 }}>👤</div>
         }
         <div style={{ flex:1 }}>
@@ -5724,7 +5788,7 @@ export default function App() {
           </div>
           <label style={{ display:"inline-block", padding:"8px 16px", background:fotoUrl?"#f0fdf4":"#FF6B35", color:fotoUrl?"#16a34a":"#fff", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer" }}>
             {uploadingFoto ? "Enviando..." : fotoUrl ? "Trocar foto" : "📷 Escolher foto"}
-            <input type="file" accept="image/*" capture="user" style={{ display:"none" }} onChange={e=>e.target.files?.[0]&&handleFotoUpload(e.target.files[0])} />
+            <input type="file" accept="image/jpeg,image/png,image/webp" capture="user" style={{ display:"none" }} onChange={e=>e.target.files?.[0]&&handleFotoUpload(e.target.files[0])} />
           </label>
         </div>
       </div>
@@ -6343,7 +6407,7 @@ export default function App() {
                             <div key={d.id} style={{ flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:"pointer" }}
                               onClick={() => { setDiaristaSelecionadaReal(d); setTela("perfil-diarista-real"); }}>
                               {d.foto_url
-                                ? <img src={d.foto_url} style={{ width:52, height:52, borderRadius:26, objectFit:"cover", border:`2px solid ${negocio.cor}` }} alt="" />
+                                ? <img loading="lazy" src={d.foto_url} style={{ width:52, height:52, borderRadius:26, objectFit:"cover", border:`2px solid ${negocio.cor}` }} alt="" />
                                 : <div style={{ width:52, height:52, borderRadius:26, background:negocio.cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, border:`2px solid ${negocio.cor}` }}>{ini}</div>
                               }
                               <div style={{ fontSize:10, fontWeight:700, color:"var(--text-1,#0f172a)", maxWidth:60, textAlign:"center" as const, whiteSpace:"nowrap" as const, overflow:"hidden", textOverflow:"ellipsis" }}>{d.nome.split(" ")[0]}</div>
@@ -6390,7 +6454,7 @@ export default function App() {
                           {/* Avatar */}
                           <div style={{ width:60, height:60, borderRadius:30, background:bg, color:fg, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:18, flexShrink:0, overflow:"hidden", boxShadow:`0 4px 12px ${bg}55` }}>
                             {d.foto_url
-                              ? <img src={d.foto_url} style={{ width:"100%", height:"100%", objectFit:"cover" }} alt="" />
+                              ? <img loading="lazy" src={d.foto_url} style={{ width:"100%", height:"100%", objectFit:"cover" }} alt="" />
                               : iniciais}
                           </div>
 
@@ -6810,7 +6874,7 @@ export default function App() {
                                 }}>
                                 <div style={{ position:"relative", width:52, height:52, flexShrink:0 }}>
                                   <div style={{ width:52, height:52, borderRadius:26, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:17 }}>{iniciais}</div>
-                                  <img src={dp?.foto_url || supabase.storage.from("avatars").getPublicUrl(`${dia.diarista_aceite_id}.jpg`).data.publicUrl} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }} style={{ position:"absolute", inset:0, width:52, height:52, borderRadius:26, objectFit:"cover" as const, border:"2px solid #FF6B3540" }} />
+                                  <img loading="lazy" src={dp?.foto_url || supabase.storage.from("avatars").getPublicUrl(`${dia.diarista_aceite_id}.jpg`).data.publicUrl} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }} style={{ position:"absolute", inset:0, width:52, height:52, borderRadius:26, objectFit:"cover" as const, border:"2px solid #FF6B3540" }} />
                                 </div>
                                 <div style={{ flex:1, minWidth:0 }}>
                                   <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Carregando..."}</div>
@@ -6862,7 +6926,7 @@ export default function App() {
                                 }}>
                                 <div style={{ position:"relative", width:52, height:52, flexShrink:0 }}>
                                   <div style={{ width:52, height:52, borderRadius:26, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:17 }}>{iniciais}</div>
-                                  <img src={dp?.foto_url || supabase.storage.from("avatars").getPublicUrl(`${dia.diarista_aceite_id}.jpg`).data.publicUrl} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }} style={{ position:"absolute", inset:0, width:52, height:52, borderRadius:26, objectFit:"cover" as const, border:"2px solid #FF6B3540" }} />
+                                  <img loading="lazy" src={dp?.foto_url || supabase.storage.from("avatars").getPublicUrl(`${dia.diarista_aceite_id}.jpg`).data.publicUrl} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }} style={{ position:"absolute", inset:0, width:52, height:52, borderRadius:26, objectFit:"cover" as const, border:"2px solid #FF6B3540" }} />
                                 </div>
                                 <div style={{ flex:1, minWidth:0 }}>
                                   <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Carregando..."}</div>
@@ -7991,7 +8055,7 @@ export default function App() {
                 <div style={{ background:"var(--bg-card,#fff)", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
                   <button style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", padding:"0 4px" }} onClick={() => { setChatDiariaAtiva(null); setConfirmExcluirChat(false); }}>←</button>
                   {dp?.foto_url
-                    ? <img src={dp.foto_url} style={{ width:40, height:40, borderRadius:20, objectFit:"cover" }} alt="" />
+                    ? <img loading="lazy" src={dp.foto_url} style={{ width:40, height:40, borderRadius:20, objectFit:"cover" }} alt="" />
                     : <div style={{ width:40, height:40, borderRadius:20, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, flexShrink:0 }}>{iniciais}</div>
                   }
                   <div style={{ flex:1 }}>
@@ -8115,7 +8179,7 @@ export default function App() {
                         style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
                         onClick={() => { hapticTick(); setChatDiariaAtiva(dia); }}>
                         {dp?.foto_url
-                          ? <img src={dp.foto_url} style={{ width:50, height:50, borderRadius:25, objectFit:"cover", flexShrink:0 }} alt="" />
+                          ? <img loading="lazy" src={dp.foto_url} style={{ width:50, height:50, borderRadius:25, objectFit:"cover", flexShrink:0 }} alt="" />
                           : <div style={{ width:50, height:50, borderRadius:25, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>{iniciais}</div>
                         }
                         <div style={{ flex:1, minWidth:0 }}>
@@ -8152,11 +8216,11 @@ export default function App() {
 
             {/* Foto + nome + rating */}
             <div style={S.perfilHeader}>
-              <input ref={fotoInputRef} type="file" accept="image/*" style={{ display:"none" }}
+              <input ref={fotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
                 onChange={e => e.target.files?.[0] && handleFotoUpload(e.target.files[0])} />
               <div style={{ position:"relative", cursor:"pointer", marginBottom:10 }} onClick={() => fotoInputRef.current?.click()}>
                 {fotoUrl
-                  ? <img src={fotoUrl} alt="foto" style={{ width:88, height:88, borderRadius:44, objectFit:"cover", border:`3px solid ${negocio.cor}`, display:"block" }} />
+                  ? <img loading="lazy" src={fotoUrl} alt="foto" style={{ width:88, height:88, borderRadius:44, objectFit:"cover", border:`3px solid ${negocio.cor}`, display:"block" }} />
                   : <div style={{ width:88, height:88, borderRadius:44, background:negocio.cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:26, border:`3px dashed ${negocio.cor}99` }}>{iniciaisEmp}</div>
                 }
                 <div style={{ position:"absolute", bottom:0, right:0, background:negocio.cor, borderRadius:12, padding:"3px 8px", fontSize:11, color:"#fff", fontWeight:700 }}>
@@ -8250,7 +8314,7 @@ export default function App() {
               <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
                 🏘️ Comunidade
               </button>
-              <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={handleLogout}>
+              <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setConfirmLogout(true)}>
                 Sair da conta
               </button>
             </div>
@@ -8569,7 +8633,7 @@ export default function App() {
             <div style={{ display:"flex", alignItems:"center", gap:14, flex:1 }}>
               <div style={{ position:"relative", flexShrink:0 }}>
                 {fotoUrl
-                  ? <img src={fotoUrl} style={{ width:52, height:52, borderRadius:26, objectFit:"cover", border:"3px solid #FF6B35", display:"block" }} alt="" />
+                  ? <img loading="lazy" src={fotoUrl} style={{ width:52, height:52, borderRadius:26, objectFit:"cover", border:"3px solid #FF6B35", display:"block" }} alt="" />
                   : <div style={{ width:52, height:52, borderRadius:26, background:"#0f172a", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:18, border:"3px solid #FF6B35" }}>{iniciaisNome}</div>
                 }
               </div>
@@ -8955,7 +9019,7 @@ export default function App() {
                               <div style={{ width:60, height:60, borderRadius:30, background:cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:iniciais.length > 2 ? 18 : 22, boxShadow:`0 4px 12px ${cor}55`, letterSpacing:"-1px" }}>
                                 {iniciais}
                               </div>
-                              <img src={fotoEmpSrc} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }}
+                              <img loading="lazy" src={fotoEmpSrc} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }}
                                 style={{ position:"absolute", inset:0, width:60, height:60, borderRadius:30, objectFit:"cover" as const, border:`3px solid ${cor}` }} />
                             </button>
                           );
@@ -9738,8 +9802,11 @@ export default function App() {
           const mesAtual = new Date().toISOString().slice(0,7);
           const ganhoMes = diariasConc.filter(d => d.data.slice(0,7) === mesAtual).reduce((s,d)=>s+d.valor,0);
           const mpConectado = !!profile?.mp_user_id;
-          const mpClientId = import.meta.env.VITE_MP_CLIENT_ID as string;
-          const oauthUrl = `https://auth.mercadopago.com.br/authorization?client_id=${mpClientId}&response_type=code&platform_id=mp&state=${session?.user?.id}&redirect_uri=${SUPABASE_URL}/functions/v1/mp-oauth`;
+          // P0-2 auditoria: pra iniciar OAuth do Mercado Pago, use iniciarOAuthMP()
+          // (definida acima). NÃO monte a URL direto aqui com state=user_id —
+          // o Edge Function `mp-oauth` agora exige um nonce one-time gerado
+          // pela RPC `criar_oauth_state('mercadopago')`. URL antiga ficou abaixo
+          // pra referência se algum botão de "Conectar MP" for reativado.
           return (
           <>
             {/* Barra de boas-vindas + ⚙️ */}
@@ -9767,11 +9834,11 @@ export default function App() {
 
             {/* Card de perfil */}
             <div style={{ ...S.perfilHeader, paddingBottom:20 }}>
-              <input ref={fotoInputRef} type="file" accept="image/*" style={{ display:"none" }}
+              <input ref={fotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
                 onChange={e => e.target.files?.[0] && handleFotoUpload(e.target.files[0])} />
               <div style={{ position:"relative", cursor:"pointer", marginBottom:10 }} onClick={() => fotoInputRef.current?.click()}>
                 {fotoUrl
-                  ? <img src={fotoUrl} alt="foto" style={{ width:88, height:88, borderRadius:44, objectFit:"cover", border:"3px solid #FF6B35", display:"block" }} />
+                  ? <img loading="lazy" src={fotoUrl} alt="foto" style={{ width:88, height:88, borderRadius:44, objectFit:"cover", border:"3px solid #FF6B35", display:"block" }} />
                   : <div style={{ ...S.perfilAvatar, background:"#0f172a", color:"#fff", border:"3px dashed #FF6B35", width:88, height:88 }}>{iniciaisNome}</div>
                 }
                 <div style={{ position:"absolute", bottom:0, right:0, background:"#FF6B35", borderRadius:12, padding:"3px 8px", fontSize:11, color:"#fff", fontWeight:700 }}>
@@ -10090,7 +10157,7 @@ export default function App() {
               <button style={{ ...S.btnSecondary, color:"#FF6B35", borderColor:"#FF6B35" }} onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
                 🏘️ Comunidade
               </button>
-              <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={handleLogout}>
+              <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setConfirmLogout(true)}>
                 Sair da conta
               </button>
             </div>
@@ -10309,7 +10376,7 @@ export default function App() {
                           <div style={{ display:"flex", alignItems:"center", gap:12, background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"12px 14px", marginBottom:14 }}>
                             <div style={{ position:"relative", width:52, height:52, flexShrink:0 }}>
                               <div style={{ width:52, height:52, borderRadius:26, background:cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:17 }}>{empIniciais}</div>
-                              <img src={fotoEmpSrc} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }}
+                              <img loading="lazy" src={fotoEmpSrc} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }}
                                 style={{ position:"absolute", inset:0, width:52, height:52, borderRadius:26, objectFit:"cover" as const, border:`2.5px solid ${cor}` }} />
                             </div>
                             <div>
@@ -10659,7 +10726,7 @@ export default function App() {
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginBottom:20 }}>
                 {fotoUrl
-                  ? <img src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover", border:"3px solid #FF6B35", display:"block", marginBottom:12 }} alt="" />
+                  ? <img loading="lazy" src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover", border:"3px solid #FF6B35", display:"block", marginBottom:12 }} alt="" />
                   : <div style={{ width:72, height:72, borderRadius:36, background:"#0f172a", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:24, border:"3px solid #FF6B35", marginBottom:12 }}>{iniciaisNome}</div>
                 }
                 <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>{profile?.nome}</div>
@@ -10955,12 +11022,12 @@ export default function App() {
       <h2 style={S.pageTitle}>Editar perfil</h2>
 
       {/* Foto de perfil */}
-      <input ref={fotoInputRef} type="file" accept="image/*" style={{ display:"none" }}
+      <input ref={fotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
         onChange={e => e.target.files?.[0] && handleFotoUpload(e.target.files[0])} />
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"12px 0 20px" }}>
         <div style={{ position:"relative", cursor:"pointer" }} onClick={() => fotoInputRef.current?.click()}>
           {fotoUrl
-            ? <img src={fotoUrl} alt="foto" style={{ width:90, height:90, borderRadius:45, objectFit:"cover", border:"3px solid #FF6B35", display:"block" }} />
+            ? <img loading="lazy" src={fotoUrl} alt="foto" style={{ width:90, height:90, borderRadius:45, objectFit:"cover", border:"3px solid #FF6B35", display:"block" }} />
             : <div style={{ width:90, height:90, borderRadius:45, background:"var(--bg-subtle,#f1f5f9)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:36 }}>👤</div>
           }
           <div style={{ position:"absolute", bottom:0, right:0, background:"#FF6B35", borderRadius:14, padding:"4px 8px", fontSize:12, color:"#fff", fontWeight:700 }}>
@@ -11098,7 +11165,7 @@ export default function App() {
       <div style={{ display:"flex", gap:10, marginBottom:16 }}>
         {portfolioUrls.map((url, i) => (
           <div key={i} style={{ position:"relative", width:88, height:88, flexShrink:0 }}>
-            <img src={url} alt={`portfolio ${i+1}`} style={{ width:88, height:88, borderRadius:12, objectFit:"cover" as const, border:"2px solid var(--border,#e2e8f0)", display:"block" }} />
+            <img loading="lazy" src={url} alt={`portfolio ${i+1}`} style={{ width:88, height:88, borderRadius:12, objectFit:"cover" as const, border:"2px solid var(--border,#e2e8f0)", display:"block" }} />
             <button
               style={{ position:"absolute", top:-6, right:-6, background:"#ef4444", color:"#fff", border:"none", borderRadius:10, width:22, height:22, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900 }}
               onClick={() => removerFotoPortfolio(i)}>×</button>
@@ -11108,7 +11175,7 @@ export default function App() {
           <label style={{ width:88, height:88, borderRadius:12, border:"2px dashed #e2e8f0", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", background:"var(--bg-surface,#f8fafc)", gap:4, flexShrink:0 }}>
             <span style={{ fontSize:28 }}>{uploadingPortfolio ? "⏳" : "📷"}</span>
             <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{uploadingPortfolio ? "Enviando" : "Adicionar"}</span>
-            <input ref={portfolioInputRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => e.target.files?.[0] && handlePortfolioUpload(e.target.files[0])} />
+            <input ref={portfolioInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }} onChange={e => e.target.files?.[0] && handlePortfolioUpload(e.target.files[0])} />
           </label>
         )}
       </div>
@@ -11259,7 +11326,7 @@ export default function App() {
               <div style={{ width:88, height:88, borderRadius:44, background:corE, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:28, boxShadow:`0 6px 18px ${corE}55` }}>
                 {iniciaisEmp}
               </div>
-              <img src={fotoEmp} alt={`Foto de ${emp.nome}`} onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+              <img loading="lazy" src={fotoEmp} alt={`Foto de ${emp.nome}`} onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
                 style={{ position:"absolute", inset:0, width:88, height:88, borderRadius:44, objectFit:"cover" as const, border:`3px solid ${corE}` }} />
             </div>
             <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>{emp.nome}</div>
@@ -11428,7 +11495,7 @@ export default function App() {
 
         <div style={S.perfilHeader}>
           {d.foto_url
-            ? <img src={d.foto_url} alt="foto" style={{ width:76, height:76, borderRadius:38, objectFit:"cover", border:`3px solid ${cor}`, marginBottom:10 }} />
+            ? <img loading="lazy" src={d.foto_url} alt="foto" style={{ width:76, height:76, borderRadius:38, objectFit:"cover", border:`3px solid ${cor}`, marginBottom:10 }} />
             : <div style={{ ...S.perfilAvatar, background:cor, color:"#fff" }}>{iniciais}</div>
           }
           <h2 style={S.perfilNome}>{d.nome}</h2>
@@ -12300,7 +12367,7 @@ export default function App() {
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto / Logo do negócio</div>
       <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20, padding:"14px 16px", background:"var(--bg-surface,#f8fafc)", borderRadius:16, border:"1.5px solid var(--border,#e2e8f0)" }}>
         {fotoUrl
-          ? <img src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover" as const, flexShrink:0, border:`3px solid ${negocio?.cor||"#FF6B35"}` }} alt="foto" />
+          ? <img loading="lazy" src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover" as const, flexShrink:0, border:`3px solid ${negocio?.cor||"#FF6B35"}` }} alt="foto" />
           : <div style={{ width:72, height:72, borderRadius:36, background:"#e2e8f0", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, flexShrink:0 }}>🏢</div>
         }
         <div style={{ flex:1 }}>
@@ -12310,7 +12377,7 @@ export default function App() {
           <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, lineHeight:1.4 }}>Aparece no card da vaga para os diaristas</div>
           <label style={{ display:"inline-block", padding:"8px 16px", background:fotoUrl ? "#f0fdf4" : (negocio?.cor||"#FF6B35"), color:fotoUrl ? "#16a34a" : "#fff", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer" }}>
             {uploadingFoto ? "Enviando..." : fotoUrl ? "Trocar foto" : "📷 Escolher foto"}
-            <input type="file" accept="image/*" style={{ display:"none" }} onChange={e=>e.target.files?.[0]&&handleFotoUpload(e.target.files[0])} />
+            <input type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }} onChange={e=>e.target.files?.[0]&&handleFotoUpload(e.target.files[0])} />
           </label>
         </div>
       </div>
@@ -12570,7 +12637,7 @@ export default function App() {
                 docRevisao.url.toLowerCase().endsWith(".pdf") ? (
                   <iframe src={docRevisao.signedUrl} title="Documento" style={{ width:"100%", height:380, border:"1px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"#fff" }} />
                 ) : (
-                  <img src={docRevisao.signedUrl} alt="Documento" style={{ width:"100%", maxHeight:380, objectFit:"contain" as const, borderRadius:10, marginBottom:14, background:"#000" }} />
+                  <img loading="lazy" src={docRevisao.signedUrl} alt="Documento" style={{ width:"100%", maxHeight:380, objectFit:"contain" as const, borderRadius:10, marginBottom:14, background:"#000" }} />
                 )
               ) : (
                 <div style={{ width:"100%", height:200, background:"#f1f5f9", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", color:"#94a3b8", fontSize:13, marginBottom:14 }}>
@@ -12699,7 +12766,7 @@ export default function App() {
 
               {/* Preview se for imagem */}
               {docPreview && docFile && docFile.type.startsWith("image/") && (
-                <img src={docPreview} alt="Pré-visualização" style={{ width:"100%", maxHeight:280, objectFit:"contain" as const, borderRadius:12, background:"#000", marginBottom:12 }} />
+                <img loading="lazy" src={docPreview} alt="Pré-visualização" style={{ width:"100%", maxHeight:280, objectFit:"contain" as const, borderRadius:12, background:"#000", marginBottom:12 }} />
               )}
 
               {/* Dicas */}

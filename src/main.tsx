@@ -1,11 +1,21 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import "@fontsource/inter/400.css";
-import "@fontsource/inter/500.css";
-import "@fontsource/inter/600.css";
-import "@fontsource/inter/700.css";
-import "@fontsource/inter/800.css";
-import "@fontsource/inter/900.css";
+// App é pt-BR — só precisamos do subset latin + latin-ext (acentos PT/ES/FR).
+// Antes importávamos `@fontsource/inter/{peso}.css` que puxa TODOS os subsets
+// (cyrillic + greek + vietnamese + greek-ext + cyrillic-ext) = 33 arquivos /
+// ~1 MB. Agora só latin + latin-ext = ~250 KB. (IMP-C2 / P1-19 da auditoria.)
+import "@fontsource/inter/latin-400.css";
+import "@fontsource/inter/latin-500.css";
+import "@fontsource/inter/latin-600.css";
+import "@fontsource/inter/latin-700.css";
+import "@fontsource/inter/latin-800.css";
+import "@fontsource/inter/latin-900.css";
+import "@fontsource/inter/latin-ext-400.css";
+import "@fontsource/inter/latin-ext-500.css";
+import "@fontsource/inter/latin-ext-600.css";
+import "@fontsource/inter/latin-ext-700.css";
+import "@fontsource/inter/latin-ext-800.css";
+import "@fontsource/inter/latin-ext-900.css";
 import App from "./App";
 
 class ErrorBoundary extends React.Component<
