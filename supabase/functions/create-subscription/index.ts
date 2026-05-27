@@ -27,9 +27,19 @@ const PLANOS: Record<string, Record<string, { valor: number; nome: string }>> = 
   },
 };
 
+// CORS headers reutilizados em respostas pra preflight (OPTIONS) e pra
+// erro 429 do rate-limit. Antes existiam só inline no OPTIONS, mas o
+// helper rateLimitOrReject precisa receber esses headers explicitamente
+// (senão o browser bloqueia a resposta 429 por CORS — daí "ReferenceError:
+// CORS is not defined" virava 500 silencioso).
+const CORS = {
+  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Headers": "authorization,content-type,apikey",
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization,content-type,apikey" } });
+    return new Response("ok", { headers: CORS });
   }
 
   try {
