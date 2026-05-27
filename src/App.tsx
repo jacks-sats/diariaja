@@ -399,6 +399,48 @@ export default function App() {
   const [resetSenhaEnviado, setResetSenhaEnviado] = useState(false);
   const [resetSenhaLoading, setResetSenhaLoading] = useState(false);
 
+  // ── Cadastro de Empresa (PJ) ──────────────────────────────────────────────
+  // Form dedicado, separado do `form` global pra evitar contaminação cruzada
+  // com fluxos PF/Diarista. Persistido em localStorage como rascunho.
+  type FormEmpresa = {
+    cnpj: string; razaoSocial: string; nomeFantasia: string;
+    email: string; telefone: string;
+    senha: string; confirmaSenha: string;
+    cep: string; rua: string; numero: string; complemento: string;
+    bairro: string; cidade: string; estado: string;
+    responsavelNome: string; responsavelCpf: string;
+    aceitaTermos: boolean;
+  };
+  const FORM_EMPRESA_VAZIO: FormEmpresa = {
+    cnpj: "", razaoSocial: "", nomeFantasia: "",
+    email: "", telefone: "",
+    senha: "", confirmaSenha: "",
+    cep: "", rua: "", numero: "", complemento: "",
+    bairro: "", cidade: "", estado: "",
+    responsavelNome: "", responsavelCpf: "",
+    aceitaTermos: false,
+  };
+  const [formEmp, setFormEmp] = useState<FormEmpresa>(() => {
+    // Restaura rascunho do localStorage (sem senha/confirmaSenha por segurança)
+    try {
+      const raw = localStorage.getItem("diariaja_cad_empresa_draft");
+      if (!raw) return FORM_EMPRESA_VAZIO;
+      const parsed = JSON.parse(raw) as Partial<FormEmpresa>;
+      return { ...FORM_EMPRESA_VAZIO, ...parsed, senha: "", confirmaSenha: "", aceitaTermos: false };
+    } catch { return FORM_EMPRESA_VAZIO; }
+  });
+  // Erro por campo + lista de campos "tocados" (mostra erro só depois que user mexeu)
+  const [errosEmp, setErrosEmp] = useState<Partial<Record<keyof FormEmpresa, string>>>({});
+  const [tocadosEmp, setTocadosEmp] = useState<Partial<Record<keyof FormEmpresa, boolean>>>({});
+  const [submittingEmp, setSubmittingEmp] = useState(false);
+  const [mostrarSenhaEmp, setMostrarSenhaEmp] = useState(false);
+  const [mostrarConfirmaSenhaEmp, setMostrarConfirmaSenhaEmp] = useState(false);
+  const [buscandoCEPEmpresa, setBuscandoCEPEmpresa] = useState(false);
+  // Cache local de CNPJs já consultados (evita refetch a cada keystroke)
+  const cnpjsDuplicadosRef = useRef<Set<string>>(new Set());
+  const cnpjsLivresRef = useRef<Set<string>>(new Set());
+  const [verificandoCnpjEmp, setVerificandoCnpjEmp] = useState(false);
+
   // Configurações / Conta
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmSenha, setConfirmSenha] = useState("");
@@ -481,6 +523,18 @@ export default function App() {
   useEffect(() => { localStorage.setItem("diariaja_modo", modoAtual); }, [modoAtual]);
   // Persiste a tela atual para não sair da página ao recarregar
   useEffect(() => { localStorage.setItem("diariaja_tela", tela); }, [tela]);
+
+  // Rascunho do cadastro empresarial — salva campos não-sensíveis a cada
+  // mudança, restaura ao reabrir a tela. Senha e checkbox de termos NÃO são
+  // salvos (segurança + LGPD: aceite tem que ser ato consciente, não restored).
+  useEffect(() => {
+    try {
+      // Não salva campos sensíveis nem o aceite de termos.
+      const { senha: _s, confirmaSenha: _c, aceitaTermos: _a, ...safe } = formEmp;
+      void _s; void _c; void _a;
+      localStorage.setItem("diariaja_cad_empresa_draft", JSON.stringify(safe));
+    } catch { /* quota cheia ou modo privado: silenciar */ }
+  }, [formEmp]);
   // Cleanup ObjectURL do preview de KYC ao sair da tela (evita leak em mobile)
   useEffect(() => {
     if (tela !== "verificar-documento" && docPreview) {
@@ -1867,6 +1921,18 @@ export default function App() {
         setAuthError(traduzirErroAuth(error.message));
       }
     }
+  };
+
+  // OAuth Google. Disponível pra Diarista e Empregador PF (não pra Empresa PJ —
+  // PJ tem fluxo dedicado com CNPJ + Razão Social + Responsável). O botão na UI
+  // só aparece em login (sempre) e em cadastro-auth quando tipo !== "empresa".
+  const handleGoogleLogin = async () => {
+    setAuthError("");
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) setAuthError(traduzirErroAuth(error.message));
   };
 
   const handleLogout = async () => {
@@ -3265,6 +3331,207 @@ export default function App() {
     setBuscandoCEPEmp(false);
   };
 
+  // ── Cadastro Empresa (PJ) — busca CEP dedicada que escreve em formEmp ─────
+  const buscarCEPEmpresa = async (cepRaw: string) => {
+    const cep = cepRaw.replace(/\D/g, "");
+    if (cep.length !== 8) return;
+    setBuscandoCEPEmpresa(true);
+    setErrosEmp(e => ({ ...e, cep: undefined }));
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const json = await res.json();
+      if (json.erro) {
+        setErrosEmp(e => ({ ...e, cep: "CEP não encontrado." }));
+      } else {
+        setFormEmp(prev => ({
+          ...prev,
+          rua: json.logradouro || prev.rua,
+          bairro: json.bairro || prev.bairro,
+          cidade: json.localidade || prev.cidade,
+          estado: json.uf || prev.estado,
+        }));
+      }
+    } catch {
+      setErrosEmp(e => ({ ...e, cep: "Erro ao buscar CEP. Verifique sua conexão." }));
+    }
+    setBuscandoCEPEmpresa(false);
+  };
+
+  // Checa duplicidade de CNPJ via RPC (não bloqueante — só pra UX).
+  // A constraint UNIQUE do banco é a fonte de verdade no INSERT.
+  const verificarCnpjDuplicadoEmpresa = async (cnpj: string) => {
+    const dig = cnpj.replace(/\D/g, "");
+    if (dig.length !== 14 || !validarCNPJ(dig)) return; // só checa CNPJ válido
+    if (cnpjsDuplicadosRef.current.has(dig)) {
+      setErrosEmp(e => ({ ...e, cnpj: "Este CNPJ já está cadastrado. Faça login com a conta existente." }));
+      return;
+    }
+    if (cnpjsLivresRef.current.has(dig)) return; // já verificado, OK
+    setVerificandoCnpjEmp(true);
+    try {
+      const { data, error } = await supabase.rpc("cnpj_ja_cadastrado", { p_cnpj: dig });
+      if (error) {
+        // RPC pode não existir ainda (migration não rodou) — não bloqueia.
+        cnpjsLivresRef.current.add(dig);
+      } else if (data === true) {
+        cnpjsDuplicadosRef.current.add(dig);
+        setErrosEmp(e => ({ ...e, cnpj: "Este CNPJ já está cadastrado. Faça login com a conta existente." }));
+      } else {
+        cnpjsLivresRef.current.add(dig);
+        setErrosEmp(e => ({ ...e, cnpj: undefined }));
+      }
+    } catch {
+      cnpjsLivresRef.current.add(dig); // fail-open
+    }
+    setVerificandoCnpjEmp(false);
+  };
+
+  // Valida um único campo do formEmp e atualiza `errosEmp`. Roda no blur (após
+  // o user terminar de digitar) e antes do submit. Retorna `true` se ok.
+  const validarCampoEmpresa = (campo: keyof FormEmpresa, valor: FormEmpresa[typeof campo], form: FormEmpresa): string | undefined => {
+    switch (campo) {
+      case "cnpj": {
+        const dig = String(valor).replace(/\D/g, "");
+        if (dig.length === 0) return "CNPJ obrigatório.";
+        if (dig.length < 14) return "CNPJ incompleto.";
+        if (!validarCNPJ(dig)) return "CNPJ inválido. Confira os dígitos.";
+        if (cnpjsDuplicadosRef.current.has(dig)) return "Este CNPJ já está cadastrado.";
+        return undefined;
+      }
+      case "razaoSocial":
+        if (!String(valor).trim()) return "Razão Social obrigatória.";
+        if (String(valor).trim().length < 3) return "Razão Social muito curta.";
+        return undefined;
+      case "nomeFantasia":
+        if (!String(valor).trim()) return "Nome Fantasia obrigatório.";
+        return undefined;
+      case "email":
+        if (!String(valor).trim()) return "E-mail obrigatório.";
+        if (!validarEmail(String(valor))) return "E-mail inválido.";
+        return undefined;
+      case "telefone": {
+        if (!String(valor).trim()) return "Telefone obrigatório.";
+        if (!validarTelefone(String(valor))) return "Telefone inválido. Use (XX) 9XXXX-XXXX.";
+        return undefined;
+      }
+      case "senha": {
+        const s = String(valor);
+        if (s.length < 10) return "Senha deve ter pelo menos 10 caracteres.";
+        if (!/[A-Za-z]/.test(s) || !/[0-9]/.test(s)) return "Senha precisa ter letras E números.";
+        return undefined;
+      }
+      case "confirmaSenha":
+        if (String(valor) !== form.senha) return "As senhas não conferem.";
+        return undefined;
+      case "cep":
+        if (!String(valor).trim()) return "CEP obrigatório.";
+        if (String(valor).replace(/\D/g, "").length !== 8) return "CEP incompleto.";
+        return undefined;
+      case "rua":      return !String(valor).trim() ? "Logradouro obrigatório." : undefined;
+      case "numero":   return !String(valor).trim() ? "Número obrigatório."     : undefined;
+      case "bairro":   return !String(valor).trim() ? "Bairro obrigatório."     : undefined;
+      case "cidade":   return !String(valor).trim() ? "Cidade obrigatória."     : undefined;
+      case "estado":   return String(valor).trim().length !== 2 ? "UF obrigatória (2 letras)." : undefined;
+      case "responsavelNome": {
+        const erro = validarNome(String(valor));
+        return erro || undefined;
+      }
+      case "responsavelCpf": {
+        const dig = String(valor).replace(/\D/g, "");
+        if (dig.length === 0) return "CPF do responsável obrigatório.";
+        if (!validarCPF(dig)) return "CPF do responsável inválido.";
+        return undefined;
+      }
+      case "aceitaTermos":
+        return valor ? undefined : "Você precisa aceitar os Termos.";
+      default:
+        return undefined;
+    }
+  };
+
+  // Roda validação em TODOS os campos. Usado pra calcular se o botão libera
+  // (validação contínua) e antes do submit.
+  const validarTodoFormEmpresa = (form: FormEmpresa): Partial<Record<keyof FormEmpresa, string>> => {
+    const erros: Partial<Record<keyof FormEmpresa, string>> = {};
+    (Object.keys(form) as Array<keyof FormEmpresa>).forEach(k => {
+      const e = validarCampoEmpresa(k, form[k], form);
+      if (e) erros[k] = e;
+    });
+    return erros;
+  };
+
+  // Submit: signUp + INSERT user_profiles (via saveProfile depois do login)
+  const submitCadastroEmpresa = async () => {
+    setSubmittingEmp(true);
+    setAuthError("");
+    const erros = validarTodoFormEmpresa(formEmp);
+    setErrosEmp(erros);
+    // Marca todos como tocados pra mostrar todos os erros de uma vez
+    setTocadosEmp(Object.fromEntries((Object.keys(formEmp) as Array<keyof FormEmpresa>).map(k => [k, true])));
+    if (Object.keys(erros).length > 0) {
+      setSubmittingEmp(false);
+      setAuthError("Corrija os campos destacados antes de continuar.");
+      return;
+    }
+
+    // Cria a conta no Supabase Auth
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email: formEmp.email.trim(),
+      password: formEmp.senha,
+      options: {
+        data: { user_type: "empregador", pessoa_tipo: "juridica" },
+        emailRedirectTo: window.location.origin,
+      },
+    });
+    if (signUpError) {
+      setSubmittingEmp(false);
+      setAuthError(traduzirErroAuth(signUpError.message));
+      return;
+    }
+
+    // Monta endereço formatado e dispara saveProfile depois que tiver sessão.
+    // Se Supabase está com "Confirm email" ligado, signUpData.session é null —
+    // pre-loga via signInWithPassword (a conta já existe). Pode falhar se a
+    // confirmação for obrigatória — nesse caso, mostra mensagem clara.
+    let session = signUpData.session;
+    if (!session) {
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: formEmp.email.trim(),
+        password: formEmp.senha,
+      });
+      if (signInError) {
+        // Confirma e-mail obrigatório no Supabase. Conta criada mas sem login.
+        setSubmittingEmp(false);
+        try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
+        setAuthError("✅ Conta criada! Confirme seu e-mail para entrar (verifique também o spam).");
+        return;
+      }
+      session = signInData.session;
+    }
+
+    const endereco = `${formEmp.rua}, ${formEmp.numero}${formEmp.complemento.trim() ? ` — ${formEmp.complemento}` : ""}, ${formEmp.bairro}, ${formEmp.cidade}/${formEmp.estado} — CEP ${formEmp.cep}`;
+    const ok = await saveProfile({
+      user_type: "empregador",
+      pessoa_tipo: "juridica",
+      cnpj: formEmp.cnpj,
+      nome_negocio: formEmp.nomeFantasia,   // legacy/compat
+      nome_fantasia: formEmp.nomeFantasia,
+      razao_social: formEmp.razaoSocial,
+      nome: formEmp.responsavelNome,        // legacy: nome da conta = responsável
+      responsavel_nome: formEmp.responsavelNome,
+      responsavel_cpf: formEmp.responsavelCpf.replace(/\D/g, ""),
+      telefone: formEmp.telefone.replace(/\D/g, ""),
+      endereco_empregador: endereco,
+    });
+    setSubmittingEmp(false);
+    if (ok) {
+      try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
+      setTela("escolha-negocio");
+    } else {
+      setAuthError("Conta criada, mas houve um erro ao salvar os dados da empresa. Tente novamente.");
+    }
+  };
+
   // Busca CEP do perfil do diarista → preenche bairro/cidade e geocodifica
   const buscarCEPPerfil = async (cepRaw: string) => {
     const cep = cepRaw.replace(/\D/g, "");
@@ -3353,6 +3620,16 @@ export default function App() {
     setAgenda(novaAgenda);
     await saveProfile({ agenda: novaAgenda });
   };
+
+  // SVG do Google — usado nos botões de login/cadastro com Google
+  const GoogleSVG = (
+    <svg width="20" height="20" viewBox="0 0 24 24" style={{ marginRight: 10, flexShrink: 0 }}>
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+    </svg>
+  );
 
   // LOADING
   // ── Barra de progresso global (aparece em qualquer operação assíncrona) ─────
@@ -3536,6 +3813,23 @@ export default function App() {
 
       {/* Card de login */}
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
+        {/* Google — disponível pra qualquer tipo de conta que já existir.
+            Contas PJ criadas pelo fluxo "Empresa com CNPJ" também podem
+            voltar via Google se já tiverem associado o e-mail à conta. */}
+        <button
+          type="button"
+          aria-label="Entrar com Google"
+          style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }}
+          onClick={handleGoogleLogin}>
+          {GoogleSVG} Entrar com Google
+        </button>
+
+        <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
+          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou</span>
+          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+        </div>
+
         {/* Toggle E-mail / CPF — alternativa de login */}
         <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,.05)", borderRadius:10, padding:3, marginBottom:14 }}>
           {([
@@ -3693,9 +3987,12 @@ export default function App() {
         aria-disabled={!tipo}
         onClick={() => {
           if (tipo === "empresa") {
+            // PJ tem fluxo dedicado em `cadastro-empresa` — pula `cadastro-auth`.
+            // Se o user já estiver logado (raro nesse ponto), vai pro completar
+            // perfil em `cadastro-empregador` com pessoa_tipo = juridica.
             setForm(prev => ({ ...prev, pessoaTipo: "juridica" }));
             if (session) { setTela("cadastro-empregador"); }
-            else { setTela("cadastro-auth"); }
+            else { setTela("cadastro-empresa"); }
           } else if (session) {
             setTela(tipo === "empregador" ? "cadastro-empregador" : "cadastro-diarista");
           } else {
@@ -3740,6 +4037,25 @@ export default function App() {
       </div>
 
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
+        {/* Cadastro com Google — disponível pra Diarista e Empregador PF.
+            Bloqueado pra Empresa PJ (fluxo dedicado em cadastro-empresa). */}
+        {tipo !== "empresa" && (
+          <>
+            <button
+              type="button"
+              aria-label="Cadastrar com Google"
+              style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }}
+              onClick={handleGoogleLogin}>
+              {GoogleSVG} Cadastrar com Google
+            </button>
+            <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
+              <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+              <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou com e-mail</span>
+              <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+            </div>
+          </>
+        )}
+
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
         <input id="cad-email" aria-label="E-mail" type="email" autoComplete="email" style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
@@ -4609,6 +4925,324 @@ export default function App() {
       )}
       {modalNovoTicketJSX}
       </>
+    );
+  }
+
+  // ── CADASTRO EMPRESA (PJ) ───────────────────────────────────────────────
+  // Fluxo dedicado: clicou em "Empresa com CNPJ" no cadastro-tipo → vem direto
+  // pra cá (não passa por cadastro-auth). Form único com todos os dados:
+  // Acesso · Empresa · Endereço · Responsável · Termos.
+  if (tela === "cadastro-empresa") {
+    const erros = errosEmp;
+    const tocados = tocadosEmp;
+    // Validação contínua: erros calculados do form atual (sem mostrar até tocar)
+    const errosAtuais = validarTodoFormEmpresa(formEmp);
+    const todoValido = Object.keys(errosAtuais).length === 0;
+
+    // Helper visual: estilo do input baseado em erro tocado
+    const estiloInput = (campo: keyof FormEmpresa, extra: React.CSSProperties = {}): React.CSSProperties => {
+      const errado = tocados[campo] && !!erros[campo];
+      const valido = tocados[campo] && !erros[campo] && !!String(formEmp[campo]).trim();
+      return {
+        width:"100%", padding:"13px 16px",
+        border: errado ? "1.5px solid #ef4444" : valido ? "1.5px solid #16a34a" : "1.5px solid #e2e8f0",
+        borderRadius:12, fontSize:15,
+        background: "#fff",
+        color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif",
+        boxSizing:"border-box" as const, outline:"none",
+        ...extra,
+      };
+    };
+    const Label = (txt: string, obrigatorio = true) => (
+      <label style={{ fontSize:12, fontWeight:700, color:"#475569", display:"block", marginTop:14, marginBottom:6 }}>
+        {txt} {obrigatorio && <span style={{ color:"#ef4444" }}>*</span>}
+      </label>
+    );
+    const ErroInline = (campo: keyof FormEmpresa) => (
+      tocados[campo] && erros[campo]
+        ? <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"4px 0 0" }}>⚠ {erros[campo]}</p>
+        : null
+    );
+    const blur = (campo: keyof FormEmpresa) => () => {
+      setTocadosEmp(t => ({ ...t, [campo]: true }));
+      setErrosEmp(e => ({ ...e, [campo]: validarCampoEmpresa(campo, formEmp[campo], formEmp) }));
+    };
+    const setCampo = <K extends keyof FormEmpresa>(campo: K, valor: FormEmpresa[K]) => {
+      setFormEmp(prev => {
+        const next = { ...prev, [campo]: valor };
+        // Revalida ao vivo só se já tocou (evita "vermelho prematuro")
+        if (tocados[campo]) {
+          setErrosEmp(e => ({ ...e, [campo]: validarCampoEmpresa(campo, valor, next) }));
+          // Confirma senha precisa revalidar quando senha mudar
+          if (campo === "senha" && tocados["confirmaSenha"]) {
+            setErrosEmp(e => ({ ...e, confirmaSenha: validarCampoEmpresa("confirmaSenha", next.confirmaSenha, next) }));
+          }
+        }
+        return next;
+      });
+    };
+    const Secao = ({ icone, titulo, desc }: { icone: string; titulo: string; desc?: string }) => (
+      <div style={{ display:"flex", alignItems:"center", gap:10, margin:"24px 0 4px", paddingBottom:8, borderBottom:"2px solid #3A86FF25" }}>
+        <div style={{ width:34, height:34, borderRadius:10, background:"#3A86FF18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:17, flexShrink:0 }}>{icone}</div>
+        <div>
+          <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>{titulo}</div>
+          {desc && <div style={{ fontSize:11, color:"#94a3b8", marginTop:1 }}>{desc}</div>}
+        </div>
+      </div>
+    );
+
+    return (
+      <div style={{ minHeight:"100vh", background:"#f0f2f5", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", padding:"0 20px 40px" }}>
+        <button
+          style={{ background:"none", border:"none", color:"#475569", fontSize:15, cursor:"pointer", padding:"32px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }}
+          onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
+          ← Voltar
+        </button>
+
+        {/* Header — tom corporativo: azul (#3A86FF) em vez do laranja da marca */}
+        <div style={{ background:"linear-gradient(135deg,#1e3a8a,#3A86FF)", borderRadius:20, padding:"22px 22px 20px", marginTop:16, marginBottom:8, color:"#fff" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ fontSize:32 }}>🏢</div>
+            <div>
+              <div style={{ fontSize:20, fontWeight:900, lineHeight:1.2 }}>Cadastro de Empresa</div>
+              <div style={{ fontSize:12, opacity:0.85, marginTop:2 }}>Conta corporativa com CNPJ verificado</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:12, padding:"12px 14px", marginTop:10, fontSize:12, color:"#1e40af", lineHeight:1.6 }}>
+          🔒 Empresas usam um cadastro dedicado pra garantir conformidade. CNPJ e CPF do responsável são privados — não aparecem no perfil público.
+        </div>
+
+        {/* ── ACESSO ────────────────────────────────────────────────────────── */}
+        <Secao icone="🔑" titulo="Acesso" desc="E-mail e senha pra entrar" />
+
+        {Label("E-mail corporativo")}
+        <input type="email" inputMode="email" autoComplete="email"
+          style={estiloInput("email")} placeholder="contato@empresa.com.br"
+          value={formEmp.email}
+          onChange={e => setCampo("email", e.target.value.trim())}
+          onBlur={blur("email")} />
+        {ErroInline("email")}
+
+        {Label("Senha")}
+        <div style={{ position:"relative" as const }}>
+          <input
+            type={mostrarSenhaEmp ? "text" : "password"} autoComplete="new-password"
+            style={estiloInput("senha", { paddingRight:46 })}
+            placeholder="Mín. 10 caracteres com letras e números"
+            value={formEmp.senha}
+            onChange={e => setCampo("senha", e.target.value)}
+            onBlur={blur("senha")} />
+          <button type="button" aria-label={mostrarSenhaEmp ? "Ocultar senha" : "Mostrar senha"}
+            style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
+            onClick={() => setMostrarSenhaEmp(p => !p)}>
+            {mostrarSenhaEmp ? "🙈" : "👁️"}
+          </button>
+        </div>
+        {ErroInline("senha")}
+
+        {Label("Confirmar senha")}
+        <div style={{ position:"relative" as const }}>
+          <input
+            type={mostrarConfirmaSenhaEmp ? "text" : "password"} autoComplete="new-password"
+            style={estiloInput("confirmaSenha", { paddingRight:46 })}
+            placeholder="Repita a senha"
+            value={formEmp.confirmaSenha}
+            onChange={e => setCampo("confirmaSenha", e.target.value)}
+            onBlur={blur("confirmaSenha")} />
+          <button type="button" aria-label={mostrarConfirmaSenhaEmp ? "Ocultar senha" : "Mostrar senha"}
+            style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
+            onClick={() => setMostrarConfirmaSenhaEmp(p => !p)}>
+            {mostrarConfirmaSenhaEmp ? "🙈" : "👁️"}
+          </button>
+        </div>
+        {ErroInline("confirmaSenha")}
+
+        {/* ── EMPRESA ───────────────────────────────────────────────────────── */}
+        <Secao icone="🏢" titulo="Dados da empresa" desc="Identificação fiscal" />
+
+        {Label("CNPJ")}
+        <div style={{ position:"relative" as const }}>
+          <input inputMode="numeric" maxLength={18}
+            style={estiloInput("cnpj", { letterSpacing:0.5, paddingRight: verificandoCnpjEmp ? 90 : undefined })}
+            placeholder="00.000.000/0000-00"
+            value={formEmp.cnpj}
+            onChange={e => {
+              const masked = maskCNPJ(e.target.value);
+              setCampo("cnpj", masked);
+              const dig = masked.replace(/\D/g, "");
+              if (dig.length === 14 && validarCNPJ(dig)) {
+                // dispara checagem assíncrona de duplicidade (best-effort)
+                verificarCnpjDuplicadoEmpresa(dig);
+              }
+            }}
+            onBlur={blur("cnpj")} />
+          {verificandoCnpjEmp && <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"#64748b", fontWeight:600 }}>Verificando...</span>}
+        </div>
+        {ErroInline("cnpj")}
+
+        {Label("Razão Social")}
+        <input style={estiloInput("razaoSocial")}
+          placeholder="Ex: Restaurante Sabor Brasileiro LTDA"
+          value={formEmp.razaoSocial}
+          onChange={e => setCampo("razaoSocial", e.target.value)}
+          onBlur={blur("razaoSocial")} />
+        {ErroInline("razaoSocial")}
+
+        {Label("Nome Fantasia")}
+        <input style={estiloInput("nomeFantasia")}
+          placeholder="Ex: Sabor Brasileiro"
+          value={formEmp.nomeFantasia}
+          onChange={e => setCampo("nomeFantasia", e.target.value)}
+          onBlur={blur("nomeFantasia")} />
+        {ErroInline("nomeFantasia")}
+
+        {Label("Telefone (WhatsApp)")}
+        <input inputMode="numeric" maxLength={15} autoComplete="tel"
+          style={estiloInput("telefone")}
+          placeholder="(67) 99999-9999"
+          value={formEmp.telefone}
+          onChange={e => setCampo("telefone", maskTelefone(e.target.value))}
+          onBlur={blur("telefone")} />
+        {ErroInline("telefone")}
+
+        {/* ── ENDEREÇO ──────────────────────────────────────────────────────── */}
+        <Secao icone="📍" titulo="Endereço da empresa" desc="Onde os serviços serão prestados" />
+
+        {Label("CEP")}
+        <div style={{ position:"relative" }}>
+          <input inputMode="numeric" maxLength={9}
+            style={estiloInput("cep", { letterSpacing:0.5, paddingRight: buscandoCEPEmpresa ? 110 : undefined })}
+            placeholder="00000-000"
+            value={formEmp.cep}
+            onChange={e => {
+              let v = e.target.value.replace(/\D/g, "").slice(0, 8);
+              if (v.length > 5) v = v.slice(0, 5) + "-" + v.slice(5);
+              setCampo("cep", v);
+              if (v.replace(/\D/g, "").length === 8) buscarCEPEmpresa(v);
+            }}
+            onBlur={blur("cep")} />
+          {buscandoCEPEmpresa && <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"#64748b", fontWeight:600 }}>Buscando...</span>}
+        </div>
+        {ErroInline("cep")}
+
+        {Label("Logradouro")}
+        <input style={estiloInput("rua")} placeholder="Ex: Avenida Afonso Pena"
+          value={formEmp.rua}
+          onChange={e => setCampo("rua", e.target.value)}
+          onBlur={blur("rua")} />
+        {ErroInline("rua")}
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr", gap:12 }}>
+          <div>
+            {Label("Número")}
+            <input style={estiloInput("numero")} placeholder="123"
+              value={formEmp.numero}
+              onChange={e => setCampo("numero", e.target.value)}
+              onBlur={blur("numero")} />
+            {ErroInline("numero")}
+          </div>
+          <div>
+            {Label("Complemento", false)}
+            <input style={estiloInput("complemento")} placeholder="Sala, Bloco…"
+              value={formEmp.complemento}
+              onChange={e => setCampo("complemento", e.target.value)} />
+          </div>
+        </div>
+
+        {Label("Bairro")}
+        <input style={estiloInput("bairro")} placeholder="Ex: Centro"
+          value={formEmp.bairro}
+          onChange={e => setCampo("bairro", e.target.value)}
+          onBlur={blur("bairro")} />
+        {ErroInline("bairro")}
+
+        <div style={{ display:"grid", gridTemplateColumns:"1.5fr 0.8fr", gap:12 }}>
+          <div>
+            {Label("Cidade")}
+            <input style={estiloInput("cidade")} placeholder="Campo Grande"
+              value={formEmp.cidade}
+              onChange={e => setCampo("cidade", e.target.value)}
+              onBlur={blur("cidade")} />
+            {ErroInline("cidade")}
+          </div>
+          <div>
+            {Label("UF")}
+            <input style={estiloInput("estado", { textTransform:"uppercase" })} placeholder="MS" maxLength={2}
+              value={formEmp.estado}
+              onChange={e => setCampo("estado", e.target.value.toUpperCase().slice(0, 2))}
+              onBlur={blur("estado")} />
+            {ErroInline("estado")}
+          </div>
+        </div>
+
+        {/* ── RESPONSÁVEL ───────────────────────────────────────────────────── */}
+        <Secao icone="👤" titulo="Responsável legal" desc="Pessoa que responde pela conta" />
+
+        {Label("Nome do responsável")}
+        <input style={estiloInput("responsavelNome")} autoComplete="name"
+          placeholder="Nome completo"
+          value={formEmp.responsavelNome}
+          onChange={e => setCampo("responsavelNome", e.target.value)}
+          onBlur={blur("responsavelNome")} />
+        {ErroInline("responsavelNome")}
+
+        {Label("CPF do responsável")}
+        <input inputMode="numeric" maxLength={14}
+          style={estiloInput("responsavelCpf", { letterSpacing:0.5 })}
+          placeholder="000.000.000-00"
+          value={formEmp.responsavelCpf}
+          onChange={e => setCampo("responsavelCpf", maskCPF(e.target.value))}
+          onBlur={blur("responsavelCpf")} />
+        {ErroInline("responsavelCpf")}
+
+        {/* ── TERMOS ────────────────────────────────────────────────────────── */}
+        <label
+          aria-label="Aceite dos Termos de Uso"
+          style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", margin:"24px 0 4px", background:"#fff", borderRadius:12, padding:"14px 16px", border:`1.5px solid ${formEmp.aceitaTermos ? "#3A86FF" : "#e2e8f0"}` }}>
+          <input type="checkbox"
+            checked={formEmp.aceitaTermos}
+            onChange={e => { setCampo("aceitaTermos", e.target.checked); setTocadosEmp(t => ({ ...t, aceitaTermos: true })); }}
+            style={{ width:18, height:18, accentColor:"#3A86FF", flexShrink:0, marginTop:2 }} />
+          <span style={{ fontSize:12, color:"#475569", lineHeight:1.5 }}>
+            Li e aceito os{" "}
+            <span role="button" style={{ color:"#3A86FF", fontWeight:700, cursor:"pointer", textDecoration:"underline" }}
+              onClick={e => { e.preventDefault(); setTipo("empresa"); setMostrarTermos(true); }}>
+              Termos de Uso
+            </span>{" "}
+            e a Política de Privacidade do DiáriaJá. Declaro que sou o responsável legal pela empresa e tenho autorização pra cadastrá-la.
+          </span>
+        </label>
+        {ErroInline("aceitaTermos")}
+
+        {authError && (
+          <p style={{ color: authError.startsWith("✅") ? "#16a34a" : "#ef4444", fontSize:13, fontWeight:600, marginTop:14, textAlign:"center" }}>
+            {authError}
+          </p>
+        )}
+
+        <button
+          style={{
+            width:"100%", padding:"15px", marginTop:18, marginBottom:24,
+            background: todoValido && !submittingEmp ? "#3A86FF" : "#cbd5e1",
+            color: todoValido && !submittingEmp ? "#fff" : "#94a3b8",
+            border:"none", borderRadius:14, fontSize:16, fontWeight:800,
+            cursor: todoValido && !submittingEmp ? "pointer" : "default",
+            fontFamily:"Inter, system-ui, sans-serif",
+            boxShadow: todoValido && !submittingEmp ? "0 4px 16px rgba(58,134,255,.35)" : "none",
+            transition:"all .2s",
+          }}
+          disabled={!todoValido || submittingEmp}
+          onClick={submitCadastroEmpresa}>
+          {submittingEmp ? "Criando conta..." : todoValido ? "Criar conta empresarial →" : "Preencha todos os campos obrigatórios"}
+        </button>
+
+        <p style={{ textAlign:"center", color:"#475569", fontSize:13, marginTop:0, marginBottom:24, cursor:"pointer" }}
+          onClick={() => { setAuthError(""); setTela("login"); }}>
+          Já tem conta? <span style={{ color:"#3A86FF", fontWeight:700 }}>Entrar</span>
+        </p>
+      </div>
     );
   }
 

@@ -62,6 +62,11 @@ export interface UserProfile {
   cpf?: string;
   cnpj?: string;
   pessoa_tipo?: string;       // "fisica" | "juridica"
+  // ── Campos específicos PJ (Empresa com CNPJ) ──────────────────────────
+  razao_social?: string;      // Razão social registrada na Receita
+  nome_fantasia?: string;     // Nome público / fachada
+  responsavel_nome?: string;  // Nome do responsável legal pela conta
+  responsavel_cpf?: string;   // CPF do responsável (privado)
   sexo?: string;
   data_nascimento?: string;
   endereco_empregador?: string;
