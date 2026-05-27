@@ -13553,25 +13553,27 @@ export default function App() {
                 ) : (
                   <div style={{ background:"#fef3c7", borderRadius:14, padding:"14px 16px", textAlign:"center" as const }}>
                     <div style={{ fontSize:20, marginBottom:6 }}>🔒</div>
-                    <div style={{ fontWeight:800, fontSize:13, color:"#92400e", marginBottom:4 }}>Contato bloqueado</div>
+                    <div style={{ fontWeight:800, fontSize:13, color:"#92400e", marginBottom:4 }}>Chat bloqueado</div>
                     <div style={{ fontSize:12, color:"#a16207", lineHeight:1.5 }}>
-                      Pague para desbloquear o WhatsApp de {d.nome.split(" ")[0]}.
+                      Pague <strong>R$ 1,00</strong> pra liberar o chat com {d.nome.split(" ")[0]}.<br />
+                      O valor da diária ({conviteAtivo?.valor ? `R$ ${conviteAtivo.valor}` : "combinado"}) você paga direto pra ele via PIX, fora do app.
                     </div>
                   </div>
                 )}
 
-                {/* Botão pagamento + desbloquear contato */}
+                {/* Botão pagamento R$1 — cobra via create-contact-payment (MP).
+                    NÃO usa o valor da diária. Cobrança da diária é entre as partes. */}
                 {!contatoJaLiberado && (
                   <button
-                    style={{ ...S.btnPrimary, background:cor }}
+                    style={{ ...S.btnPrimary, background:cor, opacity: desbloqueandoContato ? 0.7 : 1 }}
+                    disabled={desbloqueandoContato}
                     onClick={() => {
-                      if (conviteAtivo) {
-                        setModalPix(conviteAtivo as any);
-                        // Marca o contato como liberado ao clicar em pagar (simula confirmação)
-                        setContatosLiberados(prev => new Set([...prev, conviteAtivo.id]));
-                      }
+                      // Marca otimisticamente como liberado pra UI; webhook MP
+                      // confirma server-side via tabela contatos_desbloqueios.
+                      if (conviteAtivo) setContatosLiberados(prev => new Set([...prev, conviteAtivo.id]));
+                      desbloquearContato();
                     }}>
-                    💳 Pagar e desbloquear contato{conviteAtivo?.valor ? ` — R$ ${conviteAtivo.valor}` : ""}
+                    {desbloqueandoContato ? "Aguarde..." : "💳 Pagar R$ 1 e liberar chat"}
                   </button>
                 )}
 
