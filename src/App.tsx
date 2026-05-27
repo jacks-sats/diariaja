@@ -262,7 +262,7 @@ export default function App() {
   // KYC — upload/revisão de RG ou CNH
   const [docFile, setDocFile]                     = useState<File | null>(null);
   const [docPreview, setDocPreview]               = useState<string | null>(null);
-  const [docTipo, setDocTipo]                     = useState<"rg"|"cnh">("rg");
+  const [docTipo, setDocTipo]                     = useState<"rg"|"cnh"|"cartao_cnpj"|"contrato_social">("rg");
   const [enviandoDoc, setEnviandoDoc]             = useState(false);
   const [adminDocsPendentes, setAdminDocsPendentes] = useState<{user_id:string; nome:string; user_type:string; documento_url:string; documento_enviado_em:string}[]>([]);
   const [docRevisao, setDocRevisao]               = useState<{user_id:string; nome:string; url:string; signedUrl?:string} | null>(null);
@@ -489,6 +489,13 @@ export default function App() {
       setDocFile(null);
     }
   }, [tela, docPreview]);
+  // Ajusta o tipo de documento padrão conforme PF/PJ ao entrar na tela de verificação
+  useEffect(() => {
+    if (tela !== "verificar-documento") return;
+    const isPJ = profile?.pessoa_tipo === "juridica";
+    if (isPJ && (docTipo === "rg" || docTipo === "cnh")) setDocTipo("cartao_cnpj");
+    if (!isPJ && (docTipo === "cartao_cnpj" || docTipo === "contrato_social")) setDocTipo("rg");
+  }, [tela, profile?.pessoa_tipo, docTipo]);
   // Persiste e aplica dark mode via CSS custom properties + atributo no body
   useEffect(() => {
     localStorage.setItem("diariaja_dark", darkMode ? "1" : "0");
@@ -1867,6 +1874,12 @@ export default function App() {
         setAuthError(traduzirErroAuth(error.message));
       }
     }
+  };
+
+  const handleGoogleLogin = async () => {
+    setAuthError("");
+    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+    if (error) setAuthError(traduzirErroAuth(error.message));
   };
 
   const handleLogout = async () => {
@@ -3354,6 +3367,16 @@ export default function App() {
     await saveProfile({ agenda: novaAgenda });
   };
 
+  // SVG do Google reutilizável
+  const GoogleSVG = (
+    <svg width="20" height="20" viewBox="0 0 24 24" style={{marginRight:10,flexShrink:0}}>
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+    </svg>
+  );
+
   // LOADING
   // ── Barra de progresso global (aparece em qualquer operação assíncrona) ─────
   const anyLoading = loading || salvandoPerfil || authLoading || salvandoDiaria || enviandoAvalMutua || selecionando;
@@ -3536,6 +3559,16 @@ export default function App() {
 
       {/* Card de login */}
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
+        <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
+          {GoogleSVG} Entrar com Google
+        </button>
+
+        <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
+          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+          <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou</span>
+          <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+        </div>
+
         {/* Toggle E-mail / CPF — alternativa de login */}
         <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,.05)", borderRadius:10, padding:3, marginBottom:14 }}>
           {([
@@ -3740,6 +3773,26 @@ export default function App() {
       </div>
 
       <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
+        {/* Cadastro com Google — disponível pra diarista e empregador PF. Bloqueado pra empresa (PJ) pra forçar fluxo rigoroso com CNPJ + comprovante. */}
+        {tipo !== "empresa" && (
+          <>
+            <button style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }} onClick={handleGoogleLogin}>
+              {GoogleSVG} Cadastrar com Google
+            </button>
+
+            <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
+              <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+              <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou com e-mail</span>
+              <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+            </div>
+          </>
+        )}
+        {tipo === "empresa" && (
+          <div style={{ background:"rgba(58,134,255,.08)", border:"1px solid rgba(58,134,255,.3)", borderRadius:12, padding:"12px 14px", marginBottom:16, fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+            🔒 <strong style={{ color:"#60a5fa" }}>Cadastro de empresa:</strong> por questões de verificação, contas PJ precisam ser criadas com e-mail + senha. Você enviará o cartão CNPJ ou contrato social na etapa de verificação.
+          </div>
+        )}
+
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
         <input id="cad-email" aria-label="E-mail" type="email" autoComplete="email" style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
@@ -10917,6 +10970,49 @@ export default function App() {
     // Sempre mostra TODAS as habilidades do app, organizadas por categoria
     const funcoesDisponiveis = Object.entries(CATEGORIAS_NEGOCIO);
 
+    // ── Bloqueio PJ: empresa precisa de documento aprovado pra publicar ──
+    // Se for pessoa jurídica e documento não estiver aprovado, redireciona pra verificação
+    // com mensagem explicando o porquê. RLS não força isso — é UX de produto.
+    const isPJ = profile?.pessoa_tipo === "juridica";
+    const docAprovado = profile?.documento_status === "aprovado";
+    if (isPJ && !docAprovado) {
+      const docStatus = profile?.documento_status || "nao_enviado";
+      return (
+        <div style={S.page}>
+          <button style={S.back} onClick={() => { setTabEmpregador("perfil"); setTela("home-empregador"); }}>← Voltar</button>
+          <div style={{ background:"linear-gradient(135deg,#3A86FF 0%,#1d4ed8 100%)", borderRadius:20, padding:"24px 22px", color:"#fff", marginBottom:14, boxShadow:"0 8px 24px rgba(58,134,255,.25)" }}>
+            <div style={{ fontSize:42, marginBottom:8 }}>🏢</div>
+            <div style={{ fontSize:22, fontWeight:900, marginBottom:6 }}>Verifique sua empresa antes</div>
+            <div style={{ fontSize:14, opacity:0.92, lineHeight:1.5 }}>
+              Contas PJ precisam confirmar o CNPJ pra publicar vagas. É uma proteção contra empresas falsas — leva poucos minutos.
+            </div>
+          </div>
+
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"16px 18px", marginBottom:12, borderLeft: docStatus==="rejeitado" ? "4px solid #ef4444" : docStatus==="enviado" ? "4px solid #f59e0b" : "4px solid #94a3b8" }}>
+            <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:4 }}>
+              Status: {docStatus === "nao_enviado" ? "📷 Documento ainda não enviado"
+                     : docStatus === "enviado"     ? "🔍 Em análise pela equipe"
+                     : docStatus === "rejeitado"   ? "❌ Documento rejeitado"
+                     : "—"}
+            </div>
+            <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+              {docStatus === "nao_enviado" && "Envie o cartão CNPJ ou contrato social pra liberar a publicação de vagas."}
+              {docStatus === "enviado"     && "A equipe está revisando seu documento. Você recebe um aviso em até 24h."}
+              {docStatus === "rejeitado"   && (profile?.documento_motivo_rejeicao || "Reenvie com mais qualidade.")}
+            </div>
+          </div>
+
+          {docStatus !== "enviado" && (
+            <button
+              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 16px rgba(255,107,53,.4)" }}
+              onClick={() => setTela("verificar-documento")}>
+              {docStatus === "rejeitado" ? "Reenviar documento" : "Enviar documento agora"}
+            </button>
+          )}
+        </div>
+      );
+    }
+
     // Calcula duração automaticamente
     const calcHoras = () => {
       if (!formDiaria.horario_inicio || !formDiaria.horario_fim) return null;
@@ -11625,10 +11721,18 @@ export default function App() {
   if (tela === "verificar-documento") {
     const voltarTela = "configuracoes";
     const docStatus = profile?.documento_status || "nao_enviado";
+    // PJ envia comprovante da empresa em vez de RG/CNH
+    const isPJ = profile?.pessoa_tipo === "juridica";
+    const subNaoEnviado = isPJ
+      ? "Envie o cartão CNPJ ou contrato social pra liberar publicação de vagas."
+      : "Envie uma foto do seu RG ou CNH pra subir pro nível Confiável.";
+    const subAprovado = isPJ
+      ? "Sua empresa está verificada. Você pode publicar vagas normalmente."
+      : "Sua identidade está verificada. Você é Nível Confiável!";
     const statusInfo: Record<string, { cor: string; icone: string; titulo: string; sub: string }> = {
-      nao_enviado: { cor:"#94a3b8", icone:"📷", titulo:"Documento ainda não enviado", sub:"Envie uma foto do seu RG ou CNH pra subir pro nível Confiável." },
+      nao_enviado: { cor:"#94a3b8", icone:"📷", titulo:"Documento ainda não enviado", sub: subNaoEnviado },
       enviado:     { cor:"#f59e0b", icone:"🔍", titulo:"Em análise",                 sub:"A equipe está verificando. Você recebe um aviso em até 24h." },
-      aprovado:    { cor:"#16a34a", icone:"✅", titulo:"Documento aprovado",         sub:"Sua identidade está verificada. Você é Nível Confiável!" },
+      aprovado:    { cor:"#16a34a", icone:"✅", titulo:"Documento aprovado",         sub: subAprovado },
       rejeitado:   { cor:"#ef4444", icone:"❌", titulo:"Documento rejeitado",        sub: profile?.documento_motivo_rejeicao || "Reenvie com mais qualidade." },
     };
     const info = statusInfo[docStatus];
@@ -11637,10 +11741,10 @@ export default function App() {
         <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
           <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🆔</div>
+            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>{isPJ ? "🏢" : "🆔"}</div>
             <div>
-              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Verificar identidade</div>
-              <div style={{ fontSize:13, color:"#94a3b8" }}>Suba para o nível Confiável</div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>{isPJ ? "Verificar empresa" : "Verificar identidade"}</div>
+              <div style={{ fontSize:13, color:"#94a3b8" }}>{isPJ ? "Obrigatório para publicar vagas" : "Suba para o nível Confiável"}</div>
             </div>
           </div>
         </div>
@@ -11659,7 +11763,7 @@ export default function App() {
 
           {/* LGPD info */}
           <div style={{ background:"rgba(58,134,255,.08)", border:"1px solid rgba(58,134,255,.3)", borderRadius:12, padding:"12px 14px", marginBottom:16, fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
-            🔒 <strong style={{ color:"var(--text-1,#0f172a)" }}>Privacidade (LGPD):</strong> seu documento é guardado em local privado e só visto pela equipe pra verificar identidade. Nunca aparece no seu perfil público.
+            🔒 <strong style={{ color:"var(--text-1,#0f172a)" }}>Privacidade (LGPD):</strong> {isPJ ? "o documento da empresa é guardado em local privado e só visto pela equipe pra confirmar a existência do CNPJ. Nunca aparece no perfil público." : "seu documento é guardado em local privado e só visto pela equipe pra verificar identidade. Nunca aparece no seu perfil público."}
           </div>
 
           {/* Formulário (só aparece se status permite reenvio) */}
@@ -11667,12 +11771,15 @@ export default function App() {
             <>
               <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Tipo de documento</div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
-                {([["rg","🪪","RG"],["cnh","🚗","CNH"]] as const).map(([val, icone, label]) => {
+                {(isPJ
+                  ? ([["cartao_cnpj","📇","Cartão CNPJ"],["contrato_social","📄","Contrato Social"]] as const)
+                  : ([["rg","🪪","RG"],["cnh","🚗","CNH"]] as const)
+                ).map(([val, icone, label]) => {
                   const ativo = docTipo === val;
                   return (
                     <button key={val}
                       style={{ padding:"14px 8px", border: ativo ? "2.5px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)", borderRadius:14, background: ativo ? "#fff7f3" : "var(--bg-card,#fff)", color: ativo ? "#FF6B35" : "var(--text-1,#0f172a)", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, alignItems:"center", gap:4 }}
-                      onClick={() => setDocTipo(val)}>
+                      onClick={() => setDocTipo(val as typeof docTipo)}>
                       <span style={{ fontSize:22 }}>{icone}</span>
                       {label}
                     </button>
