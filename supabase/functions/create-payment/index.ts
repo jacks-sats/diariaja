@@ -59,6 +59,22 @@ Deno.serve(async (req) => {
     if (diaria.empregador_id !== empregador_id) return json({ error: "Não autorizado" }, 403);
     if (!diaria.diarista_aceite_id) return json({ error: "Nenhum diarista selecionado ainda" }, 400);
 
+    // P1-1 auditoria: guard contra cobrança dupla. Se já existe pagamento em
+    // estado final ou aguardando, não criamos nova preference. Empregador
+    // tocou 2 vezes ou abriu de outra aba — devolvemos a preference atual.
+    if (diaria.pagamento_status === "pago" || diaria.pagamento_status === "reembolsado") {
+      return json({ error: "Esta diária já foi paga.", status: diaria.pagamento_status }, 409);
+    }
+    if (diaria.pagamento_status === "aguardando" && diaria.pagamento_mp_id) {
+      // Devolve a preference existente em vez de criar outra (idempotência de UX).
+      return json({
+        checkout_url:  `https://www.mercadopago.com.br/checkout/v1/redirect?preference-id=${diaria.pagamento_mp_id}`,
+        preference_id: diaria.pagamento_mp_id,
+        valor_total:   Number(diaria.valor),
+        reused:        true,
+      });
+    }
+
     const valorTotal = Number(diaria.valor);
     const diaristaNome = (diaria.user_profiles as any)?.nome || "Profissional";
 

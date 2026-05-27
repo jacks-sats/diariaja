@@ -50,6 +50,16 @@ async function validarAssinatura(req: Request, body: string): Promise<boolean> {
   const hash = parts["v1"] ?? "";
   if (!ts || !hash) return false;
 
+  // P0-3 auditoria: rejeita assinaturas antigas (replay anti-forever).
+  // O MP envia `ts` em segundos. Janela aceita: ±5 min do agora.
+  const tsNum = Number(ts);
+  if (!Number.isFinite(tsNum)) return false;
+  const agora = Math.floor(Date.now() / 1000);
+  if (Math.abs(agora - tsNum) > 300) {
+    console.warn("Webhook com ts fora da janela rejeitado", { diff: agora - tsNum });
+    return false;
+  }
+
   // Template de assinatura definido pelo MP
   const template = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
 
@@ -91,6 +101,29 @@ Deno.serve(async (req) => {
     if (!body?.data?.id) return new Response("ok", { status: 200 });
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // P0-3 auditoria: idempotência via tabela webhook_eventos_processados.
+    // Replay do mesmo payload (ou ataques) batem aqui e são silenciosamente
+    // ignorados. Tabela criada em supabase/migrations/webhook_idempotencia.sql.
+    // INSERT com ON CONFLICT DO NOTHING — se já existe, rowcount=0.
+    const eventoId = String(body.data.id) + "::" + (body.type ?? body.topic ?? "x");
+    const { error: idemErr, count: idemCount } = await supabase
+      .from("webhook_eventos_processados")
+      .insert({ mp_evento_id: eventoId }, { count: "exact" });
+    if (idemErr) {
+      // Conflito (já processado) ou erro real. Se for conflito (23505), retorna 200.
+      if (String(idemErr.code) === "23505" || /duplicate key/i.test(idemErr.message)) {
+        return new Response("ok", { status: 200 });
+      }
+      // Se a tabela não existir ainda (migration não rodou), seguimos sem
+      // bloquear — fail-open na idempotência é menos pior que fail-closed.
+      if (!/relation .* does not exist/i.test(idemErr.message)) {
+        console.error("webhook_eventos_processados error:", idemErr);
+      }
+    } else if (idemCount === 0) {
+      // Inserção sem conflito mas count=0 (pouco provável) — segue.
+    }
+
     const topic    = body.type ?? body.topic ?? "";
 
     // ─────────────────────────────────────────────────

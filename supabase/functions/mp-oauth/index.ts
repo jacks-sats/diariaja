@@ -22,17 +22,42 @@ const MP_CLIENT_SECRET = Deno.env.get("MP_CLIENT_SECRET")!;
 const APP_URL          = Deno.env.get("APP_URL") ?? "https://trampojaapp.com.br";
 const REDIRECT_URI     = `${SUPABASE_URL}/functions/v1/mp-oauth`;
 
+// P0-2 auditoria: o `state` enviado ao MP era o `user_id` da vítima — UUID
+// público (aparece em paths /avatars/<uuid>.jpg, em denúncias, etc). Atacante
+// iniciava OAuth com sua própria conta MP, completava com state=<uuid_vitima>
+// e o token DELE era salvo no perfil DELA — account takeover financeiro.
+//
+// Solução: nonce one-time gerado no início do flow OAuth, salvo em
+// `oauth_states (state PRIMARY KEY, user_id, exp)`. Aqui no callback consumimos
+// (DELETE) e validamos.
 Deno.serve(async (req) => {
   const url    = new URL(req.url);
   const code   = url.searchParams.get("code");
-  const userId = url.searchParams.get("state"); // passamos o user_id como state
+  const state  = url.searchParams.get("state");
   const error  = url.searchParams.get("error");
 
-  if (error || !code || !userId) {
+  if (error || !code || !state) {
     return redirect(`${APP_URL}/?mp_oauth=erro`);
   }
 
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
   try {
+    // Consome o state (DELETE) e pega o user_id ligado. Single-use.
+    const { data: stateRow, error: stateErr } = await supabase
+      .from("oauth_states")
+      .delete()
+      .eq("state", state)
+      .gt("exp", new Date().toISOString())
+      .select("user_id, provider")
+      .single();
+
+    if (stateErr || !stateRow || stateRow.provider !== "mercadopago") {
+      console.error("OAuth state inválido ou expirado");
+      return redirect(`${APP_URL}/?mp_oauth=erro`);
+    }
+    const userId = stateRow.user_id;
+
     // Troca o code pelo access_token
     const tokenResp = await fetch("https://api.mercadopago.com/oauth/token", {
       method: "POST",
@@ -55,8 +80,7 @@ Deno.serve(async (req) => {
       return redirect(`${APP_URL}/?mp_oauth=erro`);
     }
 
-    // Salva no perfil do diarista
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    // Salva no perfil do diarista (user_id ligado ao state, NÃO a query string)
     await supabase
       .from("user_profiles")
       .update({

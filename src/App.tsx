@@ -1872,6 +1872,25 @@ export default function App() {
     }
   };
 
+  // P0-2 auditoria: inicia OAuth do Mercado Pago com nonce one-time (anti-CSRF).
+  // Chama RPC `criar_oauth_state('mercadopago')` que insere uma linha em
+  // `oauth_states` com TTL 10 min, vinculada ao auth.uid() atual. Devolve o
+  // `state` que o MP nos devolverá no callback — a Edge Function consome
+  // (DELETE), valida exp e descobre a quem aquele token pertence.
+  // Reativa o botão "Conectar Mercado Pago" no perfil-diarista-real chamando esta função.
+  const iniciarOAuthMP = async () => {
+    if (!session?.user) return;
+    const { data, error } = await supabase.rpc("criar_oauth_state", { p_provider: "mercadopago" });
+    if (error || !data) {
+      setToastError("Não foi possível iniciar a conexão com o Mercado Pago. Tente novamente.");
+      return;
+    }
+    const mpClientId = import.meta.env.VITE_MP_CLIENT_ID as string;
+    const redirect = `${SUPABASE_URL}/functions/v1/mp-oauth`;
+    const url = `https://auth.mercadopago.com.br/authorization?client_id=${mpClientId}&response_type=code&platform_id=mp&state=${encodeURIComponent(String(data))}&redirect_uri=${encodeURIComponent(redirect)}`;
+    window.location.href = url;
+  };
+
   const handleLogout = async () => {
     // P1-15 auditoria: scope "global" invalida todas as sessões do usuário em
     // todos os dispositivos. Importante pra cenário "perdi o celular" — outras
@@ -8790,8 +8809,11 @@ export default function App() {
           const mesAtual = new Date().toISOString().slice(0,7);
           const ganhoMes = diariasConc.filter(d => d.data.slice(0,7) === mesAtual).reduce((s,d)=>s+d.valor,0);
           const mpConectado = !!profile?.mp_user_id;
-          const mpClientId = import.meta.env.VITE_MP_CLIENT_ID as string;
-          const oauthUrl = `https://auth.mercadopago.com.br/authorization?client_id=${mpClientId}&response_type=code&platform_id=mp&state=${session?.user?.id}&redirect_uri=${SUPABASE_URL}/functions/v1/mp-oauth`;
+          // P0-2 auditoria: pra iniciar OAuth do Mercado Pago, use iniciarOAuthMP()
+          // (definida acima). NÃO monte a URL direto aqui com state=user_id —
+          // o Edge Function `mp-oauth` agora exige um nonce one-time gerado
+          // pela RPC `criar_oauth_state('mercadopago')`. URL antiga ficou abaixo
+          // pra referência se algum botão de "Conectar MP" for reativado.
           return (
           <>
             {/* Barra de boas-vindas + ⚙️ */}
