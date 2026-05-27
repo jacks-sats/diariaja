@@ -382,6 +382,13 @@ export default function App() {
   // incrementava sem confirmação server-side). Hoje o mp-webhook INSERT na
   // tabela; o client lê via RPC `contar_contatos_desbloqueados_mes`.
   const [contatosDesbloqueados, setContatosDesbloqueados] = useState<number>(0);
+  // ── Bloqueio de usuário (UGC safety — Play Policy) ────────────────────────
+  // Set de alvo_id de quem o usuário atual bloqueou. Carregado no login;
+  // re-buscado quando o user bloqueia/desbloqueia alguém.
+  const [usuariosBloqueados, setUsuariosBloqueados] = useState<Set<string>>(new Set());
+  const [modalBloquear, setModalBloquear] = useState<{ id: string; nome: string } | null>(null);
+  const [modalConfirmDesbloq, setModalConfirmDesbloq] = useState<{ id: string; nome: string } | null>(null);
+  const [bloqueando, setBloqueando] = useState(false);
 
   // ── Hooks centrais de monetização ─────────────────────────────────────────
   // Único ponto de verdade no client pra: plano ativo por papel, limites de
@@ -963,7 +970,10 @@ export default function App() {
             lotadas = new Set(Object.entries(contMap).filter(([, n]) => n >= MAX_INTERESSADOS).map(([id]) => id));
           }
         }
-        setVagasReais(data.filter((d: any) => !lotadas.has(d.id)));
+        // Filtra vagas: remove as lotadas E as de contratantes que o user bloqueou
+        setVagasReais(data.filter((d: any) =>
+          !lotadas.has(d.id) && !usuariosBloqueados.has(d.empregador_id)
+        ));
         // Carrega perfis dos empregadores para exibir foto no card
         const empIds = [...new Set(data.map((d: any) => d.empregador_id).filter(Boolean))];
         if (empIds.length > 0) {
@@ -1127,8 +1137,8 @@ export default function App() {
   const enviarAvaliacaoEmpObrigatoria = async () => {
     if (!session?.user || diariasAvaliarEmp.length === 0) return;
     if (avalEmpNota === 0)           { setToastError("Dê uma nota de 1 a 5 estrelas."); return; }
-    if (avalEmpPagou === null)       { setToastError("Informe se o empregador pagou o combinado."); return; }
-    if (avalEmpCumpriu === null)     { setToastError("Informe se o empregador cumpriu o combinado."); return; }
+    if (avalEmpPagou === null)       { setToastError("Informe se o contratante pagou o combinado."); return; }
+    if (avalEmpCumpriu === null)     { setToastError("Informe se o contratante cumpriu o combinado."); return; }
     const diaria = diariasAvaliarEmp[0];
     setEnviandoAvalEmpOb(true);
     const { error } = await supabase.from("avaliacoes_empregador").insert({
@@ -1352,7 +1362,7 @@ export default function App() {
               localStorage.setItem("diariaja_cancels", JSON.stringify(cancels));
             } catch {}
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              mostrarNotificacaoLocal("❌ Diária cancelada pelo empregador", {
+              mostrarNotificacaoLocal("❌ Diária cancelada pelo contratante", {
                 body: `Sua diária em ${local} foi cancelada.${updated.motivo_cancelamento ? " Motivo: " + updated.motivo_cancelamento : ""}`,
                 icon: "/vite.svg",
               });
@@ -1440,9 +1450,9 @@ export default function App() {
           if (updated.status === "cancelada" && oldStatus !== "cancelada") {
             // Remove o interesse local para que a vaga não apareça com estado preso
             setMeuInteresse(prev => { const n = { ...prev }; delete n[updated.diaria_id]; return n; });
-            setToastError("⚠️ Uma vaga na qual você tinha interesse foi cancelada pelo empregador.");
+            setToastError("⚠️ Uma vaga na qual você tinha interesse foi cancelada pelo contratante.");
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              mostrarNotificacaoLocal("❌ Vaga cancelada pelo empregador", {
+              mostrarNotificacaoLocal("❌ Vaga cancelada pelo contratante", {
                 body: "Uma diária na qual você tinha interesse foi removida. Verifique as vagas disponíveis.",
                 icon: "/vite.svg",
               });
@@ -1948,6 +1958,11 @@ export default function App() {
       void supabase.rpc("contar_diarias_concluidas_diarista").then(({ data: total }) => {
         if (typeof total === "number") setDiariasConcluidasComoDiarista(total);
       });
+      // Carrega lista de usuários bloqueados pra filtrar feeds / chats
+      void supabase.from("usuarios_bloqueados").select("alvo_id").eq("bloqueador_id", userId)
+        .then(({ data: bloqs }) => {
+          if (Array.isArray(bloqs)) setUsuariosBloqueados(new Set(bloqs.map((b: { alvo_id: string }) => b.alvo_id)));
+        });
       // Restaura o modo e a tela salvos em localStorage (sobrevive ao reload)
       const modoSalvo = localStorage.getItem("diariaja_modo") as "empregador"|"diarista" | null;
       const telaSalva = (() => { try { return localStorage.getItem("diariaja_tela") || ""; } catch { return ""; } })();
@@ -3531,6 +3546,52 @@ export default function App() {
       setToastError("❌ Erro de conexão. Verifique sua internet.");
     }
     setDesbloqueandoContato(false);
+  };
+
+  // ── Bloqueio de usuário ────────────────────────────────────────────────────
+  // Insere em `usuarios_bloqueados` e atualiza o Set local. Idempotente
+  // (UNIQUE no banco — se já bloqueado, ignora erro).
+  const bloquearUsuario = async (alvo: { id: string; nome: string }, motivo?: string) => {
+    if (!session?.user?.id || bloqueando) return;
+    if (alvo.id === session.user.id) {
+      setToastError("Você não pode bloquear a si mesmo.");
+      return;
+    }
+    setBloqueando(true);
+    const { error } = await supabase.from("usuarios_bloqueados").insert({
+      bloqueador_id: session.user.id,
+      alvo_id:       alvo.id,
+      motivo:        motivo?.trim() || null,
+    });
+    setBloqueando(false);
+    // Erro 23505 = duplicate key (já bloqueado) — tratamos como sucesso silencioso
+    if (error && !String(error.code) .includes("23505") && !String(error.message ?? "").toLowerCase().includes("duplicate")) {
+      setToastError("Não foi possível bloquear: " + error.message);
+      return;
+    }
+    setUsuariosBloqueados(prev => { const next = new Set(prev); next.add(alvo.id); return next; });
+    setModalBloquear(null);
+    setToastSuccess("✅ Usuário bloqueado. Você não verá mais conteúdo dele.");
+    trackEvento("usuario_bloqueado", session.user.id, modoAtual);
+    // Se está em chat com o bloqueado, sai
+    if (chatDiariaAtiva && (chatDiariaAtiva.empregador_id === alvo.id || chatDiariaAtiva.diarista_aceite_id === alvo.id)) {
+      setChatDiariaAtiva(null);
+    }
+  };
+
+  const desbloquearUsuario = async (alvoId: string) => {
+    if (!session?.user?.id || bloqueando) return;
+    setBloqueando(true);
+    const { error } = await supabase.from("usuarios_bloqueados")
+      .delete().eq("bloqueador_id", session.user.id).eq("alvo_id", alvoId);
+    setBloqueando(false);
+    if (error) {
+      setToastError("Não foi possível desbloquear: " + error.message);
+      return;
+    }
+    setUsuariosBloqueados(prev => { const next = new Set(prev); next.delete(alvoId); return next; });
+    setModalConfirmDesbloq(null);
+    setToastSuccess("Usuário desbloqueado.");
   };
 
   // Wrapper: verifica limite de contatos e abre modal de termo antes de selecionar.
@@ -5916,7 +5977,7 @@ export default function App() {
       },
       {
         titulo: "3. Para que usamos seus dados",
-        corpo: "Seus dados são utilizados exclusivamente para:\n\n• Criar e autenticar sua conta\n• Exibir seu perfil para outros usuários da plataforma\n• Conectar empregadores e diaristas\n• Calcular score de confiança e nível de gamificação\n• Enviar notificações relacionadas às suas diárias\n• Cumprir obrigações legais e regulatórias",
+        corpo: "Seus dados são utilizados exclusivamente para:\n\n• Criar e autenticar sua conta\n• Exibir seu perfil para outros usuários da plataforma\n• Conectar contratantes e diaristas autônomos\n• Calcular score de confiança e nível de gamificação\n• Enviar notificações relacionadas às suas diárias\n• Cumprir obrigações legais e regulatórias",
       },
       {
         titulo: "4. Compartilhamento de dados",
@@ -8595,7 +8656,8 @@ export default function App() {
               </div>
               <div style={{ padding:"12px 16px 32px", display:"flex", flexDirection:"column", gap:12 }}>
                 {candidaturas
-                  .filter(c => c.diaria_id === modalCandidatos.id && c.status === "pendente")
+                  // Filtra candidatos bloqueados pelo empregador (UGC safety)
+                  .filter(c => c.diaria_id === modalCandidatos.id && c.status === "pendente" && !usuariosBloqueados.has(c.diarista_id))
                   .slice(0, 5)
                   .map(c => {
                     const dp = candidatosProfiles[c.diarista_id];
@@ -9154,6 +9216,64 @@ export default function App() {
         )}
 
         {/* ── Modal: Denúncia ── */}
+        {/* Modal: confirmar bloqueio de usuário */}
+        {modalBloquear && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:520, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}
+            onClick={() => !bloqueando && setModalBloquear(null)}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"22px 22px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize:32, marginBottom:6 }}>🚫</div>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Bloquear {modalBloquear.nome}?</div>
+              <p style={{ fontSize:13, color:"var(--text-2,#64748b)", margin:"0 0 16px", lineHeight:1.5 }}>
+                Você não verá mais conteúdo dessa pessoa em vagas, listas, chat ou candidaturas. Esta ação pode ser desfeita nas configurações.
+              </p>
+              <div style={{ display:"flex", gap:10 }}>
+                <button type="button"
+                  disabled={bloqueando}
+                  style={{ flex:1, padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor: bloqueando ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                  onClick={() => setModalBloquear(null)}>
+                  Cancelar
+                </button>
+                <button type="button"
+                  disabled={bloqueando}
+                  style={{ flex:1, padding:"12px", background:"#dc2626", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: bloqueando ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: bloqueando ? 0.6 : 1 }}
+                  onClick={() => bloquearUsuario(modalBloquear)}>
+                  {bloqueando ? "Bloqueando..." : "Bloquear"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: confirmar desbloqueio */}
+        {modalConfirmDesbloq && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:520, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}
+            onClick={() => !bloqueando && setModalConfirmDesbloq(null)}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"22px 22px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize:32, marginBottom:6 }}>↩️</div>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Desbloquear {modalConfirmDesbloq.nome}?</div>
+              <p style={{ fontSize:13, color:"var(--text-2,#64748b)", margin:"0 0 16px", lineHeight:1.5 }}>
+                Voltará a aparecer em buscas e poderá iniciar conversas com você novamente.
+              </p>
+              <div style={{ display:"flex", gap:10 }}>
+                <button type="button"
+                  disabled={bloqueando}
+                  style={{ flex:1, padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                  onClick={() => setModalConfirmDesbloq(null)}>
+                  Cancelar
+                </button>
+                <button type="button"
+                  disabled={bloqueando}
+                  style={{ flex:1, padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: bloqueando ? 0.6 : 1 }}
+                  onClick={() => desbloquearUsuario(modalConfirmDesbloq.id)}>
+                  {bloqueando ? "..." : "Desbloquear"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {modalDenunciar && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
@@ -9465,13 +9585,20 @@ export default function App() {
                       {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
                     </div>
                   </div>
-                  {/* Denunciar diarista deste chat (UGC safety — Play Policy) */}
+                  {/* Denunciar / bloquear diarista deste chat (UGC safety — Play Policy) */}
                   {chatDiariaAtiva.diarista_aceite_id && (
-                    <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
-                      title="Denunciar usuário" aria-label="Denunciar este usuário"
-                      onClick={() => { setModalDenunciar({ tipo:"usuario", id: chatDiariaAtiva.diarista_aceite_id!, nome: dp?.nome || "Diarista" }); setMotivoDenuncia(""); }}>
-                      🚩
-                    </button>
+                    <>
+                      <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
+                        title="Denunciar usuário" aria-label="Denunciar este usuário"
+                        onClick={() => { setModalDenunciar({ tipo:"usuario", id: chatDiariaAtiva.diarista_aceite_id!, nome: dp?.nome || "Diarista" }); setMotivoDenuncia(""); }}>
+                        🚩
+                      </button>
+                      <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
+                        title="Bloquear usuário" aria-label="Bloquear este usuário"
+                        onClick={() => setModalBloquear({ id: chatDiariaAtiva.diarista_aceite_id!, nome: dp?.nome || "Diarista" })}>
+                        🚫
+                      </button>
+                    </>
                   )}
                   {!confirmExcluirChat
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>
@@ -11209,11 +11336,16 @@ export default function App() {
                       {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
                     </div>
                   </div>
-                  {/* Denunciar contratante deste chat (UGC safety — Play Policy) */}
+                  {/* Denunciar / bloquear contratante deste chat (UGC safety — Play Policy) */}
                   <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
                     title="Denunciar usuário" aria-label="Denunciar este usuário"
                     onClick={() => { setModalDenunciar({ tipo:"usuario", id: chatDiariaAtiva.empregador_id, nome: chatDiariaAtiva.nome_negocio || "Contratante" }); setMotivoDenuncia(""); }}>
                     🚩
+                  </button>
+                  <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
+                    title="Bloquear usuário" aria-label="Bloquear este usuário"
+                    onClick={() => setModalBloquear({ id: chatDiariaAtiva.empregador_id, nome: chatDiariaAtiva.nome_negocio || "Contratante" })}>
+                    🚫
                   </button>
                   {!confirmExcluirChat
                     ? <button style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }} title="Excluir conversa" onClick={() => setConfirmExcluirChat(true)}>🗑️</button>

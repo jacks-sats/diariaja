@@ -7,6 +7,7 @@
 //   SUPABASE_ANON_KEY       → auto-injetada (pra validar JWT do user)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { rateLimitOrReject } from "../_shared/rate-limit.ts";
 
 const GROQ_API_KEY      = Deno.env.get("GROQ_API_KEY")!;
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
@@ -162,6 +163,14 @@ Deno.serve(async (req) => {
         headers: { "Content-Type": "application/json", ...CORS },
       });
     }
+
+    // Rate-limit: 10 mensagens / 60s por usuário. Limita custo do Groq e
+    // protege contra abuso de proxy LLM gratuito (P1-2 da auditoria).
+    const blocked = await rateLimitOrReject(
+      { key: `ai-support:user:${user.id}`, max: 10, windowSeconds: 60, corsHeaders: CORS },
+      supabaseUser,
+    );
+    if (blocked) return blocked;
 
     const { messages } = await req.json() as { messages: Message[] };
 

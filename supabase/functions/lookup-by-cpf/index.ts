@@ -13,6 +13,7 @@
 // Deploy: npx supabase functions deploy lookup-by-cpf
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { rateLimitOrReject, getClientIp } from "../_shared/rate-limit.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -124,6 +125,17 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: CORS });
   }
+  // Rate-limit por IP: 5 tentativas / minuto. Endpoint público sem auth,
+  // alvo natural pra enumeração — ainda que o timing oracle esteja
+  // fechado, brute-force seguiria possível em escala.
+  const ip = getClientIp(req);
+  const supabaseRL = createClient(SUPABASE_URL, SUPABASE_KEY);
+  const blocked = await rateLimitOrReject(
+    { key: `lookup-by-cpf:ip:${ip}`, max: 5, windowSeconds: 60, corsHeaders: CORS },
+    supabaseRL,
+  );
+  if (blocked) return blocked;
+
   // Garante tempo mínimo de resposta em TODOS os caminhos (sucesso ou erro)
   // pra fechar o timing oracle de enumeração.
   try {

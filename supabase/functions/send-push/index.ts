@@ -21,6 +21,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { rateLimitOrReject } from "../_shared/rate-limit.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -223,6 +224,14 @@ serve(async (req) => {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Rate-limit: 30 pushes / 60s por usuário. Suficiente pra qualquer
+    // fluxo natural (notifica candidato selecionado, etc.); bloqueia spam.
+    const blocked = await rateLimitOrReject(
+      { key: `send-push:user:${user.id}`, max: 30, windowSeconds: 60, corsHeaders },
+      supabaseUser,
+    );
+    if (blocked) return blocked;
 
     const { user_ids: userIdsRaw, title, body: msgBody, url = "/", tipo = "default" } = await req.json() as {
       user_ids: string[];
