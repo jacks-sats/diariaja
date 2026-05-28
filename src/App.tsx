@@ -6215,7 +6215,7 @@ export default function App() {
     const faqItems = [
       { q:"Como funciona o DiáriaJá?", r:"Anunciantes publicam anúncios de oportunidades de diária e prestadores demonstram interesse conforme sua disponibilidade. A plataforma não participa da execução do serviço — apenas conecta as partes." },
       { q:"Como recebo o pagamento?", r:"O pagamento é combinado diretamente entre o prestador e o anunciante. A DiáriaJá não intermedia valores. Recomendamos acertar antes ou no dia da diária." },
-      { q:"Como reportar um problema?", r:"Envie um e-mail para suporte@diariaja.com.br. Respondemos em até 24h." },
+      { q:"Como reportar um problema?", r:"Use o botão \"+ Novo chamado\" no topo desta tela. A equipe responde direto pelo app — você acompanha em \"Meus chamados\". Respondemos em até 24h." },
       { q:"Posso cancelar uma diária?", r:"Sim, mas recomendamos avisar com pelo menos 24h de antecedência pelo chat do app para manter uma boa reputação." },
       { q:"Meus dados estão seguros?", r:"Sim. Utilizamos o Supabase com criptografia e autenticação segura. Nunca compartilhamos seus dados com terceiros." },
     ];
@@ -6238,54 +6238,48 @@ export default function App() {
           </div>
         </div>
 
-        {/* Canais de contato */}
+        {/* ── Chamado interno (CANAL PRIMÁRIO) ─────────────────────────────
+            Promoção do ticket-system pro topo enquanto WhatsApp/Instagram não
+            estão configurados. Tickets vão pra suporte_tickets, admin recebe
+            push em tempo real (realtime channel suporte-admin), responde pelo
+            painel admin → user vê resposta em "Meus tickets". Loop completo. */}
         <div style={{ padding:"16px 16px 8px" }}>
-          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Falar conosco</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-            {[
-              { icon:"📧", label:"E-mail", sub:"suporte@diariaja.com.br", cor:"#3A86FF", action:() => window.open("mailto:suporte@diariaja.com.br","_blank"), disponivel:true },
-              { icon:"💬", label:"WhatsApp", sub:"Em breve — use o e-mail", cor:"#22c55e", action:() => {}, disponivel:false },
-              { icon:"📱", label:"Instagram", sub:"Em breve", cor:"#e11d48", action:() => {}, disponivel:false },
-            ].map(c => (
-              <div key={c.label}
-                style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:14, cursor:c.disponivel ? "pointer" : "default", boxShadow:"0 2px 8px rgba(0,0,0,.06)", opacity:c.disponivel ? 1 : 0.6 }}
-                onClick={c.disponivel ? c.action : undefined}>
-                <div style={{ width:46, height:46, background:c.cor+"18", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>
-                  {c.icon}
-                </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.label}</div>
-                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{c.sub}</div>
-                </div>
-                {c.disponivel && <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Abrir ticket / ver tickets — chat 1-on-1 com a equipe */}
-        <div style={{ padding:"4px 16px 8px" }}>
-          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Chamado interno</div>
-          <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", marginBottom:10 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
-              <div style={{ width:42, height:42, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>💬</div>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Falar com a equipe</div>
+          <div style={{ background:"linear-gradient(135deg,#FF6B35 0%,#f59e0b 100%)", borderRadius:18, padding:"18px 18px 16px", boxShadow:"0 8px 24px rgba(255,107,53,.28)", marginBottom:10, color:"#fff" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+              <div style={{ width:48, height:48, background:"rgba(255,255,255,.22)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>💬</div>
               <div style={{ flex:1 }}>
-                <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Falar com a equipe</div>
-                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Abra um ticket — respondemos pelo app.</div>
+                <div style={{ fontWeight:900, fontSize:16, lineHeight:1.2 }}>Abrir um chamado</div>
+                <div style={{ fontSize:12, opacity:.92, marginTop:3, lineHeight:1.4 }}>Atendimento direto pelo app — equipe responde aqui mesmo, sem sair pra outro aplicativo.</div>
               </div>
             </div>
             <div style={{ display:"flex", gap:8 }}>
               <button
-                style={{ flex:1, padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 2px 8px rgba(255,107,53,.3)" }}
+                style={{ flex:1.4, padding:"12px", background:"#fff", color:"#FF6B35", border:"none", borderRadius:11, fontSize:14, fontWeight:900, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { hapticTick(); setFormTicket({ assunto: "", mensagem: "" }); setModalNovoTicket(true); }}>
-                + Abrir novo ticket
+                + Novo chamado
               </button>
               <button
-                style={{ flex:1, padding:"11px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                style={{ flex:1, padding:"12px", background:"rgba(255,255,255,.18)", color:"#fff", border:"1.5px solid rgba(255,255,255,.32)", borderRadius:11, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { hapticTick(); carregarMeusTickets(); setTela("meus-tickets"); }}>
-                📨 Meus tickets
+                📨 Meus chamados
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* ── Contato alternativo — só e-mail (WhatsApp/Insta omitidos até existirem) ── */}
+        <div style={{ padding:"4px 16px 8px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Contato alternativo</div>
+          <div
+            style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:14, cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
+            onClick={() => window.open("mailto:suporte@diariaja.com.br","_blank")}>
+            <div style={{ width:46, height:46, background:"#3A86FF18", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>📧</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>E-mail</div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>suporte@diariaja.com.br — use se não conseguir entrar no app.</div>
+            </div>
+            <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>
           </div>
         </div>
 
