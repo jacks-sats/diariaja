@@ -140,6 +140,17 @@ Deno.serve(async (req) => {
       auto_return:       "approved",
       notification_url:  `${Deno.env.get("SUPABASE_URL")}/functions/v1/mp-webhook`,
       statement_descriptor: "DIARIAJA",
+      // Restringe aos métodos PIX (bank_transfer) + cartão de crédito.
+      // Exclui boleto, débito, saldo MP, pré-pago e ATM.
+      payment_methods: {
+        excluded_payment_types: [
+          { id: "ticket" },        // boleto bancário
+          { id: "debit_card" },    // cartão de débito
+          { id: "atm" },           // caixa eletrônico
+          { id: "prepaid_card" },  // pré-pago
+        ],
+        installments: 1,
+      },
       payer: { name: "Anunciante DiáriaJá" },
     };
 
