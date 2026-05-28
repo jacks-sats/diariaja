@@ -57,7 +57,7 @@ import {
   FUNCOES_DELIVERY, CATEGORIAS_NEGOCIO, MEDIAS_CAMPO_GRANDE,
   PLANOS_EMPREGADOR, PLANOS_DIARISTA,
   DIAS, DIAS_LABEL, MAX_INTERESSADOS, avatarColors, TODAS_AS_FUNCOES,
-  MOTIVOS_VAGA_EXPIRADA,
+  MOTIVOS_VAGA_EXPIRADA, TEMPOS_ESTIMADOS_SERVICO, TIPO_OFERTA_PADRAO_POR_CATEGORIA,
 } from "./constants";
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
@@ -178,7 +178,7 @@ export default function App() {
   const [filtroFuncao, setFiltroFuncao]   = useState("Todos");
   const [filtroDisp, setFiltroDisp]       = useState(false);
   const [diarias, setDiarias]                     = useState<Diaria[]>([]);
-  const [formDiaria, setFormDiaria]               = useState({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"" });
+  const [formDiaria, setFormDiaria]               = useState({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo" });
   const [buscandoCEP, setBuscandoCEP]             = useState(false);
   const [buscandoCEPPerfil, setBuscandoCEPPerfil] = useState(false);  // diarista profile CEP
   const [latPerfilCEP, setLatPerfilCEP]           = useState<number | null>(null); // geocoded from profile CEP
@@ -3978,9 +3978,16 @@ export default function App() {
     const erroTitulo = validarTituloDiaria(formDiaria.local);
     if (erroTitulo) { setAuthError(erroTitulo); return; }
     if (!formDiaria.descricao.trim()) { setAuthError("Descreva o que precisa ser feito."); return; }
-    if (!formDiaria.data) { setAuthError("Selecione a data da diária."); return; }
-    if (!formDiaria.horario_inicio || !formDiaria.horario_fim) { setAuthError("Informe o horário de início e término."); return; }
-    if (minTot <= 0) { setAuthError("O horário de término deve ser após o início."); return; }
+    if (!formDiaria.data) { setAuthError("Selecione a data."); return; }
+    const ehServico = formDiaria.tipo_oferta === "servico";
+    if (!ehServico) {
+      // DIÁRIA: precisa início + término
+      if (!formDiaria.horario_inicio || !formDiaria.horario_fim) { setAuthError("Informe o horário de início e término."); return; }
+      if (minTot <= 0) { setAuthError("O horário de término deve ser após o início."); return; }
+    } else {
+      // SERVIÇO: precisa só início (quando ir) + tempo estimado já tem default
+      if (!formDiaria.horario_inicio) { setAuthError("Informe o horário previsto pra chegada."); return; }
+    }
     if (!formDiaria.valor || isNaN(Number(formDiaria.valor)) || Number(formDiaria.valor) <= 0) { setAuthError("Informe um valor numérico válido."); return; }
     if (!formDiaria.cep.trim() || formDiaria.cep.replace(/\D/g,"").length < 8) { setAuthError("Informe um CEP válido (8 dígitos)."); return; }
     if (!formDiaria.rua.trim()) { setAuthError("Informe o logradouro (rua/avenida)."); return; }
@@ -4000,13 +4007,19 @@ export default function App() {
       descricao: formDiaria.descricao,
       data: formDiaria.data,
       horario_inicio: formDiaria.horario_inicio,
-      horario_fim: formDiaria.horario_fim,
+      // Pra serviço, horário fim fica vazio (não definido).
+      horario_fim: ehServico ? "" : formDiaria.horario_fim,
       valor: Number(formDiaria.valor),
       status: "aberta",
       endereco: enderecoComposto,
       bairro: formDiaria.bairro.trim() || null,
       lat: latDiaria,
       lng: lngDiaria,
+      tipo_oferta: formDiaria.tipo_oferta,
+      ...(ehServico && {
+        tempo_estimado_min: Number(formDiaria.tempo_estimado_min) || 0,
+        tipo_preco: formDiaria.tipo_preco,
+      }),
       ...(isDelivery && {
         valor_encostada: formDiaria.valor_encostada ? Number(formDiaria.valor_encostada) : null,
         valor_por_entrega: formDiaria.valor_por_entrega ? Number(formDiaria.valor_por_entrega) : null,
@@ -4037,7 +4050,7 @@ export default function App() {
       recorrente: dirariaRepetir !== "nao",
       total_criadas: novasDiarias.length,
     });
-    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"" });
+    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo" });
     setDiariaRepetir("nao");
     setLatDiaria(null); setLngDiaria(null);
     setAuthError("");
@@ -8842,7 +8855,7 @@ export default function App() {
 
               <button
                 style={{ ...S.btnPrimary, background:negocio.cor, marginTop:16 }}
-                onClick={() => { setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); }}>
+                onClick={() => { setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); }}>
                 + Nova diária
               </button>
             </div>
@@ -10252,7 +10265,7 @@ export default function App() {
           </button>
           <button style={{ ...S.bottomNavBtn, position:"relative" }}>
             <div style={{ width:52, height:52, borderRadius:26, background:negocio.cor, display:"flex", alignItems:"center", justifyContent:"center", marginTop:-20, boxShadow:`0 4px 14px ${negocio.cor}66`, border:"3px solid #f0f2f5" }}
-              onClick={() => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); }}>
+              onClick={() => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); }}>
               <Plus size={26} color="#fff" strokeWidth={2.8} />
             </div>
             <span style={{ marginTop:2 }}>Publicar</span>
@@ -14330,36 +14343,92 @@ export default function App() {
           </div>
         )}
 
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-          <div>
-            <label style={S.label}>Início *</label>
-            <input style={S.input} type="time" value={formDiaria.horario_inicio}
-              onChange={e => setFormDiaria({ ...formDiaria, horario_inicio: e.target.value })} />
-          </div>
-          <div>
-            <label style={S.label}>Término *</label>
-            <input style={S.input} type="time" value={formDiaria.horario_fim}
-              onChange={e => setFormDiaria({ ...formDiaria, horario_fim: e.target.value })} />
-          </div>
+        {/* ── Toggle DIÁRIA vs SERVIÇO ── */}
+        <label style={{ ...S.label, marginBottom:6 }}>Tipo de oportunidade *</label>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+          {([
+            { v:"diaria",  emoji:"🌞", label:"Diária",  sub:"Jornada de várias horas" },
+            { v:"servico", emoji:"⚡", label:"Serviço", sub:"Tarefa pontual (vem-faz-vai)" },
+          ] as const).map(opt => {
+            const sel = formDiaria.tipo_oferta === opt.v;
+            return (
+              <button key={opt.v} type="button"
+                onClick={() => setFormDiaria({ ...formDiaria, tipo_oferta: opt.v })}
+                style={{
+                  padding:"12px 8px", textAlign:"center" as const, borderRadius:12,
+                  background: sel ? `${cor}14` : "var(--bg-2,#fff)",
+                  border: sel ? `2px solid ${cor}` : "1.5px solid var(--border,#e2e8f0)",
+                  cursor:"pointer",
+                }}>
+                <div style={{ fontSize:22 }}>{opt.emoji}</div>
+                <div style={{ fontSize:14, fontWeight: sel ? 800 : 600, color: sel ? cor : "var(--text-1,#0f172a)" }}>{opt.label}</div>
+                <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", marginTop:2 }}>{opt.sub}</div>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Carga horária calculada */}
-        <div style={{ background: duracao ? `${cor}14` : "#f1f5f9", border: duracao ? `1.5px solid ${cor}40` : "1.5px solid #e2e8f0", borderRadius:12, padding:"11px 16px", marginTop:6, display:"flex", alignItems:"center", gap:10 }}>
-          <span style={{ fontSize:18 }}>⏱</span>
-          <div>
-            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:600 }}>Carga horária</div>
-            <div style={{ fontSize:15, fontWeight:900, color: duracao ? cor : "#cbd5e1" }}>
-              {duracao || "— Preencha início e término"}
+        {formDiaria.tipo_oferta === "diaria" ? (
+          <>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              <div>
+                <label style={S.label}>Início *</label>
+                <input style={S.input} type="time" value={formDiaria.horario_inicio}
+                  onChange={e => setFormDiaria({ ...formDiaria, horario_inicio: e.target.value })} />
+              </div>
+              <div>
+                <label style={S.label}>Término *</label>
+                <input style={S.input} type="time" value={formDiaria.horario_fim}
+                  onChange={e => setFormDiaria({ ...formDiaria, horario_fim: e.target.value })} />
+              </div>
             </div>
-          </div>
-        </div>
+
+            {/* Carga horária calculada */}
+            <div style={{ background: duracao ? `${cor}14` : "#f1f5f9", border: duracao ? `1.5px solid ${cor}40` : "1.5px solid #e2e8f0", borderRadius:12, padding:"11px 16px", marginTop:6, display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ fontSize:18 }}>⏱</span>
+              <div>
+                <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:600 }}>Carga horária</div>
+                <div style={{ fontSize:15, fontWeight:900, color: duracao ? cor : "#cbd5e1" }}>
+                  {duracao || "— Preencha início e término"}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* SERVIÇO: só horário de chegada + tempo estimado */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              <div>
+                <label style={S.label}>Horário previsto *</label>
+                <input style={S.input} type="time" value={formDiaria.horario_inicio}
+                  onChange={e => setFormDiaria({ ...formDiaria, horario_inicio: e.target.value })} />
+              </div>
+              <div>
+                <label style={S.label}>Tempo estimado *</label>
+                <select style={S.input} value={formDiaria.tempo_estimado_min}
+                  onChange={e => setFormDiaria({ ...formDiaria, tempo_estimado_min: e.target.value })}>
+                  {TEMPOS_ESTIMADOS_SERVICO.map(t => (
+                    <option key={t.valor} value={String(t.valor)}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div style={{ background:`${cor}10`, border:`1.5px solid ${cor}30`, borderRadius:12, padding:"10px 14px", marginTop:6, fontSize:12, color:"var(--text-2,#64748b)" }}>
+              ⚡ Serviço pontual — o prestador vai, executa e sai. Sem horário de término fixo.
+            </div>
+          </>
+        )}
 
         {/* ── SEÇÃO 3: Pagamento ── */}
         <Secao icone="💰" titulo="Pagamento" />
 
-        <label style={S.label}>Valor a pagar pelo dia (R$) *</label>
+        <label style={S.label}>
+          {formDiaria.tipo_oferta === "servico" ? "Valor do serviço (R$) *" : "Valor a pagar pelo dia (R$) *"}
+        </label>
         <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px", display:"flex", alignItems:"center", gap:4 }}>
-          📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>R$ 120 – R$ 250</strong> por diária
+          📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>
+            {formDiaria.tipo_oferta === "servico" ? "varia por escopo" : "R$ 120 – R$ 250 por diária"}
+          </strong>
         </p>
         <div style={{ position:"relative" }}>
           <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
