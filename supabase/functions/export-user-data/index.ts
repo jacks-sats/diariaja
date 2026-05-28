@@ -88,7 +88,8 @@ Deno.serve(async (req) => {
       supabase.from("diarias").select("*").eq("diarista_aceite_id", uid),
       supabase.from("candidaturas").select("*").eq("diarista_id", uid),
       supabase.from("convites").select("*").eq("diarista_id", uid),
-      supabase.from("convites").select("*").eq("empregador_id", uid),
+      // FIX 2026-05-28: coluna real é contratante_id (auditoria banco C-3).
+      supabase.from("convites").select("*").eq("contratante_id", uid),
       supabase.from("mensagens").select("*").eq("remetente_id", uid),
       supabase.from("avaliacoes_diarista").select("*").eq("empregador_id", uid)
         .then(async (a) => {
