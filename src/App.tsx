@@ -11275,10 +11275,18 @@ export default function App() {
           const CardDiaria = ({ dia }: { dia: Diaria }) => {
             const segInfo = CATEGORIAS_NEGOCIO[dia.segmento as keyof typeof CATEGORIAS_NEGOCIO];
             const cor = segInfo?.cor || "#FF6B35";
-            const [h1,m1] = dia.horario_inicio.split(":");
-            const [h2,m2] = dia.horario_fim.split(":");
-            const min = (parseInt(h2)*60+parseInt(m2))-(parseInt(h1)*60+parseInt(m1));
-            const dur = min>0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
+            const ehServ = dia.tipo_oferta === "servico";
+            // Duração só pra diária (serviço usa tempo_estimado_min do banco).
+            let dur = "";
+            if (!ehServ && dia.horario_inicio && dia.horario_fim) {
+              const [h1,m1] = dia.horario_inicio.split(":");
+              const [h2,m2] = dia.horario_fim.split(":");
+              const min = (parseInt(h2)*60+parseInt(m2))-(parseInt(h1)*60+parseInt(m1));
+              dur = min>0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
+            }
+            const tempoServ = ehServ && dia.tempo_estimado_min
+              ? (dia.tempo_estimado_min >= 60 ? `${Math.round(dia.tempo_estimado_min/60)}h` : `${dia.tempo_estimado_min}min`)
+              : ehServ ? "a combinar" : "";
             const st = stMap[dia.status] ?? stMap.aceita;
             const mostrarQR = dia.status === "aceita" || dia.status === "em_andamento";
             return (
@@ -11287,7 +11295,10 @@ export default function App() {
                 onClick={() => setDetalhesDiaria(dia)}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
                   <div style={{ flex:1, paddingRight:8 }}>
-                    <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>{dia.nome_negocio || dia.segmento}</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>{dia.nome_negocio || dia.segmento}</div>
+                      <span title={ehServ ? "Serviço pontual" : "Diária"} style={{ fontSize:13 }}>{ehServ ? "⚡" : "🌞"}</span>
+                    </div>
                     <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5, flexWrap:"wrap" as const }}>
                       {dia.funcao && (
                         <span style={{ background:cor+"18", color:cor, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700 }}>{dia.funcao}</span>
@@ -11297,12 +11308,16 @@ export default function App() {
                   </div>
                   <div style={{ textAlign:"right", flexShrink:0 }}>
                     <div style={{ fontWeight:900, fontSize:20, color: dia.status==="concluida" ? "#22c55e" : "#FF6B35", lineHeight:1 }}>R$ {dia.valor}</div>
-                    <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/dia</div>
+                    <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{ehServ ? "fixo" : "/dia"}</div>
                   </div>
                 </div>
                 <div style={{ display:"flex", gap:14, fontSize:12, color:"var(--text-2,#64748b)", flexWrap:"wrap" as const }}>
                   <span>📅 {fmtData(dia.data)}</span>
-                  <span>🕐 {dia.horario_inicio.slice(0,5)}–{dia.horario_fim.slice(0,5)}{dur ? ` · ${dur}` : ""}</span>
+                  {ehServ ? (
+                    <span>🕐 {dia.horario_inicio.slice(0,5)} · ⏱ {tempoServ}</span>
+                  ) : (
+                    <span>🕐 {dia.horario_inicio.slice(0,5)}{dia.horario_fim ? `–${dia.horario_fim.slice(0,5)}` : ""}{dur ? ` · ${dur}` : ""}</span>
+                  )}
                 </div>
                 {/* Endereço — visível apenas após aceitar */}
                 {dia.endereco && (dia.status === "aceita" || dia.status === "em_andamento" || dia.status === "concluida") && (
@@ -11431,14 +11446,20 @@ export default function App() {
                     <span style={{ background:"var(--bg-card,#fff)", color:"#FF6B35", fontWeight:900, fontSize:14, borderRadius:20, padding:"2px 10px" }}>{paraConfirmar.length}</span>
                   </div>
                   <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
-                    {paraConfirmar.map(d => (
+                    {paraConfirmar.map(d => {
+                      const ehSv = d.tipo_oferta === "servico";
+                      return (
                       <div key={d.id} style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.1)", border:"2px solid #f59e0b" }}>
-                        <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:4 }}>{d.nome_negocio || d.segmento}</div>
+                        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
+                          <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{d.nome_negocio || d.segmento}</div>
+                          <span title={ehSv ? "Serviço pontual" : "Diária"} style={{ fontSize:13 }}>{ehSv ? "⚡" : "🌞"}</span>
+                        </div>
                         <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:12 }}>
                           {d.funcao && <span>👷 {d.funcao} · </span>}
-                          📅 {new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {d.horario_inicio.slice(0,5)}–{d.horario_fim.slice(0,5)}
+                          📅 {new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {d.horario_inicio.slice(0,5)}
+                          {ehSv ? "" : (d.horario_fim ? `–${d.horario_fim.slice(0,5)}` : "")}
                         </div>
-                        <div style={{ fontWeight:900, fontSize:18, color:"#FF6B35", marginBottom:12 }}>R$ {d.valor}/dia</div>
+                        <div style={{ fontWeight:900, fontSize:18, color:"#FF6B35", marginBottom:12 }}>R$ {d.valor}{ehSv ? "" : "/dia"}</div>
                         <button
                           style={{ width:"100%", padding:"13px", background:"#22c55e", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(34,197,94,.4)", opacity:confirmando?0.6:1 }}
                           disabled={confirmando}
@@ -11446,7 +11467,8 @@ export default function App() {
                           {confirmando ? "Confirmando..." : "✅ Confirmar minha presença"}
                         </button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </>
               )}
