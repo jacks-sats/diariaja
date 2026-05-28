@@ -12208,8 +12208,13 @@ export default function App() {
                     {segInfo?.icone || "🏢"}
                   </div>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:900, fontSize:17, color:"#fff", lineHeight:1.2 }}>{d.nome_negocio || d.segmento}</div>
-                    <div style={{ fontSize:12, color:"rgba(255,255,255,.75)", marginTop:3 }}>{d.segmento}</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
+                      <div style={{ fontWeight:900, fontSize:17, color:"#fff", lineHeight:1.2 }}>{d.nome_negocio || d.segmento}</div>
+                      <span title={d.tipo_oferta === "servico" ? "Serviço pontual" : "Diária"} style={{ background:"rgba(255,255,255,.25)", color:"#fff", padding:"2px 7px", borderRadius:10, fontSize:11, fontWeight:800, flexShrink:0 }}>
+                        {d.tipo_oferta === "servico" ? "⚡ SVC" : "🌞 DIA"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize:12, color:"rgba(255,255,255,.75)" }}>{d.segmento}</div>
                   </div>
                   <span style={{ background:"rgba(255,255,255,.2)", color:"#fff", padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:700, flexShrink:0 }}>{stD.txt}</span>
                 </div>
@@ -12221,8 +12226,10 @@ export default function App() {
                     {[
                       { icone:"📅", label:"Data", val: new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) },
                       { icone:"💰", label:"Valor", val: `R$ ${d.valor}` },
-                      { icone:"🕐", label:"Entrada", val: d.horario_inicio.slice(0,5) },
-                      { icone:"🕔", label:"Saída", val: d.horario_fim.slice(0,5) },
+                      { icone:"🕐", label: d.tipo_oferta === "servico" ? "Chegada" : "Entrada", val: d.horario_inicio.slice(0,5) },
+                      d.tipo_oferta === "servico"
+                        ? { icone:"⏱", label:"Tempo", val: d.tempo_estimado_min ? (d.tempo_estimado_min >= 60 ? `${Math.round(d.tempo_estimado_min/60)}h` : `${d.tempo_estimado_min}min`) : "a combinar" }
+                        : { icone:"🕔", label:"Saída", val: d.horario_fim ? d.horario_fim.slice(0,5) : "—" },
                     ].map(b => (
                       <div key={b.label} style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px" }}>
                         <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:600, marginBottom:2 }}>{b.icone} {b.label}</div>
@@ -14246,7 +14253,18 @@ export default function App() {
         />
 
         <label style={S.label}>Habilidade necessária</label>
-        <select style={S.input} value={formDiaria.funcao} onChange={e => setFormDiaria({ ...formDiaria, funcao: e.target.value })}>
+        <select style={S.input} value={formDiaria.funcao} onChange={e => {
+          const novaFuncao = e.target.value;
+          // Sugere tipo_oferta default conforme categoria da função escolhida (TI/Beleza/Pet → serviço; Doméstico/Construção/Eventos → diária).
+          let tipoSugerido: 'diaria' | 'servico' | undefined;
+          for (const [cat, info] of Object.entries(CATEGORIAS_NEGOCIO)) {
+            if ((info.funcoes as readonly string[]).includes(novaFuncao)) {
+              tipoSugerido = TIPO_OFERTA_PADRAO_POR_CATEGORIA[cat];
+              break;
+            }
+          }
+          setFormDiaria({ ...formDiaria, funcao: novaFuncao, ...(tipoSugerido ? { tipo_oferta: tipoSugerido } : {}) });
+        }}>
           <option value="">— Selecione uma habilidade —</option>
           {funcoesDisponiveis.map(([categoria, info]) => (
             <optgroup key={categoria} label={`${info.icone} ${categoria}`}>
