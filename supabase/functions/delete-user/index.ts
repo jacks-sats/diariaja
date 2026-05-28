@@ -63,9 +63,12 @@ serve(async (req) => {
     // Candidaturas (diarista) — diárias do empregador são apagadas em cascata
     await supabaseAdmin.from("candidaturas").delete().eq("diarista_id", userId);
 
-    // Avaliações (em ambas as direções)
-    await supabaseAdmin.from("avaliacoes_diarista").delete().or(`avaliado_id.eq.${userId},avaliador_id.eq.${userId}`);
-    await supabaseAdmin.from("avaliacoes_empregador").delete().or(`avaliado_id.eq.${userId},avaliador_id.eq.${userId}`);
+    // FIX 2026-05-28 (auditoria C-4): colunas avaliado_id/avaliador_id NÃO EXISTEM.
+    // Reais: avaliacoes_empregador.diarista_id (autor), avaliacoes_diarista.empregador_id (autor).
+    // Apaga apenas as escritas PELO user. Avaliações RECEBIDAS permanecem
+    // (pertencem ao avaliador — decisão LGPD).
+    await supabaseAdmin.from("avaliacoes_empregador").delete().eq("diarista_id", userId);
+    await supabaseAdmin.from("avaliacoes_diarista").delete().eq("empregador_id", userId);
 
     // FIX 2026-05-28: trocado `.then(undefined as any, () => {})` por error
     // tracking real. Antes engolia erros silenciosamente: em falha parcial
@@ -82,8 +85,10 @@ serve(async (req) => {
       }
     };
 
-    await safeDelete("convites",          supabaseAdmin.from("convites").delete().or(`contratante_id.eq.${userId},diarista_id.eq.${userId},empregador_id.eq.${userId}`));
-    await safeDelete("denuncias",         supabaseAdmin.from("denuncias").delete().or(`denunciante_id.eq.${userId},denunciado_id.eq.${userId}`));
+    // FIX 2026-05-28 (auditoria C-3): convites.empregador_id NÃO EXISTE — só contratante_id + diarista_id.
+    await safeDelete("convites",          supabaseAdmin.from("convites").delete().or(`contratante_id.eq.${userId},diarista_id.eq.${userId}`));
+    // FIX 2026-05-28 (auditoria A-5): denuncias.denunciado_id NÃO EXISTE — coluna real é alvo_id.
+    await safeDelete("denuncias",         supabaseAdmin.from("denuncias").delete().or(`denunciante_id.eq.${userId},alvo_id.eq.${userId}`));
     await safeDelete("nao_interesse",     supabaseAdmin.from("nao_interesse").delete().eq("diarista_id", userId));
     await safeDelete("push_subscriptions", supabaseAdmin.from("push_subscriptions").delete().eq("user_id", userId));
     await safeDelete("comentarios_comunidade", supabaseAdmin.from("comentarios_comunidade").delete().eq("autor_id", userId));
