@@ -8122,15 +8122,24 @@ export default function App() {
                 </div>
               )}
 
-              {/* ── Convites: Aceitos ── */}
-              {convitesEnviados.filter(c => c.status === "aceito").length > 0 && (
+              {/* ── Convites: Aceitos ──
+                  Filtra convites com data_servico no passado — depois da data
+                  combinada, o convite virtualmente expirou (mesmo sem coluna
+                  `expirado` no schema; faremos migration na Fase 2). */}
+              {(() => {
+                const hojeISO = new Date().toISOString().split("T")[0];
+                const convitesAceitosAtivos = convitesEnviados.filter(c =>
+                  c.status === "aceito" &&
+                  (!c.data_servico || c.data_servico >= hojeISO),
+                );
+                return convitesAceitosAtivos.length > 0 && (
                 <div style={{ marginBottom:20 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
                     <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>🎉 Convites aceitos</span>
-                    <span style={{ background:"#dcfce7", color:"#16a34a", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c=>c.status==="aceito").length}</span>
+                    <span style={{ background:"#dcfce7", color:"#16a34a", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesAceitosAtivos.length}</span>
                   </div>
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
-                    {convitesEnviados.filter(c => c.status === "aceito").map(c => {
+                    {convitesAceitosAtivos.map(c => {
                       const jaLiberado = contatosLiberados.has(c.id);
                       const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
                       return (
@@ -8146,7 +8155,7 @@ export default function App() {
                           </div>
                           <div style={{ fontSize:12, color:"var(--text-label,#475569)", marginBottom:12 }}>📍 {c.local_servico}</div>
                           <div style={{ background:"#f0fdf4", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#166534", fontWeight:700, marginBottom:10 }}>
-                            🎉 {c.diarista_nome?.split(" ")[0]} aceitou! Pague para liberar o contato.
+                            🎉 {c.diarista_nome?.split(" ")[0]} aceitou! Confirme a diária para liberar o chat interno.
                           </div>
                           <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
                             {jaLiberado ? (
@@ -8159,10 +8168,16 @@ export default function App() {
                                 📱 Ver contato de {c.diarista_nome?.split(" ")[0]}
                               </button>
                             ) : (
+                              // BUG fix: o botão antigo abria o modal PIX-pro-prestador
+                              // (R$120 da diária direto pro prestador) e marcava
+                              // contatosLiberados localmente ANTES de pagar — bypass total
+                              // do R$1 da plataforma. Agora segue o mesmo fluxo do
+                              // perfil-diarista-real: termo de compromisso → MP R$1.
                               <button
-                                style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                                onClick={() => { setModalPix(c as any); setContatosLiberados(prev => new Set([...prev, c.id])); }}>
-                                💳 Pagar{c.valor ? ` R$ ${c.valor}` : ""} e liberar contato
+                                style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.7 : 1 }}
+                                disabled={desbloqueandoContato}
+                                onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: c.diarista_nome?.split(" ")[0] || "prestador" })}>
+                                {desbloqueandoContato ? "Aguarde..." : "✅ Confirmar diária por R$ 1"}
                               </button>
                             )}
                             <button
@@ -8179,7 +8194,8 @@ export default function App() {
                     })}
                   </div>
                 </div>
-              )}
+                );
+              })()}
 
               {/* ── Convites: Pendentes ── */}
               {convitesEnviados.filter(c => c.status === "pendente").length > 0 && (
