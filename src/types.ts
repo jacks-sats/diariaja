@@ -15,6 +15,11 @@ export interface Assinatura {
   updated_at?: string;
 }
 
+// Diária (jornada de várias horas) vs Serviço (tarefa pontual "vem-faz-vai").
+// Spec: docs/spec-tipo-oferta-diaria-vs-servico.md
+export type TipoOferta = 'diaria' | 'servico';
+export type TipoPreco = 'fixo' | 'a_combinar' | 'a_partir_de';
+
 export interface Diaria {
   id: string;
   empregador_id: string;
@@ -43,6 +48,10 @@ export interface Diaria {
   taxa_plataforma?: number | null;
   valor_diarista?: number | null;
   bairro?: string | null;             // bairro do CEP da vaga (preenchido ao publicar)
+  // ── Tipo da oferta (diária vs serviço pontual) ───────────────────────────
+  tipo_oferta: TipoOferta;            // default 'diaria' (legado + criação atual)
+  tempo_estimado_min?: number | null; // só se tipo_oferta='servico'
+  tipo_preco?: TipoPreco | null;      // só se tipo_oferta='servico'
 }
 
 export interface UserProfile {
