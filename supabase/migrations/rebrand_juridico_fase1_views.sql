@@ -113,8 +113,9 @@ SELECT
   funcao,
   bio,
   categorias,
-  plano_ativo,
-  created_at
+  plano_ativo
+  -- NOTA (2026-05-28): user_profiles em produção não tem created_at — omitido.
+  -- Se a coluna for adicionada no futuro, basta acrescentar aqui.
 FROM user_profiles;
 
 COMMENT ON VIEW usuarios_publicos IS 'View de perfis com papel traduzido pra terminologia nova (prestador/anunciante).';
