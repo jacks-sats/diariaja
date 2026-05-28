@@ -77,6 +77,7 @@ export interface UserProfile {
   mp_access_token?: string;
   plano_ativo?: string;       // 'gratis' | 'destaque'
   is_admin?: boolean;
+  is_suporte?: boolean;       // agente de suporte — promovido pelo admin via RPC promover_suporte()
   portfolio_urls?: string[];  // até 3 fotos do trabalho (diarista)
   // ── Níveis de confiabilidade ─────────────────────────────────────────
   telefone_verificado?: boolean;

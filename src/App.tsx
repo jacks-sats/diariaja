@@ -300,6 +300,15 @@ export default function App() {
   const [respostasTicket, setRespostasTicket]     = useState<SuporteResposta[]>([]);
   const [novaRespostaTicket, setNovaRespostaTicket] = useState("");
   const [enviandoRespostaTicket, setEnviandoRespostaTicket] = useState(false);
+  // ── Equipe de suporte (gestão admin-only) ───────────────────────────────
+  // equipeSuporte: agentes ativos (is_suporte=true). equipeBusca: input do
+  // admin pra achar usuários pra promover. equipePromovendo: id do user
+  // sendo promovido/despromovido (loading inline).
+  const [equipeSuporte, setEquipeSuporte]             = useState<Pick<UserProfile, "id"|"nome"|"foto_url"|"is_admin">[]>([]);
+  const [equipeBusca, setEquipeBusca]                 = useState("");
+  const [equipeBuscaResultados, setEquipeBuscaResultados] = useState<Pick<UserProfile, "id"|"nome"|"foto_url"|"is_admin"|"is_suporte">[]>([]);
+  const [equipePromovendo, setEquipePromovendo]       = useState<string | null>(null);
+  const [equipeBuscando, setEquipeBuscando]           = useState(false);
   const [modalNovoTicket, setModalNovoTicket]     = useState(false);
   const [formTicket, setFormTicket]               = useState({ assunto: "", mensagem: "" });
   const [criandoTicket, setCriandoTicket]         = useState(false);
@@ -1596,9 +1605,9 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id, modoAtual]);
 
-  // 10) Realtime: admin recebe notificação quando alguém posta tópico de suporte
+  // 10) Realtime: admin/suporte recebe notificação quando alguém posta tópico de suporte
   useEffect(() => {
-    if (!session?.user || !profile?.is_admin) return;
+    if (!session?.user || !(profile?.is_admin || profile?.is_suporte)) return;
     const channel = supabase
       .channel(`suporte-admin-${session.user.id}`)
       .on("postgres_changes" as any,
@@ -1619,7 +1628,7 @@ export default function App() {
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [session?.user?.id, profile?.is_admin]);
+  }, [session?.user?.id, profile?.is_admin, profile?.is_suporte]);
 
   // 11) Heartbeat de presença: atualiza last_activity_at a cada 60s enquanto
   //     o app está com aba/janela visível. Usado pelo painel admin pra contar
@@ -1655,7 +1664,7 @@ export default function App() {
   //     de suporte. Usa channel separado pra não conflitar com tópicos da
   //     comunidade.
   useEffect(() => {
-    if (!session?.user || !profile?.is_admin) return;
+    if (!session?.user || !(profile?.is_admin || profile?.is_suporte)) return;
     const channel = supabase
       .channel(`tickets-admin-${session.user.id}`)
       .on("postgres_changes" as any,
@@ -1680,7 +1689,7 @@ export default function App() {
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [session?.user?.id, profile?.is_admin]);
+  }, [session?.user?.id, profile?.is_admin, profile?.is_suporte]);
 
   // 13) Realtime: USER recebe push quando admin responde no seu ticket
   useEffect(() => {
@@ -2900,9 +2909,9 @@ export default function App() {
     setCarregandoDrill(false);
   };
 
-  // Carrega todos os tickets ordenados por última atualização (visão admin)
+  // Carrega todos os tickets ordenados por última atualização (visão admin/suporte)
   const carregarAdminTickets = async () => {
-    if (!profile?.is_admin) return;
+    if (!(profile?.is_admin || profile?.is_suporte)) return;
     const { data: tickets } = await supabase
       .from("suporte_tickets")
       .select("id, user_id, assunto, status, ultima_resposta_role, created_at, updated_at")
@@ -2996,8 +3005,10 @@ export default function App() {
     if (msg.length > 4000) { setToastError("Mensagem muito longa (máx 4000 caracteres)."); return; }
     setEnviandoRespostaTicket(true);
 
+    // sender_role "admin" cobre tanto admin quanto agente de suporte — o label
+    // visual no chat é o mesmo do ponto de vista do user (suporte da equipe).
     const senderRole: "user" | "admin" =
-      profile?.is_admin && ticketAtivo.user_id !== session.user.id ? "admin" : "user";
+      (profile?.is_admin || profile?.is_suporte) && ticketAtivo.user_id !== session.user.id ? "admin" : "user";
 
     const { error } = await supabase.from("suporte_respostas").insert({
       ticket_id: ticketAtivo.id,
@@ -3067,9 +3078,56 @@ export default function App() {
     </div>
   );
 
-  // Admin altera status do ticket
+  // ── Equipe de Suporte (admin promove/despromove agentes) ────────────────
+  // Lista agentes ativos. Admin-only.
+  const carregarEquipeSuporte = async () => {
+    if (!profile?.is_admin) return;
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("id, nome, foto_url, is_admin")
+      .eq("is_suporte", true)
+      .order("nome", { ascending: true });
+    setEquipeSuporte((data ?? []) as any);
+  };
+
+  // Busca usuários pra promover. Admin-only. Limita 20 resultados.
+  const buscarUsuariosParaSuporte = async (query: string) => {
+    if (!profile?.is_admin) return;
+    const q = query.trim();
+    if (q.length < 2) { setEquipeBuscaResultados([]); return; }
+    setEquipeBuscando(true);
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("id, nome, foto_url, is_admin, is_suporte")
+      .ilike("nome", `%${q}%`)
+      .order("nome", { ascending: true })
+      .limit(20);
+    setEquipeBuscaResultados((data ?? []) as any);
+    setEquipeBuscando(false);
+  };
+
+  // Promove/despromove via RPC. RPC valida is_admin do caller server-side.
+  const promoverParaSuporte = async (userId: string, ativar: boolean) => {
+    if (!profile?.is_admin) return;
+    setEquipePromovendo(userId);
+    const { error } = await supabase.rpc("promover_suporte", {
+      alvo_user_id: userId,
+      ativar,
+    });
+    setEquipePromovendo(null);
+    if (error) {
+      setToastError(error.message || "Falha ao alterar equipe de suporte.");
+      return;
+    }
+    setToastSuccess(ativar ? "✅ Agente promovido pra equipe de suporte" : "Agente removido da equipe");
+    // Atualiza ambas as listas otimisticamente
+    await carregarEquipeSuporte();
+    if (equipeBusca) await buscarUsuariosParaSuporte(equipeBusca);
+  };
+
+  // Admin ou agente de suporte altera status do ticket
   const atualizarStatusTicket = async (novoStatus: SuporteTicket["status"]) => {
-    if (!profile?.is_admin || !ticketAtivo) return;
+    if (!(profile?.is_admin || profile?.is_suporte) || !ticketAtivo) return;
     const { error } = await supabase
       .from("suporte_tickets")
       .update({ status: novoStatus, updated_at: new Date().toISOString() })
@@ -10216,8 +10274,8 @@ export default function App() {
             <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>🔔 Notificações</div>
-              {/* Banner de suporte para admin */}
-              {profile?.is_admin && suporteNaoLidos > 0 && (
+              {/* Banner de suporte para admin/agente */}
+              {(profile?.is_admin || profile?.is_suporte) && suporteNaoLidos > 0 && (
                 <div style={{ background:"#fef3c7", border:"1.5px solid #f59e0b", borderRadius:14, padding:"12px 14px", marginBottom:14, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}
                   onClick={() => { setModalNotif(false); setSuporteNaoLidos(0); setFiltroComunidade("suporte"); carregarTopicos("suporte"); setTopicoAtivo(null); setTela("comunidade"); }}>
                   <span style={{ fontSize:24 }}>🔧</span>
@@ -10227,7 +10285,7 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {listaNotif.length === 0 && !(profile?.is_admin && suporteNaoLidos > 0) ? (
+              {listaNotif.length === 0 && !((profile?.is_admin || profile?.is_suporte) && suporteNaoLidos > 0) ? (
                 <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", padding:"32px 0", fontSize:14 }}>
                   <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
                   Nenhuma notificação ainda
@@ -10296,11 +10354,25 @@ export default function App() {
                 {profile?.is_admin && (
                   <button
                     style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); setTela("admin-painel"); }}>
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); carregarEquipeSuporte(); setTela("admin-painel"); }}>
                     <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
                       <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Stats da plataforma e tickets de suporte</div>
+                    </div>
+                    {ticketsNovos > 0 && (
+                      <span style={{ background:"#ef4444", color:"#fff", borderRadius:10, padding:"2px 8px", fontSize:11, fontWeight:900 }}>{ticketsNovos > 9 ? "9+" : ticketsNovos}</span>
+                    )}
+                  </button>
+                )}
+                {!profile?.is_admin && profile?.is_suporte && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(58,134,255,.08), rgba(99,102,241,.08))", border:"1.5px solid rgba(58,134,255,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminTickets(); setTela("painel-suporte"); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#3A86FF,#6366f1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🎧</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel de Suporte</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Atender chamados dos usuários</div>
                     </div>
                     {ticketsNovos > 0 && (
                       <span style={{ background:"#ef4444", color:"#fff", borderRadius:10, padding:"2px 8px", fontSize:11, fontWeight:900 }}>{ticketsNovos > 9 ? "9+" : ticketsNovos}</span>
@@ -12773,11 +12845,25 @@ export default function App() {
                 {profile?.is_admin && (
                   <button
                     style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); setTela("admin-painel"); }}>
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); carregarEquipeSuporte(); setTela("admin-painel"); }}>
                     <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
                       <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Stats da plataforma e tickets de suporte</div>
+                    </div>
+                    {ticketsNovos > 0 && (
+                      <span style={{ background:"#ef4444", color:"#fff", borderRadius:10, padding:"2px 8px", fontSize:11, fontWeight:900 }}>{ticketsNovos > 9 ? "9+" : ticketsNovos}</span>
+                    )}
+                  </button>
+                )}
+                {!profile?.is_admin && profile?.is_suporte && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(58,134,255,.08), rgba(99,102,241,.08))", border:"1.5px solid rgba(58,134,255,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminTickets(); setTela("painel-suporte"); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#3A86FF,#6366f1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🎧</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel de Suporte</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Atender chamados dos usuários</div>
                     </div>
                     {ticketsNovos > 0 && (
                       <span style={{ background:"#ef4444", color:"#fff", borderRadius:10, padding:"2px 8px", fontSize:11, fontWeight:900 }}>{ticketsNovos > 9 ? "9+" : ticketsNovos}</span>
@@ -12858,8 +12944,8 @@ export default function App() {
             <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>🔔 Notificações</div>
-              {/* Banner de suporte para admin */}
-              {profile?.is_admin && suporteNaoLidos > 0 && (
+              {/* Banner de suporte para admin/agente */}
+              {(profile?.is_admin || profile?.is_suporte) && suporteNaoLidos > 0 && (
                 <div style={{ background:"#fef3c7", border:"1.5px solid #f59e0b", borderRadius:14, padding:"12px 14px", marginBottom:14, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}
                   onClick={() => { setModalNotif(false); setSuporteNaoLidos(0); setFiltroComunidade("suporte"); carregarTopicos("suporte"); setTopicoAtivo(null); setTela("comunidade"); }}>
                   <span style={{ fontSize:24 }}>🔧</span>
@@ -12869,7 +12955,7 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {listaNotif.length === 0 && !(profile?.is_admin && suporteNaoLidos > 0) ? (
+              {listaNotif.length === 0 && !((profile?.is_admin || profile?.is_suporte) && suporteNaoLidos > 0) ? (
                 <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", padding:"32px 0", fontSize:14 }}>
                   <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
                   Nenhuma notificação ainda
@@ -15035,6 +15121,109 @@ export default function App() {
           )}
         </div>
 
+        {/* ── EQUIPE DE SUPORTE — admin-only ─────────────────────────────
+            Lista os agentes ativos e permite buscar usuário pra promover.
+            Promoção vai via RPC `promover_suporte` que valida is_admin
+            server-side. Despromoção idem. */}
+        <div style={{ padding:"4px 16px 24px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🎧 Equipe de suporte</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{equipeSuporte.length} agente{equipeSuporte.length === 1 ? "" : "s"}</div>
+          </div>
+
+          {equipeSuporte.length === 0 ? (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"16px", textAlign:"center" as const, color:"var(--text-3,#94a3b8)", fontSize:13, marginBottom:10 }}>
+              Nenhum agente promovido ainda. Use a busca abaixo pra adicionar.
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column" as const, gap:8, marginBottom:14 }}>
+              {equipeSuporte.map(ag => {
+                const ini = (ag.nome || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+                const isPromovendo = equipePromovendo === ag.id;
+                const eAdmin = ag.is_admin === true;
+                return (
+                  <div key={ag.id} style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                    {ag.foto_url
+                      ? <img loading="lazy" src={ag.foto_url} alt="" style={{ width:40, height:40, borderRadius:20, objectFit:"cover" as const, flexShrink:0 }} />
+                      : <div style={{ width:40, height:40, borderRadius:20, background:"#3A86FF", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, flexShrink:0 }}>{ini}</div>
+                    }
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", overflow:"hidden" as const, textOverflow:"ellipsis" as const, whiteSpace:"nowrap" as const }}>{ag.nome || "—"}</div>
+                      <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                        {eAdmin ? "👑 Admin · Suporte" : "🎧 Agente de suporte"}
+                      </div>
+                    </div>
+                    {eAdmin ? (
+                      <span style={{ fontSize:10, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>—</span>
+                    ) : (
+                      <button
+                        disabled={isPromovendo}
+                        style={{ background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:8, padding:"6px 12px", fontSize:11, fontWeight:800, cursor: isPromovendo ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: isPromovendo ? 0.6 : 1 }}
+                        onClick={() => promoverParaSuporte(ag.id, false)}>
+                        {isPromovendo ? "..." : "Remover"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+            <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Promover novo agente</div>
+            <input
+              value={equipeBusca}
+              onChange={e => {
+                const v = e.target.value;
+                setEquipeBusca(v);
+                buscarUsuariosParaSuporte(v);
+              }}
+              placeholder="Buscar usuário pelo nome…"
+              style={{ width:"100%", padding:"10px 12px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, fontSize:13, fontFamily:"Inter, system-ui, sans-serif", background:"var(--bg-app,#f8fafc)", color:"var(--text-1,#0f172a)", boxSizing:"border-box" as const }} />
+            {equipeBuscando && (
+              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:8 }}>Buscando…</div>
+            )}
+            {equipeBuscaResultados.length > 0 && (
+              <div style={{ display:"flex", flexDirection:"column" as const, gap:6, marginTop:10 }}>
+                {equipeBuscaResultados.map(u => {
+                  const ini = (u.nome || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+                  const jaPromovido = u.is_suporte === true;
+                  const eAdmin = u.is_admin === true;
+                  const isPromovendo = equipePromovendo === u.id;
+                  return (
+                    <div key={u.id} style={{ background:"var(--bg-app,#f8fafc)", borderRadius:10, padding:"8px 12px", display:"flex", alignItems:"center", gap:10 }}>
+                      {u.foto_url
+                        ? <img loading="lazy" src={u.foto_url} alt="" style={{ width:32, height:32, borderRadius:16, objectFit:"cover" as const, flexShrink:0 }} />
+                        : <div style={{ width:32, height:32, borderRadius:16, background:"#94a3b8", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:12, flexShrink:0 }}>{ini}</div>
+                      }
+                      <div style={{ flex:1, minWidth:0, fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", overflow:"hidden" as const, textOverflow:"ellipsis" as const, whiteSpace:"nowrap" as const }}>
+                        {u.nome || "—"}
+                        {eAdmin && <span style={{ fontSize:10, color:"#f59e0b", fontWeight:900, marginLeft:6 }}>👑 ADMIN</span>}
+                      </div>
+                      {jaPromovido || eAdmin ? (
+                        <span style={{ fontSize:10, color:"#16a34a", fontWeight:800, padding:"4px 8px", background:"#dcfce7", borderRadius:6 }}>✓ Na equipe</span>
+                      ) : (
+                        <button
+                          disabled={isPromovendo}
+                          style={{ background:"#3A86FF", color:"#fff", border:"none", borderRadius:8, padding:"6px 12px", fontSize:11, fontWeight:800, cursor: isPromovendo ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: isPromovendo ? 0.6 : 1 }}
+                          onClick={() => promoverParaSuporte(u.id, true)}>
+                          {isPromovendo ? "..." : "+ Promover"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {equipeBusca.trim().length >= 2 && !equipeBuscando && equipeBuscaResultados.length === 0 && (
+              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:8 }}>Nenhum usuário encontrado.</div>
+            )}
+            <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", marginTop:10, lineHeight:1.5 }}>
+              💡 Agentes promovidos veem tickets dos usuários e podem responder. Não veem stats nem revisão de documentos. Só admin pode promover/remover.
+            </div>
+          </div>
+        </div>
+
         {/* ── Modal drill-down: lista detalhada do card clicado ── */}
         {adminDrillTipo && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
@@ -15195,6 +15384,103 @@ export default function App() {
             </div>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // ── PAINEL DE SUPORTE — agentes (is_suporte) atendem tickets ──────────────
+  // Versão enxuta do admin-painel só com a lista de tickets. Admin não
+  // precisa acessar daqui (tem o painel completo). Agentes promovidos via
+  // `promover_suporte` caem aqui. Sem stats, sem KYC, sem antecedentes,
+  // sem gestão de equipe — só o trabalho de ticket.
+  if (tela === "painel-suporte") {
+    if (!(profile?.is_admin || profile?.is_suporte)) {
+      setTela("configuracoes");
+      return null;
+    }
+    const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    const tk = adminTickets;
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        {/* Header */}
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#3A86FF)", padding:"48px 20px 24px" }}>
+          <button style={{ background:"none", border:"none", color:"#fff", opacity:.85, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
+            ← Voltar
+          </button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:48, height:48, background:"rgba(255,255,255,.18)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🎧</div>
+            <div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Painel de Suporte</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.78)" }}>Atender chamados dos usuários</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats compacto: contagem por status */}
+        <div style={{ padding:"16px 16px 8px" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:8 }}>
+            {[
+              { label:"Abertos",      cor:"#ef4444", n: tk.filter(t => t.status === "aberto").length },
+              { label:"Aguardando",   cor:"#f59e0b", n: tk.filter(t => t.status === "aguardando_user").length },
+              { label:"Resolvidos",   cor:"#16a34a", n: tk.filter(t => t.status === "resolvido").length },
+            ].map(s => (
+              <div key={s.label} style={{ background:"var(--bg-card,#fff)", borderRadius:12, padding:"10px 8px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.06)", borderTop:`3px solid ${s.cor}` }}>
+                <div style={{ fontSize:22, fontWeight:900, color:s.cor, lineHeight:1 }}>{s.n}</div>
+                <div style={{ fontSize:10, color:"var(--text-2,#64748b)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3, marginTop:4 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Lista de tickets — clona da admin-painel */}
+        <div style={{ padding:"4px 16px 24px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>Tickets de suporte</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{tk.length} total</div>
+          </div>
+          {tk.length === 0 ? (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              📭 Sem tickets abertos no momento.
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+              {tk.map(t => {
+                const corStatus =
+                  t.status === "aberto"            ? "#ef4444" :
+                  t.status === "aguardando_user"   ? "#f59e0b" :
+                  t.status === "resolvido"         ? "#16a34a" : "#94a3b8";
+                const labelStatus =
+                  t.status === "aberto"            ? "Aberto" :
+                  t.status === "aguardando_user"   ? "Aguardando user" :
+                  t.status === "resolvido"         ? "Resolvido" : "Fechado";
+                const novaDoUser = t.ultima_resposta_role === "user" && (t.status === "aberto" || t.status === "aguardando_user");
+                return (
+                  <div key={t.id}
+                    style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer", borderLeft:`4px solid ${corStatus}` }}
+                    onClick={() => abrirTicket(t)}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", overflow:"hidden" as const, textOverflow:"ellipsis" as const, whiteSpace:"nowrap" as const, display:"flex", alignItems:"center", gap:6 }}>
+                          {novaDoUser && <span style={{ width:8, height:8, borderRadius:4, background:"#ef4444", flexShrink:0 }} />}
+                          {t.assunto}
+                        </div>
+                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                          {t.user_nome} · {new Date(t.updated_at).toLocaleDateString("pt-BR")} {new Date(t.updated_at).toLocaleTimeString("pt-BR", {hour:"2-digit",minute:"2-digit"})}
+                        </div>
+                      </div>
+                      <span style={{ background:corStatus+"22", color:corStatus, fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>{labelStatus}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <button
+            style={{ marginTop:14, width:"100%", padding:"10px", background:"var(--bg-card,#fff)", color:"var(--text-2,#64748b)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => carregarAdminTickets()}>
+            🔄 Atualizar
+          </button>
+        </div>
       </div>
     );
   }
@@ -15522,9 +15808,18 @@ export default function App() {
 
   // ── CONVERSA DO TICKET (user ou admin) ──────────────────────────────────────
   if (tela === "ticket-conversa") {
-    if (!ticketAtivo) { setTela(profile?.is_admin ? "admin-painel" : "meus-tickets"); return null; }
-    const isAdminView = !!profile?.is_admin && ticketAtivo.user_id !== session?.user?.id;
-    const voltarTela = isAdminView ? "admin-painel" : "meus-tickets";
+    if (!ticketAtivo) {
+      // Back inteligente: admin volta pro painel completo, agente de suporte pro painel-suporte,
+      // user comum pra meus-tickets.
+      setTela(profile?.is_admin ? "admin-painel" : profile?.is_suporte ? "painel-suporte" : "meus-tickets");
+      return null;
+    }
+    // isAdminView = visão de quem ATENDE (admin OU suporte) o ticket de outro user.
+    // Próprio admin/suporte abrindo seu próprio ticket cai no fluxo user.
+    const isAdminView = !!(profile?.is_admin || profile?.is_suporte) && ticketAtivo.user_id !== session?.user?.id;
+    const voltarTela = isAdminView
+      ? (profile?.is_admin ? "admin-painel" : "painel-suporte")
+      : "meus-tickets";
     const corStatus =
       ticketAtivo.status === "aberto"            ? "#ef4444" :
       ticketAtivo.status === "aguardando_user"   ? "#f59e0b" :
