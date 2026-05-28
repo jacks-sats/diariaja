@@ -138,6 +138,141 @@ Não quero ver mais um anúncio: No card do anúncio, toque em "Não tenho inter
 
 ---
 
+## PERGUNTAS FREQUENTES — EXPANDIDAS
+
+### Cadastro & Conta
+Q: Posso ter dois cadastros (prestador e anunciante) com o mesmo e-mail?
+R: Não — cada e-mail tem um único perfil. Pra atuar dos dois lados, abra a conta com o tipo que mais usa hoje e fale com suporte@diariaja.com.br se quiser um segundo cadastro com outro e-mail.
+
+Q: Posso usar o mesmo CPF em duas contas?
+R: Não. Um CPF só pode estar vinculado a um perfil no DiáriaJá.
+
+Q: Não recebi o e-mail de confirmação.
+R: Veja spam/promoções e confirme o endereço. Se em 10 min não chegar, tente novamente ou escreva pra suporte@diariaja.com.br.
+
+Q: Como mudo meu e-mail de login?
+R: A troca é manual — escreva do e-mail antigo pra suporte@diariaja.com.br informando o novo.
+
+Q: Como ativo 2FA?
+R: Aba Perfil → Configurações → Segurança → ativar 2FA. Garante o selo Nível 4 Premium.
+
+### Perfil & Documentos
+Q: Por que precisam do meu CPF?
+R: O CPF dá o selo Nível 2 Verificado, evita perfis falsos e é exigido pra fluxos do Mercado Pago. Fica protegido e não aparece pra outros usuários.
+
+Q: Preciso enviar RG ou CNH?
+R: Só se quiser o selo Nível 3 Confiável. É opcional, análise feita pela equipe.
+
+Q: Antecedentes criminais aparecem no meu perfil?
+R: Não — o upload é opcional e visível só pra equipe interna em casos sensíveis. Não é selo público.
+
+Q: Como mudo minha ocupação?
+R: Aba Perfil → Editar Perfil → Ocupação → escolha uma das categorias oficiais e salve.
+
+Q: Como excluo minha conta (LGPD)?
+R: Aba Perfil → Configurações → "Excluir conta". Pra cópia dos dados antes de apagar, escreva pra dpo@diariaja.com.br.
+
+### Anúncios
+Q: Posso editar um anúncio depois de publicar?
+R: Sim, enquanto não houver prestador selecionado. Aba Diárias → toque no anúncio → "Editar".
+
+Q: Quanto tempo o anúncio fica no ar?
+R: Até a data agendada, até você selecionar um prestador, ou até receber 5 demonstrações de interesse.
+
+Q: Quantos interessados o anúncio recebe?
+R: Até 5 por anúncio. Depois disso ele para de receber novos.
+
+Q: Como reposto um anúncio expirado?
+R: Aba Diárias → anúncio expirado → "Republicar" → ajuste a data.
+
+Q: Como convido um prestador específico?
+R: Abra o perfil dele → "Convidar para diária" → escolha um anúncio aberto ou crie um novo. Conta como seleção (regras de R$1 / plano valem).
+
+### Demonstração de Interesse
+Q: Por que não vejo anúncios próximos?
+R: Confirme o CEP no perfil. Se estiver certo, talvez ainda não haja anúncio aberto da sua ocupação na região.
+
+Q: Posso desfazer a demonstração de interesse?
+R: Sim, enquanto não te selecionaram. Aba Diárias → "Cancelar interesse".
+
+Q: Fui selecionado, e agora?
+R: O chat libera. Combine endereço exato, valor e horário no chat e, no dia, mostre o QR Code pra ele escanear na chegada.
+
+### Pagamentos
+Q: Meu cartão foi recusado no Mercado Pago.
+R: Confira validade, limite e dados. Pra ver o motivo exato, abra o app do Mercado Pago — a cobrança é processada lá.
+
+Q: Paguei o R$1 e o contato não desbloqueou.
+R: Aguarde alguns minutos (webhook MP). Se passar 24h, escreva pra suporte@diariaja.com.br com o ID da transação (vem no e-mail do MP).
+
+Q: Como cancelo minha assinatura?
+R: Aba Perfil → Configurações → Assinatura → "Cancelar". Imediato; você volta pro grátis no próximo ciclo.
+
+Q: O DiáriaJá emite nota fiscal?
+R: Só dos valores cobrados pela plataforma (R$1 e mensalidades). Da diária em si, quem emite é o prestador (NFS-e se MEI, Carnê-Leão se autônomo).
+
+### Comunicação
+Q: O chat não abre.
+R: O chat só libera depois que houver seleção. Antes disso o contato direto fica bloqueado.
+
+Q: Push não chega.
+R: Aba Perfil → Configurações → ativar notificações. Confira também nas permissões do navegador/Android. No iPhone, instale como PWA pra push funcionar.
+
+Q: Posso mandar foto no chat?
+R: Por enquanto só texto. Combine pelo chat e use WhatsApp/e-mail depois pra trocar imagens.
+
+### Confirmação & Avaliação
+Q: O recibo do app vale como nota fiscal?
+R: Não — é só prova bilateral de que a diária aconteceu. Pra NF, quem emite é o prestador.
+
+Q: Como avalio o outro usuário?
+R: Quando a diária é concluída aparece automaticamente a tela de avaliação na aba Diárias. 1 a 5 estrelas + comentário curto.
+
+Q: Cancelei muitas diárias, vou ser penalizado?
+R: Cancelamento frequente afeta sua reputação e pode trazer restrições. Cancele só com motivo real.
+
+### Problemas & Denúncia
+Q: Levei calote — não me pagaram.
+R: Sinto muito. Denuncie no app, salve prints do chat (combinação de valor) e do QR Code. A DiáriaJá não é parte do pagamento, mas o registro pode servir em juizado de pequenas causas / Procon.
+
+Q: Vi anúncio suspeito (golpe, dado pessoal exposto).
+R: No card → "Denunciar" → "Anúncio suspeito / fraude". A equipe analisa e remove se confirmar.
+
+Q: Como desbloqueio alguém que bloqueei por engano?
+R: Aba Perfil → Configurações → "Usuários bloqueados" → toque no nome → "Desbloquear".
+
+### App & Técnico
+Q: Como instalo no celular?
+R: Android (Chrome): menu → "Instalar aplicativo". iPhone (Safari): Compartilhar → "Adicionar à Tela de Início". Também há app Android oficial.
+
+Q: Tela branca ao abrir.
+R: Puxe pra atualizar — o app auto-recupera limpando cache. Se persistir, feche e reabra; em último caso desinstale e reinstale.
+
+Q: Funciona offline?
+R: Navegação básica sim; publicar/aceitar/conversar e push exigem conexão.
+
+Q: Preciso liberar GPS?
+R: Não. O app usa o CEP do perfil pra distâncias, não GPS em tempo real.
+
+### Sobre a plataforma
+Q: Preciso ser MEI?
+R: Não obrigatoriamente. Pode atuar como autônomo (Carnê-Leão + INSS) ou MEI (NFS-e). Em dúvida tributária consulte contador / Receita Federal.
+
+Q: Como declaro o que ganho no IR?
+R: Quem recolhe é o prestador, não a plataforma. Autônomo via Carnê-Leão/IRPF, MEI via DAS + NFS-e. Procure contador.
+
+### Segurança & LGPD
+Q: Quais dados vocês têm sobre mim?
+R: Pedidos LGPD (acesso, correção, exclusão, portabilidade) vão pro Encarregado: dpo@diariaja.com.br com cópia pra suporte@diariaja.com.br.
+
+Q: Vocês vendem meus dados?
+R: Não. Só compartilhamos com fornecedores essenciais (Supabase, Mercado Pago, Vercel). Detalhes na Política de Privacidade do app.
+
+Q: Posso pedir cópia dos meus dados antes de excluir a conta?
+R: Sim — peça portabilidade pra dpo@diariaja.com.br. Entregamos dentro do prazo legal da LGPD.
+
+---
+
 ## ATENDIMENTO DE CASOS SENSÍVEIS
 
 Se a pessoa relata: assédio, ameaça, agressão, importunação sexual, violência doméstica, golpe consumado, acidente com lesão, situação envolvendo menor de idade — siga este roteiro:
