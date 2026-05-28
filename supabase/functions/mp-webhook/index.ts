@@ -56,7 +56,13 @@ async function validarAssinatura(req: Request, body: string): Promise<boolean> {
   const xSignature = req.headers.get("x-signature") ?? "";
   const xRequestId = req.headers.get("x-request-id") ?? "";
   const url        = new URL(req.url);
-  const dataId     = url.searchParams.get("data.id") ?? "";
+  // FIX 2026-05-28: MP envia 2 formatos de URL ao mesmo tempo:
+  //   - novo: ?data.id=X&type=payment
+  //   - antigo: ?id=X&topic=payment (merchant_order_wh principalmente)
+  // Ambos têm assinatura HMAC válida, mas usam o `id` do query string.
+  // Sem esse fallback, o formato antigo dava template com `id:;` (vazio)
+  // e o HMAC não batia → 401.
+  const dataId     = url.searchParams.get("data.id") ?? url.searchParams.get("id") ?? "";
 
   // DEBUG: loga TUDO que recebeu pra diagnosticar 401s. Remover após OK.
   // Inclui char codes do primeiro/último char do secret pra detectar
