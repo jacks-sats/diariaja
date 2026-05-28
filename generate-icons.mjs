@@ -1,8 +1,17 @@
 /**
- * Gerador de ícones PWA para o DiáriaJá
+ * ⚠️ DEPRECIADO — use scripts/generate-icons.py
+ *
+ * Esse script gerava ícones genéricos "DJ" laranjas (placeholder de quando o
+ * app ainda não tinha logo definido). Substituído em 2026-05 pelo gerador
+ * Python que processa o logo real (círculo laranja + raio amarelo) a partir
+ * de assets/icon-source-brand.png.
+ *
+ * Mantido aqui por enquanto pra histórico. NÃO rodar — vai sobrescrever os
+ * ícones bons com o placeholder antigo.
+ *
+ * Gerador antigo (zlib + png chunks puros):
  * Uso: node generate-icons.mjs
  * Cria: public/icon-192.png e public/icon-512.png
- *
  * Usa apenas módulos built-in do Node.js (sem dependências externas).
  * Gera ícones com fundo laranja (#FF6B35) e letras "DJ" centralizadas em branco.
  */
