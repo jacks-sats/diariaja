@@ -48,7 +48,10 @@ async function pseudo(id: string | undefined | null): Promise<string> {
 async function validarAssinatura(req: Request, body: string): Promise<boolean> {
   // Fail-closed: sem secret em produção a função não aceita nada.
   // Configure MP_WEBHOOK_SECRET no painel do Supabase antes de receber webhooks.
-  if (!WEBHOOK_SECRET) return false;
+  if (!WEBHOOK_SECRET) {
+    console.error("[mp-webhook] MP_WEBHOOK_SECRET não configurado — webhooks serão rejeitados. Configure em supabase secrets set MP_WEBHOOK_SECRET=...");
+    return false;
+  }
 
   const xSignature = req.headers.get("x-signature") ?? "";
   const xRequestId = req.headers.get("x-request-id") ?? "";
