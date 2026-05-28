@@ -8,7 +8,41 @@
 //   APP_URL          → URL pública do app (ex: https://diariaja.vercel.app)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { rateLimitOrReject } from "../_shared/rate-limit.ts";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// ── Rate-limit inline (copiado de ../_shared/rate-limit.ts em 2026-05-28) ──
+// Inlinado pra permitir deploy via dashboard Supabase (que não bundle multi-file).
+// Se mudar, atualizar também em ../_shared/rate-limit.ts e nas outras functions.
+interface RateLimitOptions {
+  key: string;
+  max: number;
+  windowSeconds: number;
+  corsHeaders?: Record<string, string>;
+}
+
+async function rateLimitOrReject(opts: RateLimitOptions, supabase: SupabaseClient): Promise<Response | null> {
+  try {
+    const { data, error } = await supabase.rpc("check_rate_limit", {
+      p_key:            opts.key,
+      p_max:            opts.max,
+      p_window_seconds: opts.windowSeconds,
+    });
+    if (error) {
+      console.warn("[rate-limit] RPC error, allowing:", error.message);
+      return null;
+    }
+    if (data === false) {
+      return new Response(
+        JSON.stringify({ error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." }),
+        { status: 429, headers: { "Content-Type": "application/json", "Retry-After": String(opts.windowSeconds), ...(opts.corsHeaders ?? {}) } },
+      );
+    }
+    return null;
+  } catch (e) {
+    console.warn("[rate-limit] thrown, allowing:", e instanceof Error ? e.message : String(e));
+    return null;
+  }
+}
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
