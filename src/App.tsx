@@ -15057,6 +15057,9 @@ export default function App() {
     };
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        {/* Toasts globais — admin tela não tinha, motivo do bug "click Aprovar sem feedback" */}
+        {toastSuccess && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, whiteSpace:"nowrap" }}>{toastSuccess}</div>}
+        {toastError   && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999 }}>{toastError}</div>}
         {/* Header */}
         <div style={{ background:"linear-gradient(135deg,#0f172a,#FF6B35)", padding:"48px 20px 24px" }}>
           <button style={{ background:"none", border:"none", color:"#fff", opacity:.85, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
