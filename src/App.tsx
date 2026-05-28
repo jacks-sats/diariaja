@@ -13946,7 +13946,14 @@ export default function App() {
                 {contatoJaLiberado ? (
                   <button
                     style={{ ...S.btnPrimary, background:"#22c55e", textAlign:"center" as const }}
-                    onClick={() => setChatDiariaAtiva(conviteAtivo as any)}>
+                    onClick={() => {
+                      // FIX 2026-05-28: setChatDiariaAtiva sozinho não abria UI —
+                      // o chat fica na aba "chat" do home-empregador. Precisa
+                      // navegar pra lá além de setar o convite ativo.
+                      setChatDiariaAtiva(conviteAtivo as any);
+                      setTabEmpregador("chat");
+                      setTela("home-empregador");
+                    }}>
                     💬 Abrir chat com {d.nome.split(" ")[0]}
                   </button>
                 ) : (
