@@ -8,6 +8,7 @@
 //   APP_URL          → URL pública do app (ex: https://diariaja.vercel.app)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { rateLimitOrReject } from "../_shared/rate-limit.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -35,6 +36,15 @@ Deno.serve(async (req) => {
     });
     const { data: { user }, error: authErr } = await supabaseUser.auth.getUser();
     if (authErr || !user) return json({ error: "Token inválido ou expirado." }, 401);
+
+    // Rate-limit: 5 preferences/min/user — endpoint cria objetos no MP com
+    // latência 500-1500ms, sem proteção spam queima a quota de Edge Functions
+    // (500k/mês no Free) e gera lixo no painel MP.
+    const blocked = await rateLimitOrReject(
+      { key: `create-payment:user:${user.id}`, max: 5, windowSeconds: 60, corsHeaders: CORS },
+      supabaseUser,
+    );
+    if (blocked) return blocked;
 
     const { diaria_id, empregador_id } = await req.json();
 

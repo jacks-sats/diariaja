@@ -36,7 +36,7 @@ run_step() {
 }
 
 echo -e "\n${YELLOW}══════════════════════════════════════════${NC}"
-echo -e "${YELLOW}   🔍 Verificação Trampojá$([ $QUICK = true ] && echo " (modo rápido)")${NC}"
+echo -e "${YELLOW}   🔍 Verificação DiáriaJá$([ $QUICK = true ] && echo " (modo rápido)")${NC}"
 echo -e "${YELLOW}══════════════════════════════════════════${NC}"
 
 # 1. TypeScript — detecta variáveis não declaradas, tipos errados, etc.

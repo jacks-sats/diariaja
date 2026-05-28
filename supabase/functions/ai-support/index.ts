@@ -1,5 +1,5 @@
 // Edge Function: ai-support
-// IA de suporte do Trampojá powered by Groq (grátis, sem cartão)
+// IA de suporte do DiáriaJá powered by Groq (grátis, sem cartão)
 //
 // Variáveis de ambiente necessárias (Supabase Dashboard → Settings → Edge Functions → Secrets):
 //   GROQ_API_KEY            → chave gerada em console.groq.com (grátis)

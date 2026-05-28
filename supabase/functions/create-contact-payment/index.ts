@@ -57,7 +57,11 @@ Deno.serve(async (req) => {
     }
     log(traceId, "02_auth_ok", { user_id_prefix: user.id.slice(0, 8) });
 
-    const { empregador_id } = await req.json() as { empregador_id?: string };
+    // convite_id é opcional: quando enviado, o webhook consegue mapear o
+    // pagamento ao convite específico que foi confirmado, permitindo que a
+    // UI saiba EXATAMENTE quais convites estão com contato liberado depois
+    // de um reload/login (em vez de só contar quantos R$1 foram pagos).
+    const { empregador_id, convite_id } = await req.json() as { empregador_id?: string; convite_id?: string };
 
     if (!empregador_id) {
       log(traceId, "03_body_invalido");
@@ -91,7 +95,9 @@ Deno.serve(async (req) => {
           unit_price:  1.00,
         },
       ],
-      external_reference: `contact_unlock::${empregador_id}`,
+      external_reference: convite_id
+        ? `contact_unlock::${empregador_id}::${convite_id}`
+        : `contact_unlock::${empregador_id}`,
       back_urls: {
         success: `${APP_URL}/?contato_desbloqueado=sucesso`,
         failure: `${APP_URL}/?contato_desbloqueado=falha`,

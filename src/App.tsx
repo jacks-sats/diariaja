@@ -128,6 +128,12 @@ function QRScannerComponent({ onResult, onError, onClose }: {
   return <div id="qr-reader" style={{ width:"100%", borderRadius:12, overflow:"hidden" }} />;
 }
 
+// Verificação por SMS está em manutenção (provider não configurado em produção).
+// Mantemos a tela `verificar-telefone` acessível para admin, mas escondemos
+// os CTAs de marketing nos cards de progresso de perfil. Volte para `true`
+// quando o envio de SMS estiver online novamente.
+const MOSTRAR_VERIFICAR_TELEFONE_CTA = false;
+
 // Helper: mostra notificação local compatível com mobile/PWA.
 // Em Android Chrome/PWA, `mostrarNotificacaoLocal(...)` é PROIBIDO — só funciona via
 // ServiceWorkerRegistration.showNotification(). Em desktop, ambos funcionam.
@@ -294,6 +300,15 @@ export default function App() {
   const [respostasTicket, setRespostasTicket]     = useState<SuporteResposta[]>([]);
   const [novaRespostaTicket, setNovaRespostaTicket] = useState("");
   const [enviandoRespostaTicket, setEnviandoRespostaTicket] = useState(false);
+  // ── Equipe de suporte (gestão admin-only) ───────────────────────────────
+  // equipeSuporte: agentes ativos (is_suporte=true). equipeBusca: input do
+  // admin pra achar usuários pra promover. equipePromovendo: id do user
+  // sendo promovido/despromovido (loading inline).
+  const [equipeSuporte, setEquipeSuporte]             = useState<Pick<UserProfile, "id"|"nome"|"foto_url"|"is_admin">[]>([]);
+  const [equipeBusca, setEquipeBusca]                 = useState("");
+  const [equipeBuscaResultados, setEquipeBuscaResultados] = useState<Pick<UserProfile, "id"|"nome"|"foto_url"|"is_admin"|"is_suporte">[]>([]);
+  const [equipePromovendo, setEquipePromovendo]       = useState<string | null>(null);
+  const [equipeBuscando, setEquipeBuscando]           = useState(false);
   const [modalNovoTicket, setModalNovoTicket]     = useState(false);
   const [formTicket, setFormTicket]               = useState({ assunto: "", mensagem: "" });
   const [criandoTicket, setCriandoTicket]         = useState(false);
@@ -385,7 +400,7 @@ export default function App() {
   // R$1 e protege contra presunção de vínculo empregatício. Exibe pra TODOS os
   // usuários (empregador e diarista) quando estão formando o compromisso.
   const [modalTermoCompromisso, setModalTermoCompromisso] =
-    useState<{ alvo: "chat" | "match"; nome: string } | null>(null);
+    useState<{ alvo: "chat" | "match"; nome: string; conviteId?: string } | null>(null);
   const [termoCompromissoCheck, setTermoCompromissoCheck] = useState(false);
   const [desbloqueandoContato, setDesbloqueandoContato] = useState(false);
   // Contatos desbloqueados (pagos R$ 1 via MP) neste mês.
@@ -417,7 +432,7 @@ export default function App() {
   const [modalTermoDiarista, setModalTermoDiarista] = useState<Diaria | null>(null);
   const [termoDiaristaCheck, setTermoDiaristaCheck] = useState(false);
   const [chatSuporte, setChatSuporte] = useState(false);
-  const [msgsSuporte, setMsgsSuporte] = useState<{de: "user"|"bot", texto: string}[]>([{de:"bot", texto:"Olá! 👋 Sou a **Jájá**, assistente virtual do Trampojá. Conheço todo o app e posso te ajudar agora! O que você precisa?"}]);
+  const [msgsSuporte, setMsgsSuporte] = useState<{de: "user"|"bot", texto: string}[]>([{de:"bot", texto:"Olá! 👋 Sou a **Jájá**, assistente virtual do DiáriaJá. Conheço todo o app e posso te ajudar agora! O que você precisa?"}]);
   const [inputSuporte, setInputSuporte] = useState("");
   const [suporteDigitando, setSuporteDigitando] = useState(false);
   // Histórico no formato Anthropic API (role: user | assistant)
@@ -830,10 +845,17 @@ export default function App() {
   useEffect(() => {
     if (tela !== "home-empregador" || !session?.user) return;
     (async () => {
+      // Cap em 200: o egress de carregar TODOS os prestadores cadastrados a cada
+      // entry da home cresce linear com a base. Ordena por created_at DESC pra
+      // priorizar quem entrou recentemente. Filtro de relevância (distância,
+      // disponibilidade) é aplicado client-side em diaristasReaisVisiveis.
+      // P0 fix: sem isso o feed puxava o cadastro inteiro a cada navegação.
       const { data } = await supabase
         .from("user_profiles")
         .select("*")
-        .eq("user_type", "diarista");
+        .eq("user_type", "diarista")
+        .order("created_at", { ascending: false })
+        .limit(200);
       if (data) {
         setDiaristasReais(data);
         diaristasReaisRef.current = data;
@@ -960,12 +982,16 @@ export default function App() {
   // Loader do feed do diarista — extraído pra ser reutilizável pelo pull-to-refresh
   const carregarFeedVagas = useCallback(async () => {
     if (!session?.user) return;
+    // Cap em 100 vagas: 100 cards é mais que qualquer prestador vai rolar.
+    // Sem limit, com a base crescendo, esse fetch fica pesado e o N+1
+    // subsequente (candidaturas, profiles, reputacao) multiplica linearmente.
     const { data } = await supabase
       .from("diarias")
       .select("*")
       .eq("status", "aberta")
       .neq("empregador_id", session.user.id) // BUG-M8 fix: usuário "ambos" não vê suas próprias vagas
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(100);
       if (data) {
         const ids = data.map((d: any) => d.id);
         // Conta candidaturas pendentes por vaga para ocultar vagas lotadas
@@ -1217,14 +1243,12 @@ export default function App() {
 
   // ── Notificações ──────────────────────────────────────────────────────────
 
-  // 1) Pede permissão de notificação ao browser assim que o usuário loga
-  useEffect(() => {
-    if (!session?.user) return;
-    if (typeof Notification === "undefined") return;
-    if (Notification.permission === "default") {
-      Notification.requestPermission();
-    }
-  }, [session?.user?.id]);
+  // 1) Permissão de notificação é CONTEXTUAL — não pedimos automaticamente no
+  // login. O usuário ativa via botão manual em Configurações ou via prompts
+  // contextuais disparados após uma ação significativa (1ª candidatura,
+  // 1º convite, 1ª diária criada) que justifiquem o pedido. Browsers modernos
+  // (Chrome, Edge) penalizam pedidos sem contexto, gerando "block" permanente.
+  // Veja `ativarPush` (de `usePushNotifications`) usado nos botões manuais.
 
   // 2) Notifica diarista quando chega o dia de uma diária agendada
   useEffect(() => {
@@ -1251,11 +1275,16 @@ export default function App() {
     if (!session?.user || !modoAtual) return;
     const userId = session.user.id;
 
+    // P0 escala: SEM `filter:`, postgres_changes broadcasta toda mensagem
+    // do app pra todos os clientes conectados — em 500 usuários online isso
+    // queima 2M msgs/mês do Realtime free em horas. Com filter server-side,
+    // o cliente só recebe as próprias mensagens. O guard `paraMim` abaixo
+    // vira redundante mas é defensivo (em caso de bug em filter).
     const channel = supabase
       .channel(`msgs-notif-${userId}`)
       .on(
         "postgres_changes" as any,
-        { event: "INSERT", schema: "public", table: "mensagens" },
+        { event: "INSERT", schema: "public", table: "mensagens", filter: `destinatario_id=eq.${userId}` },
         (payload: any) => {
           const msg = payload.new;
           const paraMim = msg.destinatario_id === userId;
@@ -1331,10 +1360,14 @@ export default function App() {
   useEffect(() => {
     if (!session?.user || modoAtual !== "diarista") return;
     const userId = session.user.id;
+    // P0 escala: SEM `filter:`, broadcasta UPDATE de TODA diária do app pra
+    // todos os clientes. Com 500 diaristas online + ~5 confirmações de QR/min,
+    // são milhares de mensagens realtime por minuto descartadas no client.
+    // Filter server-side: só UPDATE onde a diária foi atribuída a este user.
     const channel = supabase
       .channel(`diarias-diar-${userId}`)
       .on("postgres_changes" as any,
-        { event: "UPDATE", schema: "public", table: "diarias" },
+        { event: "UPDATE", schema: "public", table: "diarias", filter: `diarista_aceite_id=eq.${userId}` },
         (payload: any) => {
           const updated = payload.new as Diaria;
           if (updated.diarista_aceite_id !== userId) return;
@@ -1502,6 +1535,46 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id, modoAtual]);
 
+  // 8.5) Hidrata `contatosLiberados` no login a partir da tabela
+  //      `contatos_desbloqueios`. Antes só vivia em memória — usuário pagava
+  //      R$1, fechava o app e voltava sem o chat liberado. Agora parseamos o
+  //      mp_external_reference (`contact_unlock::USER_ID::CONVITE_ID`) e
+  //      remontamos o Set local. Também escuta INSERT em tempo real pra que
+  //      o webhook do MP, ao confirmar pagamento, libere a UI sem reload.
+  useEffect(() => {
+    if (!session?.user) return;
+    const userId = session.user.id;
+    void supabase
+      .from("contatos_desbloqueios")
+      .select("mp_external_reference")
+      .eq("empregador_id", userId)
+      .then(({ data }) => {
+        if (!data) return;
+        const ids = new Set<string>();
+        for (const row of data as { mp_external_reference: string | null }[]) {
+          const parts = (row.mp_external_reference ?? "").split("::");
+          if (parts.length >= 3 && parts[2]) ids.add(parts[2]);
+        }
+        if (ids.size > 0) setContatosLiberados(ids);
+      });
+    const channel = supabase
+      .channel(`contatos-desbloq-${userId}`)
+      .on("postgres_changes" as any,
+        { event: "INSERT", schema: "public", table: "contatos_desbloqueios", filter: `empregador_id=eq.${userId}` },
+        (payload: any) => {
+          const novo = payload.new;
+          const parts = String(novo?.mp_external_reference ?? "").split("::");
+          if (parts.length >= 3 && parts[2]) {
+            setContatosLiberados(prev => new Set([...prev, parts[2]]));
+            setToastSuccess("✅ Chat liberado! Pagamento confirmado.");
+          }
+          setContatosDesbloqueados(prev => prev + 1);
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user?.id]);
+
   // 9) Realtime: contratante é notificado quando diarista responde ao convite
   useEffect(() => {
     if (!session?.user || modoAtual !== "empregador") return;
@@ -1532,9 +1605,9 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id, modoAtual]);
 
-  // 10) Realtime: admin recebe notificação quando alguém posta tópico de suporte
+  // 10) Realtime: admin/suporte recebe notificação quando alguém posta tópico de suporte
   useEffect(() => {
-    if (!session?.user || !profile?.is_admin) return;
+    if (!session?.user || !(profile?.is_admin || profile?.is_suporte)) return;
     const channel = supabase
       .channel(`suporte-admin-${session.user.id}`)
       .on("postgres_changes" as any,
@@ -1555,7 +1628,7 @@ export default function App() {
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [session?.user?.id, profile?.is_admin]);
+  }, [session?.user?.id, profile?.is_admin, profile?.is_suporte]);
 
   // 11) Heartbeat de presença: atualiza last_activity_at a cada 60s enquanto
   //     o app está com aba/janela visível. Usado pelo painel admin pra contar
@@ -1591,7 +1664,7 @@ export default function App() {
   //     de suporte. Usa channel separado pra não conflitar com tópicos da
   //     comunidade.
   useEffect(() => {
-    if (!session?.user || !profile?.is_admin) return;
+    if (!session?.user || !(profile?.is_admin || profile?.is_suporte)) return;
     const channel = supabase
       .channel(`tickets-admin-${session.user.id}`)
       .on("postgres_changes" as any,
@@ -1616,7 +1689,7 @@ export default function App() {
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [session?.user?.id, profile?.is_admin]);
+  }, [session?.user?.id, profile?.is_admin, profile?.is_suporte]);
 
   // 13) Realtime: USER recebe push quando admin responde no seu ticket
   useEffect(() => {
@@ -2060,13 +2133,13 @@ export default function App() {
     // P1-21: mensagem antiga ("Este e-mail já está cadastrado") era enumeração de
     // conta. Agora sugere ambos os caminhos sem confirmar existência.
     if (m.includes("user already registered") || m.includes("already registered")) return "Se você já tem conta, faça login. Caso contrário, verifique se digitou o e-mail certo.";
-    if (m.includes("password should be at least")) return "A senha deve ter pelo menos 6 caracteres.";
+    if (m.includes("password should be at least")) return "A senha deve ter pelo menos 8 caracteres.";
     if (m.includes("invalid email")) return "E-mail inválido. Verifique e tente novamente.";
     if (m.includes("email rate limit") || m.includes("rate limit")) return "Muitas tentativas. Aguarde alguns minutos e tente novamente.";
     if (m.includes("signup is disabled")) return "Cadastros temporariamente desabilitados. Tente mais tarde.";
     if (m.includes("anonymous") || m.includes("sign-ins are disabled")) return "Informe seu e-mail e senha para continuar.";
     if (m.includes("network") || m.includes("fetch")) return "Sem conexão. Verifique sua internet e tente novamente.";
-    if (m.includes("weak password")) return "Senha muito fraca. Use pelo menos 6 caracteres com letras e números.";
+    if (m.includes("weak password")) return "Senha muito fraca. Use pelo menos 8 caracteres com letras e números.";
     if (m.includes("email_address_not_authorized")) return "E-mail não autorizado nesta plataforma.";
     if (m.includes("too many requests") || m.includes("over_email_send_rate_limit")) return "Muitas tentativas. Aguarde alguns minutos e tente novamente.";
     if (m.includes("for security purposes")) return "Por segurança, aguarde alguns segundos antes de tentar novamente.";
@@ -2836,9 +2909,9 @@ export default function App() {
     setCarregandoDrill(false);
   };
 
-  // Carrega todos os tickets ordenados por última atualização (visão admin)
+  // Carrega todos os tickets ordenados por última atualização (visão admin/suporte)
   const carregarAdminTickets = async () => {
-    if (!profile?.is_admin) return;
+    if (!(profile?.is_admin || profile?.is_suporte)) return;
     const { data: tickets } = await supabase
       .from("suporte_tickets")
       .select("id, user_id, assunto, status, ultima_resposta_role, created_at, updated_at")
@@ -2932,8 +3005,10 @@ export default function App() {
     if (msg.length > 4000) { setToastError("Mensagem muito longa (máx 4000 caracteres)."); return; }
     setEnviandoRespostaTicket(true);
 
+    // sender_role "admin" cobre tanto admin quanto agente de suporte — o label
+    // visual no chat é o mesmo do ponto de vista do user (suporte da equipe).
     const senderRole: "user" | "admin" =
-      profile?.is_admin && ticketAtivo.user_id !== session.user.id ? "admin" : "user";
+      (profile?.is_admin || profile?.is_suporte) && ticketAtivo.user_id !== session.user.id ? "admin" : "user";
 
     const { error } = await supabase.from("suporte_respostas").insert({
       ticket_id: ticketAtivo.id,
@@ -3003,9 +3078,56 @@ export default function App() {
     </div>
   );
 
-  // Admin altera status do ticket
+  // ── Equipe de Suporte (admin promove/despromove agentes) ────────────────
+  // Lista agentes ativos. Admin-only.
+  const carregarEquipeSuporte = async () => {
+    if (!profile?.is_admin) return;
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("id, nome, foto_url, is_admin")
+      .eq("is_suporte", true)
+      .order("nome", { ascending: true });
+    setEquipeSuporte((data ?? []) as any);
+  };
+
+  // Busca usuários pra promover. Admin-only. Limita 20 resultados.
+  const buscarUsuariosParaSuporte = async (query: string) => {
+    if (!profile?.is_admin) return;
+    const q = query.trim();
+    if (q.length < 2) { setEquipeBuscaResultados([]); return; }
+    setEquipeBuscando(true);
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("id, nome, foto_url, is_admin, is_suporte")
+      .ilike("nome", `%${q}%`)
+      .order("nome", { ascending: true })
+      .limit(20);
+    setEquipeBuscaResultados((data ?? []) as any);
+    setEquipeBuscando(false);
+  };
+
+  // Promove/despromove via RPC. RPC valida is_admin do caller server-side.
+  const promoverParaSuporte = async (userId: string, ativar: boolean) => {
+    if (!profile?.is_admin) return;
+    setEquipePromovendo(userId);
+    const { error } = await supabase.rpc("promover_suporte", {
+      alvo_user_id: userId,
+      ativar,
+    });
+    setEquipePromovendo(null);
+    if (error) {
+      setToastError(error.message || "Falha ao alterar equipe de suporte.");
+      return;
+    }
+    setToastSuccess(ativar ? "✅ Agente promovido pra equipe de suporte" : "Agente removido da equipe");
+    // Atualiza ambas as listas otimisticamente
+    await carregarEquipeSuporte();
+    if (equipeBusca) await buscarUsuariosParaSuporte(equipeBusca);
+  };
+
+  // Admin ou agente de suporte altera status do ticket
   const atualizarStatusTicket = async (novoStatus: SuporteTicket["status"]) => {
-    if (!profile?.is_admin || !ticketAtivo) return;
+    if (!(profile?.is_admin || profile?.is_suporte) || !ticketAtivo) return;
     const { error } = await supabase
       .from("suporte_tickets")
       .update({ status: novoStatus, updated_at: new Date().toISOString() })
@@ -3536,7 +3658,10 @@ export default function App() {
   // FIX 2026-05: enviava SUPABASE_ANON_KEY como Bearer — a Edge Function exige
   // o JWT do user (auth.getUser()). Agora manda session.access_token e expõe
   // o motivo real do erro em caso de falha (em vez do toast genérico).
-  const desbloquearContato = async () => {
+  // conviteId opcional: amarra esse pagamento R$1 a um convite específico,
+  // de forma que o webhook saiba qual convite foi liberado e o reload do
+  // app consiga reconstruir contatosLiberados pelo external_reference.
+  const desbloquearContato = async (conviteId?: string) => {
     if (!session?.user || !session.access_token) {
       setToastError("Sessão expirada. Entre novamente e tente outra vez.");
       return;
@@ -3552,7 +3677,7 @@ export default function App() {
             "Authorization": `Bearer ${session.access_token}`,
             "apikey":        SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ empregador_id: session.user.id }),
+          body: JSON.stringify({ empregador_id: session.user.id, ...(conviteId ? { convite_id: conviteId } : {}) }),
         }
       );
       const data = await resp.json().catch(() => ({} as { checkout_url?: string; error?: string }));
@@ -4127,7 +4252,7 @@ export default function App() {
       }
       case "senha": {
         const s = String(valor);
-        if (s.length < 10) return "Senha deve ter pelo menos 10 caracteres.";
+        if (s.length < 8) return "Senha deve ter pelo menos 8 caracteres.";
         if (!/[A-Za-z]/.test(s) || !/[0-9]/.test(s)) return "Senha precisa ter letras E números.";
         return undefined;
       }
@@ -4656,7 +4781,7 @@ export default function App() {
 
         <p style={{ textAlign:"center" as const, color:"#475569", fontSize:11, margin:"6px 0 0", lineHeight:1.7 }}>
           Ao continuar você aceita os{" "}
-          <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setTela("suporte")}>Termos</span>
+          <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setMostrarTermos(true)}>Termos</span>
           {" · "}
           <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setModalQuemSomos(true)}>Quem Somos</span>
         </p>
@@ -4731,6 +4856,32 @@ export default function App() {
             <button
               style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
               onClick={() => setModalQuemSomos(false)}>
+              Entendi
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Termos de Uso (acessível também a partir do rodapé do splash) */}
+      {mostrarTermos && (
+        <div style={{ position:"fixed", inset:0, background:"#fff", zIndex:9999, overflowY:"auto", fontFamily:"Inter, system-ui, sans-serif" }}>
+          <div style={{ position:"sticky", top:0, background:"#fff", borderBottom:"1px solid #e2e8f0", padding:"16px 20px", display:"flex", alignItems:"center", gap:12, zIndex:1 }}>
+            <button aria-label="Fechar termos" style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
+            <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
+          </div>
+          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
+            <p style={{ fontSize:13, color:"#475569", lineHeight:1.7, marginBottom:14 }}>
+              A DiáriaJá é uma plataforma digital de anúncios de oportunidades de serviços, que conecta anunciantes e prestadores autônomos. A plataforma não participa da execução do serviço — a relação entre as partes é independente e autônoma.
+            </p>
+            <p style={{ fontSize:13, color:"#475569", lineHeight:1.7, marginBottom:14 }}>
+              Observa: LGPD (Lei nº 13.709/2018), Marco Civil da Internet, Código de Defesa do Consumidor e LC nº 150/2015. Você lerá e aceitará a versão completa dos Termos no momento do cadastro.
+            </p>
+            <p style={{ fontSize:13, color:"#475569", lineHeight:1.7, marginBottom:14 }}>
+              Dúvidas, exclusão de dados ou suporte: <strong>suporte@diariaja.com.br</strong>.
+            </p>
+            <button
+              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:8 }}
+              onClick={() => setMostrarTermos(false)}>
               Entendi
             </button>
           </div>
@@ -5040,7 +5191,7 @@ export default function App() {
 
         {/* Minimal-first: só 4 campos. Banner contextual mostra o que vem depois. */}
         <p style={{ color:"#94a3b8", fontSize:11, margin:"0 0 12px", textAlign:"center" as const }}>
-          ⚡ Só 4 campos. Em 1 minuto você está dentro do app.
+          ⚡ Cadastro rápido. Em poucos passos você entra.
         </p>
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Nome completo</label>
@@ -5062,7 +5213,7 @@ export default function App() {
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
         <div style={{ position:"relative" as const }}>
           <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none" }}
-            id="cad-senha" aria-label="Senha" autoComplete="new-password" placeholder="Mín. 10 caracteres, com letra e número" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
+            id="cad-senha" aria-label="Senha" autoComplete="new-password" placeholder="Mín. 8 caracteres, com letra e número" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
           <button type="button" aria-label={mostrarSenhaCadastro ? "Ocultar senha" : "Mostrar senha"} style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
             onClick={() => setMostrarSenhaCadastro(p => !p)}>
             {mostrarSenhaCadastro ? "🙈" : "👁️"}
@@ -5521,7 +5672,7 @@ export default function App() {
                       </div>
                     ))}
                     {/* CTAs específicos */}
-                    {!(profile?.telefone_verificado || telefoneVerificado) && (
+                    {MOSTRAR_VERIFICAR_TELEFONE_CTA && !(profile?.telefone_verificado || telefoneVerificado) && (
                       <button
                         style={{ marginTop:10, padding:"10px 14px", background:nivelConf.cor, color:"#fff", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                         onClick={() => { hapticTick(); setTela("verificar-telefone"); }}>
@@ -5813,8 +5964,8 @@ export default function App() {
         <h2 style={S.pageTitle}>🔑 {veioDeRecovery ? "Defina sua nova senha" : "Alterar senha"}</h2>
         <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
           {veioDeRecovery
-            ? "Você abriu o link de recuperação. Crie uma nova senha de pelo menos 10 caracteres com letra e número."
-            : "Confirme sua senha atual e digite a nova. A nova precisa ter pelo menos 10 caracteres."}
+            ? "Você abriu o link de recuperação. Crie uma nova senha de pelo menos 8 caracteres com letra e número."
+            : "Confirme sua senha atual e digite a nova. A nova precisa ter pelo menos 8 caracteres."}
         </p>
 
         {/* Senha atual — só pedida quando NÃO veio de recovery (segurança contra device roubado) */}
@@ -5828,7 +5979,7 @@ export default function App() {
         )}
 
         <label style={S.label}>Nova senha</label>
-        <input style={S.input} type="password" placeholder="Mín. 10 caracteres, com letra e número" value={novaSenha}
+        <input style={S.input} type="password" placeholder="Mín. 8 caracteres, com letra e número" value={novaSenha}
           autoComplete="new-password"
           onChange={e => setNovaSenha(e.target.value)} />
 
@@ -6122,7 +6273,7 @@ export default function App() {
     const faqItems = [
       { q:"Como funciona o DiáriaJá?", r:"Anunciantes publicam anúncios de oportunidades de diária e prestadores demonstram interesse conforme sua disponibilidade. A plataforma não participa da execução do serviço — apenas conecta as partes." },
       { q:"Como recebo o pagamento?", r:"O pagamento é combinado diretamente entre o prestador e o anunciante. A DiáriaJá não intermedia valores. Recomendamos acertar antes ou no dia da diária." },
-      { q:"Como reportar um problema?", r:"Entre em contato pelo WhatsApp abaixo ou envie um e-mail para suporte@diariaja.com.br. Respondemos em até 24h." },
+      { q:"Como reportar um problema?", r:"Use o botão \"+ Novo chamado\" no topo desta tela. A equipe responde direto pelo app — você acompanha em \"Meus chamados\". Respondemos em até 24h." },
       { q:"Posso cancelar uma diária?", r:"Sim, mas recomendamos avisar com pelo menos 24h de antecedência pelo chat do app para manter uma boa reputação." },
       { q:"Meus dados estão seguros?", r:"Sim. Utilizamos o Supabase com criptografia e autenticação segura. Nunca compartilhamos seus dados com terceiros." },
     ];
@@ -6145,54 +6296,48 @@ export default function App() {
           </div>
         </div>
 
-        {/* Canais de contato */}
+        {/* ── Chamado interno (CANAL PRIMÁRIO) ─────────────────────────────
+            Promoção do ticket-system pro topo enquanto WhatsApp/Instagram não
+            estão configurados. Tickets vão pra suporte_tickets, admin recebe
+            push em tempo real (realtime channel suporte-admin), responde pelo
+            painel admin → user vê resposta em "Meus tickets". Loop completo. */}
         <div style={{ padding:"16px 16px 8px" }}>
-          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Falar conosco</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-            {[
-              { icon:"💬", label:"WhatsApp", sub:"Atendimento em até 1h", cor:"#22c55e", action:() => window.open("https://wa.me/5567999999999?text=Oi!%20Preciso%20de%20ajuda%20no%20DiáriaJá","_blank") },
-              { icon:"📧", label:"E-mail", sub:"suporte@diariaja.com.br", cor:"#3A86FF", action:() => window.open("mailto:suporte@diariaja.com.br","_blank") },
-              { icon:"📱", label:"Instagram", sub:"@diariaja.oficial", cor:"#e11d48", action:() => window.open("https://instagram.com","_blank") },
-            ].map(c => (
-              <div key={c.label}
-                style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:14, cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
-                onClick={c.action}>
-                <div style={{ width:46, height:46, background:c.cor+"18", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>
-                  {c.icon}
-                </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.label}</div>
-                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{c.sub}</div>
-                </div>
-                <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Abrir ticket / ver tickets — chat 1-on-1 com a equipe */}
-        <div style={{ padding:"4px 16px 8px" }}>
-          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Chamado interno</div>
-          <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", marginBottom:10 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
-              <div style={{ width:42, height:42, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>💬</div>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Falar com a equipe</div>
+          <div style={{ background:"linear-gradient(135deg,#FF6B35 0%,#f59e0b 100%)", borderRadius:18, padding:"18px 18px 16px", boxShadow:"0 8px 24px rgba(255,107,53,.28)", marginBottom:10, color:"#fff" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+              <div style={{ width:48, height:48, background:"rgba(255,255,255,.22)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>💬</div>
               <div style={{ flex:1 }}>
-                <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Falar com a equipe</div>
-                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Abra um ticket — respondemos pelo app.</div>
+                <div style={{ fontWeight:900, fontSize:16, lineHeight:1.2 }}>Abrir um chamado</div>
+                <div style={{ fontSize:12, opacity:.92, marginTop:3, lineHeight:1.4 }}>Atendimento direto pelo app — equipe responde aqui mesmo, sem sair pra outro aplicativo.</div>
               </div>
             </div>
             <div style={{ display:"flex", gap:8 }}>
               <button
-                style={{ flex:1, padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 2px 8px rgba(255,107,53,.3)" }}
+                style={{ flex:1.4, padding:"12px", background:"#fff", color:"#FF6B35", border:"none", borderRadius:11, fontSize:14, fontWeight:900, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { hapticTick(); setFormTicket({ assunto: "", mensagem: "" }); setModalNovoTicket(true); }}>
-                + Abrir novo ticket
+                + Novo chamado
               </button>
               <button
-                style={{ flex:1, padding:"11px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                style={{ flex:1, padding:"12px", background:"rgba(255,255,255,.18)", color:"#fff", border:"1.5px solid rgba(255,255,255,.32)", borderRadius:11, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { hapticTick(); carregarMeusTickets(); setTela("meus-tickets"); }}>
-                📨 Meus tickets
+                📨 Meus chamados
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* ── Contato alternativo — só e-mail (WhatsApp/Insta omitidos até existirem) ── */}
+        <div style={{ padding:"4px 16px 8px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Contato alternativo</div>
+          <div
+            style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:14, cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
+            onClick={() => window.open("mailto:suporte@diariaja.com.br","_blank")}>
+            <div style={{ width:46, height:46, background:"#3A86FF18", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>📧</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>E-mail</div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>suporte@diariaja.com.br — use se não conseguir entrar no app.</div>
+            </div>
+            <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>
           </div>
         </div>
 
@@ -6583,7 +6728,7 @@ export default function App() {
               <input id="empresa-senha"
                 type={mostrarSenhaEmp ? "text" : "password"} autoComplete="new-password"
                 style={estiloInput("senha", { paddingRight:46 })}
-                placeholder="Mín. 10 caracteres com letras e números"
+                placeholder="Mín. 8 caracteres com letras e números"
                 value={formEmp.senha}
                 onChange={e => setCampo("senha", e.target.value)}
                 onBlur={blur("senha")} />
@@ -7505,7 +7650,7 @@ export default function App() {
           {/* Avatar Jájá */}
           <div style={{ width:44, height:44, borderRadius:22, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0, boxShadow:"0 2px 8px rgba(0,0,0,.25)" }}>🤖</div>
           <div style={{ flex:1 }}>
-            <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Jájá — IA do Trampojá</div>
+            <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Jájá — IA do DiáriaJá</div>
             <div style={{ fontSize:11, color:"rgba(255,255,255,.8)" }}>{suporteDigitando ? "✍️ digitando..." : "Assistente inteligente · online"}</div>
           </div>
           <span style={{ background:"#22c55e", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>IA</span>
@@ -7894,7 +8039,7 @@ export default function App() {
                       🪪 Enviar documento
                     </button>
                   )}
-                  {telPendente && (
+                  {MOSTRAR_VERIFICAR_TELEFONE_CTA && telPendente && (
                     <button
                       type="button"
                       style={{ background:"#dbeafe", color:"#1e40af", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
@@ -8122,15 +8267,24 @@ export default function App() {
                 </div>
               )}
 
-              {/* ── Convites: Aceitos ── */}
-              {convitesEnviados.filter(c => c.status === "aceito").length > 0 && (
+              {/* ── Convites: Aceitos ──
+                  Filtra convites com data_servico no passado — depois da data
+                  combinada, o convite virtualmente expirou (mesmo sem coluna
+                  `expirado` no schema; faremos migration na Fase 2). */}
+              {(() => {
+                const hojeISO = new Date().toISOString().split("T")[0];
+                const convitesAceitosAtivos = convitesEnviados.filter(c =>
+                  c.status === "aceito" &&
+                  (!c.data_servico || c.data_servico >= hojeISO),
+                );
+                return convitesAceitosAtivos.length > 0 && (
                 <div style={{ marginBottom:20 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
                     <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>🎉 Convites aceitos</span>
-                    <span style={{ background:"#dcfce7", color:"#16a34a", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c=>c.status==="aceito").length}</span>
+                    <span style={{ background:"#dcfce7", color:"#16a34a", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesAceitosAtivos.length}</span>
                   </div>
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
-                    {convitesEnviados.filter(c => c.status === "aceito").map(c => {
+                    {convitesAceitosAtivos.map(c => {
                       const jaLiberado = contatosLiberados.has(c.id);
                       const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
                       return (
@@ -8146,7 +8300,7 @@ export default function App() {
                           </div>
                           <div style={{ fontSize:12, color:"var(--text-label,#475569)", marginBottom:12 }}>📍 {c.local_servico}</div>
                           <div style={{ background:"#f0fdf4", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#166534", fontWeight:700, marginBottom:10 }}>
-                            🎉 {c.diarista_nome?.split(" ")[0]} aceitou! Pague para liberar o contato.
+                            🎉 {c.diarista_nome?.split(" ")[0]} aceitou! Confirme a diária para liberar o chat interno.
                           </div>
                           <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
                             {jaLiberado ? (
@@ -8159,10 +8313,16 @@ export default function App() {
                                 📱 Ver contato de {c.diarista_nome?.split(" ")[0]}
                               </button>
                             ) : (
+                              // BUG fix: o botão antigo abria o modal PIX-pro-prestador
+                              // (R$120 da diária direto pro prestador) e marcava
+                              // contatosLiberados localmente ANTES de pagar — bypass total
+                              // do R$1 da plataforma. Agora segue o mesmo fluxo do
+                              // perfil-diarista-real: termo de compromisso → MP R$1.
                               <button
-                                style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                                onClick={() => { setModalPix(c as any); setContatosLiberados(prev => new Set([...prev, c.id])); }}>
-                                💳 Pagar{c.valor ? ` R$ ${c.valor}` : ""} e liberar contato
+                                style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.7 : 1 }}
+                                disabled={desbloqueandoContato}
+                                onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: c.diarista_nome?.split(" ")[0] || "prestador", conviteId: c.id })}>
+                                {desbloqueandoContato ? "Aguarde..." : "✅ Confirmar diária por R$ 1"}
                               </button>
                             )}
                             <button
@@ -8179,7 +8339,8 @@ export default function App() {
                     })}
                   </div>
                 </div>
-              )}
+                );
+              })()}
 
               {/* ── Convites: Pendentes ── */}
               {convitesEnviados.filter(c => c.status === "pendente").length > 0 && (
@@ -9316,10 +9477,11 @@ export default function App() {
                   disabled={!termoCompromissoCheck || desbloqueandoContato}
                   style={{ flex:1.4, padding:"12px", background: termoCompromissoCheck ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: termoCompromissoCheck ? "pointer" : "not-allowed", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.7 : 1 }}
                   onClick={() => {
+                    const conviteId = modalTermoCompromisso?.conviteId;
                     setModalTermoCompromisso(null);
                     setTermoCompromissoCheck(false);
                     trackEvento("termo_compromisso_aceito", session?.user?.id, modoAtual);
-                    desbloquearContato();
+                    desbloquearContato(conviteId);
                   }}>
                   {desbloqueandoContato ? "Aguarde..." : "Aceitar e pagar R$ 1"}
                 </button>
@@ -9349,7 +9511,7 @@ export default function App() {
                 <button
                   style={{ width:"100%", padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: desbloqueandoContato ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.6 : 1 }}
                   disabled={desbloqueandoContato}
-                  onClick={desbloquearContato}>
+                  onClick={() => desbloquearContato()}>
                   {desbloqueandoContato ? "Aguarde..." : "Pagar R$ 1,00 e selecionar →"}
                 </button>
               </div>
@@ -9829,21 +9991,9 @@ export default function App() {
                       <div style={{ fontSize:13, color:"#475569", textAlign:"center", lineHeight:1.6, marginBottom:20 }}>
                         Por segurança, <strong>não compartilhe telefones, WhatsApp ou contatos externos</strong> no chat. Todo acerto deve ser feito dentro do app para sua proteção.
                       </div>
-                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-                        onClick={() => { setAntiExitAviso(false); setMsgInputReal(""); }}>
-                        Entendi, vou apagar a mensagem
-                      </button>
-                      <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#475569", border:"none", borderRadius:14, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                        onClick={async () => {
-                          setAntiExitAviso(false);
-                          // Envia mesmo assim (contorna o filtro)
-                          if (!session?.user || !chatDiariaAtiva) return;
-                          if (tipo === "empregador" && !chatDiariaAtiva.diarista_aceite_id) return;
-                          const destinatario2 = tipo === "empregador" ? chatDiariaAtiva.diarista_aceite_id! : chatDiariaAtiva.empregador_id;
-                          const { data: novaMsg2 } = await supabase.from("mensagens").insert({ diaria_id:chatDiariaAtiva.id, remetente_id:session.user.id, destinatario_id:destinatario2, conteudo:msgInputReal.trim() }).select().single();
-                          if (novaMsg2) { setMensagensReais(prev => [...prev, novaMsg2]); setMsgInputReal(""); }
-                        }}>
-                        Enviar mesmo assim
+                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                        onClick={() => { setAntiExitAviso(false); }}>
+                        Voltar e editar a mensagem
                       </button>
                     </div>
                   </div>
@@ -10124,8 +10274,8 @@ export default function App() {
             <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>🔔 Notificações</div>
-              {/* Banner de suporte para admin */}
-              {profile?.is_admin && suporteNaoLidos > 0 && (
+              {/* Banner de suporte para admin/agente */}
+              {(profile?.is_admin || profile?.is_suporte) && suporteNaoLidos > 0 && (
                 <div style={{ background:"#fef3c7", border:"1.5px solid #f59e0b", borderRadius:14, padding:"12px 14px", marginBottom:14, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}
                   onClick={() => { setModalNotif(false); setSuporteNaoLidos(0); setFiltroComunidade("suporte"); carregarTopicos("suporte"); setTopicoAtivo(null); setTela("comunidade"); }}>
                   <span style={{ fontSize:24 }}>🔧</span>
@@ -10135,7 +10285,7 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {listaNotif.length === 0 && !(profile?.is_admin && suporteNaoLidos > 0) ? (
+              {listaNotif.length === 0 && !((profile?.is_admin || profile?.is_suporte) && suporteNaoLidos > 0) ? (
                 <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", padding:"32px 0", fontSize:14 }}>
                   <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
                   Nenhuma notificação ainda
@@ -10204,11 +10354,25 @@ export default function App() {
                 {profile?.is_admin && (
                   <button
                     style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); setTela("admin-painel"); }}>
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); carregarEquipeSuporte(); setTela("admin-painel"); }}>
                     <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
                       <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Stats da plataforma e tickets de suporte</div>
+                    </div>
+                    {ticketsNovos > 0 && (
+                      <span style={{ background:"#ef4444", color:"#fff", borderRadius:10, padding:"2px 8px", fontSize:11, fontWeight:900 }}>{ticketsNovos > 9 ? "9+" : ticketsNovos}</span>
+                    )}
+                  </button>
+                )}
+                {!profile?.is_admin && profile?.is_suporte && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(58,134,255,.08), rgba(99,102,241,.08))", border:"1.5px solid rgba(58,134,255,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminTickets(); setTela("painel-suporte"); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#3A86FF,#6366f1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🎧</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel de Suporte</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Atender chamados dos usuários</div>
                     </div>
                     {ticketsNovos > 0 && (
                       <span style={{ background:"#ef4444", color:"#fff", borderRadius:10, padding:"2px 8px", fontSize:11, fontWeight:900 }}>{ticketsNovos > 9 ? "9+" : ticketsNovos}</span>
@@ -10478,7 +10642,7 @@ export default function App() {
                       🪪 Enviar documento
                     </button>
                   )}
-                  {telPendente && (
+                  {MOSTRAR_VERIFICAR_TELEFONE_CTA && telPendente && (
                     <button
                       type="button"
                       style={{ background:"#dbeafe", color:"#1e40af", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
@@ -11575,19 +11739,9 @@ export default function App() {
                       <div style={{ fontSize:13, color:"#475569", textAlign:"center", lineHeight:1.6, marginBottom:20 }}>
                         Por segurança, <strong>não compartilhe telefones, WhatsApp ou contatos externos</strong> no chat. Todo acerto deve ser feito dentro do app para sua proteção.
                       </div>
-                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-                        onClick={() => { setAntiExitAviso(false); setMsgInputReal(""); }}>
-                        Entendi, vou apagar a mensagem
-                      </button>
-                      <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#475569", border:"none", borderRadius:14, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                        onClick={async () => {
-                          setAntiExitAviso(false);
-                          if (!session?.user || !chatDiariaAtiva) return;
-                          const dest = chatDiariaAtiva.empregador_id;
-                          const { data: nm } = await supabase.from("mensagens").insert({ diaria_id:chatDiariaAtiva.id, remetente_id:session.user.id, destinatario_id:dest, conteudo:msgInputReal.trim() }).select().single();
-                          if (nm) { setMensagensReais(prev => [...prev, nm]); setMsgInputReal(""); }
-                        }}>
-                        Enviar mesmo assim
+                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                        onClick={() => { setAntiExitAviso(false); }}>
+                        Voltar e editar a mensagem
                       </button>
                     </div>
                   </div>
@@ -12691,11 +12845,25 @@ export default function App() {
                 {profile?.is_admin && (
                   <button
                     style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); setTela("admin-painel"); }}>
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); carregarEquipeSuporte(); setTela("admin-painel"); }}>
                     <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
                       <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Stats da plataforma e tickets de suporte</div>
+                    </div>
+                    {ticketsNovos > 0 && (
+                      <span style={{ background:"#ef4444", color:"#fff", borderRadius:10, padding:"2px 8px", fontSize:11, fontWeight:900 }}>{ticketsNovos > 9 ? "9+" : ticketsNovos}</span>
+                    )}
+                  </button>
+                )}
+                {!profile?.is_admin && profile?.is_suporte && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(58,134,255,.08), rgba(99,102,241,.08))", border:"1.5px solid rgba(58,134,255,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminTickets(); setTela("painel-suporte"); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#3A86FF,#6366f1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🎧</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel de Suporte</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Atender chamados dos usuários</div>
                     </div>
                     {ticketsNovos > 0 && (
                       <span style={{ background:"#ef4444", color:"#fff", borderRadius:10, padding:"2px 8px", fontSize:11, fontWeight:900 }}>{ticketsNovos > 9 ? "9+" : ticketsNovos}</span>
@@ -12776,8 +12944,8 @@ export default function App() {
             <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>🔔 Notificações</div>
-              {/* Banner de suporte para admin */}
-              {profile?.is_admin && suporteNaoLidos > 0 && (
+              {/* Banner de suporte para admin/agente */}
+              {(profile?.is_admin || profile?.is_suporte) && suporteNaoLidos > 0 && (
                 <div style={{ background:"#fef3c7", border:"1.5px solid #f59e0b", borderRadius:14, padding:"12px 14px", marginBottom:14, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}
                   onClick={() => { setModalNotif(false); setSuporteNaoLidos(0); setFiltroComunidade("suporte"); carregarTopicos("suporte"); setTopicoAtivo(null); setTela("comunidade"); }}>
                   <span style={{ fontSize:24 }}>🔧</span>
@@ -12787,7 +12955,7 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {listaNotif.length === 0 && !(profile?.is_admin && suporteNaoLidos > 0) ? (
+              {listaNotif.length === 0 && !((profile?.is_admin || profile?.is_suporte) && suporteNaoLidos > 0) ? (
                 <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", padding:"32px 0", fontSize:14 }}>
                   <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
                   Nenhuma notificação ainda
@@ -13713,7 +13881,7 @@ export default function App() {
                   <button
                     style={{ ...S.btnPrimary, background:cor, opacity: desbloqueandoContato ? 0.7 : 1 }}
                     disabled={desbloqueandoContato}
-                    onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: d.nome.split(" ")[0] })}>
+                    onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: d.nome.split(" ")[0], conviteId: conviteAtivo?.id })}>
                     {desbloqueandoContato ? "Aguarde..." : "💳 Pagar R$ 1 e liberar chat"}
                   </button>
                 )}
@@ -14953,6 +15121,109 @@ export default function App() {
           )}
         </div>
 
+        {/* ── EQUIPE DE SUPORTE — admin-only ─────────────────────────────
+            Lista os agentes ativos e permite buscar usuário pra promover.
+            Promoção vai via RPC `promover_suporte` que valida is_admin
+            server-side. Despromoção idem. */}
+        <div style={{ padding:"4px 16px 24px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🎧 Equipe de suporte</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{equipeSuporte.length} agente{equipeSuporte.length === 1 ? "" : "s"}</div>
+          </div>
+
+          {equipeSuporte.length === 0 ? (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"16px", textAlign:"center" as const, color:"var(--text-3,#94a3b8)", fontSize:13, marginBottom:10 }}>
+              Nenhum agente promovido ainda. Use a busca abaixo pra adicionar.
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column" as const, gap:8, marginBottom:14 }}>
+              {equipeSuporte.map(ag => {
+                const ini = (ag.nome || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+                const isPromovendo = equipePromovendo === ag.id;
+                const eAdmin = ag.is_admin === true;
+                return (
+                  <div key={ag.id} style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                    {ag.foto_url
+                      ? <img loading="lazy" src={ag.foto_url} alt="" style={{ width:40, height:40, borderRadius:20, objectFit:"cover" as const, flexShrink:0 }} />
+                      : <div style={{ width:40, height:40, borderRadius:20, background:"#3A86FF", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, flexShrink:0 }}>{ini}</div>
+                    }
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", overflow:"hidden" as const, textOverflow:"ellipsis" as const, whiteSpace:"nowrap" as const }}>{ag.nome || "—"}</div>
+                      <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                        {eAdmin ? "👑 Admin · Suporte" : "🎧 Agente de suporte"}
+                      </div>
+                    </div>
+                    {eAdmin ? (
+                      <span style={{ fontSize:10, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>—</span>
+                    ) : (
+                      <button
+                        disabled={isPromovendo}
+                        style={{ background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:8, padding:"6px 12px", fontSize:11, fontWeight:800, cursor: isPromovendo ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: isPromovendo ? 0.6 : 1 }}
+                        onClick={() => promoverParaSuporte(ag.id, false)}>
+                        {isPromovendo ? "..." : "Remover"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+            <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Promover novo agente</div>
+            <input
+              value={equipeBusca}
+              onChange={e => {
+                const v = e.target.value;
+                setEquipeBusca(v);
+                buscarUsuariosParaSuporte(v);
+              }}
+              placeholder="Buscar usuário pelo nome…"
+              style={{ width:"100%", padding:"10px 12px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, fontSize:13, fontFamily:"Inter, system-ui, sans-serif", background:"var(--bg-app,#f8fafc)", color:"var(--text-1,#0f172a)", boxSizing:"border-box" as const }} />
+            {equipeBuscando && (
+              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:8 }}>Buscando…</div>
+            )}
+            {equipeBuscaResultados.length > 0 && (
+              <div style={{ display:"flex", flexDirection:"column" as const, gap:6, marginTop:10 }}>
+                {equipeBuscaResultados.map(u => {
+                  const ini = (u.nome || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+                  const jaPromovido = u.is_suporte === true;
+                  const eAdmin = u.is_admin === true;
+                  const isPromovendo = equipePromovendo === u.id;
+                  return (
+                    <div key={u.id} style={{ background:"var(--bg-app,#f8fafc)", borderRadius:10, padding:"8px 12px", display:"flex", alignItems:"center", gap:10 }}>
+                      {u.foto_url
+                        ? <img loading="lazy" src={u.foto_url} alt="" style={{ width:32, height:32, borderRadius:16, objectFit:"cover" as const, flexShrink:0 }} />
+                        : <div style={{ width:32, height:32, borderRadius:16, background:"#94a3b8", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:12, flexShrink:0 }}>{ini}</div>
+                      }
+                      <div style={{ flex:1, minWidth:0, fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", overflow:"hidden" as const, textOverflow:"ellipsis" as const, whiteSpace:"nowrap" as const }}>
+                        {u.nome || "—"}
+                        {eAdmin && <span style={{ fontSize:10, color:"#f59e0b", fontWeight:900, marginLeft:6 }}>👑 ADMIN</span>}
+                      </div>
+                      {jaPromovido || eAdmin ? (
+                        <span style={{ fontSize:10, color:"#16a34a", fontWeight:800, padding:"4px 8px", background:"#dcfce7", borderRadius:6 }}>✓ Na equipe</span>
+                      ) : (
+                        <button
+                          disabled={isPromovendo}
+                          style={{ background:"#3A86FF", color:"#fff", border:"none", borderRadius:8, padding:"6px 12px", fontSize:11, fontWeight:800, cursor: isPromovendo ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: isPromovendo ? 0.6 : 1 }}
+                          onClick={() => promoverParaSuporte(u.id, true)}>
+                          {isPromovendo ? "..." : "+ Promover"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {equipeBusca.trim().length >= 2 && !equipeBuscando && equipeBuscaResultados.length === 0 && (
+              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:8 }}>Nenhum usuário encontrado.</div>
+            )}
+            <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", marginTop:10, lineHeight:1.5 }}>
+              💡 Agentes promovidos veem tickets dos usuários e podem responder. Não veem stats nem revisão de documentos. Só admin pode promover/remover.
+            </div>
+          </div>
+        </div>
+
         {/* ── Modal drill-down: lista detalhada do card clicado ── */}
         {adminDrillTipo && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
@@ -15113,6 +15384,103 @@ export default function App() {
             </div>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // ── PAINEL DE SUPORTE — agentes (is_suporte) atendem tickets ──────────────
+  // Versão enxuta do admin-painel só com a lista de tickets. Admin não
+  // precisa acessar daqui (tem o painel completo). Agentes promovidos via
+  // `promover_suporte` caem aqui. Sem stats, sem KYC, sem antecedentes,
+  // sem gestão de equipe — só o trabalho de ticket.
+  if (tela === "painel-suporte") {
+    if (!(profile?.is_admin || profile?.is_suporte)) {
+      setTela("configuracoes");
+      return null;
+    }
+    const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    const tk = adminTickets;
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        {/* Header */}
+        <div style={{ background:"linear-gradient(135deg,#0f172a,#3A86FF)", padding:"48px 20px 24px" }}>
+          <button style={{ background:"none", border:"none", color:"#fff", opacity:.85, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
+            ← Voltar
+          </button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:48, height:48, background:"rgba(255,255,255,.18)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🎧</div>
+            <div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Painel de Suporte</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.78)" }}>Atender chamados dos usuários</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats compacto: contagem por status */}
+        <div style={{ padding:"16px 16px 8px" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:8 }}>
+            {[
+              { label:"Abertos",      cor:"#ef4444", n: tk.filter(t => t.status === "aberto").length },
+              { label:"Aguardando",   cor:"#f59e0b", n: tk.filter(t => t.status === "aguardando_user").length },
+              { label:"Resolvidos",   cor:"#16a34a", n: tk.filter(t => t.status === "resolvido").length },
+            ].map(s => (
+              <div key={s.label} style={{ background:"var(--bg-card,#fff)", borderRadius:12, padding:"10px 8px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.06)", borderTop:`3px solid ${s.cor}` }}>
+                <div style={{ fontSize:22, fontWeight:900, color:s.cor, lineHeight:1 }}>{s.n}</div>
+                <div style={{ fontSize:10, color:"var(--text-2,#64748b)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3, marginTop:4 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Lista de tickets — clona da admin-painel */}
+        <div style={{ padding:"4px 16px 24px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>Tickets de suporte</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{tk.length} total</div>
+          </div>
+          {tk.length === 0 ? (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              📭 Sem tickets abertos no momento.
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+              {tk.map(t => {
+                const corStatus =
+                  t.status === "aberto"            ? "#ef4444" :
+                  t.status === "aguardando_user"   ? "#f59e0b" :
+                  t.status === "resolvido"         ? "#16a34a" : "#94a3b8";
+                const labelStatus =
+                  t.status === "aberto"            ? "Aberto" :
+                  t.status === "aguardando_user"   ? "Aguardando user" :
+                  t.status === "resolvido"         ? "Resolvido" : "Fechado";
+                const novaDoUser = t.ultima_resposta_role === "user" && (t.status === "aberto" || t.status === "aguardando_user");
+                return (
+                  <div key={t.id}
+                    style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer", borderLeft:`4px solid ${corStatus}` }}
+                    onClick={() => abrirTicket(t)}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", overflow:"hidden" as const, textOverflow:"ellipsis" as const, whiteSpace:"nowrap" as const, display:"flex", alignItems:"center", gap:6 }}>
+                          {novaDoUser && <span style={{ width:8, height:8, borderRadius:4, background:"#ef4444", flexShrink:0 }} />}
+                          {t.assunto}
+                        </div>
+                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                          {t.user_nome} · {new Date(t.updated_at).toLocaleDateString("pt-BR")} {new Date(t.updated_at).toLocaleTimeString("pt-BR", {hour:"2-digit",minute:"2-digit"})}
+                        </div>
+                      </div>
+                      <span style={{ background:corStatus+"22", color:corStatus, fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>{labelStatus}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <button
+            style={{ marginTop:14, width:"100%", padding:"10px", background:"var(--bg-card,#fff)", color:"var(--text-2,#64748b)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => carregarAdminTickets()}>
+            🔄 Atualizar
+          </button>
+        </div>
       </div>
     );
   }
@@ -15440,9 +15808,18 @@ export default function App() {
 
   // ── CONVERSA DO TICKET (user ou admin) ──────────────────────────────────────
   if (tela === "ticket-conversa") {
-    if (!ticketAtivo) { setTela(profile?.is_admin ? "admin-painel" : "meus-tickets"); return null; }
-    const isAdminView = !!profile?.is_admin && ticketAtivo.user_id !== session?.user?.id;
-    const voltarTela = isAdminView ? "admin-painel" : "meus-tickets";
+    if (!ticketAtivo) {
+      // Back inteligente: admin volta pro painel completo, agente de suporte pro painel-suporte,
+      // user comum pra meus-tickets.
+      setTela(profile?.is_admin ? "admin-painel" : profile?.is_suporte ? "painel-suporte" : "meus-tickets");
+      return null;
+    }
+    // isAdminView = visão de quem ATENDE (admin OU suporte) o ticket de outro user.
+    // Próprio admin/suporte abrindo seu próprio ticket cai no fluxo user.
+    const isAdminView = !!(profile?.is_admin || profile?.is_suporte) && ticketAtivo.user_id !== session?.user?.id;
+    const voltarTela = isAdminView
+      ? (profile?.is_admin ? "admin-painel" : "painel-suporte")
+      : "meus-tickets";
     const corStatus =
       ticketAtivo.status === "aberto"            ? "#ef4444" :
       ticketAtivo.status === "aguardando_user"   ? "#f59e0b" :
