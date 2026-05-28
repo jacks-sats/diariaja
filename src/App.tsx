@@ -142,12 +142,15 @@ const MOSTRAR_VERIFICAR_TELEFONE_CTA = false;
 const mostrarNotificacaoLocal = (titulo: string, options?: NotificationOptions): void => {
   if (typeof window === "undefined") return;
   if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  // FIX 2026-05-28: o fallback recursivo causava RECURSÃO INFINITA — chamava
+  // a própria função em vez de `new Notification(...)`. Em browser sem SW
+  // travava o thread JS.
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.ready
       .then(reg => reg.showNotification(titulo, options))
-      .catch(() => { try { mostrarNotificacaoLocal(titulo, options); } catch { /* mobile sem SW pronto: ignorar */ } });
+      .catch(() => { try { new Notification(titulo, options); } catch { /* sem permissão: ignorar */ } });
   } else {
-    try { mostrarNotificacaoLocal(titulo, options); } catch { /* ignore */ }
+    try { new Notification(titulo, options); } catch { /* ignore */ }
   }
 };
 
@@ -3692,10 +3695,17 @@ export default function App() {
       return;
     }
     setDesbloqueandoContato(true);
+    // FIX 2026-05-28: cold-start da Edge Function no Android Chrome travava
+    // o socket por até 2 min. User via "click sem feedback" e ao apertar
+    // voltar o WebView abortava o request, criando ilusão de "back abriu modal".
+    // Timeout 15s força fallback bonito em vez de freeze infinito.
+    const ac = new AbortController();
+    const timeoutId = setTimeout(() => ac.abort(), 15_000);
     try {
       const resp = await fetch(
         `${SUPABASE_URL}/functions/v1/create-contact-payment`,
         {
+          signal: ac.signal,
           method: "POST",
           headers: {
             "Content-Type":  "application/json",
@@ -3714,8 +3724,13 @@ export default function App() {
       const motivo = data.error || `HTTP ${resp.status}`;
       setToastError(`❌ Não foi possível gerar link de pagamento: ${motivo}`);
     } catch (err) {
-      setToastError("❌ Erro de conexão. Verifique sua internet.");
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      setToastError(isAbort
+        ? "⏱ Demorou muito pra responder. Tenta de novo (a primeira chamada pode ser lenta)."
+        : "❌ Erro de conexão. Verifique sua internet.");
       console.warn("[desbloquearContato] erro:", err instanceof Error ? err.message : String(err));
+    } finally {
+      clearTimeout(timeoutId);
     }
     setDesbloqueandoContato(false);
   };

@@ -59,13 +59,14 @@ export function usePushNotifications(userId: string | undefined) {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
-        // Verifica se essa assinatura está salva no banco
+        // FIX 2026-05-28: .single() retorna 406/PGRST116 sempre que não acha.
+        // .maybeSingle() devolve data=null sem erro — é o que queremos aqui.
         const { data } = await supabase
           .from("push_subscriptions")
           .select("id")
           .eq("user_id", uid)
           .eq("endpoint", sub.endpoint)
-          .single();
+          .maybeSingle();
         setEstado(e => ({ ...e, inscrito: !!data }));
       }
     } catch {

@@ -303,7 +303,10 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), {
+    // FIX 2026-05-28: NUNCA vazar stack/mensagem pro client (vazava nomes
+    // de tabela, IDs, etc.). Loga internamente, retorna genérico.
+    console.error("[send-push] uncaught:", err instanceof Error ? err.message : String(err));
+    return new Response(JSON.stringify({ error: "internal_error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

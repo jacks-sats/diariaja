@@ -1,0 +1,19 @@
+# Supabase project config
+# CRÍTICO: define verify_jwt por função.
+# Sem isso o default é TRUE — gateway bloqueia webhooks externos com 401
+# antes do código rodar. Foi causa do bug de R$1 não desbloquear (28/05/2026).
+
+project_id = "rpszebrrrasoijfdvner"
+
+[functions.mp-webhook]
+# Mercado Pago não envia JWT no webhook — só x-signature.
+verify_jwt = false
+
+[functions.mp-oauth]
+# OAuth redirect do MP vem sem JWT no browser.
+verify_jwt = false
+
+# Outras funções deixam o default (verify_jwt = true) — exigem JWT do user
+# como ai-support, delete-user, export-user-data, create-payment,
+# create-contact-payment, create-subscription, lookup-by-cpf, mp-health-check,
+# send-push, purge-antecedentes-storage.
