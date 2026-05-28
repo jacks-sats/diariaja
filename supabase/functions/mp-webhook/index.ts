@@ -102,8 +102,11 @@ async function validarAssinatura(req: Request, body: string): Promise<boolean> {
     return false;
   }
 
-  // Template de assinatura definido pelo MP
-  const template = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
+  // Template de assinatura definido pelo MP.
+  // C-5 auditoria: data.id alfanumérico (preapproval) precisa lowercase
+  // segundo docs do MP. ID numérico (payment) é imune; lowercase é no-op.
+  const dataIdLower = dataId.toLowerCase();
+  const template = `id:${dataIdLower};request-id:${xRequestId.trim()};ts:${ts};`;
 
   const key = await crypto.subtle.importKey(
     "raw",

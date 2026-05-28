@@ -67,42 +67,34 @@ serve(async (req) => {
     await supabaseAdmin.from("avaliacoes_diarista").delete().or(`avaliado_id.eq.${userId},avaliador_id.eq.${userId}`);
     await supabaseAdmin.from("avaliacoes_empregador").delete().or(`avaliado_id.eq.${userId},avaliador_id.eq.${userId}`);
 
-    // Convites (qualquer ponta) — colunas podem se chamar contratante_id e diarista_id
-    await supabaseAdmin.from("convites").delete().or(`contratante_id.eq.${userId},diarista_id.eq.${userId},empregador_id.eq.${userId}`).then(undefined as any, () => {});
+    // FIX 2026-05-28: trocado `.then(undefined as any, () => {})` por error
+    // tracking real. Antes engolia erros silenciosamente: em falha parcial
+    // (FK violation, timeout), código prosseguia e auth.admin.deleteUser
+    // apagava só a conta, deixando linhas residuais com FK quebrada.
+    // LGPD descumprida silenciosamente. Agora coleta erros e loga; se TODOS
+    // não-críticos falham, ainda assim deleta auth (best effort) mas reporta.
+    const erroFkRegex = /(relation .* does not exist|column .* does not exist)/i;
+    const safeDelete = async (label: string, q: PromiseLike<unknown>) => {
+      try { await q; } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (erroFkRegex.test(msg)) return; // tabela não existe ainda — OK
+        console.error(`[delete-user][${label}] erro:`, msg);
+      }
+    };
 
-    // Denúncias (autor ou alvo) — colunas: denunciante_id, denunciado_id
-    await supabaseAdmin.from("denuncias").delete().or(`denunciante_id.eq.${userId},denunciado_id.eq.${userId}`).then(undefined as any, () => {});
-
-    // "Não tenho interesse" do diarista
-    await supabaseAdmin.from("nao_interesse").delete().eq("diarista_id", userId).then(undefined as any, () => {});
-
-    // Inscrições de push
-    await supabaseAdmin.from("push_subscriptions").delete().eq("user_id", userId).then(undefined as any, () => {});
-
-    // Comentários da Comunidade — autor
-    await supabaseAdmin.from("comentarios_comunidade").delete().eq("autor_id", userId).then(undefined as any, () => {});
-
-    // Tópicos da Comunidade — autor
-    await supabaseAdmin.from("topicos").delete().eq("autor_id", userId).then(undefined as any, () => {});
-
-    // Eventos de analytics
-    await supabaseAdmin.from("analytics_eventos").delete().eq("user_id", userId).then(undefined as any, () => {});
-
-    // Assinaturas (planos pagos)
-    await supabaseAdmin.from("assinaturas").delete().eq("user_id", userId).then(undefined as any, () => {});
-
-    // Tickets de suporte + respostas (PR painel-admin)
-    // Apaga respostas onde o user é sender (em tickets de outros)
-    await supabaseAdmin.from("suporte_respostas").delete().eq("sender_id", userId).then(undefined as any, () => {});
-    // Apaga tickets do user (CASCADE limpa as respostas relacionadas)
-    await supabaseAdmin.from("suporte_tickets").delete().eq("user_id", userId).then(undefined as any, () => {});
-
-    // Eventos de gamificação (trust score) — se existirem
-    await supabaseAdmin.from("score_events").delete().eq("user_id", userId).then(undefined as any, () => {});
-
-    // Feedback (vagas expiradas / pós-conclusão)
-    await supabaseAdmin.from("feedback_vaga_expirada").delete().eq("empregador_id", userId).then(undefined as any, () => {});
-    await supabaseAdmin.from("feedback_pos_conclusao").delete().eq("empregador_id", userId).then(undefined as any, () => {});
+    await safeDelete("convites",          supabaseAdmin.from("convites").delete().or(`contratante_id.eq.${userId},diarista_id.eq.${userId},empregador_id.eq.${userId}`));
+    await safeDelete("denuncias",         supabaseAdmin.from("denuncias").delete().or(`denunciante_id.eq.${userId},denunciado_id.eq.${userId}`));
+    await safeDelete("nao_interesse",     supabaseAdmin.from("nao_interesse").delete().eq("diarista_id", userId));
+    await safeDelete("push_subscriptions", supabaseAdmin.from("push_subscriptions").delete().eq("user_id", userId));
+    await safeDelete("comentarios_comunidade", supabaseAdmin.from("comentarios_comunidade").delete().eq("autor_id", userId));
+    await safeDelete("topicos",           supabaseAdmin.from("topicos").delete().eq("autor_id", userId));
+    await safeDelete("analytics_eventos", supabaseAdmin.from("analytics_eventos").delete().eq("user_id", userId));
+    await safeDelete("assinaturas",       supabaseAdmin.from("assinaturas").delete().eq("user_id", userId));
+    await safeDelete("suporte_respostas", supabaseAdmin.from("suporte_respostas").delete().eq("sender_id", userId));
+    await safeDelete("suporte_tickets",   supabaseAdmin.from("suporte_tickets").delete().eq("user_id", userId));
+    await safeDelete("score_events",      supabaseAdmin.from("score_events").delete().eq("user_id", userId));
+    await safeDelete("feedback_vaga_expirada",  supabaseAdmin.from("feedback_vaga_expirada").delete().eq("empregador_id", userId));
+    await safeDelete("feedback_pos_conclusao",  supabaseAdmin.from("feedback_pos_conclusao").delete().eq("empregador_id", userId));
 
     // Desliga o diarista de diárias passadas onde ele foi selecionado — caso
     // contrário a FK pode bloquear o delete (RESTRICT) ou orfanar histórico.
