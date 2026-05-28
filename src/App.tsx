@@ -435,8 +435,10 @@ export default function App() {
   const [msgsSuporte, setMsgsSuporte] = useState<{de: "user"|"bot", texto: string}[]>([{de:"bot", texto:"Olá! 👋 Sou a **Jájá**, assistente virtual do DiáriaJá. Conheço todo o app e posso te ajudar agora! O que você precisa?"}]);
   const [inputSuporte, setInputSuporte] = useState("");
   const [suporteDigitando, setSuporteDigitando] = useState(false);
-  // Histórico no formato Anthropic API (role: user | assistant)
-  const historicoSuporteRef = useRef<{role:"user"|"assistant", content:string}[]>([]);
+  // Histórico de mensagens do USUÁRIO apenas (servidor filtra/descarta
+  // role:"assistant" desde fix P1-3 anti-spoofing). Jájá é stateless — cada
+  // pergunta é tratada isoladamente; o system prompt explica isso ao usuário.
+  const historicoSuporteRef = useRef<{role:"user", content:string}[]>([]);
   const [habilidadesExpandidas, setHabilidadesExpandidas] = useState(false);
   const [modalReciboDiarista, setModalReciboDiarista] = useState<Diaria | null>(null);
 
@@ -4454,7 +4456,8 @@ export default function App() {
   };
 
   const responderSuporte = async (msg: string) => {
-    // Adiciona mensagem do usuário ao histórico da API
+    // Acumula só mensagens do USUÁRIO. Servidor descarta qualquer role:"assistant"
+    // (P1-3) e a Jájá é stateless por design (system prompt avisa o usuário).
     historicoSuporteRef.current = [
       ...historicoSuporteRef.current,
       { role: "user", content: msg },
@@ -4478,17 +4481,20 @@ export default function App() {
         }
       );
       const json = await res.json() as { reply?: string; error?: string };
-      const reply = json.reply ?? "Desculpe, tive um problema. Tente novamente ou fale com nossa equipe: suporte@diariaja.com.br 🙏";
 
-      // Adiciona resposta da IA ao histórico
-      historicoSuporteRef.current = [
-        ...historicoSuporteRef.current,
-        { role: "assistant", content: reply },
-      ];
+      // Servidor agora retorna HTTP 5xx + {error} em falha (antes mascarava
+      // como 200 + {reply} fake). Tratamos erro real distinto de resposta válida.
+      if (!res.ok || !json.reply) {
+        const textoErro = json.error
+          ? `${json.error}`
+          : "Desculpe, tive um problema. Tente novamente ou fale com nossa equipe: suporte@diariaja.com.br";
+        setMsgsSuporte(prev => [...prev, { de: "bot", texto: textoErro }]);
+        return;
+      }
 
-      setMsgsSuporte(prev => [...prev, { de: "bot", texto: reply }]);
+      setMsgsSuporte(prev => [...prev, { de: "bot", texto: json.reply! }]);
     } catch {
-      setMsgsSuporte(prev => [...prev, { de: "bot", texto: "Ops! Sem conexão no momento. Tente novamente ou contate: suporte@diariaja.com.br 📧" }]);
+      setMsgsSuporte(prev => [...prev, { de: "bot", texto: "Ops! Sem conexão no momento. Tente novamente ou contate: suporte@diariaja.com.br" }]);
     } finally {
       setSuporteDigitando(false);
     }
