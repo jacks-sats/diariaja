@@ -1,4 +1,4 @@
-// ── Tipos e Interfaces do Trampojá ──────────────────────────────────────────
+// ── Tipos e Interfaces do DiáriaJá ──────────────────────────────────────────
 // Extraídos do App.tsx para separação de concerns.
 
 export interface Assinatura {

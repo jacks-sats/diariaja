@@ -1,4 +1,4 @@
-// ── Funções utilitárias do Trampojá ─────────────────────────────────────────
+// ── Funções utilitárias do DiáriaJá ─────────────────────────────────────────
 // Extraídas do App.tsx para separação de concerns.
 
 // ── Código de presença (fallback do QR Code) ─────────────────────────────────
@@ -362,10 +362,10 @@ export function calcularIdade(dataNasc: string, hoje: Date = new Date()): number
 }
 
 // ── Validação de senha forte ─────────────────────────────────────────────────
-// NIST SP 800-63B recomenda 8+ caracteres, mas pra MVP de marketplace
-// financeiro vamos exigir 10 + complexidade (letra + número). Bloqueamos
-// também a lista das 20 senhas mais comuns no Brasil — quase 100% das
-// contas comprometidas em vazamentos usam uma delas.
+// NIST SP 800-63B recomenda 8+ caracteres com complexidade. Adotamos esse
+// mínimo (8 + 1 letra + 1 número) para alinhar UX (placeholder, validação
+// client e mensagens de erro do backend) e bloqueamos as senhas mais comuns
+// no Brasil — quase 100% das contas comprometidas em vazamentos usam uma delas.
 const SENHAS_BLOQUEADAS = new Set([
   "12345678","123456789","1234567890","102030","abc123","abcd1234",
   "senha123","senha1234","admin123","mudar123","mudar1234","trocar123",
@@ -375,7 +375,7 @@ const SENHAS_BLOQUEADAS = new Set([
 
 export function validarSenhaForte(senha: string): string | null {
   if (!senha) return "Informe uma senha.";
-  if (senha.length < 10) return "Senha muito curta (mínimo 10 caracteres).";
+  if (senha.length < 8) return "Senha muito curta (mínimo 8 caracteres).";
   if (senha.length > 72) return "Senha muito longa (máximo 72 caracteres).";
   if (!/[A-Za-zÀ-ÿ]/.test(senha)) return "A senha precisa ter ao menos 1 letra.";
   if (!/[0-9]/.test(senha)) return "A senha precisa ter ao menos 1 número.";

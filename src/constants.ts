@@ -1,4 +1,4 @@
-// ── Constantes e dados estáticos do Trampojá ────────────────────────────────
+// ── Constantes e dados estáticos do DiáriaJá ────────────────────────────────
 // Extraídos do App.tsx para separação de concerns.
 
 // ── Funções que usam formulário especial de Delivery ─────────────────────────

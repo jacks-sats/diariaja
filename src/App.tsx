@@ -128,6 +128,12 @@ function QRScannerComponent({ onResult, onError, onClose }: {
   return <div id="qr-reader" style={{ width:"100%", borderRadius:12, overflow:"hidden" }} />;
 }
 
+// Verificação por SMS está em manutenção (provider não configurado em produção).
+// Mantemos a tela `verificar-telefone` acessível para admin, mas escondemos
+// os CTAs de marketing nos cards de progresso de perfil. Volte para `true`
+// quando o envio de SMS estiver online novamente.
+const MOSTRAR_VERIFICAR_TELEFONE_CTA = false;
+
 // Helper: mostra notificação local compatível com mobile/PWA.
 // Em Android Chrome/PWA, `mostrarNotificacaoLocal(...)` é PROIBIDO — só funciona via
 // ServiceWorkerRegistration.showNotification(). Em desktop, ambos funcionam.
@@ -417,7 +423,7 @@ export default function App() {
   const [modalTermoDiarista, setModalTermoDiarista] = useState<Diaria | null>(null);
   const [termoDiaristaCheck, setTermoDiaristaCheck] = useState(false);
   const [chatSuporte, setChatSuporte] = useState(false);
-  const [msgsSuporte, setMsgsSuporte] = useState<{de: "user"|"bot", texto: string}[]>([{de:"bot", texto:"Olá! 👋 Sou a **Jájá**, assistente virtual do Trampojá. Conheço todo o app e posso te ajudar agora! O que você precisa?"}]);
+  const [msgsSuporte, setMsgsSuporte] = useState<{de: "user"|"bot", texto: string}[]>([{de:"bot", texto:"Olá! 👋 Sou a **Jájá**, assistente virtual do DiáriaJá. Conheço todo o app e posso te ajudar agora! O que você precisa?"}]);
   const [inputSuporte, setInputSuporte] = useState("");
   const [suporteDigitando, setSuporteDigitando] = useState(false);
   // Histórico no formato Anthropic API (role: user | assistant)
@@ -830,10 +836,17 @@ export default function App() {
   useEffect(() => {
     if (tela !== "home-empregador" || !session?.user) return;
     (async () => {
+      // Cap em 200: o egress de carregar TODOS os prestadores cadastrados a cada
+      // entry da home cresce linear com a base. Ordena por created_at DESC pra
+      // priorizar quem entrou recentemente. Filtro de relevância (distância,
+      // disponibilidade) é aplicado client-side em diaristasReaisVisiveis.
+      // P0 fix: sem isso o feed puxava o cadastro inteiro a cada navegação.
       const { data } = await supabase
         .from("user_profiles")
         .select("*")
-        .eq("user_type", "diarista");
+        .eq("user_type", "diarista")
+        .order("created_at", { ascending: false })
+        .limit(200);
       if (data) {
         setDiaristasReais(data);
         diaristasReaisRef.current = data;
@@ -960,12 +973,16 @@ export default function App() {
   // Loader do feed do diarista — extraído pra ser reutilizável pelo pull-to-refresh
   const carregarFeedVagas = useCallback(async () => {
     if (!session?.user) return;
+    // Cap em 100 vagas: 100 cards é mais que qualquer prestador vai rolar.
+    // Sem limit, com a base crescendo, esse fetch fica pesado e o N+1
+    // subsequente (candidaturas, profiles, reputacao) multiplica linearmente.
     const { data } = await supabase
       .from("diarias")
       .select("*")
       .eq("status", "aberta")
       .neq("empregador_id", session.user.id) // BUG-M8 fix: usuário "ambos" não vê suas próprias vagas
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(100);
       if (data) {
         const ids = data.map((d: any) => d.id);
         // Conta candidaturas pendentes por vaga para ocultar vagas lotadas
@@ -1217,14 +1234,12 @@ export default function App() {
 
   // ── Notificações ──────────────────────────────────────────────────────────
 
-  // 1) Pede permissão de notificação ao browser assim que o usuário loga
-  useEffect(() => {
-    if (!session?.user) return;
-    if (typeof Notification === "undefined") return;
-    if (Notification.permission === "default") {
-      Notification.requestPermission();
-    }
-  }, [session?.user?.id]);
+  // 1) Permissão de notificação é CONTEXTUAL — não pedimos automaticamente no
+  // login. O usuário ativa via botão manual em Configurações ou via prompts
+  // contextuais disparados após uma ação significativa (1ª candidatura,
+  // 1º convite, 1ª diária criada) que justifiquem o pedido. Browsers modernos
+  // (Chrome, Edge) penalizam pedidos sem contexto, gerando "block" permanente.
+  // Veja `ativarPush` (de `usePushNotifications`) usado nos botões manuais.
 
   // 2) Notifica diarista quando chega o dia de uma diária agendada
   useEffect(() => {
@@ -1251,11 +1266,16 @@ export default function App() {
     if (!session?.user || !modoAtual) return;
     const userId = session.user.id;
 
+    // P0 escala: SEM `filter:`, postgres_changes broadcasta toda mensagem
+    // do app pra todos os clientes conectados — em 500 usuários online isso
+    // queima 2M msgs/mês do Realtime free em horas. Com filter server-side,
+    // o cliente só recebe as próprias mensagens. O guard `paraMim` abaixo
+    // vira redundante mas é defensivo (em caso de bug em filter).
     const channel = supabase
       .channel(`msgs-notif-${userId}`)
       .on(
         "postgres_changes" as any,
-        { event: "INSERT", schema: "public", table: "mensagens" },
+        { event: "INSERT", schema: "public", table: "mensagens", filter: `destinatario_id=eq.${userId}` },
         (payload: any) => {
           const msg = payload.new;
           const paraMim = msg.destinatario_id === userId;
@@ -1331,10 +1351,14 @@ export default function App() {
   useEffect(() => {
     if (!session?.user || modoAtual !== "diarista") return;
     const userId = session.user.id;
+    // P0 escala: SEM `filter:`, broadcasta UPDATE de TODA diária do app pra
+    // todos os clientes. Com 500 diaristas online + ~5 confirmações de QR/min,
+    // são milhares de mensagens realtime por minuto descartadas no client.
+    // Filter server-side: só UPDATE onde a diária foi atribuída a este user.
     const channel = supabase
       .channel(`diarias-diar-${userId}`)
       .on("postgres_changes" as any,
-        { event: "UPDATE", schema: "public", table: "diarias" },
+        { event: "UPDATE", schema: "public", table: "diarias", filter: `diarista_aceite_id=eq.${userId}` },
         (payload: any) => {
           const updated = payload.new as Diaria;
           if (updated.diarista_aceite_id !== userId) return;
@@ -2100,13 +2124,13 @@ export default function App() {
     // P1-21: mensagem antiga ("Este e-mail já está cadastrado") era enumeração de
     // conta. Agora sugere ambos os caminhos sem confirmar existência.
     if (m.includes("user already registered") || m.includes("already registered")) return "Se você já tem conta, faça login. Caso contrário, verifique se digitou o e-mail certo.";
-    if (m.includes("password should be at least")) return "A senha deve ter pelo menos 6 caracteres.";
+    if (m.includes("password should be at least")) return "A senha deve ter pelo menos 8 caracteres.";
     if (m.includes("invalid email")) return "E-mail inválido. Verifique e tente novamente.";
     if (m.includes("email rate limit") || m.includes("rate limit")) return "Muitas tentativas. Aguarde alguns minutos e tente novamente.";
     if (m.includes("signup is disabled")) return "Cadastros temporariamente desabilitados. Tente mais tarde.";
     if (m.includes("anonymous") || m.includes("sign-ins are disabled")) return "Informe seu e-mail e senha para continuar.";
     if (m.includes("network") || m.includes("fetch")) return "Sem conexão. Verifique sua internet e tente novamente.";
-    if (m.includes("weak password")) return "Senha muito fraca. Use pelo menos 6 caracteres com letras e números.";
+    if (m.includes("weak password")) return "Senha muito fraca. Use pelo menos 8 caracteres com letras e números.";
     if (m.includes("email_address_not_authorized")) return "E-mail não autorizado nesta plataforma.";
     if (m.includes("too many requests") || m.includes("over_email_send_rate_limit")) return "Muitas tentativas. Aguarde alguns minutos e tente novamente.";
     if (m.includes("for security purposes")) return "Por segurança, aguarde alguns segundos antes de tentar novamente.";
@@ -4170,7 +4194,7 @@ export default function App() {
       }
       case "senha": {
         const s = String(valor);
-        if (s.length < 10) return "Senha deve ter pelo menos 10 caracteres.";
+        if (s.length < 8) return "Senha deve ter pelo menos 8 caracteres.";
         if (!/[A-Za-z]/.test(s) || !/[0-9]/.test(s)) return "Senha precisa ter letras E números.";
         return undefined;
       }
@@ -4699,7 +4723,7 @@ export default function App() {
 
         <p style={{ textAlign:"center" as const, color:"#475569", fontSize:11, margin:"6px 0 0", lineHeight:1.7 }}>
           Ao continuar você aceita os{" "}
-          <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setTela("suporte")}>Termos</span>
+          <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setMostrarTermos(true)}>Termos</span>
           {" · "}
           <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setModalQuemSomos(true)}>Quem Somos</span>
         </p>
@@ -4774,6 +4798,32 @@ export default function App() {
             <button
               style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
               onClick={() => setModalQuemSomos(false)}>
+              Entendi
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Termos de Uso (acessível também a partir do rodapé do splash) */}
+      {mostrarTermos && (
+        <div style={{ position:"fixed", inset:0, background:"#fff", zIndex:9999, overflowY:"auto", fontFamily:"Inter, system-ui, sans-serif" }}>
+          <div style={{ position:"sticky", top:0, background:"#fff", borderBottom:"1px solid #e2e8f0", padding:"16px 20px", display:"flex", alignItems:"center", gap:12, zIndex:1 }}>
+            <button aria-label="Fechar termos" style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
+            <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
+          </div>
+          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
+            <p style={{ fontSize:13, color:"#475569", lineHeight:1.7, marginBottom:14 }}>
+              A DiáriaJá é uma plataforma digital de anúncios de oportunidades de serviços, que conecta anunciantes e prestadores autônomos. A plataforma não participa da execução do serviço — a relação entre as partes é independente e autônoma.
+            </p>
+            <p style={{ fontSize:13, color:"#475569", lineHeight:1.7, marginBottom:14 }}>
+              Observa: LGPD (Lei nº 13.709/2018), Marco Civil da Internet, Código de Defesa do Consumidor e LC nº 150/2015. Você lerá e aceitará a versão completa dos Termos no momento do cadastro.
+            </p>
+            <p style={{ fontSize:13, color:"#475569", lineHeight:1.7, marginBottom:14 }}>
+              Dúvidas, exclusão de dados ou suporte: <strong>suporte@diariaja.com.br</strong>.
+            </p>
+            <button
+              style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:8 }}
+              onClick={() => setMostrarTermos(false)}>
               Entendi
             </button>
           </div>
@@ -5083,7 +5133,7 @@ export default function App() {
 
         {/* Minimal-first: só 4 campos. Banner contextual mostra o que vem depois. */}
         <p style={{ color:"#94a3b8", fontSize:11, margin:"0 0 12px", textAlign:"center" as const }}>
-          ⚡ Só 4 campos. Em 1 minuto você está dentro do app.
+          ⚡ Cadastro rápido. Em poucos passos você entra.
         </p>
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Nome completo</label>
@@ -5105,7 +5155,7 @@ export default function App() {
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
         <div style={{ position:"relative" as const }}>
           <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none" }}
-            id="cad-senha" aria-label="Senha" autoComplete="new-password" placeholder="Mín. 10 caracteres, com letra e número" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
+            id="cad-senha" aria-label="Senha" autoComplete="new-password" placeholder="Mín. 8 caracteres, com letra e número" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
           <button type="button" aria-label={mostrarSenhaCadastro ? "Ocultar senha" : "Mostrar senha"} style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
             onClick={() => setMostrarSenhaCadastro(p => !p)}>
             {mostrarSenhaCadastro ? "🙈" : "👁️"}
@@ -5564,7 +5614,7 @@ export default function App() {
                       </div>
                     ))}
                     {/* CTAs específicos */}
-                    {!(profile?.telefone_verificado || telefoneVerificado) && (
+                    {MOSTRAR_VERIFICAR_TELEFONE_CTA && !(profile?.telefone_verificado || telefoneVerificado) && (
                       <button
                         style={{ marginTop:10, padding:"10px 14px", background:nivelConf.cor, color:"#fff", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                         onClick={() => { hapticTick(); setTela("verificar-telefone"); }}>
@@ -5856,8 +5906,8 @@ export default function App() {
         <h2 style={S.pageTitle}>🔑 {veioDeRecovery ? "Defina sua nova senha" : "Alterar senha"}</h2>
         <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
           {veioDeRecovery
-            ? "Você abriu o link de recuperação. Crie uma nova senha de pelo menos 10 caracteres com letra e número."
-            : "Confirme sua senha atual e digite a nova. A nova precisa ter pelo menos 10 caracteres."}
+            ? "Você abriu o link de recuperação. Crie uma nova senha de pelo menos 8 caracteres com letra e número."
+            : "Confirme sua senha atual e digite a nova. A nova precisa ter pelo menos 8 caracteres."}
         </p>
 
         {/* Senha atual — só pedida quando NÃO veio de recovery (segurança contra device roubado) */}
@@ -5871,7 +5921,7 @@ export default function App() {
         )}
 
         <label style={S.label}>Nova senha</label>
-        <input style={S.input} type="password" placeholder="Mín. 10 caracteres, com letra e número" value={novaSenha}
+        <input style={S.input} type="password" placeholder="Mín. 8 caracteres, com letra e número" value={novaSenha}
           autoComplete="new-password"
           onChange={e => setNovaSenha(e.target.value)} />
 
@@ -6165,7 +6215,7 @@ export default function App() {
     const faqItems = [
       { q:"Como funciona o DiáriaJá?", r:"Anunciantes publicam anúncios de oportunidades de diária e prestadores demonstram interesse conforme sua disponibilidade. A plataforma não participa da execução do serviço — apenas conecta as partes." },
       { q:"Como recebo o pagamento?", r:"O pagamento é combinado diretamente entre o prestador e o anunciante. A DiáriaJá não intermedia valores. Recomendamos acertar antes ou no dia da diária." },
-      { q:"Como reportar um problema?", r:"Entre em contato pelo WhatsApp abaixo ou envie um e-mail para suporte@diariaja.com.br. Respondemos em até 24h." },
+      { q:"Como reportar um problema?", r:"Envie um e-mail para suporte@diariaja.com.br. Respondemos em até 24h." },
       { q:"Posso cancelar uma diária?", r:"Sim, mas recomendamos avisar com pelo menos 24h de antecedência pelo chat do app para manter uma boa reputação." },
       { q:"Meus dados estão seguros?", r:"Sim. Utilizamos o Supabase com criptografia e autenticação segura. Nunca compartilhamos seus dados com terceiros." },
     ];
@@ -6193,13 +6243,13 @@ export default function App() {
           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Falar conosco</div>
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             {[
-              { icon:"💬", label:"WhatsApp", sub:"Atendimento em até 1h", cor:"#22c55e", action:() => window.open("https://wa.me/5567999999999?text=Oi!%20Preciso%20de%20ajuda%20no%20DiáriaJá","_blank") },
-              { icon:"📧", label:"E-mail", sub:"suporte@diariaja.com.br", cor:"#3A86FF", action:() => window.open("mailto:suporte@diariaja.com.br","_blank") },
-              { icon:"📱", label:"Instagram", sub:"@diariaja.oficial", cor:"#e11d48", action:() => window.open("https://instagram.com","_blank") },
+              { icon:"📧", label:"E-mail", sub:"suporte@diariaja.com.br", cor:"#3A86FF", action:() => window.open("mailto:suporte@diariaja.com.br","_blank"), disponivel:true },
+              { icon:"💬", label:"WhatsApp", sub:"Em breve — use o e-mail", cor:"#22c55e", action:() => {}, disponivel:false },
+              { icon:"📱", label:"Instagram", sub:"Em breve", cor:"#e11d48", action:() => {}, disponivel:false },
             ].map(c => (
               <div key={c.label}
-                style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:14, cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
-                onClick={c.action}>
+                style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:14, cursor:c.disponivel ? "pointer" : "default", boxShadow:"0 2px 8px rgba(0,0,0,.06)", opacity:c.disponivel ? 1 : 0.6 }}
+                onClick={c.disponivel ? c.action : undefined}>
                 <div style={{ width:46, height:46, background:c.cor+"18", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>
                   {c.icon}
                 </div>
@@ -6207,7 +6257,7 @@ export default function App() {
                   <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.label}</div>
                   <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{c.sub}</div>
                 </div>
-                <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>
+                {c.disponivel && <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>}
               </div>
             ))}
           </div>
@@ -6626,7 +6676,7 @@ export default function App() {
               <input id="empresa-senha"
                 type={mostrarSenhaEmp ? "text" : "password"} autoComplete="new-password"
                 style={estiloInput("senha", { paddingRight:46 })}
-                placeholder="Mín. 10 caracteres com letras e números"
+                placeholder="Mín. 8 caracteres com letras e números"
                 value={formEmp.senha}
                 onChange={e => setCampo("senha", e.target.value)}
                 onBlur={blur("senha")} />
@@ -7548,7 +7598,7 @@ export default function App() {
           {/* Avatar Jájá */}
           <div style={{ width:44, height:44, borderRadius:22, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0, boxShadow:"0 2px 8px rgba(0,0,0,.25)" }}>🤖</div>
           <div style={{ flex:1 }}>
-            <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Jájá — IA do Trampojá</div>
+            <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Jájá — IA do DiáriaJá</div>
             <div style={{ fontSize:11, color:"rgba(255,255,255,.8)" }}>{suporteDigitando ? "✍️ digitando..." : "Assistente inteligente · online"}</div>
           </div>
           <span style={{ background:"#22c55e", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>IA</span>
@@ -7937,7 +7987,7 @@ export default function App() {
                       🪪 Enviar documento
                     </button>
                   )}
-                  {telPendente && (
+                  {MOSTRAR_VERIFICAR_TELEFONE_CTA && telPendente && (
                     <button
                       type="button"
                       style={{ background:"#dbeafe", color:"#1e40af", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
@@ -9889,21 +9939,9 @@ export default function App() {
                       <div style={{ fontSize:13, color:"#475569", textAlign:"center", lineHeight:1.6, marginBottom:20 }}>
                         Por segurança, <strong>não compartilhe telefones, WhatsApp ou contatos externos</strong> no chat. Todo acerto deve ser feito dentro do app para sua proteção.
                       </div>
-                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-                        onClick={() => { setAntiExitAviso(false); setMsgInputReal(""); }}>
-                        Entendi, vou apagar a mensagem
-                      </button>
-                      <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#475569", border:"none", borderRadius:14, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                        onClick={async () => {
-                          setAntiExitAviso(false);
-                          // Envia mesmo assim (contorna o filtro)
-                          if (!session?.user || !chatDiariaAtiva) return;
-                          if (tipo === "empregador" && !chatDiariaAtiva.diarista_aceite_id) return;
-                          const destinatario2 = tipo === "empregador" ? chatDiariaAtiva.diarista_aceite_id! : chatDiariaAtiva.empregador_id;
-                          const { data: novaMsg2 } = await supabase.from("mensagens").insert({ diaria_id:chatDiariaAtiva.id, remetente_id:session.user.id, destinatario_id:destinatario2, conteudo:msgInputReal.trim() }).select().single();
-                          if (novaMsg2) { setMensagensReais(prev => [...prev, novaMsg2]); setMsgInputReal(""); }
-                        }}>
-                        Enviar mesmo assim
+                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                        onClick={() => { setAntiExitAviso(false); }}>
+                        Voltar e editar a mensagem
                       </button>
                     </div>
                   </div>
@@ -10538,7 +10576,7 @@ export default function App() {
                       🪪 Enviar documento
                     </button>
                   )}
-                  {telPendente && (
+                  {MOSTRAR_VERIFICAR_TELEFONE_CTA && telPendente && (
                     <button
                       type="button"
                       style={{ background:"#dbeafe", color:"#1e40af", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
@@ -11635,19 +11673,9 @@ export default function App() {
                       <div style={{ fontSize:13, color:"#475569", textAlign:"center", lineHeight:1.6, marginBottom:20 }}>
                         Por segurança, <strong>não compartilhe telefones, WhatsApp ou contatos externos</strong> no chat. Todo acerto deve ser feito dentro do app para sua proteção.
                       </div>
-                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-                        onClick={() => { setAntiExitAviso(false); setMsgInputReal(""); }}>
-                        Entendi, vou apagar a mensagem
-                      </button>
-                      <button style={{ width:"100%", padding:"12px", background:"#f1f5f9", color:"#475569", border:"none", borderRadius:14, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                        onClick={async () => {
-                          setAntiExitAviso(false);
-                          if (!session?.user || !chatDiariaAtiva) return;
-                          const dest = chatDiariaAtiva.empregador_id;
-                          const { data: nm } = await supabase.from("mensagens").insert({ diaria_id:chatDiariaAtiva.id, remetente_id:session.user.id, destinatario_id:dest, conteudo:msgInputReal.trim() }).select().single();
-                          if (nm) { setMensagensReais(prev => [...prev, nm]); setMsgInputReal(""); }
-                        }}>
-                        Enviar mesmo assim
+                      <button style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                        onClick={() => { setAntiExitAviso(false); }}>
+                        Voltar e editar a mensagem
                       </button>
                     </div>
                   </div>
