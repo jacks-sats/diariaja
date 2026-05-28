@@ -836,9 +836,12 @@ export default function App() {
   }, [session?.user?.id]);
 
   // Diaristas reais: IDs negativos = índice no array (via ref)
-  // Redireciona para escolha-negocio SOMENTE se nem o estado nem o perfil têm segmento
+  // Redireciona para escolha-negocio SOMENTE se nem o estado nem o perfil têm segmento.
+  // FIX 2026-05-28: aguarda profile carregar antes de avaliar. Antes o `!profile?.segmento`
+  // retornava true durante o carregamento (profile=null) e jogava anunciante com
+  // segmento salvo pra tela de escolha toda vez que dava refresh.
   useEffect(() => {
-    if (tela === "home-empregador" && !negocioSelecionado && !profile?.segmento) {
+    if (tela === "home-empregador" && !negocioSelecionado && profile && !profile.segmento) {
       setTela("escolha-negocio");
     }
   }, [tela, negocioSelecionado, profile]);
