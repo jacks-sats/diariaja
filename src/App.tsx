@@ -3287,7 +3287,22 @@ export default function App() {
 
   // Admin: aprovar/rejeitar via RPC (que valida is_admin no banco)
   const revisarDocumento = async (decisao: "aprovado" | "rejeitado") => {
-    if (!profile?.is_admin || !docRevisao || revisandoDoc) return;
+    // DEBUG 2026-05-28: descobrir por que silenciosamente não revisa.
+    console.warn("[revisarDocumento] click", {
+      is_admin: profile?.is_admin,
+      has_docRevisao: !!docRevisao,
+      docRevisao_user_id: docRevisao?.user_id,
+      revisandoDoc,
+      decisao,
+    });
+    if (!profile?.is_admin || !docRevisao || revisandoDoc) {
+      setToastError(
+        !profile?.is_admin ? "Você não tem permissão (is_admin=false). Manda print desse aviso."
+        : !docRevisao ? "Estado do documento perdido (docRevisao=null). Reabra o modal."
+        : "Já tem uma revisão em andamento (revisandoDoc=true). Espera ou recarrega a página."
+      );
+      return;
+    }
     if (decisao === "rejeitado" && docMotivoRejeicao.trim().length < 3) {
       setToastError("Informe o motivo da rejeição (mínimo 3 caracteres).");
       return;
