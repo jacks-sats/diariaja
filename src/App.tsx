@@ -385,7 +385,7 @@ export default function App() {
   // R$1 e protege contra presunção de vínculo empregatício. Exibe pra TODOS os
   // usuários (empregador e diarista) quando estão formando o compromisso.
   const [modalTermoCompromisso, setModalTermoCompromisso] =
-    useState<{ alvo: "chat" | "match"; nome: string } | null>(null);
+    useState<{ alvo: "chat" | "match"; nome: string; conviteId?: string } | null>(null);
   const [termoCompromissoCheck, setTermoCompromissoCheck] = useState(false);
   const [desbloqueandoContato, setDesbloqueandoContato] = useState(false);
   // Contatos desbloqueados (pagos R$ 1 via MP) neste mês.
@@ -1501,6 +1501,46 @@ export default function App() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id, modoAtual]);
+
+  // 8.5) Hidrata `contatosLiberados` no login a partir da tabela
+  //      `contatos_desbloqueios`. Antes só vivia em memória — usuário pagava
+  //      R$1, fechava o app e voltava sem o chat liberado. Agora parseamos o
+  //      mp_external_reference (`contact_unlock::USER_ID::CONVITE_ID`) e
+  //      remontamos o Set local. Também escuta INSERT em tempo real pra que
+  //      o webhook do MP, ao confirmar pagamento, libere a UI sem reload.
+  useEffect(() => {
+    if (!session?.user) return;
+    const userId = session.user.id;
+    void supabase
+      .from("contatos_desbloqueios")
+      .select("mp_external_reference")
+      .eq("empregador_id", userId)
+      .then(({ data }) => {
+        if (!data) return;
+        const ids = new Set<string>();
+        for (const row of data as { mp_external_reference: string | null }[]) {
+          const parts = (row.mp_external_reference ?? "").split("::");
+          if (parts.length >= 3 && parts[2]) ids.add(parts[2]);
+        }
+        if (ids.size > 0) setContatosLiberados(ids);
+      });
+    const channel = supabase
+      .channel(`contatos-desbloq-${userId}`)
+      .on("postgres_changes" as any,
+        { event: "INSERT", schema: "public", table: "contatos_desbloqueios", filter: `empregador_id=eq.${userId}` },
+        (payload: any) => {
+          const novo = payload.new;
+          const parts = String(novo?.mp_external_reference ?? "").split("::");
+          if (parts.length >= 3 && parts[2]) {
+            setContatosLiberados(prev => new Set([...prev, parts[2]]));
+            setToastSuccess("✅ Chat liberado! Pagamento confirmado.");
+          }
+          setContatosDesbloqueados(prev => prev + 1);
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user?.id]);
 
   // 9) Realtime: contratante é notificado quando diarista responde ao convite
   useEffect(() => {
@@ -3536,7 +3576,10 @@ export default function App() {
   // FIX 2026-05: enviava SUPABASE_ANON_KEY como Bearer — a Edge Function exige
   // o JWT do user (auth.getUser()). Agora manda session.access_token e expõe
   // o motivo real do erro em caso de falha (em vez do toast genérico).
-  const desbloquearContato = async () => {
+  // conviteId opcional: amarra esse pagamento R$1 a um convite específico,
+  // de forma que o webhook saiba qual convite foi liberado e o reload do
+  // app consiga reconstruir contatosLiberados pelo external_reference.
+  const desbloquearContato = async (conviteId?: string) => {
     if (!session?.user || !session.access_token) {
       setToastError("Sessão expirada. Entre novamente e tente outra vez.");
       return;
@@ -3552,7 +3595,7 @@ export default function App() {
             "Authorization": `Bearer ${session.access_token}`,
             "apikey":        SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ empregador_id: session.user.id }),
+          body: JSON.stringify({ empregador_id: session.user.id, ...(conviteId ? { convite_id: conviteId } : {}) }),
         }
       );
       const data = await resp.json().catch(() => ({} as { checkout_url?: string; error?: string }));
@@ -8176,7 +8219,7 @@ export default function App() {
                               <button
                                 style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.7 : 1 }}
                                 disabled={desbloqueandoContato}
-                                onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: c.diarista_nome?.split(" ")[0] || "prestador" })}>
+                                onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: c.diarista_nome?.split(" ")[0] || "prestador", conviteId: c.id })}>
                                 {desbloqueandoContato ? "Aguarde..." : "✅ Confirmar diária por R$ 1"}
                               </button>
                             )}
@@ -9332,10 +9375,11 @@ export default function App() {
                   disabled={!termoCompromissoCheck || desbloqueandoContato}
                   style={{ flex:1.4, padding:"12px", background: termoCompromissoCheck ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: termoCompromissoCheck ? "pointer" : "not-allowed", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.7 : 1 }}
                   onClick={() => {
+                    const conviteId = modalTermoCompromisso?.conviteId;
                     setModalTermoCompromisso(null);
                     setTermoCompromissoCheck(false);
                     trackEvento("termo_compromisso_aceito", session?.user?.id, modoAtual);
-                    desbloquearContato();
+                    desbloquearContato(conviteId);
                   }}>
                   {desbloqueandoContato ? "Aguarde..." : "Aceitar e pagar R$ 1"}
                 </button>
@@ -9365,7 +9409,7 @@ export default function App() {
                 <button
                   style={{ width:"100%", padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: desbloqueandoContato ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.6 : 1 }}
                   disabled={desbloqueandoContato}
-                  onClick={desbloquearContato}>
+                  onClick={() => desbloquearContato()}>
                   {desbloqueandoContato ? "Aguarde..." : "Pagar R$ 1,00 e selecionar →"}
                 </button>
               </div>
@@ -13729,7 +13773,7 @@ export default function App() {
                   <button
                     style={{ ...S.btnPrimary, background:cor, opacity: desbloqueandoContato ? 0.7 : 1 }}
                     disabled={desbloqueandoContato}
-                    onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: d.nome.split(" ")[0] })}>
+                    onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: d.nome.split(" ")[0], conviteId: conviteAtivo?.id })}>
                     {desbloqueandoContato ? "Aguarde..." : "💳 Pagar R$ 1 e liberar chat"}
                   </button>
                 )}
