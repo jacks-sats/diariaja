@@ -75,6 +75,38 @@ export const CATEGORIAS_NEGOCIO = {
 
 export type CategoriaNegocio = keyof typeof CATEGORIAS_NEGOCIO;
 
+// ── Tipo de oferta (diária vs serviço pontual) ───────────────────────────────
+// Spec: docs/spec-tipo-oferta-diaria-vs-servico.md
+
+// Tempos pré-definidos pra serviço (em minutos). 0 = "a combinar".
+export const TEMPOS_ESTIMADOS_SERVICO: Array<{ valor: number; label: string }> = [
+  { valor: 15,  label: "15 minutos" },
+  { valor: 30,  label: "30 minutos" },
+  { valor: 60,  label: "1 hora" },
+  { valor: 120, label: "2 horas" },
+  { valor: 180, label: "3 horas" },
+  { valor: 240, label: "4 horas" },
+  { valor: 0,   label: "A combinar" },
+];
+
+// Sugestão de default pro toggle no form de criar anúncio.
+// Categoria selecionada PRE-SELECIONA o tipo (usuário pode trocar).
+// TI, Beleza, Pet, Delivery → serviço pontual.
+// Doméstico, Construção, Eventos, Logística, Gastronomia, Supermercado → diária.
+// Saúde varia (cuidado de idoso é diária, aplicação injeção é serviço) → sem default.
+export const TIPO_OFERTA_PADRAO_POR_CATEGORIA: Record<string, 'diaria' | 'servico'> = {
+  "Delivery":               "servico",
+  "Supermercado / Varejo":  "diaria",
+  "Gastronomia":            "diaria",
+  "Doméstico":              "diaria",
+  "Construção Civil":       "diaria",
+  "Eventos & Festas":       "diaria",
+  // "Saúde & Cuidado":     varia — sem default, usuário escolhe.
+  "Logística & Armazém":    "diaria",
+  "Pet & Animais":          "servico",
+  "Beleza & Estética":      "servico",
+};
+
 // ── Médias de valores por função em Campo Grande, MS ─────────────────────────
 export const MEDIAS_CAMPO_GRANDE: Record<string, { min: number; max: number; media: number }> = {
   "Diarista / Faxineira":       { min: 120, max: 180, media: 150 },
