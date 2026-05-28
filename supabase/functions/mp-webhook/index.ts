@@ -16,7 +16,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL     = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const MP_TOKEN         = Deno.env.get("MP_ACCESS_TOKEN")!;
-const WEBHOOK_SECRET   = Deno.env.get("MP_WEBHOOK_SECRET") ?? "";
+// IMPORTANTE: trim() pra remover whitespace/newline acidental que vem do paste
+// no dashboard. Foi causa real de 401s persistentes em 2026-05-28.
+const WEBHOOK_SECRET   = (Deno.env.get("MP_WEBHOOK_SECRET") ?? "").trim();
 
 // Comparação byte-a-byte em tempo constante — evita timing oracle
 function timingSafeEqualHex(a: string, b: string): boolean {
@@ -57,16 +59,22 @@ async function validarAssinatura(req: Request, body: string): Promise<boolean> {
   const dataId     = url.searchParams.get("data.id") ?? "";
 
   // DEBUG: loga TUDO que recebeu pra diagnosticar 401s. Remover após OK.
+  // Inclui char codes do primeiro/último char do secret pra detectar
+  // whitespace/newline invisível que vem de paste.
+  const firstCharCode = WEBHOOK_SECRET.length > 0 ? WEBHOOK_SECRET.charCodeAt(0) : -1;
+  const lastCharCode  = WEBHOOK_SECRET.length > 0 ? WEBHOOK_SECRET.charCodeAt(WEBHOOK_SECRET.length - 1) : -1;
   console.log("[mp-webhook][SIG] received headers:", {
     has_x_signature: !!xSignature,
-    x_signature_preview: xSignature ? xSignature.slice(0, 80) : "(empty)",
+    x_signature_full: xSignature,                          // sig completa pra debug — secret não vaza aqui
     has_x_request_id: !!xRequestId,
-    x_request_id_preview: xRequestId ? xRequestId.slice(0, 20) : "(empty)",
+    x_request_id: xRequestId,
     data_id: dataId || "(empty)",
     url: req.url,
     secret_length: WEBHOOK_SECRET.length,
     secret_first4: WEBHOOK_SECRET.slice(0, 4),
     secret_last4: WEBHOOK_SECRET.slice(-4),
+    secret_first_char_code: firstCharCode,                 // detecta whitespace inicial (32=space, 10=\n)
+    secret_last_char_code: lastCharCode,                   // detecta whitespace final
   });
 
   // Formato MP: "ts=<timestamp>,v1=<hash>"
