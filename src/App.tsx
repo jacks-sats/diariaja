@@ -9759,12 +9759,12 @@ export default function App() {
                     <>
                       <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
                         title="Denunciar usuário" aria-label="Denunciar este usuário"
-                        onClick={() => { setModalDenunciar({ tipo:"usuario", id: chatDiariaAtiva.diarista_aceite_id!, nome: dp?.nome || "Diarista" }); setMotivoDenuncia(""); }}>
+                        onClick={() => { setModalDenunciar({ tipo:"usuario", id: chatDiariaAtiva.diarista_aceite_id!, nome: dp?.nome || "Prestador" }); setMotivoDenuncia(""); }}>
                         🚩
                       </button>
                       <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
                         title="Bloquear usuário" aria-label="Bloquear este usuário"
-                        onClick={() => setModalBloquear({ id: chatDiariaAtiva.diarista_aceite_id!, nome: dp?.nome || "Diarista" })}>
+                        onClick={() => setModalBloquear({ id: chatDiariaAtiva.diarista_aceite_id!, nome: dp?.nome || "Prestador" })}>
                         🚫
                       </button>
                     </>
