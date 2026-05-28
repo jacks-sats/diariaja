@@ -23,12 +23,12 @@ const APP_URL           = Deno.env.get("APP_URL") ?? "https://diariaja.vercel.ap
 // têm preços diferentes pro mesmo "tier".
 const PLANOS: Record<string, Record<string, { valor: number; nome: string }>> = {
   diarista: {
-    essencial: { valor:  9.90, nome: "DiáriaJá Essencial — Diarista"   },
-    plus:      { valor: 19.90, nome: "DiáriaJá Plus — Diarista"        },
+    essencial: { valor:  9.90, nome: "DiáriaJá Essencial — Prestador"   },
+    plus:      { valor: 19.90, nome: "DiáriaJá Plus — Prestador"        },
   },
   empregador: {
-    essencial: { valor: 24.90, nome: "DiáriaJá Essencial — Contratante" },
-    plus:      { valor: 49.90, nome: "DiáriaJá Plus — Contratante"      },
+    essencial: { valor: 24.90, nome: "DiáriaJá Essencial — Anunciante" },
+    plus:      { valor: 49.90, nome: "DiáriaJá Plus — Anunciante"      },
   },
 };
 

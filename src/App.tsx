@@ -1,5 +1,5 @@
 /**
- * DiáriaJá — Marketplace de diárias.
+ * DiáriaJá — Plataforma de anúncios de oportunidades de serviços por diária.
  * Copyright (c) 2025–2026 Jackson dos Santos da Silva. Todos os direitos reservados.
  * Uso, cópia, modificação ou distribuição sem autorização escrita é proibido.
  * Lei 9.609/98 e Lei 9.610/98. Contato: suporte@diariaja.com.br
@@ -112,7 +112,7 @@ function QRScannerComponent({ onResult, onError, onClose }: {
             if (result.startsWith("DIARIAJA:")) {
               onResult(result.replace("DIARIAJA:", ""));
             } else {
-              onError("QR Code inválido. Use o código gerado pelo diarista.");
+              onError("QR Code inválido. Use o código gerado pelo prestador.");
             }
             onClose();
           },
@@ -1065,8 +1065,8 @@ export default function App() {
           if (novas.length > 0) {
             setToastError(
               novas.length === 1
-                ? `⏰ Sua vaga em ${novas[0].nome_negocio || novas[0].segmento} expirou — o empregador não confirmou sua chegada.`
-                : `⏰ ${novas.length} vagas suas expiraram — empregadores não confirmaram chegada.`,
+                ? `⏰ Seu anúncio em ${novas[0].nome_negocio || novas[0].segmento} expirou — o anunciante não confirmou sua chegada.`
+                : `⏰ ${novas.length} anúncios seus expiraram — anunciantes não confirmaram chegada.`,
             );
             try { localStorage.setItem(chave, JSON.stringify([...avisadas, ...novas.map((d: any) => d.id)])); } catch {}
           }
@@ -1099,7 +1099,7 @@ export default function App() {
           (profs ?? []).forEach((p: any) => { nomes[p.id] = p.nome; });
         }
         setAvaliacoesEmpAbertas(
-          avs.map((a: any) => ({ ...a, diarista_nome: nomes[a.diarista_id] || "Diarista" })),
+          avs.map((a: any) => ({ ...a, diarista_nome: nomes[a.diarista_id] || "Prestador" })),
         );
       }
       // Carrega reputação agregada se ainda não estiver em cache
@@ -1137,7 +1137,7 @@ export default function App() {
       setEmpregadorAberto(data);
       setTela("perfil-empregador");
     } else {
-      setToastError("Não foi possível carregar o perfil do contratante.");
+      setToastError("Não foi possível carregar o perfil do anunciante.");
     }
   };
 
@@ -1145,8 +1145,8 @@ export default function App() {
   const enviarAvaliacaoEmpObrigatoria = async () => {
     if (!session?.user || diariasAvaliarEmp.length === 0) return;
     if (avalEmpNota === 0)           { setToastError("Dê uma nota de 1 a 5 estrelas."); return; }
-    if (avalEmpPagou === null)       { setToastError("Informe se o contratante pagou o combinado."); return; }
-    if (avalEmpCumpriu === null)     { setToastError("Informe se o contratante cumpriu o combinado."); return; }
+    if (avalEmpPagou === null)       { setToastError("Informe se o anunciante pagou o combinado."); return; }
+    if (avalEmpCumpriu === null)     { setToastError("Informe se o anunciante cumpriu o combinado."); return; }
     const diaria = diariasAvaliarEmp[0];
     setEnviandoAvalEmpOb(true);
     const { error } = await supabase.from("avaliacoes_empregador").insert({
@@ -1291,28 +1291,28 @@ export default function App() {
           if (updated.status === "aceita" && oldStatus === "pendente") setAlertaAceite(updated);
           // Realtime: webhook MP confirmou pagamento → desbloqueia chat automaticamente
           if (updated.pagamento_status === "pago" && payload.old?.pagamento_status !== "pago") {
-            setToastSuccess(`✅ Pagamento confirmado pelo Mercado Pago! O chat com o diarista foi liberado.`);
+            setToastSuccess(`✅ Pagamento confirmado pelo Mercado Pago! O chat com o prestador foi liberado.`);
           }
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             if (updated.status === "aceita" && oldStatus === "pendente") {
-              mostrarNotificacaoLocal("✅ Diarista confirmou presença!", {
-                body: `O profissional confirmou presença na vaga de ${vaga}. Escaneie o QR Code dele!`,
+              mostrarNotificacaoLocal("✅ Prestador confirmou presença!", {
+                body: `O profissional confirmou presença no anúncio de ${vaga}. Escaneie o QR Code dele!`,
                 icon: "/vite.svg",
               });
             } else if (updated.status === "aceita" && oldStatus === "aberta") {
-              mostrarNotificacaoLocal("🎉 Diarista confirmado!", {
-                body: `Alguém aceitou sua vaga de ${vaga}!`,
+              mostrarNotificacaoLocal("🎉 Prestador confirmado!", {
+                body: `Alguém demonstrou interesse no seu anúncio de ${vaga}!`,
                 icon: "/vite.svg",
               });
             } else if (updated.status === "aberta" && oldStatus === "aceita") {
-              // Diarista desistiu — vaga voltou a ser aberta
-              mostrarNotificacaoLocal("⚠️ Diarista desistiu!", {
-                body: `O diarista desistiu da vaga de ${vaga}. Ela está disponível novamente.${motivo}`,
+              // Prestador desistiu — anúncio voltou a ficar aberto
+              mostrarNotificacaoLocal("⚠️ Prestador desistiu!", {
+                body: `O prestador desistiu do anúncio de ${vaga}. Ele está disponível novamente.${motivo}`,
                 icon: "/vite.svg",
               });
             } else if (updated.status === "cancelada" && oldStatus !== "cancelada") {
-              mostrarNotificacaoLocal("❌ Diária cancelada pelo diarista", {
-                body: `A vaga de ${vaga} foi cancelada.${motivo}`,
+              mostrarNotificacaoLocal("❌ Diária cancelada pelo prestador", {
+                body: `O anúncio de ${vaga} foi cancelado.${motivo}`,
                 icon: "/vite.svg",
               });
             }
@@ -1346,19 +1346,19 @@ export default function App() {
             setMinhasDiarias(prev => prev.some(d => d.id === updated.id) ? prev.map(d => d.id === updated.id ? updated : d) : [...prev, updated]);
             setMeuInteresse(prev => ({ ...prev, [updated.id]: "pendente" }));
             // BUG-3 fix: toast in-app garantido independente de permissão de push
-            setToastSuccess(`🎯 ${local} escolheu você! Vá em "Vagas" e confirme sua presença.`);
+            setToastSuccess(`🎯 ${local} demonstrou interesse em você! Vá em "Anúncios" e confirme sua presença.`);
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              mostrarNotificacaoLocal("🎯 Você foi selecionado!", {
-                body: `${local} escolheu você para a vaga! Abra o app e confirme sua presença.`,
+              mostrarNotificacaoLocal("🎯 Anunciante demonstrou interesse!", {
+                body: `${local} demonstrou interesse no seu perfil! Abra o app e confirme sua presença.`,
                 icon: "/vite.svg",
               });
             }
           } else if (updated.status === "em_andamento") {
             // BUG-5 fix: toast in-app quando empregador confirma chegada via QR
-            setToastSuccess(`🔄 Sua chegada foi confirmada em ${local}. Bom trabalho!`);
+            setToastSuccess(`🔄 Sua chegada foi confirmada em ${local}. Bom serviço!`);
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
               mostrarNotificacaoLocal("🔄 Chegada confirmada!", {
-                body: `Sua presença em ${local} foi confirmada. Bom trabalho!`,
+                body: `Sua presença em ${local} foi confirmada. Bom serviço!`,
                 icon: "/vite.svg",
               });
             }
@@ -1370,19 +1370,19 @@ export default function App() {
               localStorage.setItem("diariaja_cancels", JSON.stringify(cancels));
             } catch {}
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              mostrarNotificacaoLocal("❌ Diária cancelada pelo contratante", {
+              mostrarNotificacaoLocal("❌ Diária cancelada pelo anunciante", {
                 body: `Sua diária em ${local} foi cancelada.${updated.motivo_cancelamento ? " Motivo: " + updated.motivo_cancelamento : ""}`,
                 icon: "/vite.svg",
               });
             }
-            setToastError(`❌ Diária em ${local} foi cancelada pelo empregador.${updated.motivo_cancelamento ? " Motivo: " + updated.motivo_cancelamento : ""}`);
+            setToastError(`❌ Diária em ${local} foi cancelada pelo anunciante.${updated.motivo_cancelamento ? " Motivo: " + updated.motivo_cancelamento : ""}`);
           } else if (updated.status === "concluida") {
             // Auto-abre recibo do diarista após conclusão
-            setToastSuccess(`🎉 Diária concluída em ${local}! Gere seu recibo e avalie o contratante.`);
+            setToastSuccess(`🎉 Diária concluída em ${local}! Gere seu recibo e avalie o anunciante.`);
             setTimeout(() => setModalReciboDiarista(updated), 500);
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
               mostrarNotificacaoLocal("🎉 Diária concluída!", {
-                body: `Sua diária em ${local} foi encerrada. Avalie o empregador!`,
+                body: `Sua diária em ${local} foi encerrada. Avalie o anunciante!`,
                 icon: "/vite.svg",
               });
             }
@@ -1412,11 +1412,11 @@ export default function App() {
           if (data) setCandidatosProfiles(prev => ({ ...prev, [c.diarista_id]: data }));
           // BUG-2 fix: toast in-app independente da permissão de push
           const vaga = diariasRef.current.find(d => d.id === c.diaria_id);
-          const nomeVaga = vaga?.funcao || vaga?.segmento || "sua vaga";
-          setToastSuccess(`👋 Novo candidato na vaga de ${nomeVaga}! Toque em "Diárias" para ver.`);
+          const nomeVaga = vaga?.funcao || vaga?.segmento || "seu anúncio";
+          setToastSuccess(`👋 Novo interessado no anúncio de ${nomeVaga}! Toque em "Diárias" para ver.`);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            mostrarNotificacaoLocal("👋 Novo candidato!", {
-              body: `Um diarista demonstrou interesse na sua vaga de ${nomeVaga}!`,
+            mostrarNotificacaoLocal("👋 Novo interessado!", {
+              body: `Um prestador demonstrou interesse no seu anúncio de ${nomeVaga}!`,
               icon: "/vite.svg",
             });
           }
@@ -1458,10 +1458,10 @@ export default function App() {
           if (updated.status === "cancelada" && oldStatus !== "cancelada") {
             // Remove o interesse local para que a vaga não apareça com estado preso
             setMeuInteresse(prev => { const n = { ...prev }; delete n[updated.diaria_id]; return n; });
-            setToastError("⚠️ Uma vaga na qual você tinha interesse foi cancelada pelo contratante.");
+            setToastError("⚠️ Um anúncio no qual você tinha interesse foi cancelado pelo anunciante.");
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              mostrarNotificacaoLocal("❌ Vaga cancelada pelo contratante", {
-                body: "Uma diária na qual você tinha interesse foi removida. Verifique as vagas disponíveis.",
+              mostrarNotificacaoLocal("❌ Anúncio cancelado pelo anunciante", {
+                body: "Um anúncio no qual você tinha interesse foi removido. Verifique os anúncios disponíveis.",
                 icon: "/vite.svg",
               });
             }
@@ -1485,10 +1485,10 @@ export default function App() {
         (payload: any) => {
           const novoConvite: Convite = payload.new;
           setConvitesRecebidos(prev => [novoConvite, ...prev]);
-          setToastSuccess(`📨 ${novoConvite.contratante_nome || "Um contratante"} te convidou para uma diária!`);
+          setToastSuccess(`📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para uma diária!`);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             mostrarNotificacaoLocal("📨 Novo convite de diária!", {
-              body: `${novoConvite.contratante_nome} quer te contratar para ${novoConvite.funcao} em ${new Date(novoConvite.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}`,
+              body: `${novoConvite.contratante_nome} quer entrar em contato com você para ${novoConvite.funcao} em ${new Date(novoConvite.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}`,
               icon: "/vite.svg",
             });
           }
@@ -2597,7 +2597,7 @@ export default function App() {
       enviarPush(
         [diaria.diarista_aceite_id],
         "Chegada confirmada ✅",
-        `${profile?.nome_negocio || "O contratante"} confirmou sua presença. Bom trabalho!`,
+        `${profile?.nome_negocio || "O anunciante"} confirmou sua presença. Bom serviço!`,
         { tipo: "confirmacao", url: "/" },
       );
     }
@@ -2660,7 +2660,7 @@ export default function App() {
     setModalDesistir(null);
     setMotivoDesistencia("");
     setDesistindo(false);
-    setToastSuccess("✅ Desistência registrada. A vaga voltou a ficar disponível.");
+    setToastSuccess("✅ Desistência registrada. O anúncio voltou a ficar disponível.");
   };
 
   // Diarista retira interesse numa vaga (ainda pendente, não aceito)
@@ -2671,9 +2671,9 @@ export default function App() {
       .delete()
       .eq("diaria_id", diariaId)
       .eq("diarista_id", session.user.id);
-    if (error) { setToastError("Erro ao retirar candidatura. Tente novamente."); return; }
+    if (error) { setToastError("Erro ao retirar interesse. Tente novamente."); return; }
     setMeuInteresse(prev => { const n = { ...prev }; delete n[diariaId]; return n; });
-    setToastSuccess("↩️ Candidatura retirada.");
+    setToastSuccess("↩️ Interesse retirado.");
   };
 
   // Envia denúncia de vaga ou usuário
@@ -2701,7 +2701,7 @@ export default function App() {
     novas.add(diariaId);
     setVagasIgnoradas(novas);
     localStorage.setItem("diariaja_nao_interesse", JSON.stringify([...novas]));
-    setToastSuccess("👎 Vaga ocultada. Não aparecerá mais.");
+    setToastSuccess("👎 Anúncio ocultado. Não aparecerá mais.");
     // Salva no Supabase para o contador do empregador (fail silencioso)
     if (session?.user) {
       try {
@@ -2759,7 +2759,7 @@ export default function App() {
     const { error } = await supabase.from("convites").insert({
       contratante_id:   session.user.id,
       diarista_id:      diaristaSelecionadaReal.id,
-      contratante_nome: profile?.nome || "Contratante",
+      contratante_nome: profile?.nome || "Anunciante",
       diarista_nome:    diaristaSelecionadaReal.nome,
       funcao:           diaristaSelecionadaReal.funcao,
       local_servico:    enderecoFinal,
@@ -2788,7 +2788,7 @@ export default function App() {
       .eq("id", conviteId);
     if (error) { setToastError("Erro ao responder convite."); return; }
     setConvitesRecebidos(prev => prev.map(c => c.id === conviteId ? { ...c, status: resposta } : c));
-    setToastSuccess(resposta === "aceito" ? "✅ Convite aceito! O contratante será notificado." : "❌ Convite recusado.");
+    setToastSuccess(resposta === "aceito" ? "✅ Convite aceito! O anunciante será notificado." : "❌ Convite recusado.");
   };
 
   const cancelarConvite = async (conviteId: string) => {
@@ -3352,7 +3352,7 @@ export default function App() {
     }
 
     setExcluindo(false);
-    setToastSuccess("✅ Diária excluída. Candidatos notificados.");
+    setToastSuccess("✅ Anúncio excluído. Interessados notificados.");
   };
 
   // Envia mensagem no chat real (empregador ↔ diarista)
@@ -3382,7 +3382,7 @@ export default function App() {
       setMsgInputReal("");
       setTimeout(() => mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
       // Push pro destinatário
-      const remNome = profile?.nome?.split(" ")[0] || (tipo === "diarista" ? "Diarista" : "Contratante");
+      const remNome = profile?.nome?.split(" ")[0] || (tipo === "diarista" ? "Prestador" : "Anunciante");
       enviarPush(
         [destinatario],
         `Mensagem de ${remNome}`,
@@ -3454,11 +3454,11 @@ export default function App() {
     setVagaConfirmada(true);
     hapticConfirm();
 
-    // Push pro empregador: alguém demonstrou interesse na vaga dele
+    // Push pro empregador: alguém demonstrou interesse no anúncio dele
     enviarPush(
       [diaria.empregador_id],
-      "Novo interessado na sua vaga",
-      `${profile?.nome?.split(" ")[0] || "Um diarista"} demonstrou interesse em "${diaria.funcao || diaria.segmento}".`,
+      "Novo interessado no seu anúncio",
+      `${profile?.nome?.split(" ")[0] || "Um prestador"} demonstrou interesse em "${diaria.funcao || diaria.segmento}".`,
       { tipo: "candidatura", url: "/" },
     );
 
@@ -3497,7 +3497,7 @@ export default function App() {
 
     if (e1) {
       setSelecionando(false);
-      setToastError("❌ Erro ao selecionar candidato: " + e1.message);
+      setToastError("❌ Erro ao selecionar interessado: " + e1.message);
       return;
     }
 
@@ -3505,11 +3505,11 @@ export default function App() {
     await supabase.from("candidaturas").update({ status: "selecionado" }).eq("diaria_id", diaria.id).eq("diarista_id", diaristaId);
     await supabase.from("candidaturas").update({ status: "rejeitado"  }).eq("diaria_id", diaria.id).neq("diarista_id", diaristaId);
 
-    // 3. Push pro diarista escolhido + pros rejeitados (atualiza a sensação)
+    // 3. Push pro prestador escolhido + pros rejeitados (atualiza a sensação)
     enviarPush(
       [diaristaId],
-      "🎯 Você foi escolhido!",
-      `${profile?.nome_negocio || "Um contratante"} te selecionou pra "${diaria.funcao || diaria.segmento}". Abra o app pra confirmar.`,
+      "🎯 Anunciante demonstrou interesse!",
+      `${profile?.nome_negocio || "Um anunciante"} te selecionou para "${diaria.funcao || diaria.segmento}". Abra o app para confirmar.`,
       { tipo: "selecionado", url: "/" },
     );
     hapticConfirm();
@@ -3520,7 +3520,7 @@ export default function App() {
 
     setModalCandidatos(null);
     setSelecionando(false);
-    setToastSuccess("✅ Candidato selecionado! O diarista vai receber a notificação.");
+    setToastSuccess("✅ Interessado selecionado! O prestador vai receber a notificação.");
     // IMPORTANTE: a plataforma NÃO intermedia o valor da diária. O pagamento
     // entre contratante e diarista é combinado direto entre as partes (PIX,
     // dinheiro, etc.). A taxa de seleção de R$ 1 (no plano grátis a partir
@@ -3670,7 +3670,7 @@ export default function App() {
     setModalTermoDiarista(null);
     setTermoDiaristaCheck(false);
     // BUG-4 fix: feedback de sucesso para o diarista após confirmação
-    setToastSuccess("✅ Presença confirmada! O contratante foi notificado. Gere o QR Code no dia da diária.");
+    setToastSuccess("✅ Presença confirmada! O anunciante foi notificado. Gere o QR Code no dia da diária.");
   };
 
   const excluirChat = async (diaId: string) => {
@@ -3912,7 +3912,7 @@ export default function App() {
     setAuthError("");
     setSalvandoDiaria(false);
     setTabEmpregador("diarias"); // BUG-1 fix: empregador vê a vaga que acabou de criar
-    setToastSuccess(dirariaRepetir !== "nao" ? `✅ ${novasDiarias.length} diárias criadas com sucesso!` : "✅ Diária publicada! Aguardando candidatos.");
+    setToastSuccess(dirariaRepetir !== "nao" ? `✅ ${novasDiarias.length} anúncios criados com sucesso!` : "✅ Anúncio publicado! Aguardando interessados.");
     setTela("home-empregador");
   };
 
@@ -4461,14 +4461,14 @@ export default function App() {
   // banner; mensagem varia por índice pra não ficar repetitivo.
   const BannerJaDecolaInline = ({ index, paraDiarista }: { index: number; paraDiarista: boolean }) => {
     const mensagensDiarista = [
-      { icone:"🚀", titulo:"Vire diarista 5★",        desc:"Curso rápido em Já Decola · ganhe selo no perfil" },
+      { icone:"🚀", titulo:"Vire prestador 5★",        desc:"Curso rápido em Já Decola · ganhe selo no perfil" },
       { icone:"⭐", titulo:"Mais avaliações positivas", desc:"Aprenda atendimento em 5 minutos · destaque na busca" },
-      { icone:"🏆", titulo:"Suba de nível na plataforma", desc:"Cursos gratuitos · selos visíveis ao contratante" },
+      { icone:"🏆", titulo:"Suba de nível na plataforma", desc:"Cursos gratuitos · selos visíveis ao anunciante" },
     ];
     const mensagensEmpregador = [
-      { icone:"🎓", titulo:"Como contratar com segurança", desc:"Curso rápido em Já Decola · evite golpes e conflitos" },
-      { icone:"🛡️", titulo:"Vire contratante 5★",          desc:"Boas práticas · selos de confiança no perfil" },
-      { icone:"🚀", titulo:"Crie vagas que atraem os melhores", desc:"Aprenda em 5 minutos a criar vaga perfeita" },
+      { icone:"🎓", titulo:"Como contatar com segurança", desc:"Curso rápido em Já Decola · evite golpes e conflitos" },
+      { icone:"🛡️", titulo:"Vire anunciante 5★",            desc:"Boas práticas · selos de confiança no perfil" },
+      { icone:"🚀", titulo:"Crie anúncios que atraem os melhores", desc:"Aprenda em 5 minutos a criar anúncio perfeito" },
     ];
     const arr = paraDiarista ? mensagensDiarista : mensagensEmpregador;
     const m = arr[index % arr.length];
@@ -4589,12 +4589,12 @@ export default function App() {
 
         {/* Headline emocional */}
         <h1 style={{ fontSize:26, color:"#fff", textAlign:"center" as const, lineHeight:1.2, margin:"0 0 10px", fontWeight:900, letterSpacing:-0.5, animation:"spl-fadein 1s ease-out .2s both" }}>
-          Trabalho perto.<br />Confiança do seu lado.
+          Serviço perto.<br />Confiança do seu lado.
         </h1>
 
         {/* Sub funcional */}
         <p style={{ fontSize:14, color:"#94a3b8", textAlign:"center" as const, lineHeight:1.6, margin:"0 0 18px", maxWidth:320, animation:"spl-fadein 1s ease-out .4s both" }}>
-          Marketplace de diárias com pagamento seguro · Começou em Campo Grande/MS
+          Plataforma de anúncios de oportunidades de diária · Começou em Campo Grande/MS
         </p>
 
         {/* Carrossel marquee de categorias (auto-scroll horizontal) */}
@@ -4925,8 +4925,8 @@ export default function App() {
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:12 }}>
         {[
-          { key:"empregador", icone:"🏢", label:"Quero contratar", desc:"Negócio, restaurante, obra..." },
-          { key:"diarista",   icone:"👷", label:"Quero trabalhar", desc:"Encontrar vagas próximas" },
+          { key:"empregador", icone:"🏢", label:"Quero anunciar", desc:"Negócio, restaurante, obra..." },
+          { key:"diarista",   icone:"👷", label:"Quero prestar serviços", desc:"Encontrar anúncios próximos" },
         ].map(t => {
           const ativo = tipo === t.key;
           return (
@@ -4999,12 +4999,12 @@ export default function App() {
         {/* Microcopy contextual baseado no tipo de perfil */}
         {tipo === "empregador" && (
           <p style={{ color:"#FF6B35", fontSize:13, fontWeight:600, marginTop:6, textAlign:"center" }}>
-            👔 Em poucos minutos você publica sua primeira vaga.
+            👔 Em poucos minutos você publica seu primeiro anúncio.
           </p>
         )}
         {tipo === "diarista" && (
           <p style={{ color:"#4ade80", fontSize:13, fontWeight:600, marginTop:6, textAlign:"center" }}>
-            💼 Cadastre-se e comece a receber propostas de trabalho.
+            💼 Cadastre-se e comece a receber propostas de serviços.
           </p>
         )}
         {tipo === "empresa" && (
@@ -5134,8 +5134,8 @@ export default function App() {
               const isDiarista = tipo === "diarista";
               const isContratante = tipo === "empregador" || tipo === "empresa";
               const secoesGerais = [
-                { titulo:"1. Apresentação", body:`O DiáriaJá conecta contratantes, empresas e profissionais autônomos para serviços por diária em Campo Grande/MS. Ao se cadastrar, você declara ter lido e aceito este Termo.\n\nObserva: LGPD (Lei nº 13.709/2018), Marco Civil da Internet, CDC e LC nº 150/2015.` },
-                { titulo:"2. Natureza da Plataforma", body:`Somos um canal de conexão — não prestamos serviços, não somos empregador e não garantimos qualidade ou pagamento externo. A relação entre as partes é de responsabilidade exclusiva delas.` },
+                { titulo:"1. Apresentação", body:`A DiáriaJá é uma plataforma digital de anúncios de oportunidades de serviços, conectando anunciantes (pessoas físicas ou empresas) e prestadores autônomos em Campo Grande/MS. Ao se cadastrar, você declara ter lido e aceito este Termo.\n\nA plataforma não participa da execução do serviço. A DiáriaJá apenas disponibiliza ferramentas para publicação de anúncios e conexão entre usuários.\n\nObserva: LGPD (Lei nº 13.709/2018), Marco Civil da Internet, CDC e LC nº 150/2015.` },
+                { titulo:"2. Natureza da Plataforma", body:`Somos um canal de divulgação de anúncios — não prestamos serviços, não somos empregador, não somos agência de emprego e não garantimos qualidade ou pagamento externo. A relação entre anunciante e prestador é independente e autônoma; cada parte é responsável por suas próprias obrigações.` },
                 { titulo:"3. Cadastro e Conta", body:`O cadastro exige dados verdadeiros. É proibido criar perfis falsos, usar CPF de terceiros ou duplicar contas. O usuário deve ser maior de 18 anos e capaz de praticar atos civis.` },
                 { titulo:"4. Dados Pessoais e Privacidade (LGPD)", body:`Tratamos nome, e-mail, foto, CPF/CNPJ (privado), geolocalização e histórico de diárias. CPF nunca é exibido publicamente. Para exclusão de dados: suporte@diariaja.com.br.` },
                 { titulo:"5. Pagamentos", body:`Quando habilitado, o pagamento ocorre via Mercado Pago diretamente pelo app. A plataforma não se responsabiliza por acordos realizados fora da plataforma.` },
@@ -5143,14 +5143,14 @@ export default function App() {
                 { titulo:"7. Limitação de Responsabilidade", body:`O DiáriaJá não se responsabiliza por informações falsas de usuários, descumprimento de acordos, inadimplemento, acidentes ou falhas de conexão.` },
               ];
               const secoesDiarista = isDiarista ? [
-                { titulo:"8. Trabalho Autônomo (diarista)", body:`Você se cadastra como TRABALHADOR AUTÔNOMO. Não há vínculo empregatício com o DiáriaJá nem com os contratantes que você atender via plataforma.\n\nO DiáriaJá não recolhe INSS, FGTS, IR ou demais encargos trabalhistas. Você é responsável por suas próprias obrigações fiscais e previdenciárias. Recomendamos formalização como MEI (Microempreendedor Individual) para garantir cobertura previdenciária.` },
-                { titulo:"9. Riscos e Responsabilidade do Profissional", body:`Você reconhece que prestar serviços autônomos envolve riscos próprios da atividade (deslocamento, acidentes, conflitos, inadimplemento do contratante). O DiáriaJá não fornece seguro nem cobertura para esses riscos.\n\nAvalie o ambiente de trabalho ANTES de aceitar uma diária. Se sentir-se inseguro, recuse. Em caso de denúncia ou acidente, registre boletim de ocorrência e acione o suporte.` },
-                { titulo:"10. Pagamento ao Diarista", body:`O DiáriaJá NÃO intermedia o pagamento entre você e o contratante. A combinação e o repasse do valor da diária acontecem DIRETAMENTE entre as partes (PIX, dinheiro, etc.).\n\nA plataforma cobra apenas uma taxa de uso via Mercado Pago do contratante. O valor da diária em si é negociado e pago fora da plataforma.\n\nA chave PIX cadastrada no seu perfil serve para o contratante te identificar facilmente, mas o DiáriaJá NÃO é responsável por valores combinados nem por inadimplência.` },
+                { titulo:"8. Atuação Autônoma (prestador)", body:`Você se cadastra como PRESTADOR AUTÔNOMO. Não há vínculo empregatício com a DiáriaJá nem com os anunciantes que você atender via plataforma. A relação entre anunciante e prestador é independente e autônoma.\n\nA DiáriaJá não recolhe INSS, FGTS, IR ou demais encargos trabalhistas. Você é responsável por suas próprias obrigações fiscais e previdenciárias. Recomendamos formalização como MEI (Microempreendedor Individual) para garantir cobertura previdenciária.` },
+                { titulo:"9. Riscos e Responsabilidade do Profissional", body:`Você reconhece que prestar serviços autônomos envolve riscos próprios da atividade (deslocamento, acidentes, conflitos, inadimplemento do anunciante). A DiáriaJá não fornece seguro nem cobertura para esses riscos e não participa da execução do serviço.\n\nAvalie o ambiente do serviço ANTES de aceitar um anúncio. Se sentir-se inseguro, recuse. Em caso de denúncia ou acidente, registre boletim de ocorrência e acione o suporte.` },
+                { titulo:"10. Pagamento ao Prestador", body:`A DiáriaJá NÃO intermedia o pagamento entre você e o anunciante. A combinação e o repasse do valor da diária acontecem DIRETAMENTE entre as partes (PIX, dinheiro, etc.).\n\nA plataforma cobra apenas uma taxa de uso via Mercado Pago do anunciante. O valor da diária em si é negociado e pago fora da plataforma.\n\nA chave PIX cadastrada no seu perfil serve para o anunciante te identificar facilmente, mas a DiáriaJá NÃO é responsável por valores combinados nem por inadimplência.` },
               ] : [];
               const secoesContratante = isContratante ? [
-                { titulo:"8. Responsabilidade do Contratante", body:`Ao publicar e contratar uma diária, você assume responsabilidade pelo AMBIENTE DE TRABALHO oferecido ao diarista: segurança, condições de higiene, equipamentos e EPIs (quando aplicável).\n\nÉ proibido contratar serviços ilegais, perigosos sem proteção, ou contrários à dignidade da pessoa. Atividades insalubres ou perigosas exigem precauções específicas — informe ao diarista antecipadamente.` },
-                { titulo:"9. Ausência de Vínculo Empregatício", body:`A relação com o diarista é de PRESTAÇÃO AUTÔNOMA DE SERVIÇO, sem vínculo CLT. Atenção: contratar o mesmo profissional por mais de 2 dias/semana de forma habitual pode configurar vínculo doméstico (LC nº 150/2015), cabendo a você avaliar as obrigações legais.` },
-                { titulo:"10. Pagamento da Diária", body:`O DiáriaJá é uma plataforma de anúncios e NÃO intermedia o pagamento da diária. O valor combinado com o diarista é pago DIRETAMENTE pra ele (PIX, dinheiro, etc.).\n\nO Mercado Pago aparece no app apenas pra cobrar a TAXA DE USO da plataforma (o valor da diária NÃO passa pela plataforma).\n\nVocê é responsável pelo cumprimento do que combinou com o diarista. Em caso de divergência, registre tudo pelo chat do app — a conversa é prova.` },
+                { titulo:"8. Responsabilidade do Anunciante", body:`Ao publicar um anúncio e entrar em contato com um prestador, você assume responsabilidade pelo AMBIENTE em que o serviço será realizado: segurança, condições de higiene, equipamentos e EPIs (quando aplicável). A plataforma não participa da execução do serviço.\n\nÉ proibido anunciar serviços ilegais, perigosos sem proteção, ou contrários à dignidade da pessoa. Atividades insalubres ou perigosas exigem precauções específicas — informe ao prestador antecipadamente.` },
+                { titulo:"9. Ausência de Vínculo Empregatício", body:`A relação com o prestador é de PRESTAÇÃO AUTÔNOMA DE SERVIÇO, sem vínculo CLT, e independente da plataforma. Atenção: contatar o mesmo profissional por mais de 2 dias/semana de forma habitual pode configurar vínculo doméstico (LC nº 150/2015), cabendo a você avaliar as obrigações legais.` },
+                { titulo:"10. Pagamento da Diária", body:`A DiáriaJá é uma plataforma de anúncios e NÃO intermedia o pagamento da diária. O valor combinado com o prestador é pago DIRETAMENTE para ele (PIX, dinheiro, etc.).\n\nO Mercado Pago aparece no app apenas para cobrar a TAXA DE USO da plataforma (o valor da diária NÃO passa pela plataforma).\n\nVocê é responsável pelo cumprimento do que combinou com o prestador. Em caso de divergência, registre tudo pelo chat do app — a conversa é prova.` },
               ] : [];
               const secoesFinal = [
                 { titulo: `${secoesGerais.length + secoesDiarista.length + secoesContratante.length + 1}. Informações`,
@@ -5562,7 +5562,7 @@ export default function App() {
                 label: "Notificações push",
                 sub: pushEstado.inscrito ? "✅ Ativas — você será notificado mesmo com app fechado"
                    : pushEstado.permissao === "denied" ? "❌ Bloqueadas no navegador — libere nas configurações"
-                   : "Receba alertas de novas vagas e mensagens",
+                   : "Receba alertas de novos anúncios e mensagens",
                 action: pushEstado.inscrito ? () => {} : () => ativarPush(),
               }] : []),
             ].map((item, i, arr) => (
@@ -5613,10 +5613,10 @@ export default function App() {
                 sub:"Tópicos, dicas e conversas com outros usuários",
                 action:() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); } },
               { icon:"🎁", label:"Indicar amigos",
-                sub:"Em breve: ganhe destaque ao convidar diaristas/empregadores",
+                sub:"Em breve: ganhe destaque ao convidar prestadores/anunciantes",
                 action:() => {
                   if (navigator.share) {
-                    navigator.share({ title:"DiáriaJá", text:"Encontre diaristas qualificados no DiáriaJá!", url:"https://diariaja.vercel.app" }).catch(() => {});
+                    navigator.share({ title:"DiáriaJá", text:"Encontre prestadores qualificados no DiáriaJá!", url:"https://diariaja.vercel.app" }).catch(() => {});
                   } else {
                     try { navigator.clipboard?.writeText("https://diariaja.vercel.app"); setToastSuccess("🔗 Link copiado! Em breve você ganha recompensas por indicar."); } catch { /* ignore */ }
                   }
@@ -5782,7 +5782,7 @@ export default function App() {
               <button style={{ background:"none", border:"none", fontSize:24, cursor:"pointer", display:"block", marginBottom:12 }} onClick={() => setMostrarTermos(false)}>✕</button>
               <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:12 }}>Termos de Uso</div>
               <div style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.7 }}>
-                O DiáriaJá é uma plataforma de conexão entre empregadores e profissionais autônomos. Ao usar o app, você concorda com nossos termos. Para dúvidas: suporte@diariaja.com.br
+                O DiáriaJá é uma plataforma de anúncios de oportunidades de serviços que conecta anunciantes e prestadores autônomos. A plataforma não participa da execução do serviço — a relação entre anunciante e prestador é independente e autônoma. Ao usar o app, você concorda com nossos termos. Para dúvidas: suporte@diariaja.com.br
               </div>
             </div>
           </div>
@@ -6010,7 +6010,7 @@ export default function App() {
     const secoes = [
       {
         titulo: "1. Quem somos",
-        corpo: "O DiáriaJá é uma plataforma digital de intermediação de serviços de diária, operada por [Razão Social], CNPJ [nº], com sede em Campo Grande — MS. Contato: suporte@diariaja.com.br.",
+        corpo: "A DiáriaJá é uma plataforma digital de anúncios de oportunidades de serviços, operada por [Razão Social], CNPJ [nº], com sede em Campo Grande — MS. A plataforma não participa da execução do serviço — apenas disponibiliza ferramentas para publicação de anúncios e conexão entre usuários. A relação entre anunciante e prestador é independente e autônoma. Contato: suporte@diariaja.com.br.",
       },
       {
         titulo: "2. Dados que coletamos",
@@ -6018,7 +6018,7 @@ export default function App() {
       },
       {
         titulo: "3. Para que usamos seus dados",
-        corpo: "Seus dados são utilizados exclusivamente para:\n\n• Criar e autenticar sua conta\n• Exibir seu perfil para outros usuários da plataforma\n• Conectar contratantes e diaristas autônomos\n• Calcular score de confiança e nível de gamificação\n• Enviar notificações relacionadas às suas diárias\n• Cumprir obrigações legais e regulatórias",
+        corpo: "Seus dados são utilizados exclusivamente para:\n\n• Criar e autenticar sua conta\n• Exibir seu perfil para outros usuários da plataforma\n• Conectar anunciantes e prestadores autônomos\n• Calcular score de confiança e nível de gamificação\n• Enviar notificações relacionadas às suas diárias\n• Cumprir obrigações legais e regulatórias",
       },
       {
         titulo: "4. Compartilhamento de dados",
@@ -6116,8 +6116,8 @@ export default function App() {
   if (tela === "suporte") {
     const voltarTela = profile?.user_type === "empregador" ? "home-empregador" : profile?.user_type === "diarista" ? "home-diarista" : "splash";
     const faqItems = [
-      { q:"Como funciona o DiáriaJá?", r:"Empregadores publicam vagas de diária e profissionais aceitam conforme sua disponibilidade. Tudo direto pelo app, sem intermediários." },
-      { q:"Como recebo o pagamento?", r:"O pagamento é combinado diretamente entre o profissional e o empregador. Recomendamos acertar antes ou no dia da diária." },
+      { q:"Como funciona o DiáriaJá?", r:"Anunciantes publicam anúncios de oportunidades de diária e prestadores demonstram interesse conforme sua disponibilidade. A plataforma não participa da execução do serviço — apenas conecta as partes." },
+      { q:"Como recebo o pagamento?", r:"O pagamento é combinado diretamente entre o prestador e o anunciante. A DiáriaJá não intermedia valores. Recomendamos acertar antes ou no dia da diária." },
       { q:"Como reportar um problema?", r:"Entre em contato pelo WhatsApp abaixo ou envie um e-mail para suporte@diariaja.com.br. Respondemos em até 24h." },
       { q:"Posso cancelar uma diária?", r:"Sim, mas recomendamos avisar com pelo menos 24h de antecedência pelo chat do app para manter uma boa reputação." },
       { q:"Meus dados estão seguros?", r:"Sim. Utilizamos o Supabase com criptografia e autenticação segura. Nunca compartilhamos seus dados com terceiros." },
@@ -6245,15 +6245,15 @@ export default function App() {
           </div>
           <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
             {[
-              { titulo:"1. Apresentação", body:`O DiáriaJá é uma plataforma digital (PWA) que conecta trabalhadores autônomos (diaristas) a empregadores para contratação de serviços pontuais nas categorias: Doméstico, Supermercado, Restaurante, Construção, Eventos, Saúde & Cuidado, Logística e Pet & Animais.\n\nEste Termo observa: LGPD (Lei nº 13.709/2018), Marco Civil da Internet (Lei nº 12.965/2014), CDC (Lei nº 8.078/1990) e LC nº 150/2015.` },
-              { titulo:"2. Natureza da Plataforma", body:`Somos um ambiente digital de intermediação. Não prestamos serviços diretamente, não somos empregador das diaristas e não garantimos qualidade, presença ou pagamento externo.\n\nA relação entre diarista e empregador, após o aceite, é de responsabilidade exclusiva das partes.` },
+              { titulo:"1. Apresentação", body:`A DiáriaJá é uma plataforma digital de anúncios de oportunidades de serviços (PWA) que conecta prestadores autônomos a anunciantes (pessoas físicas ou empresas) para serviços pontuais nas categorias: Doméstico, Supermercado, Restaurante, Construção, Eventos, Saúde & Cuidado, Logística e Pet & Animais.\n\nA plataforma não participa da execução do serviço. A DiáriaJá apenas disponibiliza ferramentas para publicação de anúncios e conexão entre usuários.\n\nEste Termo observa: LGPD (Lei nº 13.709/2018), Marco Civil da Internet (Lei nº 12.965/2014), CDC (Lei nº 8.078/1990) e LC nº 150/2015.` },
+              { titulo:"2. Natureza da Plataforma", body:`Somos um ambiente digital de divulgação de anúncios. Não prestamos serviços diretamente, não somos empregador dos prestadores, não somos agência de emprego, e não garantimos qualidade, presença ou pagamento externo.\n\nA relação entre prestador e anunciante é independente e autônoma — após o aceite, é de responsabilidade exclusiva das partes.` },
               { titulo:"3. Cadastro e Conta", body:`Exigimos dados verdadeiros e completos. O usuário declara ter mais de 18 anos e plena capacidade civil. É proibido: perfis falsos, CPF de terceiros, simular avaliações ou duplicar contas.` },
-              { titulo:"4. Perfil e Verificação", body:`CPF/CNPJ são coletados para verificação interna e nunca exibidos publicamente. O badge "✅ Verificado" indica identidade verificada. O diarista pode publicar portfólio com até 3 fotos.` },
-              { titulo:"5. Publicação de Diárias", body:`O empregador publica vagas com: data, função, valor, horário, local e observações. Diárias recorrentes (semanal/quinzenal) são suportadas. O cancelamento notifica candidatos automaticamente.` },
-              { titulo:"6. Candidaturas, Convites e Aceite", body:`O diarista candidata-se a vagas. O empregador pode também enviar convites diretos. Após o aceite, demais candidatos são recusados. A confirmação de presença é feita via QR Code no app.` },
-              { titulo:"7. Chat e Comunicação", body:`O chat é exclusivo para fins da diária. É proibido assédio, ameaças, spam e conteúdo ilegal. Mensagens são armazenadas para segurança e resolução de conflitos.` },
-              { titulo:"8. Pagamentos e Taxa", body:`O DiáriaJá facilita o pagamento via PIX (chave: suporte@diariaja.com.br). A taxa de plataforma é de 1,5% sobre o valor da diária, devida pelo empregador. Não processamos pagamentos diretamente.\n\nPlanos de assinatura para empregadores oferecem funcionalidades diferenciadas.` },
-              { titulo:"9. Avaliações e Reputação", body:`Avaliações devem refletir experiências reais. São proibidas avaliações falsas, compradas ou manipuladas. O DiáriaJá pode remover avaliações que violem este Termo.` },
+              { titulo:"4. Perfil e Verificação", body:`CPF/CNPJ são coletados para verificação interna e nunca exibidos publicamente. O badge "✅ Verificado" indica identidade verificada. O prestador pode publicar portfólio com até 3 fotos.` },
+              { titulo:"5. Publicação de Anúncios", body:`O anunciante publica anúncios com: data, função, valor, horário, local e observações. Anúncios recorrentes (semanal/quinzenal) são suportados. O cancelamento notifica interessados automaticamente.` },
+              { titulo:"6. Demonstrações de interesse, Convites e Aceite", body:`O prestador demonstra interesse em anúncios. O anunciante também pode enviar convites diretos. Após o aceite, demais interessados são recusados. A confirmação de presença é feita via QR Code no app.` },
+              { titulo:"7. Chat e Comunicação", body:`O chat é exclusivo para fins do anúncio. É proibido assédio, ameaças, spam e conteúdo ilegal. Mensagens são armazenadas para segurança e resolução de conflitos.` },
+              { titulo:"8. Pagamentos e Taxa", body:`A DiáriaJá não intermedia o valor da diária — o pagamento entre anunciante e prestador é combinado e realizado diretamente entre as partes. A taxa de uso é devida pelo anunciante.\n\nPlanos de assinatura para anunciantes oferecem funcionalidades diferenciadas.` },
+              { titulo:"9. Avaliações e Reputação", body:`Avaliações devem refletir experiências reais. São proibidas avaliações falsas, compradas ou manipuladas. A DiáriaJá pode remover avaliações que violem este Termo.` },
               { titulo:"10. Dados Pessoais (LGPD)", body:`Tratamos: nome, e-mail, foto, CPF/CNPJ (privado), geolocalização, histórico e mensagens. O CPF nunca é exibido publicamente.\n\nVocê pode solicitar acesso, correção, exclusão ou portabilidade pelo e-mail suporte@diariaja.com.br.` },
               { titulo:"11. Condutas Proibidas", body:`São proibidas: fraude de dados, discriminação, assédio, atividades ilícitas, spam, engenharia reversa e conteúdo ofensivo. O descumprimento pode resultar em exclusão da conta e comunicação às autoridades.` },
               { titulo:"12. Limitação de Responsabilidade", body:`Não nos responsabilizamos por: informações falsas de usuários, descumprimento de acordos, qualidade do serviço, furtos, acidentes ou falhas de conexão. Os direitos previstos no CDC são preservados.` },
@@ -6824,7 +6824,7 @@ export default function App() {
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ fontSize:32 }}>🏠</div>
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:20, fontWeight:900, lineHeight:1.2 }}>Cadastro de Contratante</div>
+              <div style={{ fontSize:20, fontWeight:900, lineHeight:1.2 }}>Cadastro de Anunciante</div>
               <div style={{ fontSize:12, opacity:0.85, marginTop:2 }}>
                 Passo {passoEmpregadorPF} de 4 — {NOMES_PASSOS_EMPPF[passoEmpregadorPF]}
               </div>
@@ -6842,7 +6842,7 @@ export default function App() {
         </div>
 
         <div style={{ background:"#fff7f3", border:"1px solid #fed7aa", borderRadius:12, padding:"12px 14px", marginTop:10, fontSize:12, color:"#9a3412", lineHeight:1.6 }}>
-          💡 Cada etapa concluída soma <strong>+25 XP</strong>. Cadastro rápido pra você começar a contratar.
+          💡 Cada etapa concluída soma <strong>+25 XP</strong>. Cadastro rápido pra você começar a anunciar.
         </div>
 
         {/* ───────── PASSO 1 — Identidade ───────────────────────────────────── */}
@@ -6885,7 +6885,7 @@ export default function App() {
             </div>
 
             <label style={S.label}>Nome do local / apelido *</label>
-            <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Como será identificado nas vagas? Ex: Família Silva, Restaurante do João...</p>
+            <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Como será identificado nos anúncios? Ex: Família Silva, Restaurante do João...</p>
             <input style={S.input} placeholder="Ex: Família Silva, Casa da Maria..."
               value={form.nomeNegocio}
               onChange={e => { setForm({ ...form, nomeNegocio: e.target.value }); revalidaEmpPF("nomeNegocio"); }}
@@ -7104,7 +7104,7 @@ export default function App() {
     const NOMES_PASSOS_DIA: Record<1 | 2 | 3 | 4, string> = {
       1: "Identidade",
       2: "Contato",
-      3: "Seu trabalho",
+      3: "Seu serviço",
       4: "Disponibilidade e termos",
     };
     const xpAcumulado = (passoDiarista - 1) * 25; // 0/25/50/75 ao entrar no passo
@@ -7191,7 +7191,7 @@ export default function App() {
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ fontSize:32 }}>👷</div>
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:20, fontWeight:900, lineHeight:1.2 }}>Cadastro de Diarista</div>
+              <div style={{ fontSize:20, fontWeight:900, lineHeight:1.2 }}>Cadastro de Prestador</div>
               <div style={{ fontSize:12, opacity:0.92, marginTop:2 }}>
                 Passo {passoDiarista} de 4 — {NOMES_PASSOS_DIA[passoDiarista]}
               </div>
@@ -7227,7 +7227,7 @@ export default function App() {
                   {fotoUrl ? "✅ Foto adicionada!" : "Adicione sua foto"}
                 </div>
                 <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, lineHeight:1.4 }}>
-                  Perfis com foto recebem <strong>3× mais contratações</strong>
+                  Perfis com foto recebem <strong>3× mais contatos</strong>
                 </div>
                 <label style={{ display:"inline-block", padding:"8px 16px", background:fotoUrl?"#f0fdf4":"#FF6B35", color:fotoUrl?"#16a34a":"#fff", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer" }}>
                   {uploadingFoto ? "Enviando..." : fotoUrl ? "Trocar foto" : "📷 Escolher foto"}
@@ -7275,7 +7275,7 @@ export default function App() {
           <>
             <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📞 Como te encontramos</div>
             <div style={{ background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:12, color:"#0369a1", lineHeight:1.5 }}>
-              🔒 Seu CPF e telefone <strong>nunca aparecem no perfil público</strong> — só pra contratantes que te selecionarem.
+              🔒 Seu CPF e telefone <strong>nunca aparecem no perfil público</strong> — só para anunciantes que demonstrarem interesse em você.
             </div>
 
             <label style={S.label}>Telefone (WhatsApp) *</label>
@@ -7297,7 +7297,7 @@ export default function App() {
           </>
         )}
 
-        {/* ───────── PASSO 3 — Seu trabalho ───────────────────────────────── */}
+        {/* ───────── PASSO 3 — Seu serviço ───────────────────────────────── */}
         {passoDiarista === 3 && (
           <>
             <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:20, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💼 Especialidades *</div>
@@ -7351,7 +7351,7 @@ export default function App() {
                   {abaixoMinimo && (
                     <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:10, padding:"9px 12px", marginBottom:6, fontSize:12, color:"#9a3412", display:"flex", alignItems:"flex-start", gap:7 }}>
                       <span style={{ fontSize:14, flexShrink:0, lineHeight:1.4 }}>⚠️</span>
-                      <span>Valor abaixo da faixa mínima. Considere oferecer ao menos R$ {med.min} pra atrair mais contratantes.</span>
+                      <span>Valor abaixo da faixa mínima. Considere oferecer ao menos R$ {med.min} pra atrair mais anunciantes.</span>
                     </div>
                   )}
                 </>
@@ -7360,7 +7360,7 @@ export default function App() {
 
             <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:18, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💰 Chave PIX *</div>
             <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 8px", lineHeight:1.5 }}>
-              Aparece pro contratante facilitar o pagamento direto. O DiáriaJá não intermedia.
+              Aparece para o anunciante facilitar o pagamento direto. A DiáriaJá não intermedia.
             </p>
             <label style={S.label}>Tipo de chave</label>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:6, marginBottom:8 }}>
@@ -7512,7 +7512,7 @@ export default function App() {
           <div style={{ padding:"12px 16px 0", display:"flex", flexWrap:"wrap", gap:8 }}>
             {[
               "Como funciona o check-in? 📱",
-              "Como pagar o diarista? 💰",
+              "Como pagar o prestador? 💰",
               "Como editar meu perfil? 👤",
               "Esqueci minha senha 🔑",
               "Como cancelar uma diária? ❌",
@@ -7587,14 +7587,14 @@ export default function App() {
           <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
           <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>📋 Antes de confirmar...</h3>
           <p style={{ fontSize:14, color:"var(--text-label,#475569)", lineHeight:1.6, marginBottom:16 }}>
-            Você está prestes a contratar <strong>{dp?.nome || "este profissional"}</strong> para <strong>{diaria.funcao}</strong>. Combinamos que:
+            Você está prestes a entrar em contato com <strong>{dp?.nome || "este profissional"}</strong> para <strong>{diaria.funcao}</strong>. Combinamos que:
           </p>
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
             {[
-              { icon:"✅", txt:"O DiáriaJá conecta profissionais e contratantes com facilidade" },
+              { icon:"✅", txt:"A DiáriaJá conecta prestadores e anunciantes — não participa da execução do serviço" },
               { icon:"⚠️", txt:"Não verificamos ativamente as qualificações de cada profissional" },
               { icon:"💡", txt:"Recomendamos verificar referências pessoalmente quando possível" },
-              { icon:"🤝", txt:"A negociação final é entre você e o profissional" },
+              { icon:"🤝", txt:"A negociação final é entre você e o prestador, de forma independente e autônoma" },
             ].map(it => (
               <div key={it.icon} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
                 <span style={{ fontSize:18, flexShrink:0 }}>{it.icon}</span>
@@ -7639,9 +7639,9 @@ export default function App() {
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
             {[
               { icon:"📍", txt:"Você se compromete a comparecer no local e horário combinados" },
-              { icon:"⏰", txt:"Em caso de imprevisto, avise o contratante com antecedência" },
+              { icon:"⏰", txt:"Em caso de imprevisto, avise o anunciante com antecedência" },
               { icon:"💼", txt:"Cumpra o serviço acordado com profissionalismo" },
-              { icon:"💬", txt:"O contratante será notificado da sua confirmação" },
+              { icon:"💬", txt:"O anunciante será notificado da sua confirmação" },
             ].map(it => (
               <div key={it.icon} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
                 <span style={{ fontSize:18, flexShrink:0 }}>{it.icon}</span>
@@ -7802,7 +7802,7 @@ export default function App() {
                   <span style={{ color:negocio.cor, cursor:"pointer" }} onClick={() => { setModalInfoPerfil(true); setBioDraft(profile?.bio || ""); }}>{primeiroNome}!</span> 👋
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
-                  <span style={{ background:negocio.cor+"15", color:negocio.cor, fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>🏢 Empregador</span>
+                  <span style={{ background:negocio.cor+"15", color:negocio.cor, fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>🏢 Anunciante</span>
                 </div>
               </div>
             </div>
@@ -7981,13 +7981,13 @@ export default function App() {
                     <div style={{ fontSize:56, marginBottom:12 }}>🔍</div>
                     <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Nenhum profissional ainda</div>
                     <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:16 }}>
-                      Ainda não há diaristas cadastrados na sua região. Convide um amigo e ajude a plataforma a crescer!
+                      Ainda não há prestadores cadastrados na sua região. Convide um amigo e ajude a plataforma a crescer!
                     </div>
                     <button
                       style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:14, padding:"12px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 14px ${negocio.cor}55` }}
                       onClick={() => {
                         if (navigator.share) {
-                          navigator.share({ title:"DiáriaJá", text:"Cadastre-se como diarista no DiáriaJá e ganhe dinheiro!", url:"https://diariaja.vercel.app" });
+                          navigator.share({ title:"DiáriaJá", text:"Cadastre-se como prestador no DiáriaJá e ganhe dinheiro!", url:"https://diariaja.vercel.app" });
                         } else {
                           navigator.clipboard?.writeText("https://diariaja.vercel.app");
                           setToastSuccess("🔗 Link copiado!");
@@ -8091,7 +8091,7 @@ export default function App() {
               <button
                 style={{ width:"100%", padding:"14px", background:"#0f172a", color:"#fff", border:"none", borderRadius:16, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:16, boxShadow:"0 4px 14px rgba(0,0,0,.2)" }}
                 onClick={() => { setScannerAberto(true); setScanMsg(null); }}>
-                📷 Escanear QR Code do diarista
+                📷 Escanear QR Code do prestador
               </button>
 
               {scanMsg && (
@@ -8279,7 +8279,7 @@ export default function App() {
                             )}
                             {/* Badge de dislikes */}
                             {dia.status === "aberta" && (dislikesPorVaga[dia.id] ?? 0) > 0 && (
-                              <span style={{ background:"#fef2f2", color:"#dc2626", padding:"3px 9px", borderRadius:20, fontSize:10, fontWeight:800 }} title="Profissionais que não têm interesse nesta vaga">
+                              <span style={{ background:"#fef2f2", color:"#dc2626", padding:"3px 9px", borderRadius:20, fontSize:10, fontWeight:800 }} title="Profissionais que não têm interesse neste anúncio">
                                 👎 {dislikesPorVaga[dia.id]}
                               </span>
                             )}
@@ -8345,21 +8345,21 @@ export default function App() {
                             {/* Botão "💳 Pagar" do valor total removido — a plataforma
                                 NÃO intermedia o valor da diária. Pagamento entre
                                 contratante e diarista é combinado direto entre eles. */}
-                            {/* Ver candidatos — diária aberta */}
+                            {/* Ver interessados — diária aberta */}
                             {dia.status === "aberta" && (() => {
                               const cands = candidaturas.filter(c => c.diaria_id === dia.id && c.status === "pendente");
                               return cands.length > 0 ? (
                                 <button
                                   style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f5f3ff", color:"#7c3aed", border:"1.5px solid #ddd6fe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                   onClick={() => setModalCandidatos(dia)}>
-                                  👥 {cands.length} candidato{cands.length>1?"s":""}
+                                  👥 {cands.length} interessado{cands.length>1?"s":""}
                                 </button>
                               ) : null;
                             })()}
                             {/* Dislikes — diaristas que não têm interesse */}
                             {dia.status === "aberta" && (dislikesPorVaga[dia.id] ?? 0) > 0 && (
                               <div style={{ padding:"9px 12px", background:"#fef2f2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:13, fontWeight:700, display:"flex", alignItems:"center", gap:5, flexShrink:0 }}
-                                title="Profissionais que não têm interesse nesta vaga">
+                                title="Profissionais que não têm interesse neste anúncio">
                                 👎 {dislikesPorVaga[dia.id]} não {dislikesPorVaga[dia.id]===1?"tem":"têm"} interesse
                               </div>
                             )}
@@ -8398,7 +8398,7 @@ export default function App() {
                           </div>
                         )}
                         {/* Botão "Pagar via Mercado Pago" do valor total removido —
-                            DiáriaJá NÃO intermedia o valor da diária. O contratante
+                            DiáriaJá NÃO intermedia o valor da diária. O anunciante
                             paga direto pro diarista (PIX, dinheiro, etc.). A plataforma
                             cobra apenas R$ 1 por seleção extra (no plano grátis após
                             a 4ª seleção do mês) + planos premium opcionais. */}
@@ -8508,7 +8508,7 @@ export default function App() {
                           );
                         })()}
 
-                        {/* Candidatos para diária aberta */}
+                        {/* Interessados na diária aberta */}
                         {dia.status === "aberta" && (() => {
                           const cands = candidaturas.filter(c => c.diaria_id === dia.id && c.status === "pendente");
                           return (
@@ -8517,11 +8517,11 @@ export default function App() {
                                 <button
                                   style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(93,95,239,.35)" }}
                                   onClick={e => { e.stopPropagation(); setModalCandidatos(dia); }}>
-                                  👥 Ver {cands.length} candidato{cands.length > 1 ? "s" : ""} interessado{cands.length > 1 ? "s" : ""}
+                                  👥 Ver {cands.length} interessado{cands.length > 1 ? "s" : ""}
                                 </button>
                               ) : (
                                 <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:10, padding:"8px 12px", fontSize:12, color:"var(--text-3,#94a3b8)", textAlign:"center" }}>
-                                  Aguardando candidatos…
+                                  Aguardando interessados…
                                 </div>
                               )}
                               <button
@@ -8616,11 +8616,11 @@ export default function App() {
           );
         })()}
 
-        {/* ── Modal Avaliar Diarista Real ── */}
+        {/* ── Modal Avaliar Prestador Real ── */}
         {modalAvalDiaristaReal && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
-              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>⭐ Avaliar diarista</div>
+              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>⭐ Avaliar prestador</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20 }}>
                 Como foi a experiência com o profissional em <strong>{modalAvalDiaristaReal.nome_negocio || "sua diária"}</strong>?
               </div>
@@ -8684,15 +8684,15 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Modal Candidatos (empregador escolhe 1 de até 5) ── */}
+        {/* ── Modal Interessados (anunciante escolhe 1 de até 5) ── */}
         {modalCandidatos && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
             <div style={{ background:"var(--bg-app,#f0f2f5)", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:480, maxHeight:"82vh", overflow:"auto" }}>
               {/* Header fixo */}
               <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"22px 20px 16px", position:"sticky", top:0, zIndex:1 }}>
-                <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)" }}>👥 Candidatos interessados</div>
+                <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)" }}>👥 Interessados</div>
                 <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:3 }}>
-                  Toque em um perfil para ver detalhes · vaga: <strong>{modalCandidatos.funcao || modalCandidatos.segmento}</strong>
+                  Toque em um perfil para ver detalhes · anúncio: <strong>{modalCandidatos.funcao || modalCandidatos.segmento}</strong>
                 </div>
               </div>
               <div style={{ padding:"12px 16px 32px", display:"flex", flexDirection:"column", gap:12 }}>
@@ -8761,7 +8761,7 @@ export default function App() {
                   })}
                 {candidaturas.filter(c => c.diaria_id === modalCandidatos.id && c.status === "pendente").length === 0 && (
                   <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:14, padding:"24px 0" }}>
-                    Nenhum candidato disponível no momento.
+                    Nenhum interessado disponível no momento.
                   </div>
                 )}
                 <button
@@ -8772,7 +8772,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* ── Perfil completo do candidato (abre sobre o modal de candidatos) ── */}
+            {/* ── Perfil completo do interessado (abre sobre o modal de interessados) ── */}
             {perfilCandidato && (() => {
               const dp = perfilCandidato;
               const iniciais = dp.nome?.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() || "?";
@@ -8912,7 +8912,7 @@ export default function App() {
                       {!loadingPerfil && avaliacoesCandidato.length > 0 && (
                         <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"14px 16px" }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-                            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>⭐ Avaliações de empregadores</div>
+                            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>⭐ Avaliações de anunciantes</div>
                             {mediaAvs && (
                               <span style={{ fontWeight:900, fontSize:15, color:"#d97706" }}>
                                 {mediaAvs.toFixed(1)} ⭐
@@ -8969,9 +8969,9 @@ export default function App() {
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16, lineHeight:1.6, textAlign:"center" }}>
                 A diária de <strong>{modalExcluir.funcao || modalExcluir.descricao}</strong> será removida permanentemente.
               </div>
-              {/* Aviso: notifica todos os candidatos, não só o aceito */}
+              {/* Aviso: notifica todos os interessados, não só o aceito */}
               <div style={{ background:"#fef3c7", border:"1.5px solid #fde68a", borderRadius:12, padding:"12px 14px", fontSize:13, color:"#92400e", fontWeight:600, marginBottom:14, lineHeight:1.5 }}>
-                ⚠️ Todos os diaristas com interesse ou que aceitaram serão <strong>notificados</strong> com o motivo informado abaixo.
+                ⚠️ Todos os prestadores com interesse ou que aceitaram serão <strong>notificados</strong> com o motivo informado abaixo.
               </div>
               {/* Campo de motivo obrigatório */}
               <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:6 }}>
@@ -9067,7 +9067,7 @@ export default function App() {
                     ["Horário", `${modalRecibo.horario_inicio.slice(0,5)} – ${modalRecibo.horario_fim.slice(0,5)}${horas ? ` (${horas})` : ""}`],
                     ["Local", modalRecibo.nome_negocio || modalRecibo.segmento],
                     ["Profissional", dp?.nome || "—"],
-                    ["Empregador", profile?.nome_negocio || profile?.nome || "—"],
+                    ["Anunciante", profile?.nome_negocio || profile?.nome || "—"],
                   ].map(([k, v]) => (
                     <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", padding:"8px 0", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
                       <span style={{ fontSize:13, color:"var(--text-2,#64748b)", fontWeight:600 }}>{k}</span>
@@ -9102,7 +9102,7 @@ export default function App() {
         })()}
 
         {/* Modal de pagamento do valor total da diária REMOVIDO.
-            Razão: DiáriaJá NÃO intermedia o valor da diária. O contratante
+            Razão: DiáriaJá NÃO intermedia o valor da diária. O anunciante
             paga direto pro diarista (PIX/dinheiro). A plataforma cobra
             apenas R$ 1 pela seleção extra (no grátis) + planos opcionais. */}
 
@@ -9134,7 +9134,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Pagar ao diarista */}
+                {/* Pagar ao prestador */}
                 <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:"16px 18px", marginBottom:12 }}>
                   <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:12 }}>
                     👷 Pagamento ao profissional
@@ -9163,7 +9163,7 @@ export default function App() {
                       ⏳ Carregando dados do profissional…
                     </div>
                   ) : (
-                    /* Nenhum diarista associado ainda */
+                    /* Nenhum prestador associado ainda */
                     <div style={{ background:"#fef3c7", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#92400e", marginTop:8 }}>
                       ⚠️ Nenhum profissional confirmado ainda. Aguarde o aceite para liberar os dados de pagamento.
                     </div>
@@ -9226,7 +9226,7 @@ export default function App() {
                 Você está prestes a iniciar um compromisso de prestação de serviço autônomo com <strong>{modalTermoCompromisso.nome}</strong>. Leia com atenção:
               </p>
               <ul style={{ fontSize:13, color:"#334155", lineHeight:1.7, margin:"0 0 14px 18px", padding:0 }}>
-                <li>É uma <strong>relação autônoma</strong> entre profissional independente e contratante. NÃO é vínculo de emprego (CLT) nem doméstico (LC 150/2015).</li>
+                <li>É uma <strong>relação autônoma</strong> entre prestador independente e anunciante. NÃO é vínculo de emprego (CLT) nem doméstico (LC 150/2015).</li>
                 <li>O DiáriaJá <strong>NÃO intermedia o valor da diária</strong>. Pagamento é combinado e realizado <strong>direto via PIX entre vocês</strong>, fora da plataforma, após a execução.</li>
                 <li>A plataforma cobra apenas <strong>R$ 1,00</strong> pra liberar o chat — facilitar a conexão.</li>
                 <li>Combinem todas as condições (valor, horário, local, escopo) <strong>antes</strong> da execução.</li>
@@ -9278,7 +9278,7 @@ export default function App() {
               <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
                 <div style={{ fontWeight:800, fontSize:14, color:"#166534", marginBottom:4 }}>💳 Desbloquear este contato — R$ 1,00</div>
                 <div style={{ fontSize:12, color:"#4b7c59", lineHeight:1.5, marginBottom:12 }}>
-                  Pague R$ 1 via Mercado Pago (cartão, PIX ou saldo) para selecionar mais um candidato agora.
+                  Pague R$ 1 via Mercado Pago (cartão, PIX ou saldo) para selecionar mais um interessado agora.
                 </div>
                 <button
                   style={{ width:"100%", padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: desbloqueandoContato ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.6 : 1 }}
@@ -9298,7 +9298,7 @@ export default function App() {
                       🚀 Assinar Essencial — R$ {valor.toFixed(2).replace(".", ",")}/mês
                     </div>
                     <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.5, marginBottom:12 }}>
-                      Seleções ilimitadas, IA Jájá pra criar vagas, filtros avançados e destaque moderado.
+                      Seleções ilimitadas, IA Jájá pra criar anúncios, filtros avançados e destaque moderado.
                     </div>
                     <button
                       style={{ width:"100%", padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -9328,7 +9328,7 @@ export default function App() {
               <div style={{ fontSize:32, marginBottom:6 }}>🚫</div>
               <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Bloquear {modalBloquear.nome}?</div>
               <p style={{ fontSize:13, color:"var(--text-2,#64748b)", margin:"0 0 16px", lineHeight:1.5 }}>
-                Você não verá mais conteúdo dessa pessoa em vagas, listas, chat ou candidaturas. Esta ação pode ser desfeita nas configurações.
+                Você não verá mais conteúdo dessa pessoa em anúncios, listas, chat ou interesses. Esta ação pode ser desfeita nas configurações.
               </p>
               <div style={{ display:"flex", gap:10 }}>
                 <button type="button"
@@ -9382,7 +9382,7 @@ export default function App() {
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
               <div style={{ fontSize:32, textAlign:"center", marginBottom:8 }}>⚑</div>
               <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
-                Denunciar {modalDenunciar.tipo === "vaga" ? "vaga" : "usuário"}
+                Denunciar {modalDenunciar.tipo === "vaga" ? "anúncio" : "usuário"}
               </div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:20, lineHeight:1.5 }}>
                 <strong style={{ color:"var(--text-1,#0f172a)" }}>{modalDenunciar.nome}</strong><br />
@@ -9391,7 +9391,7 @@ export default function App() {
               {/* Motivos rápidos */}
               <div style={{ display:"flex", flexDirection:"column" as const, gap:8, marginBottom:16 }}>
                 {(modalDenunciar.tipo === "vaga"
-                  ? ["Informações falsas ou enganosas", "Vaga não condiz com a realidade", "Conteúdo ofensivo ou inapropriado", "Vaga duplicada", "Outro"]
+                  ? ["Informações falsas ou enganosas", "Anúncio não condiz com a realidade", "Conteúdo ofensivo ou inapropriado", "Anúncio duplicado", "Outro"]
                   : ["Comportamento inadequado", "Perfil falso ou fraude", "Assédio ou ameaça", "Dados incorretos", "Outro"]
                 ).map(motivo => (
                   <button
@@ -9428,17 +9428,17 @@ export default function App() {
               <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 22px", width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}>
                 <div style={{ fontSize:36, textAlign:"center", marginBottom:8 }}>⏰</div>
                 <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
-                  Vaga expirou sem ninguém aceitar
+                  Anúncio expirou sem ninguém aceitar
                 </div>
                 <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:16, lineHeight:1.5 }}>
-                  Sua vaga de <strong>{vaga.funcao || vaga.segmento}</strong> em{" "}
+                  Seu anúncio de <strong>{vaga.funcao || vaga.segmento}</strong> em{" "}
                   <strong>{new Date(vaga.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong> passou do horário.
                   <br /><br />
                   Nos conte rapidinho o que aconteceu — ajuda muito a gente a melhorar.
                 </div>
                 {fila > 1 && (
                   <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginBottom:10 }}>
-                    {fila - 1} outra{fila > 2 ? "s" : ""} vaga{fila > 2 ? "s" : ""} aguardando feedback
+                    {fila - 1} outro{fila > 2 ? "s" : ""} anúncio{fila > 2 ? "s" : ""} aguardando feedback
                   </div>
                 )}
                 <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
@@ -9578,14 +9578,14 @@ export default function App() {
           );
         })()}
 
-        {/* ── Modal: Diarista aceitou a vaga ── */}
+        {/* ── Modal: Prestador aceitou o anúncio ── */}
         {alertaAceite && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:28, padding:"36px 24px 28px", width:"100%", maxWidth:380, textAlign:"center", boxShadow:"0 20px 60px rgba(0,0,0,.35)" }}>
               <div style={{ fontSize:60, marginBottom:12, lineHeight:1 }}>🎉</div>
-              <div style={{ fontWeight:900, fontSize:22, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Diarista confirmado!</div>
+              <div style={{ fontWeight:900, fontSize:22, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Prestador confirmado!</div>
               <div style={{ fontSize:14, color:"var(--text-2,#64748b)", lineHeight:1.7, marginBottom:24 }}>
-                Alguém aceitou sua vaga de<br />
+                Alguém aceitou seu anúncio de<br />
                 <strong style={{ color:"var(--text-1,#0f172a)" }}>{alertaAceite.funcao || alertaAceite.segmento}</strong>
                 {alertaAceite.data && (
                   <> em <strong style={{ color:"var(--text-1,#0f172a)" }}>{new Date(alertaAceite.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong></>
@@ -9612,7 +9612,7 @@ export default function App() {
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.92)", zIndex:200, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24 }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 20px", width:"100%", maxWidth:360, maxHeight:"92vh", overflowY:"auto" as const }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4, textAlign:"center" as const }}>📷 Escanear QR Code</div>
-              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:16 }}>Aponte a câmera traseira para o QR Code do diarista</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:16 }}>Aponte a câmera traseira para o QR Code do prestador</div>
               <QRScannerComponent
                 onResult={(id) => { setCodigoManual(""); confirmarInicio(id); }}
                 onError={(msg) => setScanMsg({ ok:false, txt:msg })}
@@ -9626,7 +9626,7 @@ export default function App() {
                 <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
               </div>
               <div style={{ fontSize:12, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:10 }}>
-                Peça ao diarista os <strong>4 dígitos</strong> que aparecem na tela dele.
+                Peça ao prestador os <strong>4 dígitos</strong> que aparecem na tela dele.
               </div>
               <input
                 aria-label="Código de 4 dígitos"
@@ -9683,7 +9683,7 @@ export default function App() {
                     : <div style={{ width:40, height:40, borderRadius:20, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, flexShrink:0 }}>{iniciais}</div>
                   }
                   <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Diarista"}</div>
+                    <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Prestador"}</div>
                     <div style={{ fontSize:11, color: outroDigitando ? "#16a34a" : "var(--text-2,#64748b)", fontWeight: outroDigitando ? 700 : 400 }}>
                       {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
                     </div>
@@ -9805,7 +9805,7 @@ export default function App() {
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"32px 20px", textAlign:"center" }}>
                   <div style={{ fontSize:40, marginBottom:10 }}>💬</div>
                   <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Nenhuma conversa ainda</div>
-                  <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>Quando um diarista aceitar sua vaga, você poderá conversar aqui.</div>
+                  <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>Quando um prestador aceitar seu anúncio, você poderá conversar aqui.</div>
                 </div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -9822,7 +9822,7 @@ export default function App() {
                           : <div style={{ width:50, height:50, borderRadius:25, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>{iniciais}</div>
                         }
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontWeight: nLidas > 0 ? 900 : 800, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Diarista"}</div>
+                          <div style={{ fontWeight: nLidas > 0 ? 900 : 800, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Prestador"}</div>
                           <div style={{ fontSize:12, color: nLidas > 0 ? "var(--text-1,#0f172a)" : "var(--text-2,#64748b)", marginTop:2, fontWeight: nLidas > 0 ? 700 : 400 }}>{dia.funcao} · {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
                         </div>
                         {nLidas > 0 && (
@@ -9871,13 +9871,13 @@ export default function App() {
                 {/* Mostra nome_negocio só se for diferente do nome; senão mostra o segmento */}
                 {profile?.nome_negocio && profile.nome_negocio !== profile?.nome
                   ? profile.nome_negocio
-                  : negocioSelecionado || "Empregador"}
+                  : negocioSelecionado || "Anunciante"}
               </div>
               {mediaEmpregadorPerfil !== null && (
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}>
                   <span style={{ fontSize:16 }}>⭐</span>
                   <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{mediaEmpregadorPerfil.toFixed(1)}</span>
-                  <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>avaliação dos diaristas</span>
+                  <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>avaliação dos prestadores</span>
                 </div>
               )}
               <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8 }}>
@@ -9930,7 +9930,7 @@ export default function App() {
                         <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
                           {(() => {
                             const n = Math.max(0, 3 - diarias.filter(d => d.created_at && d.created_at.slice(0,7) === new Date().toISOString().slice(0,7)).length);
-                            return `${n} vaga${n !== 1 ? "s" : ""} restante${n !== 1 ? "s" : ""} este mês`;
+                            return `${n} anúncio${n !== 1 ? "s" : ""} restante${n !== 1 ? "s" : ""} este mês`;
                           })()}
                         </div>
                       )}
@@ -9975,7 +9975,7 @@ export default function App() {
                   <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:8 }}>
                     <span style={{ fontSize:16 }}>⭐</span>
                     <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{mediaEmpregadorPerfil.toFixed(1)}</span>
-                    <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>avaliação dos diaristas</span>
+                    <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>avaliação dos prestadores</span>
                   </div>
                 )}
               </div>
@@ -10110,7 +10110,7 @@ export default function App() {
                     <div style={{ width:40, height:40, borderRadius:20, background:"#22c55e18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🔄</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Trocar perfil</div>
-                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Alternar entre {modoAtual === "diarista" ? "diarista e contratante" : "contratante e diarista"}</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Alternar entre {modoAtual === "diarista" ? "prestador e anunciante" : "anunciante e prestador"}</div>
                     </div>
                     <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
                   </button>
@@ -10178,7 +10178,7 @@ export default function App() {
                 <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                   <div style={{ width:44, height:44, borderRadius:22, background:negocio.cor, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>{negocio.icone}</div>
                   <div>
-                    <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>Empregador</div>
+                    <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>Anunciante</div>
                     <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>{profile?.nome_negocio || negocioSelecionado}</div>
                   </div>
                   <span style={{ marginLeft:"auto", background:"#dcfce7", color:"#16a34a", fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20 }}>✓ Ativo</span>
@@ -10209,9 +10209,9 @@ export default function App() {
                     }}>
                     <div style={{ width:44, height:44, borderRadius:22, background:"#8338EC18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>👷</div>
                     <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Diarista</div>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Prestador</div>
                       <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
-                        {profile?.funcao ? `${profile.funcao} · R$ ${profile.valor_diaria}/dia` : "Cadastrar perfil de diarista"}
+                        {profile?.funcao ? `${profile.funcao} · R$ ${profile.valor_diaria}/dia` : "Cadastrar perfil de prestador"}
                       </div>
                     </div>
                     <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
@@ -10308,10 +10308,10 @@ export default function App() {
                   <span style={{ color:"#FF6B35", cursor:"pointer" }} onClick={() => { setModalInfoPerfil(true); setBioDraft(profile?.bio || ""); }}>{primeiroNome}!</span> 👋
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
-                  <span style={{ background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>👷 Diarista</span>
+                  <span style={{ background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>👷 Prestador</span>
                   {!loading && vagasFiltradas.length > 0 && (
                     <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:600 }}>
-                      · {vagasFiltradas.length === 1 ? "1 vaga perto" : `${vagasFiltradas.length} vagas perto`}
+                      · {vagasFiltradas.length === 1 ? "1 anúncio perto" : `${vagasFiltradas.length} anúncios perto`}
                     </span>
                   )}
                 </div>
@@ -10438,7 +10438,7 @@ export default function App() {
           );
         })()}
 
-        {/* ── Banner "🔥 Vaga nova perto de você (últimas 24h)" — urgência social ── */}
+        {/* ── Banner "🔥 Anúncio novo perto de você (últimas 24h)" — urgência social ── */}
         {(() => {
           if (loading || !profile) return null;
           const agoraMs = Date.now();
@@ -10475,7 +10475,7 @@ export default function App() {
               <div style={{ fontSize:28, flexShrink:0 }}>🔥</div>
               <div style={{ flex:1, minWidth:0, color:"#fff" }}>
                 <div style={{ fontSize:13, fontWeight:900, lineHeight:1.3 }}>
-                  {vagasRecentes.length === 1 ? "Vaga nova perto de você!" : `${vagasRecentes.length} vagas novas perto de você!`}
+                  {vagasRecentes.length === 1 ? "Anúncio novo perto de você!" : `${vagasRecentes.length} anúncios novos perto de você!`}
                 </div>
                 <div style={{ fontSize:11, fontWeight:600, opacity:0.95, marginTop:2 }}>
                   {mais.funcao || mais.segmento} · R$ {Number(mais.valor).toLocaleString("pt-BR")} · há {horas}h
@@ -10497,7 +10497,7 @@ export default function App() {
                 Você foi selecionado!
               </div>
               <div style={{ fontSize:12, color:"rgba(255,255,255,.9)", marginTop:3 }}>
-                {minhasDiarias.find(d => d.status === "pendente")?.nome_negocio || "Um contratante"} escolheu você — confirme sua presença agora.
+                {minhasDiarias.find(d => d.status === "pendente")?.nome_negocio || "Um anunciante"} demonstrou interesse em você — confirme sua presença agora.
               </div>
             </div>
             <div style={{ background:"var(--bg-card,#fff)", color:"#FF6B35", fontWeight:900, fontSize:13, borderRadius:12, padding:"8px 14px", whiteSpace:"nowrap" as const, flexShrink:0 }}>
@@ -10516,8 +10516,8 @@ export default function App() {
               <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:10, boxShadow:"0 2px 10px rgba(0,0,0,.07)", border:"1.5px solid #FF6B3530" }}>
                 <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:8 }}>
                   <div>
-                    <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.contratante_nome || "Contratante"}</div>
-                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>quer contratar você para <strong>{c.funcao}</strong></div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.contratante_nome || "Anunciante"}</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>quer entrar em contato com você para <strong>{c.funcao}</strong></div>
                   </div>
                   <span style={{ background:"#fff7ed", color:"#FF6B35", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, flexShrink:0 }}>Pendente</span>
                 </div>
@@ -10595,17 +10595,17 @@ export default function App() {
               );
             })()}
 
-            {/* ── Cabeçalho com contador de novas vagas + filtros ── */}
+            {/* ── Cabeçalho com contador de novos anúncios + filtros ── */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 20px 10px" }}>
               <div>
-                <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Vagas pra você</div>
+                <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Anúncios pra você</div>
                 <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
                   {novasHoje > 0 ? (
                     <span style={{ color:"#16a34a", fontWeight:800 }}>
-                      {novasHoje === 1 ? "1 nova vaga hoje" : `${novasHoje} novas vagas hoje`} na sua região
+                      {novasHoje === 1 ? "1 novo anúncio hoje" : `${novasHoje} novos anúncios hoje`} na sua região
                     </span>
                   ) : (
-                    `${vagasFiltradas.length} ${vagasFiltradas.length === 1 ? "vaga" : "vagas"}`
+                    `${vagasFiltradas.length} ${vagasFiltradas.length === 1 ? "anúncio" : "anúncios"}`
                   )}
                 </div>
               </div>
@@ -10720,12 +10720,12 @@ export default function App() {
                     <Inbox size={36} color="var(--text-3,#94a3b8)" strokeWidth={1.5} />
                   </div>
                   <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:8 }}>
-                    {categoriasSelecionadas.length > 0 || filtroValorMin > 0 || filtroRaioKm < 50 ? "Nenhuma vaga com esses filtros" : "Por enquanto, nada por aqui 🌱"}
+                    {categoriasSelecionadas.length > 0 || filtroValorMin > 0 || filtroRaioKm < 50 ? "Nenhum anúncio com esses filtros" : "Por enquanto, nada por aqui 🌱"}
                   </div>
                   <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:20 }}>
                     {categoriasSelecionadas.length > 0 || filtroValorMin > 0 || filtroRaioKm < 50
                       ? "Tente afrouxar os filtros — talvez tenha algo bom logo ao lado."
-                      : "Vagas chegam o tempo todo. Enquanto isso, deixe seu perfil 100% completo pra aparecer no topo quando o empregador buscar."}
+                      : "Anúncios chegam o tempo todo. Enquanto isso, deixe seu perfil 100% completo pra aparecer no topo quando o anunciante buscar."}
                   </div>
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
                     {(categoriasSelecionadas.length > 0 || filtroValorMin > 0 || filtroRaioKm < 50) && (
@@ -10776,7 +10776,7 @@ export default function App() {
                       )}
                       {!vagaRecente && candDessaVaga.length >= 3 && (
                         <div style={{ position:"absolute" as const, top:10, left:10, background:"#FF6B35", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, boxShadow:"0 2px 6px rgba(255,107,53,.3)", zIndex:1 }}>
-                          🔥 {candDessaVaga.length} candidatos
+                          🔥 {candDessaVaga.length} interessados
                         </div>
                       )}
 
@@ -10788,7 +10788,7 @@ export default function App() {
                           const fotoEmpSrc = emp?.foto_url || fotoEmpStorage;
                           return (
                             <button
-                              aria-label={`Ver perfil de ${emp?.nome || dia.nome_negocio || "contratante"}`}
+                              aria-label={`Ver perfil de ${emp?.nome || dia.nome_negocio || "anunciante"}`}
                               onClick={e => { e.stopPropagation(); abrirPerfilEmpregador(dia.empregador_id); }}
                               style={{ position:"relative", width:60, height:60, flexShrink:0, padding:0, background:"transparent", border:"none", cursor:"pointer", borderRadius:30 }}>
                               <div style={{ width:60, height:60, borderRadius:30, background:cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:iniciais.length > 2 ? 18 : 22, boxShadow:`0 4px 12px ${cor}55`, letterSpacing:"-1px" }}>
@@ -10826,7 +10826,7 @@ export default function App() {
                                 if (!rep || !rep.total_avaliacoes) {
                                   return (
                                     <div style={{ display:"inline-flex", alignItems:"center", gap:4, fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:600, marginTop:3 }}>
-                                      <Clock size={11} /> Contratante novo
+                                      <Clock size={11} /> Anunciante novo
                                     </div>
                                   );
                                 }
@@ -11177,7 +11177,7 @@ export default function App() {
                     <span style={{ fontSize:28 }}>🎯</span>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Você foi selecionado!</div>
-                      <div style={{ fontSize:12, color:"rgba(255,255,255,.85)", marginTop:2 }}>Confirme sua presença para garantir a vaga</div>
+                      <div style={{ fontSize:12, color:"rgba(255,255,255,.85)", marginTop:2 }}>Confirme sua presença para garantir o anúncio</div>
                     </div>
                     <span style={{ background:"var(--bg-card,#fff)", color:"#FF6B35", fontWeight:900, fontSize:14, borderRadius:20, padding:"2px 10px" }}>{paraConfirmar.length}</span>
                   </div>
@@ -11247,7 +11247,7 @@ export default function App() {
                   <div style={{ fontSize:52, marginBottom:12 }}>📋</div>
                   <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Nenhuma diária ainda</div>
                   <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13, lineHeight:1.5 }}>
-                    Aceite vagas na aba <strong>Home</strong> e elas aparecerão aqui com seu histórico de ganhos.
+                    Aceite anúncios na aba <strong>Home</strong> e eles aparecerão aqui com seu histórico de ganhos.
                   </div>
                 </div>
               )}
@@ -11290,7 +11290,7 @@ export default function App() {
               <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                 <div>
                   <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Disponível agora</div>
-                  <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Apareça para os empregadores</div>
+                  <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Apareça para os anunciantes</div>
                 </div>
                 <div style={{ ...S.toggle, ...(disponivelAgora?S.toggleAtivo:{}) }} onClick={handleToggleDisponivel}>
                   <div style={{ ...S.toggleThumb, ...(disponivelAgora?S.toggleThumbAtivo:{}) }} />
@@ -11299,7 +11299,7 @@ export default function App() {
 
               {/* Dias disponíveis */}
               <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:20, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
-                <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Dias que costumo trabalhar</div>
+                <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Dias que costumo prestar serviço</div>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
                   {DIAS.map(dia=>(
                     <button key={dia} style={{ ...S.diaBtn, ...(agendaSelecionada.includes(dia)?S.diaBtnAtivo:{}) }} onClick={()=>handleToggleDia(dia)}>{DIAS_LABEL[dia]}</button>
@@ -11316,7 +11316,7 @@ export default function App() {
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"32px 20px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                   <div style={{ fontSize:40, marginBottom:10 }}>📭</div>
                   <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Nenhuma diária agendada</div>
-                  <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13, lineHeight:1.5 }}>Quando aceitar vagas, elas aparecerão aqui como compromissos.</div>
+                  <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13, lineHeight:1.5 }}>Quando aceitar anúncios, eles aparecerão aqui como compromissos.</div>
                 </div>
               ) : (
                 Object.entries(porMes).map(([mes, dias]) => (
@@ -11442,12 +11442,12 @@ export default function App() {
                   {/* Denunciar / bloquear contratante deste chat (UGC safety — Play Policy) */}
                   <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
                     title="Denunciar usuário" aria-label="Denunciar este usuário"
-                    onClick={() => { setModalDenunciar({ tipo:"usuario", id: chatDiariaAtiva.empregador_id, nome: chatDiariaAtiva.nome_negocio || "Contratante" }); setMotivoDenuncia(""); }}>
+                    onClick={() => { setModalDenunciar({ tipo:"usuario", id: chatDiariaAtiva.empregador_id, nome: chatDiariaAtiva.nome_negocio || "Anunciante" }); setMotivoDenuncia(""); }}>
                     🚩
                   </button>
                   <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
                     title="Bloquear usuário" aria-label="Bloquear este usuário"
-                    onClick={() => setModalBloquear({ id: chatDiariaAtiva.empregador_id, nome: chatDiariaAtiva.nome_negocio || "Contratante" })}>
+                    onClick={() => setModalBloquear({ id: chatDiariaAtiva.empregador_id, nome: chatDiariaAtiva.nome_negocio || "Anunciante" })}>
                     🚫
                   </button>
                   {!confirmExcluirChat
@@ -11549,7 +11549,7 @@ export default function App() {
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"32px 20px", textAlign:"center" }}>
                   <div style={{ fontSize:40, marginBottom:10 }}>💬</div>
                   <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Nenhuma conversa ainda</div>
-                  <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>Quando aceitar uma vaga, você poderá conversar com o empregador aqui.</div>
+                  <div style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>Quando aceitar um anúncio, você poderá conversar com o anunciante aqui.</div>
                 </div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -11867,7 +11867,7 @@ export default function App() {
                   <textarea
                     style={{ width:"100%", border:"1.5px solid #FF6B35", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, minHeight:80, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
                     value={bioDraft} onChange={e => setBioDraft(e.target.value)}
-                    placeholder="Ex: Sou diarista com 5 anos de experiência, pontual e dedicado..." autoFocus />
+                    placeholder="Ex: Sou prestador com 5 anos de experiência, pontual e dedicado..." autoFocus />
                   <div style={{ display:"flex", gap:8, marginTop:8 }}>
                     <button style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                       onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); } }}>Salvar</button>
@@ -11921,7 +11921,7 @@ export default function App() {
 
             {/* Card "Recebimento via PIX" removido — prometia intermediação que
                 a plataforma NÃO faz hoje. DiáriaJá é canal de anúncios; o
-                pagamento entre contratante e diarista é combinado entre eles.
+                pagamento entre anunciante e prestador é combinado entre eles.
                 O Mercado Pago é usado apenas pra cobrança da taxa da plataforma. */}
 
             {/* Card "Mudar para modo Empregador" removido — duplicava a ação
@@ -12040,7 +12040,7 @@ export default function App() {
                   ) : !enderecoLiberado && (
                     <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:12, padding:"12px 14px", marginBottom:14, display:"flex", gap:10, alignItems:"center" }}>
                       <span style={{ fontSize:20 }}>🔒</span>
-                      <div style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>Endereço liberado apenas após aceitar a vaga</div>
+                      <div style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>Endereço liberado apenas após aceitar o anúncio</div>
                     </div>
                   )}
 
@@ -12068,7 +12068,7 @@ export default function App() {
             <div style={S.modal}>
               <h3 style={S.modalTitle}>🚪 Desistir da diária?</h3>
               <p style={S.modalText}>
-                Ao desistir, a vaga ficará <strong>disponível para outros diaristas</strong>. O contratante será notificado.
+                Ao desistir, o anúncio ficará <strong>disponível para outros prestadores</strong>. O anunciante será notificado.
               </p>
               <div style={{ ...S.modalRow, flexDirection:"column" as const, alignItems:"flex-start", gap:4 }}>
                 <span style={{ fontWeight:700, fontSize:13, color:"var(--text-1,#0f172a)" }}>{modalDesistir.nome_negocio || modalDesistir.segmento}</span>
@@ -12097,7 +12097,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Modal aceitar vaga ── */}
+        {/* ── Modal aceitar anúncio ── */}
         {vagaConfirm && (
           <div style={S.modalOverlay}>
             <div style={S.modal}>
@@ -12109,7 +12109,7 @@ export default function App() {
                       <div style={{ fontSize:52, textAlign:"center", marginBottom:8 }}>🎯</div>
                       <h3 style={{ ...S.modalTitle, textAlign:"center" }}>Você foi selecionado!</h3>
                       <p style={{ ...S.modalText, textAlign:"center" }}>
-                        O contratante <strong>{vagaConfirm.nome_negocio || vagaConfirm.segmento}</strong> escolheu você. Confirme sua presença para garantir a vaga.
+                        O anunciante <strong>{vagaConfirm.nome_negocio || vagaConfirm.segmento}</strong> demonstrou interesse em você. Confirme sua presença para garantir o anúncio.
                       </p>
                       <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"12px 14px", marginBottom:14 }}>
                         {[
@@ -12139,10 +12139,10 @@ export default function App() {
                     /* Modal de interesse */
                     <>
                       <h3 style={S.modalTitle}>✋ Demonstrar interesse</h3>
-                      {/* Foto + nome do empregador */}
+                      {/* Foto + nome do anunciante */}
                       {(() => {
                         const emp = empregadoresProfiles[vagaConfirm.empregador_id];
-                        const empNome = emp?.nome || vagaConfirm.nome_negocio || vagaConfirm.segmento || "Contratante";
+                        const empNome = emp?.nome || vagaConfirm.nome_negocio || vagaConfirm.segmento || "Anunciante";
                         const empIniciais = empNome.split(" ").filter(Boolean).map((n:string)=>n[0]).join("").slice(0,2).toUpperCase();
                         const segInfo = CATEGORIAS_NEGOCIO[vagaConfirm.segmento as keyof typeof CATEGORIAS_NEGOCIO];
                         const cor = segInfo?.cor || "#FF6B35";
@@ -12161,13 +12161,13 @@ export default function App() {
                           </div>
                         );
                       })()}
-                      {/* Bloco de reputação do contratante */}
+                      {/* Bloco de reputação do anunciante */}
                       {(() => {
                         const rep = reputacaoEmp[vagaConfirm.empregador_id];
                         if (!rep || !rep.total_avaliacoes) {
                           return (
                             <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:12, color:"var(--text-2,#64748b)" }}>
-                              🆕 <strong>Contratante novo</strong> — ainda não tem avaliações de outros diaristas.
+                              🆕 <strong>Anunciante novo</strong> — ainda não tem avaliações de outros prestadores.
                             </div>
                           );
                         }
@@ -12181,7 +12181,7 @@ export default function App() {
                           }}>
                             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
                               <strong style={{ fontSize:13, color: alerta ? "#991b1b" : "#9a4218" }}>
-                                Reputação do contratante
+                                Reputação do anunciante
                               </strong>
                               <span style={{ fontSize:14, fontWeight:900, color: alerta ? "#991b1b" : "#d97706" }}>
                                 ★ {rep.nota_media?.toFixed?.(1) ?? rep.nota_media} <span style={{ color:"var(--text-3,#94a3b8)", fontSize:11, fontWeight:600 }}>· {rep.total_avaliacoes} avaliações</span>
@@ -12207,7 +12207,7 @@ export default function App() {
                             </div>
                             {alerta && (
                               <div style={{ marginTop:10, fontSize:11, color:"#991b1b", fontWeight:700, lineHeight:1.4 }}>
-                                ⚠️ Outros diaristas relataram problemas — leia as avaliações antes de aceitar.
+                                ⚠️ Outros prestadores relataram problemas — leia as avaliações antes de aceitar.
                               </div>
                             )}
                             <button
@@ -12219,19 +12219,19 @@ export default function App() {
                                 color: alerta ? "#991b1b" : "#9a4218",
                                 borderRadius:10, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif",
                               }}>
-                              👤 Ver perfil completo do contratante
+                              👤 Ver perfil completo do anunciante
                             </button>
                           </div>
                         );
                       })()}
                       <p style={S.modalText}>
-                        Ao demonstrar interesse, o contratante receberá seu perfil e poderá te selecionar para a vaga.
+                        Ao demonstrar interesse, o anunciante receberá seu perfil e poderá te selecionar para o anúncio.
                       </p>
                       <div style={S.modalRow}><span>Local</span><strong>{vagaConfirm.nome_negocio || vagaConfirm.segmento}</strong></div>
                       <div style={S.modalRow}><span>Função</span><strong>{vagaConfirm.funcao || "—"}</strong></div>
                       <div style={S.modalRow}><span>Data</span><strong>{new Date(vagaConfirm.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong></div>
                       <div style={S.modalRow}><span>Horário</span><strong>{vagaConfirm.horario_inicio.slice(0,5)} – {vagaConfirm.horario_fim.slice(0,5)}</strong></div>
-                      {/* Distância até a vaga */}
+                      {/* Distância até o anúncio */}
                       {profile?.lat && profile?.lng && vagaConfirm.lat && vagaConfirm.lng && (() => {
                         const km = haversineKm(profile.lat!, profile.lng!, vagaConfirm.lat!, vagaConfirm.lng!);
                         const txt = `${formatarDistancia(km)} · ~${formatarTempo(tempoEstimadoMin(km))} de moto`;
@@ -12244,7 +12244,7 @@ export default function App() {
                         <strong style={{ color:"#FF6B35", fontSize:17 }}>R$ {vagaConfirm.valor}/dia</strong>
                       </div>
                       <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", marginTop:12 }}>
-                        💡 O endereço completo só será revelado após o contratante te selecionar e você confirmar a presença.
+                        💡 O endereço completo só será revelado após o anunciante demonstrar interesse e você confirmar a presença.
                       </div>
                       {authError && <p style={S.errorText}>{authError}</p>}
                       <button style={{ ...S.btnPrimary, background:"#FF6B35", marginTop:16 }} onClick={() => demonstrarInteresse(vagaConfirm)}>
@@ -12260,7 +12260,7 @@ export default function App() {
                 <div style={{ ...S.sucesso, textAlign:"center" }}>
                   <div style={{ fontSize:52 }}>🙌</div>
                   <h3 style={S.modalTitle}>Interesse registrado!</h3>
-                  <p style={S.modalText}>O contratante receberá seu perfil. Se ele te selecionar, você será notificado para confirmar a presença.</p>
+                  <p style={S.modalText}>O anunciante receberá seu perfil. Se ele demonstrar interesse em você, você será notificado para confirmar a presença.</p>
                   <button style={{ ...S.btnPrimary, background:"#FF6B35" }}
                     onClick={() => { setVagaConfirm(null); setVagaConfirmada(false); setAuthError(""); }}>
                     Entendido 👍
@@ -12277,7 +12277,7 @@ export default function App() {
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
               <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✕ Cancelar diária</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20, lineHeight:1.6 }}>
-                Informe o motivo para <strong>{modalCancelar.nome_negocio || modalCancelar.segmento}</strong>. O contratante será notificado.
+                Informe o motivo para <strong>{modalCancelar.nome_negocio || modalCancelar.segmento}</strong>. O anunciante será notificado.
               </div>
               <textarea
                 style={{ width:"100%", padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", resize:"none" as const, boxSizing:"border-box" as const, outline:"none", marginBottom:16, height:120 }}
@@ -12313,7 +12313,7 @@ export default function App() {
                   Como foi trabalhar com {empNome}?
                 </div>
                 <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:18, lineHeight:1.5 }}>
-                  Sua avaliação ajuda outros diaristas a decidirem se aceitam vagas desse contratante.
+                  Sua avaliação ajuda outros prestadores a decidirem se aceitam anúncios desse anunciante.
                 </div>
                 {fila > 1 && (
                   <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginBottom:10 }}>
@@ -12397,9 +12397,9 @@ export default function App() {
         {modalAvalEmp && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
-              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>⭐ Avaliar empregador</div>
+              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>⭐ Avaliar anunciante</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20 }}>
-                Como foi trabalhar em <strong>{modalAvalEmp.nome_negocio || modalAvalEmp.segmento}</strong>?
+                Como foi prestar serviço em <strong>{modalAvalEmp.nome_negocio || modalAvalEmp.segmento}</strong>?
               </div>
               {/* Estrelas */}
               <div style={{ display:"flex", justifyContent:"center", gap:12, marginBottom:20 }}>
@@ -12445,7 +12445,7 @@ export default function App() {
               </div>
               {/* Instrução */}
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16, lineHeight:1.5 }}>
-                Mostre este código ao <strong>contratante</strong>. Ao escanear, ele confirma sua chegada e <strong>libera o contato entre vocês</strong>.
+                Mostre este código ao <strong>anunciante</strong>. Ao escanear, ele confirma sua chegada e <strong>libera o contato entre vocês</strong>.
               </div>
               {/* QR */}
               <div style={{ display:"flex", justifyContent:"center", background:"var(--bg-surface,#f8fafc)", borderRadius:16, padding:20, marginBottom:16 }}>
@@ -12462,7 +12462,7 @@ export default function App() {
               {/* Código de 4 dígitos — fallback quando câmera não funciona */}
               <div style={{ background:"#0f172a", borderRadius:16, padding:"16px 14px", marginBottom:16 }}>
                 <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.7, marginBottom:10 }}>
-                  Ou fale este código ao contratante
+                  Ou fale este código ao anunciante
                 </div>
                 <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:8 }}>
                   {codigoPresenca(qrDiaria.id).split("").map((d, i) => (
@@ -12472,7 +12472,7 @@ export default function App() {
                   ))}
                 </div>
                 <div style={{ fontSize:11, color:"#94a3b8", lineHeight:1.4 }}>
-                  O contratante digita no app para confirmar sua chegada
+                  O anunciante digita no app para confirmar sua chegada
                 </div>
               </div>
               {/* Info da diária */}
@@ -12597,7 +12597,7 @@ export default function App() {
                     <div style={{ width:40, height:40, borderRadius:20, background:"#22c55e18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🔄</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Trocar perfil</div>
-                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Alternar entre {modoAtual === "diarista" ? "diarista e contratante" : "contratante e diarista"}</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Alternar entre {modoAtual === "diarista" ? "prestador e anunciante" : "anunciante e prestador"}</div>
                     </div>
                     <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
                   </button>
@@ -12665,7 +12665,7 @@ export default function App() {
                 <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                   <div style={{ width:44, height:44, borderRadius:22, background:"#FF6B3518", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>👷</div>
                   <div>
-                    <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>Diarista</div>
+                    <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>Prestador</div>
                     <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>{profile?.funcao || "—"}{profile?.valor_diaria ? ` · R$ ${profile.valor_diaria}/dia` : ""}</div>
                   </div>
                   <span style={{ marginLeft:"auto", background:"#dcfce7", color:"#16a34a", fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20 }}>✓ Ativo</span>
@@ -12689,9 +12689,9 @@ export default function App() {
                   }}>
                   <div style={{ width:44, height:44, borderRadius:22, background:"#3A86FF18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>🏢</div>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Empregador</div>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Anunciante</div>
                     <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
-                      {profile?.nome_negocio ? `${profile.nome_negocio} · ${profile.segmento}` : "Cadastrar perfil de empregador"}
+                      {profile?.nome_negocio ? `${profile.nome_negocio} · ${profile.segmento}` : "Cadastrar perfil de anunciante"}
                     </div>
                   </div>
                   <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
@@ -12749,12 +12749,12 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Modal Filtro de Vagas ── */}
+        {/* ── Modal Filtro de Anúncios ── */}
         {modalFiltro && (
           <div style={S.modalOverlay} onClick={() => setModalFiltro(false)}>
             <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
-              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:20 }}>⚙️ Filtrar vagas</div>
+              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:20 }}>⚙️ Filtrar anúncios</div>
               <div style={{ fontWeight:700, fontSize:13, color:"var(--text-2,#64748b)", marginBottom:10 }}>📅 Data</div>
               <div style={{ display:"flex", gap:8, marginBottom:20 }}>
                 {(["todas","hoje","amanha"] as const).map(v => (
@@ -13074,7 +13074,7 @@ export default function App() {
 
       <label style={S.label}>Seu CEP (para cálculo de distância)</label>
       <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-2px 0 6px", lineHeight:1.5 }}>
-        Usamos seu CEP para mostrar vagas próximas a você. Não compartilhamos seu endereço exato.
+        Usamos seu CEP para mostrar anúncios próximos a você. Não compartilhamos seu endereço exato.
       </p>
       {/* CEP com busca automática ao completar os 8 dígitos */}
       <div style={{ position:"relative" as const, marginBottom:4 }}>
@@ -13107,9 +13107,9 @@ export default function App() {
         <p style={{ fontSize:12, color:"#16a34a", marginBottom:8 }}>✅ Localização já salva no perfil</p>
       )}
 
-      {/* Portfólio de trabalhos */}
+      {/* Portfólio de serviços */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", margin:"20px 0 8px", textTransform:"uppercase" as const, letterSpacing:0.5 }}>📸 Portfólio (até 3 fotos)</div>
-      <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 12px" }}>Fotos de trabalhos anteriores aumentam suas chances de contratação</p>
+      <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 12px" }}>Fotos de serviços anteriores aumentam suas chances de contato</p>
       <div style={{ display:"flex", gap:10, marginBottom:16 }}>
         {portfolioUrls.map((url, i) => (
           <div key={i} style={{ position:"relative", width:88, height:88, flexShrink:0 }}>
@@ -13213,7 +13213,7 @@ export default function App() {
             Informe seu CEP
           </h2>
           <p style={{ color:"var(--text-3,#94a3b8)", textAlign:"center", fontSize:14, lineHeight:1.6, marginBottom:20 }}>
-            Usamos seu CEP para mostrar vagas e profissionais próximos a você. Não compartilhamos seu endereço exato.
+            Usamos seu CEP para mostrar anúncios e profissionais próximos a você. Não compartilhamos seu endereço exato.
           </p>
 
           {/* CEP input */}
@@ -13296,7 +13296,7 @@ export default function App() {
             )}
             {emp.plano_ativo && emp.plano_ativo !== "gratis" && (
               <div style={{ display:"inline-block", marginTop:8, background:"#dbeafe", color:"#1d4ed8", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800 }}>
-                ✅ Contratante verificado
+                ✅ Anunciante verificado
               </div>
             )}
           </div>
@@ -13313,7 +13313,7 @@ export default function App() {
             {!rep || !rep.total_avaliacoes ? (
               <div style={{ display:"flex", gap:8, alignItems:"flex-start", fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
                 <Clock size={16} style={{ flexShrink:0, marginTop:2 }} />
-                <span>Contratante novo — nenhuma avaliação ainda. Vá com cautela e combine tudo por escrito antes.</span>
+                <span>Anunciante novo — nenhuma avaliação ainda. Vá com cautela e combine tudo por escrito antes.</span>
               </div>
             ) : (
               <>
@@ -13349,7 +13349,7 @@ export default function App() {
                 {alerta && (
                   <div style={{ display:"flex", gap:8, alignItems:"flex-start", marginTop:10, fontSize:12, color:"#991b1b", fontWeight:700, lineHeight:1.4 }}>
                     <AlertTriangle size={14} style={{ flexShrink:0, marginTop:2 }} />
-                    <span>Outros diaristas relataram problemas. Leia os comentários abaixo antes de aceitar.</span>
+                    <span>Outros prestadores relataram problemas. Leia os comentários abaixo antes de aceitar.</span>
                   </div>
                 )}
               </>
@@ -13359,7 +13359,7 @@ export default function App() {
           {/* Comentários */}
           <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"16px 18px", marginTop:14, boxShadow:"0 2px 12px rgba(0,0,0,.07)" }}>
             <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:10 }}>
-              Comentários de outros diaristas
+              Comentários de outros prestadores
             </div>
             {carregandoEmpAberto ? (
               <div style={{ display:"flex", flexDirection:"column", gap:10 }} aria-busy="true" aria-label="Carregando avaliações">
@@ -13831,8 +13831,8 @@ export default function App() {
         <button style={S.back} onClick={() => { setAuthError(""); setTela("home-empregador"); }}>← Voltar</button>
         <div style={{ textAlign:"center", margin:"8px 0 24px" }}>
           <div style={{ fontSize:48 }}>👷</div>
-          <h2 style={{ ...S.pageTitle, marginBottom:4 }}>Perfil de Diarista</h2>
-          <p style={{ color:"var(--text-2,#64748b)", fontSize:13, margin:0 }}>Preencha seus dados para aparecer como diarista disponível.</p>
+          <h2 style={{ ...S.pageTitle, marginBottom:4 }}>Perfil de Prestador</h2>
+          <p style={{ color:"var(--text-2,#64748b)", fontSize:13, margin:0 }}>Preencha seus dados para aparecer como prestador disponível.</p>
         </div>
 
         <label style={S.label}>Sua especialidade *</label>
@@ -13882,8 +13882,8 @@ export default function App() {
         <button style={S.back} onClick={() => { setAuthError(""); setNegocio(null); setTela("home-diarista"); }}>← Voltar</button>
         <div style={{ textAlign:"center", margin:"8px 0 24px" }}>
           <div style={{ fontSize:48 }}>🏢</div>
-          <h2 style={{ ...S.pageTitle, marginBottom:4 }}>Perfil de Empregador</h2>
-          <p style={{ color:"var(--text-2,#64748b)", fontSize:13, margin:0 }}>Preencha os dados do seu negócio para publicar vagas.</p>
+          <h2 style={{ ...S.pageTitle, marginBottom:4 }}>Perfil de Anunciante</h2>
+          <p style={{ color:"var(--text-2,#64748b)", fontSize:13, margin:0 }}>Preencha os dados do seu negócio para publicar anúncios.</p>
         </div>
 
         <label style={S.label}>Nome do negócio *</label>
@@ -13920,7 +13920,7 @@ export default function App() {
               setTela("home-empregador");
             }
           }}>
-          ✅ Salvar e usar como Empregador
+          ✅ Salvar e usar como Anunciante
         </button>
       </div>
     );
@@ -13969,7 +13969,7 @@ export default function App() {
           </div>
           <div style={{ fontSize:22, fontWeight:900, lineHeight:1.2 }}>Nova Diária</div>
           <div style={{ fontSize:13, opacity:0.85, marginTop:4 }}>
-            Preencha todos os campos — o endereço só será revelado ao diarista após ele aceitar.
+            Preencha todos os campos — o endereço só será revelado ao prestador após ele aceitar.
           </div>
         </div>
 
@@ -14008,12 +14008,12 @@ export default function App() {
             <Secao icone="🏍️" titulo="Informações de Delivery" sub="Preencha os valores para o entregador" />
 
             <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:14, padding:"12px 14px", marginBottom:16, fontSize:13, color:"#92400e", lineHeight:1.6 }}>
-              <strong>💡 Como funciona:</strong> O <em>valor por encostada</em> é a taxa de conexão paga ao DiáriaJá por cada entregador alocado. Os demais valores são informativos para o entregador estimar o ganho do dia.
+              <strong>💡 Como funciona:</strong> O <em>valor por encostada</em> é a taxa de conexão paga à DiáriaJá por cada entregador alocado. Os demais valores são informativos para o entregador estimar o ganho do dia.
             </div>
 
             <label style={S.label}>Valor por encostada (R$) *</label>
             <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px" }}>
-              Taxa de alocação cobrada pelo DiáriaJá por entregador contratado.
+              Taxa de alocação cobrada pela DiáriaJá por entregador alocado.
             </p>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
@@ -14028,7 +14028,7 @@ export default function App() {
 
             <label style={{ ...S.label, marginTop:12 }}>Valor médio por entrega (R$)</label>
             <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px" }}>
-              Quanto o entregador receberá por pedido (motoboys visualizam isso na vaga).
+              Quanto o entregador receberá por pedido (motoboys visualizam isso no anúncio).
             </p>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
@@ -14150,13 +14150,13 @@ export default function App() {
         })()}
 
         {/* ── SEÇÃO 4: Local (privado até aceitar) ── */}
-        <Secao icone="🔒" titulo="Local da diária" sub="Só revelado ao diarista após ele aceitar" />
+        <Secao icone="🔒" titulo="Local da diária" sub="Só revelado ao prestador após ele aceitar" />
 
         {/* Aviso de privacidade */}
         <div style={{ background:"#fef3c7", border:"1.5px solid #fde68a", borderRadius:12, padding:"10px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"flex-start" }}>
           <span style={{ fontSize:16, flexShrink:0 }}>🔒</span>
           <div style={{ fontSize:12, color:"#92400e", lineHeight:1.5 }}>
-            <strong>Endereço privado:</strong> o diarista só verá o endereço completo e a localização no mapa depois de aceitar a vaga. Na listagem pública aparece apenas <em>"Endereço liberado após aceitar"</em>.
+            <strong>Endereço privado:</strong> o prestador só verá o endereço completo e a localização no mapa depois de aceitar o anúncio. Na listagem pública aparece apenas <em>"Endereço liberado após aceitar"</em>.
           </div>
         </div>
 
@@ -14253,7 +14253,7 @@ export default function App() {
             <span style={{ fontSize:18 }}>✅</span>
             <div>
               <span style={{ fontSize:13, fontWeight:700, color:"#16a34a" }}>Localização obtida pelo CEP</span>
-              <p style={{ fontSize:11, color:"#15803d", margin:"2px 0 0" }}>O diarista poderá abrir o endereço no mapa</p>
+              <p style={{ fontSize:11, color:"#15803d", margin:"2px 0 0" }}>O prestador poderá abrir o endereço no mapa</p>
             </div>
           </div>
         ) : buscandoCEP ? (
@@ -14334,7 +14334,7 @@ export default function App() {
         const nivel = (temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico";
         const nivelLabel = nivel === "confiavel" ? "Confiável" : nivel === "verificado" ? "Verificado" : "Básico";
         const nivelCor = nivel === "confiavel" ? "#16a34a" : nivel === "verificado" ? "#3A86FF" : "#94a3b8";
-        const nivelDesc = nivel === "confiavel" ? "Selo máximo — diaristas confiam mais em você"
+        const nivelDesc = nivel === "confiavel" ? "Selo máximo — prestadores confiam mais em você"
                         : nivel === "verificado" ? "Falta enviar RG/CNH pra virar Confiável"
                         : "Verifique telefone pra subir pra Verificado";
         const Linha = (icone: string, label: string, statusTxt: string, statusCor: string, acao: () => void, podeAcao: boolean) => (
@@ -14421,7 +14421,7 @@ export default function App() {
           <div style={{ fontWeight:700, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:4 }}>
             {fotoUrl ? "✅ Foto adicionada!" : "Adicione uma foto"}
           </div>
-          <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, lineHeight:1.4 }}>Aparece no card da vaga para os diaristas</div>
+          <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:8, lineHeight:1.4 }}>Aparece no card do anúncio para os prestadores</div>
           <label style={{ display:"inline-block", padding:"8px 16px", background:fotoUrl ? "#f0fdf4" : (negocio?.cor||"#FF6B35"), color:fotoUrl ? "#16a34a" : "#fff", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer" }}>
             {uploadingFoto ? "Enviando..." : fotoUrl ? "Trocar foto" : "📷 Escolher foto"}
             <input type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }} onChange={e=>e.target.files?.[0]&&handleFotoUpload(e.target.files[0])} />
@@ -14743,8 +14743,8 @@ export default function App() {
               <CardComparacao
                 titulo="Tipos de usuário"
                 dados={[
-                  { label:"Diaristas", valor: adminExtras.total_diaristas, cor:"#FF6B35" },
-                  { label:"Empregadores PF", valor: Math.max(0, adminExtras.total_empregadores - adminExtras.total_pj), cor:"#3A86FF" },
+                  { label:"Prestadores", valor: adminExtras.total_diaristas, cor:"#FF6B35" },
+                  { label:"Anunciantes PF", valor: Math.max(0, adminExtras.total_empregadores - adminExtras.total_pj), cor:"#3A86FF" },
                   { label:"Empresas PJ", valor: adminExtras.total_pj, cor:"#a855f7" },
                 ]}
               />
@@ -14843,7 +14843,7 @@ export default function App() {
                         {d.nome || "Usuário"}
                       </div>
                       <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
-                        {d.user_type === "diarista" ? "👷 Diarista" : "🏢 Contratante"} · Enviou {d.documento_enviado_em ? new Date(d.documento_enviado_em).toLocaleDateString("pt-BR") : "—"}
+                        {d.user_type === "diarista" ? "👷 Prestador" : "🏢 Anunciante"} · Enviou {d.documento_enviado_em ? new Date(d.documento_enviado_em).toLocaleDateString("pt-BR") : "—"}
                       </div>
                     </div>
                     <span style={{ background:"rgba(245,158,11,.18)", color:"#f59e0b", fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>Revisar</span>
@@ -14876,7 +14876,7 @@ export default function App() {
                         {d.nome || "Usuário"}
                       </div>
                       <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
-                        {d.user_type === "diarista" ? "👷 Diarista" : "🏢 Contratante"} · Enviou {d.antecedentes_enviado_em ? new Date(d.antecedentes_enviado_em).toLocaleDateString("pt-BR") : "—"}
+                        {d.user_type === "diarista" ? "👷 Prestador" : "🏢 Anunciante"} · Enviou {d.antecedentes_enviado_em ? new Date(d.antecedentes_enviado_em).toLocaleDateString("pt-BR") : "—"}
                       </div>
                     </div>
                     <span style={{ background:"rgba(245,158,11,.18)", color:"#f59e0b", fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>Revisar</span>
@@ -15190,7 +15190,7 @@ export default function App() {
     const statusInfo: Record<string, { cor: string; icone: string; titulo: string; sub: string }> = {
       nao_enviado: { cor:"#94a3b8", icone:"📋", titulo:"Certidão ainda não enviada", sub:"Envie o PDF da sua certidão negativa de antecedentes criminais pra ganhar o selo extra de confiança." },
       enviado:     { cor:"#f59e0b", icone:"🔍", titulo:"Em análise",                 sub:"A equipe está conferindo a certidão. Você recebe um aviso em até 24h." },
-      aprovado:    { cor:"#16a34a", icone:"✅", titulo:"Certidão aprovada",          sub:"Você tem o selo de Antecedentes verificados — contratantes confiam mais em você." },
+      aprovado:    { cor:"#16a34a", icone:"✅", titulo:"Certidão aprovada",          sub:"Você tem o selo de Antecedentes verificados — anunciantes confiam mais em você." },
       rejeitado:   { cor:"#ef4444", icone:"❌", titulo:"Certidão rejeitada",         sub: profile?.antecedentes_motivo_rejeicao || "Reenvie com mais qualidade ou dentro da validade (90 dias)." },
     };
     const info = statusInfo[antStatus];
@@ -15507,8 +15507,8 @@ export default function App() {
               <div>
                 <span style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{topicoAtivo.autor_nome}</span>
                 <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginLeft:6 }}>• {agoraStr(topicoAtivo.created_at)}</span>
-                {topicoAtivo.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Diarista</span>}
-                {topicoAtivo.autor_tipo === "empregador" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Contratante</span>}
+                {topicoAtivo.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Prestador</span>}
+                {topicoAtivo.autor_tipo === "empregador" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Anunciante</span>}
               </div>
               {isAdmin && (
                 <div style={{ display:"flex", gap:6 }}>
@@ -15540,8 +15540,8 @@ export default function App() {
                 <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
                   <div>
                     <span style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)" }}>{c.autor_nome}</span>
-                    {c.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Diarista</span>}
-                    {c.autor_tipo === "empregador" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Contratante</span>}
+                    {c.autor_tipo === "diarista" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Prestador</span>}
+                    {c.autor_tipo === "empregador" && <span style={{ marginLeft:6, background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>Anunciante</span>}
                     {isAdmin && <span style={{ marginLeft:6, background:"#fef3c715", color:"#d97706", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>👑 Admin</span>}
                     <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginLeft:6 }}>• {agoraStr(c.created_at)}</span>
                   </div>
@@ -15740,7 +15740,7 @@ export default function App() {
             <div style={{ fontSize:44, marginBottom:10 }}>🚀</div>
             <div style={{ fontSize:26, fontWeight:900, color:"#fff", lineHeight:1.2, marginBottom:8 }}>Escolha seu plano</div>
             <div style={{ fontSize:14, color:"var(--text-3,#94a3b8)", lineHeight:1.6 }}>
-              {isEmp ? "Publique mais vagas e encontre os melhores profissionais de CG." : "Apareça em primeiro e receba mais oportunidades de trabalho."}
+              {isEmp ? "Publique mais anúncios e encontre os melhores profissionais de CG." : "Apareça em primeiro e receba mais oportunidades de serviço."}
             </div>
             {planoAtivo !== "gratis" && (
               <div style={{ display:"inline-block", background:"rgba(255,107,53,.2)", border:"1px solid rgba(255,107,53,.4)", borderRadius:20, padding:"5px 16px", fontSize:12, color:"#FF6B35", fontWeight:800, marginTop:12 }}>
@@ -15841,7 +15841,7 @@ export default function App() {
         </div>
 
         <p style={{ textAlign:"center", color:"#334155", fontSize:11, margin:"20px 24px 0", lineHeight:1.6 }}>
-          Os planos são gerenciados pelo Mercado Pago. O DiáriaJá não armazena dados de cartão.
+          Os planos são gerenciados pelo Mercado Pago. A DiáriaJá não armazena dados de cartão.
         </p>
       </div>
     );

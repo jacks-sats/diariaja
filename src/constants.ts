@@ -145,13 +145,13 @@ export const PLANOS_EMPREGADOR = [
     id: "gratis", nome: "Grátis", valor: 0, cor: "#64748b",
     vagas_mes: Infinity,
     matches_gratis_mes: 3,                 // até 3 seleções/mês; após R$1 por extra
-    descricao: "Pra começar a contratar sem custo",
+    descricao: "Pra começar a publicar anúncios sem custo",
     recursos: [
-      "Vagas ilimitadas",
-      "Até 5 candidatos por vaga",
-      "3 matches grátis por mês",
-      "Depois disso, R$ 1 por seleção extra",
-      "Chat liberado só após match confirmado",
+      "Anúncios ilimitados",
+      "Até 5 interessados por anúncio",
+      "3 conexões grátis por mês",
+      "Depois disso, R$ 1 por contato extra",
+      "Chat liberado só após conexão confirmada",
     ],
     destaque: false, badge: false,
   },
@@ -159,15 +159,15 @@ export const PLANOS_EMPREGADOR = [
     id: "essencial", nome: "Essencial", valor: 24.90, cor: "#3A86FF",
     vagas_mes: Infinity,
     matches_gratis_mes: Infinity,
-    descricao: "Pra quem contrata com frequência",
+    descricao: "Pra quem publica anúncios com frequência",
     recursos: [
       "Tudo do Grátis",
-      "Matches ilimitados (sem R$1)",
-      "IA Jájá pra criar vagas em segundos",
+      "Conexões ilimitadas (sem R$1)",
+      "IA Jájá pra criar anúncios em segundos",
       "Filtros avançados",
-      "Favoritos de diaristas",
-      "Histórico de contratações",
-      "Destaque moderado nas vagas",
+      "Prestadores favoritos",
+      "Histórico de contatos",
+      "Destaque moderado nos anúncios",
     ],
     destaque: false, badge: true, popular: true,
   },
@@ -175,16 +175,16 @@ export const PLANOS_EMPREGADOR = [
     id: "plus", nome: "Plus", valor: 49.90, cor: "#FF6B35",
     vagas_mes: Infinity,
     matches_gratis_mes: Infinity,
-    descricao: "Pra empresas e contratação recorrente",
+    descricao: "Pra empresas e divulgação recorrente de anúncios",
     recursos: [
       "Tudo do Essencial",
-      "Prioridade máxima nas vagas (topo da lista)",
-      "Vagas impulsionadas",
+      "Prioridade máxima nos anúncios (topo da lista)",
+      "Anúncios impulsionados",
       "Convites diretos ilimitados",
-      "Automações de vagas recorrentes",
+      "Automações de anúncios recorrentes",
       "Multi-endereço",
       "Relatórios simples",
-      "Selo Contratante Verificado",
+      "Selo Anunciante Verificado",
     ],
     destaque: true, badge: true, popular: false,
   },
@@ -195,8 +195,8 @@ export const PLANOS_DIARISTA = [
     id: "gratis", nome: "Grátis", valor: 0, cor: "#64748b",
     descricao: "Use completo, sem limite de tempo",
     recursos: [
-      "Candidaturas ilimitadas",
-      "Receber matches",
+      "Demonstrações de interesse ilimitadas",
+      "Receber conexões",
       "Chat após confirmação",
       "Curso interno (Já Decola)",
       "Níveis de confiança",
@@ -213,7 +213,7 @@ export const PLANOS_DIARISTA = [
       "Selo Profissional no perfil",
       "IA assistente pra montar bio e respostas",
       "Boost semanal de visibilidade",
-      "Notificações antecipadas de vagas",
+      "Notificações antecipadas de anúncios",
     ],
     destaque: false, badge: true, popular: true,
   },
@@ -243,7 +243,7 @@ export const DIAS_LABEL: Record<string, string> = {
   seg: "Seg", ter: "Ter", qua: "Qua", qui: "Qui", sex: "Sex", sab: "Sáb", dom: "Dom",
 };
 
-// Máximo de candidatos visíveis na listagem do empregador
+// Máximo de interessados visíveis na listagem do anunciante
 export const MAX_INTERESSADOS = 5;
 
 // ── Cores de avatar (background, foreground) ─────────────────────────────────
@@ -259,12 +259,12 @@ export const TODAS_AS_FUNCOES = ["Todos", ...Array.from(new Set(
   Object.values(CATEGORIAS_NEGOCIO).flatMap(cat => [...cat.funcoes])
 )).sort()];
 
-// ── Motivos de vaga expirada (oferecidos no modal de feedback) ───────────────
+// ── Motivos de anúncio expirado (oferecidos no modal de feedback) ────────────
 export const MOTIVOS_VAGA_EXPIRADA: { id: string; label: string; emoji: string }[] = [
-  { id: "sem_candidatos", label: "Ninguém se candidatou",                 emoji: "🦗" },
+  { id: "sem_candidatos", label: "Ninguém demonstrou interesse",          emoji: "🦗" },
   { id: "valor_baixo",    label: "Acho que o valor estava baixo",         emoji: "💸" },
   { id: "data_passou",    label: "Esqueci de selecionar a tempo",         emoji: "⏰" },
-  { id: "desisti",        label: "Desisti de contratar dessa vez",        emoji: "🤷" },
-  { id: "contratei_fora", label: "Acabei contratando alguém fora do app", emoji: "🚪" },
+  { id: "desisti",        label: "Desisti de buscar prestador dessa vez", emoji: "🤷" },
+  { id: "contratei_fora", label: "Acabei conectando com alguém fora do app", emoji: "🚪" },
   { id: "outro",          label: "Outro motivo (descrever)",              emoji: "✏️"  },
 ];

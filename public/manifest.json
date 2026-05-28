@@ -1,7 +1,7 @@
 {
   "name": "DiáriaJá",
   "short_name": "DiáriaJá",
-  "description": "Marketplace de diárias — conecte empregadores e diaristas",
+  "description": "Plataforma de anúncios de oportunidades de serviços — conecte anunciantes e prestadores",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",

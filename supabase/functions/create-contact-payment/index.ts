@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
       auto_return:       "approved",
       notification_url:  `${Deno.env.get("SUPABASE_URL")}/functions/v1/mp-webhook`,
       statement_descriptor: "DIARIAJA",
-      payer: { name: "Contratante DiáriaJá" },
+      payer: { name: "Anunciante DiáriaJá" },
     };
 
     log(traceId, "06_mp_request_iniciada", {

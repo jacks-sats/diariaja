@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
       notification_url:  `${SUPABASE_URL}/functions/v1/mp-webhook`,
       statement_descriptor: "DIARIAJA",
       payer: {
-        name: diaria.nome_negocio || "Contratante",
+        name: diaria.nome_negocio || "Anunciante",
       },
     };
 
