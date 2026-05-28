@@ -205,6 +205,10 @@ export default function App() {
   const diaristasReaisRef = useRef<UserProfile[]>([]);
   const [tabDiarista, setTabDiarista]     = useState("inicio");
   const [tabEmpregador, setTabEmpregador] = useState("inicio");
+  // Aba de filtro dentro de "Minhas diárias" — segrega anúncios ativos,
+  // concluídos e expirados em pills no topo, evitando que vagas expiradas
+  // poluam a lista de oportunidades em aberto.
+  const [filtroDiarias, setFiltroDiarias] = useState<"ativas"|"concluidas"|"expiradas">("ativas");
   const [authError, setAuthError]         = useState("");
   const [authLoading, setAuthLoading]     = useState(false);
   const [minhasDiarias, setMinhasDiarias] = useState<Diaria[]>([]);
@@ -8083,7 +8087,25 @@ export default function App() {
             aceita:       { bg:"#ede9fe", color:"#7c3aed",  txt:"✅ Confirmado — escaneie o QR" },
             em_andamento: { bg:"#fef3c7", color:"#d97706",  txt:"🔄 Em andamento" },
             concluida:    { bg:"#dcfce7", color:"#16a34a",  txt:"✅ Concluída" },
+            // P1 fix: faltava entrada `expirada` — diárias auto-expiradas caíam no
+            // fallback statusLabel.aberta e exibiam o badge "Aberta" mesmo já tendo
+            // passado da data. Agora rende com badge cinza/âmbar correto.
+            expirada:     { bg:"#fef3c7", color:"#92400e",  txt:"⌛ Expirada" },
             cancelada:    { bg:"#fee2e2", color:"#dc2626",  txt:"✗ Cancelada" },
+          };
+          // Particiona em buckets pras pills de filtro. "Cancelada" continua oculta
+          // (não tem pill, é ação destrutiva final).
+          const diariasNaoCanceladas = diarias.filter(d => d.status !== "cancelada");
+          const buckets = {
+            ativas:     diariasNaoCanceladas.filter(d => d.status === "aberta" || d.status === "pendente" || d.status === "aceita" || d.status === "em_andamento"),
+            concluidas: diariasNaoCanceladas.filter(d => d.status === "concluida"),
+            expiradas:  diariasNaoCanceladas.filter(d => d.status === "expirada"),
+          };
+          const diariasFiltradas = buckets[filtroDiarias];
+          const vazioPorAba: Record<typeof filtroDiarias, string> = {
+            ativas:     "Nenhum anúncio ativo no momento.",
+            concluidas: "Nenhum anúncio concluído ainda.",
+            expiradas:  "Nenhum anúncio expirado.",
           };
           return (
             <div style={{ padding:"20px 16px" }}>
@@ -8249,19 +8271,63 @@ export default function App() {
 
               <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:12 }}>📋 Minhas diárias</div>
 
-              {diarias.filter(d => d.status !== "cancelada").length === 0 ? (
+              {/* ── Pills de filtro por status ──────────────────────────────── */}
+              {diariasNaoCanceladas.length > 0 && (
+                <div style={{ display:"flex", gap:8, marginBottom:14, overflowX:"auto" as const, paddingBottom:4 }}>
+                  {([
+                    { id:"ativas"     as const, label:"Ativas",     count:buckets.ativas.length,     cor:"#3A86FF" },
+                    { id:"concluidas" as const, label:"Concluídas", count:buckets.concluidas.length, cor:"#22c55e" },
+                    { id:"expiradas"  as const, label:"Expiradas",  count:buckets.expiradas.length,  cor:"#f59e0b" },
+                  ]).map(opt => {
+                    const sel = filtroDiarias === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        onClick={() => setFiltroDiarias(opt.id)}
+                        style={{
+                          padding:"8px 14px",
+                          background: sel ? opt.cor : "var(--bg-card,#fff)",
+                          color: sel ? "#fff" : "var(--text-2,#64748b)",
+                          border: sel ? "none" : "1.5px solid var(--border,#e2e8f0)",
+                          borderRadius: 999,
+                          fontSize: 13,
+                          fontWeight: 800,
+                          cursor: "pointer",
+                          fontFamily: "Inter, system-ui, sans-serif",
+                          whiteSpace: "nowrap" as const,
+                          flexShrink: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}>
+                        {opt.label}
+                        <span style={{
+                          background: sel ? "rgba(255,255,255,.25)" : opt.cor + "20",
+                          color: sel ? "#fff" : opt.cor,
+                          padding: "1px 7px",
+                          borderRadius: 999,
+                          fontSize: 11,
+                          fontWeight: 900,
+                        }}>{opt.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {diariasFiltradas.length === 0 ? (
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"20px 16px", textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:13 }}>
-                  Nenhuma diária publicada ainda.
+                  {diariasNaoCanceladas.length === 0 ? "Nenhuma diária publicada ainda." : vazioPorAba[filtroDiarias]}
                 </div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-                  {diarias.filter(d => d.status !== "cancelada").map(dia => {
+                  {diariasFiltradas.map(dia => {
                     const sl = statusLabel[dia.status] ?? statusLabel.aberta;
                     const [h1s, m1s] = dia.horario_inicio.split(":");
                     const [h2s, m2s] = dia.horario_fim.split(":");
                     const min = (parseInt(h2s)*60+parseInt(m2s)) - (parseInt(h1s)*60+parseInt(m1s));
                     const dur = min > 0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
-                    const bordaCor = dia.status==="em_andamento" ? "#f59e0b" : dia.status==="aceita" ? "#3A86FF" : dia.status==="concluida" ? "#22c55e" : dia.status==="cancelada" ? "#ef4444" : "#e2e8f0";
+                    const bordaCor = dia.status==="em_andamento" ? "#f59e0b" : dia.status==="aceita" ? "#3A86FF" : dia.status==="concluida" ? "#22c55e" : dia.status==="cancelada" ? "#ef4444" : dia.status==="expirada" ? "#f59e0b" : "#e2e8f0";
                     const estaExpandida = detalhesDiaria?.id === dia.id;
                     return (
                       <div key={dia.id}
