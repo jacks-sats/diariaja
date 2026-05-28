@@ -852,12 +852,17 @@ export default function App() {
       // priorizar quem entrou recentemente. Filtro de relevância (distância,
       // disponibilidade) é aplicado client-side em diaristasReaisVisiveis.
       // P0 fix: sem isso o feed puxava o cadastro inteiro a cada navegação.
-      const { data } = await supabase
+      // HOTFIX 2026-05-28: user_profiles em produção não tem coluna created_at.
+      // O .order("created_at") fazia a query falhar silenciosamente → data=null
+      // → anunciante via "Nenhum profissional ainda" mesmo com prestadores
+      // cadastrados. Removi a ordenação até adicionarmos created_at na tabela
+      // ou identificarmos coluna alternativa estável.
+      const { data, error } = await supabase
         .from("user_profiles")
         .select("*")
         .eq("user_type", "diarista")
-        .order("created_at", { ascending: false })
         .limit(200);
+      if (error) console.warn("[home-empregador] erro carregando prestadores:", error.message);
       if (data) {
         setDiaristasReais(data);
         diaristasReaisRef.current = data;
