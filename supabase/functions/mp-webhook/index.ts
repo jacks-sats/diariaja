@@ -46,10 +46,8 @@ async function pseudo(id: string | undefined | null): Promise<string> {
 
 // Valida a assinatura HMAC-SHA256 enviada pelo MP no header x-signature
 async function validarAssinatura(req: Request, body: string): Promise<boolean> {
-  // Fail-closed: sem secret em produção a função não aceita nada.
-  // Configure MP_WEBHOOK_SECRET no painel do Supabase antes de receber webhooks.
   if (!WEBHOOK_SECRET) {
-    console.error("[mp-webhook] MP_WEBHOOK_SECRET não configurado — webhooks serão rejeitados. Configure em supabase secrets set MP_WEBHOOK_SECRET=...");
+    console.error("[mp-webhook][SIG] MP_WEBHOOK_SECRET não configurado");
     return false;
   }
 
@@ -57,6 +55,19 @@ async function validarAssinatura(req: Request, body: string): Promise<boolean> {
   const xRequestId = req.headers.get("x-request-id") ?? "";
   const url        = new URL(req.url);
   const dataId     = url.searchParams.get("data.id") ?? "";
+
+  // DEBUG: loga TUDO que recebeu pra diagnosticar 401s. Remover após OK.
+  console.log("[mp-webhook][SIG] received headers:", {
+    has_x_signature: !!xSignature,
+    x_signature_preview: xSignature ? xSignature.slice(0, 80) : "(empty)",
+    has_x_request_id: !!xRequestId,
+    x_request_id_preview: xRequestId ? xRequestId.slice(0, 20) : "(empty)",
+    data_id: dataId || "(empty)",
+    url: req.url,
+    secret_length: WEBHOOK_SECRET.length,
+    secret_first4: WEBHOOK_SECRET.slice(0, 4),
+    secret_last4: WEBHOOK_SECRET.slice(-4),
+  });
 
   // Formato MP: "ts=<timestamp>,v1=<hash>"
   const parts: Record<string, string> = {};
@@ -67,15 +78,19 @@ async function validarAssinatura(req: Request, body: string): Promise<boolean> {
 
   const ts   = parts["ts"] ?? "";
   const hash = parts["v1"] ?? "";
-  if (!ts || !hash) return false;
+  if (!ts || !hash) {
+    console.warn("[mp-webhook][SIG] ts ou v1 faltando", { ts_present: !!ts, hash_present: !!hash, parts });
+    return false;
+  }
 
-  // P0-3 auditoria: rejeita assinaturas antigas (replay anti-forever).
-  // O MP envia `ts` em segundos. Janela aceita: ±5 min do agora.
   const tsNum = Number(ts);
-  if (!Number.isFinite(tsNum)) return false;
+  if (!Number.isFinite(tsNum)) {
+    console.warn("[mp-webhook][SIG] ts inválido", { ts });
+    return false;
+  }
   const agora = Math.floor(Date.now() / 1000);
   if (Math.abs(agora - tsNum) > 300) {
-    console.warn("Webhook com ts fora da janela rejeitado", { diff: agora - tsNum });
+    console.warn("[mp-webhook][SIG] ts fora da janela ±5min", { diff_seconds: agora - tsNum });
     return false;
   }
 
@@ -92,7 +107,12 @@ async function validarAssinatura(req: Request, body: string): Promise<boolean> {
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(template));
   const computed = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
 
-  return timingSafeEqualHex(computed, hash);
+  const match = timingSafeEqualHex(computed, hash);
+
+  // DEBUG: loga HMAC computed vs received pra debug. Remover após OK.
+  console.log("[mp-webhook][SIG] HMAC check", { template, received_hash: hash, computed_hash: computed, match });
+
+  return match;
 }
 
 Deno.serve(async (req) => {
