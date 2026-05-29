@@ -934,7 +934,8 @@ export default function App() {
       const { data, error } = await supabase
         .from("user_profiles")
         .select("*")
-        .eq("user_type", "diarista")
+        .in("user_type", ["diarista", "ambos"])   // "ambos" presta serviço E anuncia — tem que aparecer pro anunciante
+        .neq("id", session.user!.id)              // não mostra o próprio perfil pro anunciante "ambos"
         .limit(200);
       if (error) console.warn("[home-empregador] erro carregando prestadores:", error.message);
       if (data) {
