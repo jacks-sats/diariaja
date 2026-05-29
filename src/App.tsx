@@ -136,6 +136,22 @@ function QRScannerComponent({ onResult, onError, onClose }: {
 // Edge Function `verificar-whatsapp` deployada — aí vire para `true`.
 const MOSTRAR_VERIFICAR_TELEFONE_CTA = false;
 
+// ── C2 (anti-vazamento de PII) — colunas públicas de user_profiles ───────────
+// Usado em leituras EM MASSA de perfis de TERCEIROS (ex.: feed de prestadores na
+// home do anunciante), onde a UI só mostra dados públicos. NUNCA inclui campos
+// sensíveis que não são renderizados para terceiros: telefone, chave PIX, tokens
+// do Mercado Pago, URLs de documentos/antecedentes, CPF do responsável (PJ),
+// data de nascimento, sexo, flags de admin/suporte, endereço, e o created_at
+// (que NÃO existe na tabela em produção — selecioná-lo derruba a query).
+// Mantém cpf/cnpj por enquanto porque o selo "✅ Verificado" depende da presença
+// deles na UI; a remoção do VALOR (via flag derivada server-side) + o REVOKE de
+// coluna no banco ficam para o Passo B desta correção.
+const COLUNAS_PERFIL_PUBLICO =
+  "id, oculto, user_type, nome, nome_negocio, segmento, funcao, valor_diaria, " +
+  "disponivel, agenda, bio, foto_url, categorias, lat, lng, cpf, cnpj, " +
+  "pessoa_tipo, razao_social, nome_fantasia, responsavel_nome, cep, plano_ativo, " +
+  "plano_expira_em, portfolio_urls, telefone_verificado, documento_status";
+
 // Helper: mostra notificação local compatível com mobile/PWA.
 // Em Android Chrome/PWA, `mostrarNotificacaoLocal(...)` é PROIBIDO — só funciona via
 // ServiceWorkerRegistration.showNotification(). Em desktop, ambos funcionam.
@@ -948,14 +964,18 @@ export default function App() {
       // ou identificarmos coluna alternativa estável.
       const { data, error } = await supabase
         .from("user_profiles")
-        .select("*")
+        // C2: feed de prestadores não traz telefone/PIX/token/docs — só colunas públicas.
+        .select(COLUNAS_PERFIL_PUBLICO)
         .in("user_type", ["diarista", "ambos"])   // "ambos" presta serviço E anuncia — tem que aparecer pro anunciante
         .neq("id", session.user!.id)              // não mostra o próprio perfil pro anunciante "ambos"
         .limit(200);
       if (error) console.warn("[home-empregador] erro carregando prestadores:", error.message);
       if (data) {
-        setDiaristasReais(data);
-        diaristasReaisRef.current = data;
+        // select() com string não-literal perde a inferência de tipo do supabase-js;
+        // o shape em runtime é o perfil público (sem telefone/PIX/token) — cast explícito.
+        const lista = data as unknown as UserProfile[];
+        setDiaristasReais(lista);
+        diaristasReaisRef.current = lista;
       }
     })();
   }, [tela, session?.user?.id]);
