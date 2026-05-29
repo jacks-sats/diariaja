@@ -5808,7 +5808,7 @@ export default function App() {
             {[
               { icon:"👤", label:"Alterar perfil", sub:"Nome, foto, especialidade e dados", action:() => setTela(modoAtual === "diarista" ? "editar-perfil" : "editar-perfil-empregador") },
               { icon:"🔑", label:"Alterar senha", sub:"Mude sua senha de acesso", action:() => setTela("alterar-senha") },
-              { icon:"📱", label:"Verificar número de telefone", sub: telefoneVerificado ? "✅ Número verificado" : "Confirme seu número para mais segurança", action:() => setTela("verificar-telefone") },
+              ...(MOSTRAR_VERIFICAR_TELEFONE_CTA ? [{ icon:"📱", label:"Verificar número de telefone", sub: telefoneVerificado ? "✅ Número verificado" : "Confirme seu número para mais segurança", action:() => setTela("verificar-telefone") }] : []),
               { icon: profile?.documento_status === "aprovado" ? "✅" : profile?.documento_status === "enviado" ? "🔍" : profile?.documento_status === "rejeitado" ? "❌" : "🆔",
                 label:"Verificar identidade (RG/CNH)",
                 sub: profile?.documento_status === "aprovado" ? "✅ Documento aprovado"
@@ -13227,12 +13227,16 @@ export default function App() {
         const docEnv = profile.documento_status === "enviado";
         const docRej = profile.documento_status === "rejeitado";
         // Nível atual: Confiável > Verificado > Básico
-        const nivel = (temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico";
+        // Com a verificação de telefone desligada, a escada de confiança passa
+        // a se basear no DOCUMENTO (RG/CNH): enviar o documento sobe o nível.
+        const nivel = MOSTRAR_VERIFICAR_TELEFONE_CTA
+          ? ((temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico")
+          : (docOK ? "confiavel" : docEnv ? "verificado" : "basico");
         const nivelLabel = nivel === "confiavel" ? "Confiável" : nivel === "verificado" ? "Verificado" : "Básico";
         const nivelCor = nivel === "confiavel" ? "#16a34a" : nivel === "verificado" ? "#3A86FF" : "#94a3b8";
         const nivelDesc = nivel === "confiavel" ? "Selo máximo — você ganha prioridade nas buscas"
-                        : nivel === "verificado" ? "Falta enviar RG/CNH pra virar Confiável"
-                        : "Verifique telefone pra subir pra Verificado";
+                        : nivel === "verificado" ? (MOSTRAR_VERIFICAR_TELEFONE_CTA ? "Falta enviar RG/CNH pra virar Confiável" : "Documento em análise — em breve vira Confiável")
+                        : (MOSTRAR_VERIFICAR_TELEFONE_CTA ? "Verifique telefone pra subir pra Verificado" : "Envie seu RG/CNH pra subir de nível");
         const Linha = (icone: string, label: string, statusTxt: string, statusCor: string, acao: () => void, podeAcao: boolean) => (
           <div onClick={podeAcao ? acao : undefined}
             style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, background:"#fff", border:"1px solid #e2e8f0", marginBottom:8, cursor: podeAcao ? "pointer" : "default" }}>
@@ -13271,11 +13275,17 @@ export default function App() {
             </div>
 
             {/* Lista de verificações */}
-            {Linha("📱", "Telefone (WhatsApp)",
-              temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora",
-              temTel ? "#16a34a" : "#FF6B35",
-              () => setTela("verificar-telefone"),
-              !temTel)}
+            {MOSTRAR_VERIFICAR_TELEFONE_CTA
+              ? Linha("📱", "Telefone (WhatsApp)",
+                  temTel ? "✅ Verificado" : "Pendente — toque pra verificar agora",
+                  temTel ? "#16a34a" : "#FF6B35",
+                  () => setTela("verificar-telefone"),
+                  !temTel)
+              : Linha("📱", "Telefone (WhatsApp)",
+                  profile.telefone ? "✅ Telefone cadastrado" : "Adicione seu telefone no perfil",
+                  profile.telefone ? "#16a34a" : "#94a3b8",
+                  () => {},
+                  false)}
 
             {Linha(docOK ? "✅" : docEnv ? "🔍" : docRej ? "❌" : "🆔",
               "Documento (RG ou CNH)",
@@ -14823,12 +14833,16 @@ export default function App() {
         const docOK = profile.documento_status === "aprovado";
         const docEnv = profile.documento_status === "enviado";
         const docRej = profile.documento_status === "rejeitado";
-        const nivel = (temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico";
+        // Com a verificação de telefone desligada, a escada de confiança passa
+        // a se basear no DOCUMENTO (RG/CNH): enviar o documento sobe o nível.
+        const nivel = MOSTRAR_VERIFICAR_TELEFONE_CTA
+          ? ((temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico")
+          : (docOK ? "confiavel" : docEnv ? "verificado" : "basico");
         const nivelLabel = nivel === "confiavel" ? "Confiável" : nivel === "verificado" ? "Verificado" : "Básico";
         const nivelCor = nivel === "confiavel" ? "#16a34a" : nivel === "verificado" ? "#3A86FF" : "#94a3b8";
         const nivelDesc = nivel === "confiavel" ? "Selo máximo — prestadores confiam mais em você"
-                        : nivel === "verificado" ? "Falta enviar RG/CNH pra virar Confiável"
-                        : "Verifique telefone pra subir pra Verificado";
+                        : nivel === "verificado" ? (MOSTRAR_VERIFICAR_TELEFONE_CTA ? "Falta enviar RG/CNH pra virar Confiável" : "Documento em análise — em breve vira Confiável")
+                        : (MOSTRAR_VERIFICAR_TELEFONE_CTA ? "Verifique telefone pra subir pra Verificado" : "Envie seu RG/CNH pra subir de nível");
         const Linha = (icone: string, label: string, statusTxt: string, statusCor: string, acao: () => void, podeAcao: boolean) => (
           <div onClick={podeAcao ? acao : undefined}
             style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, background:"#fff", border:"1px solid #e2e8f0", marginBottom:8, cursor: podeAcao ? "pointer" : "default" }}>
@@ -14865,11 +14879,17 @@ export default function App() {
               ))}
             </div>
 
-            {Linha("📱", "Telefone (WhatsApp)",
-              temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora",
-              temTel ? "#16a34a" : "#FF6B35",
-              () => setTela("verificar-telefone"),
-              !temTel)}
+            {MOSTRAR_VERIFICAR_TELEFONE_CTA
+              ? Linha("📱", "Telefone (WhatsApp)",
+                  temTel ? "✅ Verificado" : "Pendente — toque pra verificar agora",
+                  temTel ? "#16a34a" : "#FF6B35",
+                  () => setTela("verificar-telefone"),
+                  !temTel)
+              : Linha("📱", "Telefone (WhatsApp)",
+                  profile.telefone ? "✅ Telefone cadastrado" : "Adicione seu telefone no perfil",
+                  profile.telefone ? "#16a34a" : "#94a3b8",
+                  () => {},
+                  false)}
 
             {Linha(docOK ? "✅" : docEnv ? "🔍" : docRej ? "❌" : "🆔",
               "Documento (RG ou CNH)",
