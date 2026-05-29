@@ -23,6 +23,7 @@ import {
   validarSenhaForte,
   validarPix,
   codigoPresenca,
+  parseEnderecoEmpregador,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -774,5 +775,84 @@ describe("codigoPresenca", () => {
       const out = codigoPresenca(`teste-${i}`);
       expect(out.length).toBe(4);
     }
+  });
+});
+
+describe("parseEnderecoEmpregador", () => {
+  it("retorna campos vazios para entrada nula/indefinida/vazia", () => {
+    const vazio = { cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"" };
+    expect(parseEnderecoEmpregador(null)).toEqual(vazio);
+    expect(parseEnderecoEmpregador(undefined)).toEqual(vazio);
+    expect(parseEnderecoEmpregador("")).toEqual(vazio);
+  });
+
+  it("formato A (editar-perfil) sem complemento — espelha o screenshot do usuário", () => {
+    const e = parseEnderecoEmpregador("Rua Conde do Pinhal, 1379 - Jardim Colibrí, Campo Grande/MS - CEP: 79071-160");
+    expect(e.rua).toBe("Rua Conde do Pinhal");
+    expect(e.numero).toBe("1379");
+    expect(e.complemento).toBe("");
+    expect(e.bairro).toBe("Jardim Colibrí");
+    expect(e.cidade).toBe("Campo Grande");
+    expect(e.estado).toBe("MS");
+    expect(e.cep).toBe("79071-160");
+  });
+
+  it("formato A com complemento", () => {
+    const e = parseEnderecoEmpregador("Av. Afonso Pena, 100, Apto 202 - Centro, Campo Grande/MS - CEP: 79002-070");
+    expect(e.rua).toBe("Av. Afonso Pena");
+    expect(e.numero).toBe("100");
+    expect(e.complemento).toBe("Apto 202");
+    expect(e.bairro).toBe("Centro");
+    expect(e.cidade).toBe("Campo Grande");
+    expect(e.estado).toBe("MS");
+    expect(e.cep).toBe("79002-070");
+  });
+
+  it("formato B (cadastro) sem complemento — travessão e CEP sem dois-pontos", () => {
+    const e = parseEnderecoEmpregador("Rua das Flores, 45, Vila Nova, Dourados/MS — CEP 79800-000");
+    expect(e.rua).toBe("Rua das Flores");
+    expect(e.numero).toBe("45");
+    expect(e.complemento).toBe("");
+    expect(e.bairro).toBe("Vila Nova");
+    expect(e.cidade).toBe("Dourados");
+    expect(e.estado).toBe("MS");
+    expect(e.cep).toBe("79800-000");
+  });
+
+  it("formato B com complemento separado por travessão", () => {
+    const e = parseEnderecoEmpregador("Rua das Flores, 45 — Bloco B, Vila Nova, Dourados/MS — CEP 79800-000");
+    expect(e.rua).toBe("Rua das Flores");
+    expect(e.numero).toBe("45");
+    expect(e.complemento).toBe("Bloco B");
+    expect(e.bairro).toBe("Vila Nova");
+    expect(e.cidade).toBe("Dourados");
+    expect(e.estado).toBe("MS");
+    expect(e.cep).toBe("79800-000");
+  });
+
+  it("faz roundtrip fiel com o formato canônico do editar-perfil", () => {
+    const f = { ruaEmp:"Rua X", numeroEmp:"500", complementoEmp:"", bairroEmp:"Tiradentes", cidadeEmp:"Campo Grande", estadoEmp:"MS", cepEmp:"79110-000" };
+    const concat = `${f.ruaEmp}, ${f.numeroEmp}${f.complementoEmp ? `, ${f.complementoEmp}` : ""} - ${f.bairroEmp}, ${f.cidadeEmp}/${f.estadoEmp} - CEP: ${f.cepEmp}`;
+    const e = parseEnderecoEmpregador(concat);
+    expect(e.rua).toBe(f.ruaEmp);
+    expect(e.numero).toBe(f.numeroEmp);
+    expect(e.complemento).toBe(f.complementoEmp);
+    expect(e.bairro).toBe(f.bairroEmp);
+    expect(e.cidade).toBe(f.cidadeEmp);
+    expect(e.estado).toBe(f.estadoEmp);
+    expect(e.cep).toBe(f.cepEmp);
+  });
+
+  it("normaliza CEP só com dígitos para o formato 00000-000", () => {
+    const e = parseEnderecoEmpregador("Rua Y, 10 - Centro, Campo Grande/MS - CEP 79000000");
+    expect(e.cep).toBe("79000-000");
+  });
+
+  it("degrada com elegância quando o texto não bate com nenhum formato", () => {
+    const e = parseEnderecoEmpregador("endereço bagunçado sem estrutura");
+    // Não deve lançar; campos não reconhecidos voltam vazios.
+    expect(e.cep).toBe("");
+    expect(e.estado).toBe("");
+    expect(typeof e.rua).toBe("string");
   });
 });

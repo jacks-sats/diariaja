@@ -66,6 +66,7 @@ import {
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
+  parseEnderecoEmpregador,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -796,6 +797,46 @@ export default function App() {
     document.body.setAttribute("data-dark", darkMode ? "1" : "0");
     document.body.style.background = darkMode ? "#0f172a" : "#f0f2f5";
   }, [darkMode]);
+
+  // ── Pré-preenche "Editar perfil" com os dados já salvos ──────────────────────
+  // Bug histórico: ao abrir "Editar perfil" os campos vinham VAZIOS porque o estado
+  // `form` nunca era semeado a partir de `profile` (só foto e categorias eram, no
+  // checkProfile). Resultado duplo: (1) o usuário tinha que redigitar tudo, e pior,
+  // (2) ao salvar, os campos em branco do `form` sobrescreviam dados válidos —
+  // o save do empregador envia `cpf`/`cnpj`/`nome_negocio`/`pessoa_tipo` direto do
+  // `form`, então um `form` vazio zerava CPF/CNPJ e revertia o tipo de pessoa.
+  // Semeando `form` a partir de `profile` ao ENTRAR na tela resolve os dois.
+  // Keyed em [tela, profile?.id]: roda ao abrir a tela e não re-semeia quando o
+  // profile muda no meio da edição (ex.: upload de foto), preservando o que o
+  // usuário já digitou.
+  useEffect(() => {
+    if (tela !== "editar-perfil" && tela !== "editar-perfil-empregador") return;
+    if (!profile) return;
+    const end = parseEnderecoEmpregador(profile.endereco_empregador);
+    setForm(prev => ({
+      ...prev,
+      nome:        profile.nome || "",
+      telefone:    profile.telefone ? maskTelefone(profile.telefone) : "",
+      nomeNegocio: profile.nome_negocio || "",
+      pessoaTipo:  profile.pessoa_tipo || (profile.cnpj ? "juridica" : "fisica"),
+      cpf:         profile.cpf ? maskCPF(profile.cpf) : "",
+      cnpj:        profile.cnpj ? maskCNPJ(profile.cnpj) : "",
+      bio:         profile.bio || "",
+      valor:       profile.valor_diaria ? String(profile.valor_diaria) : "",
+      funcao:      profile.funcao || "",
+      sexo:        profile.sexo || "",
+      dataNasc:    profile.data_nascimento || "",
+      // Endereço do empregador (parse da string salva → campos editáveis).
+      cepEmp:        end.cep,
+      ruaEmp:        end.rua,
+      numeroEmp:     end.numero,
+      complementoEmp: end.complemento,
+      bairroEmp:     end.bairro,
+      cidadeEmp:     end.cidade,
+      estadoEmp:     end.estado,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tela, profile?.id]);
 
   // Detecta retorno do OAuth do Mercado Pago e parâmetros de pagamento na URL
   useEffect(() => {
@@ -13139,6 +13180,24 @@ export default function App() {
     );
   }
 
+  // Skeleton elegante enquanto o perfil carrega — evita um flash de campos
+  // vazios antes do `form` ser semeado a partir de `profile`. Vale para as duas
+  // telas de edição (diarista e empregador).
+  if ((tela === "editar-perfil" || tela === "editar-perfil-empregador") && !profile) return (
+    <div style={S.page}>
+      <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+      <h2 style={S.pageTitle}>Editar perfil</h2>
+      <div style={{ display:"flex", flexDirection:"column" as const, gap:14, marginTop:8 }}>
+        {[...Array(6)].map((_, i) => (
+          <div key={i}>
+            <div style={{ height:12, width:"38%", borderRadius:6, background:"var(--bg-subtle,#f1f5f9)", marginBottom:8, animation:"pulse 1.5s ease-in-out infinite" }} />
+            <div style={{ height:46, borderRadius:12, background:"var(--bg-subtle,#f1f5f9)", animation:"pulse 1.5s ease-in-out infinite" }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   // EDITAR PERFIL DIARISTA
   if (tela === "editar-perfil") return (
     <div style={S.page}>
@@ -13489,6 +13548,7 @@ export default function App() {
             setAuthError("✅ Salvo! Verifique o novo telefone por SMS.");
             setTela("verificar-telefone");
           } else {
+            setToastSuccess("✅ Perfil atualizado com sucesso!");
             setTela("home-diarista");
           }
         }
@@ -15026,6 +15086,7 @@ export default function App() {
             setAuthError("✅ Salvo! Verifique o novo telefone por SMS.");
             setTela("verificar-telefone");
           } else {
+            setToastSuccess("✅ Perfil atualizado com sucesso!");
             setTela("configuracoes");
           }
         }
