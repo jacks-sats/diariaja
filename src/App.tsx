@@ -62,11 +62,11 @@ import {
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
-  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
+  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
-  parseEnderecoEmpregador,
+  parseEnderecoEmpregador, verificarConteudoProibido,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -223,6 +223,8 @@ export default function App() {
   const [authError, setAuthError]         = useState("");
   const [authLoading, setAuthLoading]     = useState(false);
   const [minhasDiarias, setMinhasDiarias] = useState<Diaria[]>([]);
+  // Lembrete "vaga pra vencer": ids dispensados pelo anunciante ("manter no ar") nesta sessão
+  const [lembreteVencDispensados, setLembreteVencDispensados] = useState<Set<string>>(new Set());
   const [qrDiaria, setQrDiaria]           = useState<Diaria | null>(null);
   const [scannerAberto, setScannerAberto] = useState(false);
   const [scanMsg, setScanMsg]             = useState<{ok:boolean,txt:string}|null>(null);
@@ -282,6 +284,7 @@ export default function App() {
 
   // Painel admin + tickets de suporte (privados, 1-on-1 user × admin)
   const [adminStats, setAdminStats]               = useState<AdminStats | null>(null);
+  const [adminFinanceiro, setAdminFinanceiro]     = useState<any>(null);  // resumo financeiro do admin
   const [carregandoAdminStats, setCarregandoAdminStats] = useState(false);
   // Métricas extras + séries + drill-down
   const [adminExtras, setAdminExtras]             = useState<{
@@ -509,6 +512,29 @@ export default function App() {
 
   // Código de indicação / referral
   const [modalQuemSomos, setModalQuemSomos] = useState(false);
+  // Banner MEI — incentivo à formalização pra quem é PF (sem CNPJ). Dismissível.
+  const [meiBannerOculto, setMeiBannerOculto] = useState(() => {
+    try { return localStorage.getItem("diariaja_mei_banner_dismiss") === "1"; } catch { return false; }
+  });
+  const fecharBannerMEI = () => {
+    try { localStorage.setItem("diariaja_mei_banner_dismiss", "1"); } catch { /* modo privado */ }
+    setMeiBannerOculto(true);
+  };
+
+  // Desktop vs mobile — a entrada (splash) vira uma landing "de site" no PC,
+  // mantendo o app mobile-first no celular e no Capacitor (que sempre roda
+  // em largura de celular, então isDesktop é sempre false lá).
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const upd = () => setIsDesktop(mq.matches);
+    upd();
+    mq.addEventListener?.("change", upd);
+    return () => mq.removeEventListener?.("change", upd);
+  }, []);
 
   // Mostrar/ocultar senha nos campos de login e cadastro
   const [mostrarSenha, setMostrarSenha] = useState(false);
@@ -827,6 +853,7 @@ export default function App() {
       funcao:      profile.funcao || "",
       sexo:        profile.sexo || "",
       dataNasc:    profile.data_nascimento || "",
+      cep:         profile.cep || "",   // CEP do prestador (diarista)
       // Endereço do empregador (parse da string salva → campos editáveis).
       cepEmp:        end.cep,
       ruaEmp:        end.rua,
@@ -876,6 +903,20 @@ export default function App() {
           .then(({ data }) => setAssinaturas(Array.isArray(data) ? data : []));
       }
     }
+    // Retorno do plano de 30 dias (pagamento único via Pix/cartão).
+    const planoStatus = params.get("plano");
+    if (planoStatus === "ativado") {
+      setToastSuccess("🎉 Pagamento recebido! Seu plano será liberado em instantes.");
+      window.history.replaceState({}, "", window.location.pathname);
+      // Recarrega o perfil pra pegar o plano_ativo concedido pelo webhook.
+      if (session?.user?.id) void checkProfile(session.user.id);
+    } else if (planoStatus === "pendente") {
+      setToastSuccess("⏳ Pagamento em processamento. Seu plano libera assim que confirmar.");
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (planoStatus === "falha") {
+      setToastError("❌ Pagamento não concluído. Você pode tentar de novo em Planos.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   // BUG-M5 fix: inclui session.user.id para reprocessar quando sessão carrega após redirect OAuth
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
@@ -908,7 +949,8 @@ export default function App() {
       const { data, error } = await supabase
         .from("user_profiles")
         .select("*")
-        .eq("user_type", "diarista")
+        .in("user_type", ["diarista", "ambos"])   // "ambos" presta serviço E anuncia — tem que aparecer pro anunciante
+        .neq("id", session.user!.id)              // não mostra o próprio perfil pro anunciante "ambos"
         .limit(200);
       if (error) console.warn("[home-empregador] erro carregando prestadores:", error.message);
       if (data) {
@@ -1578,6 +1620,9 @@ export default function App() {
           const novoConvite: Convite = payload.new;
           setConvitesRecebidos(prev => [novoConvite, ...prev]);
           setToastSuccess(`📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para uma diária!`);
+          // Registra no sino de Notificações (antes só dava toast, que some sozinho).
+          setListaNotif(prev => [{ tipo: "ok", msg: `📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para ${novoConvite.funcao || "uma diária"} — aceite e combine no chat.`, ts: Date.now() }, ...prev]);
+          setNotifNaoLidas(prev => prev + 1);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             mostrarNotificacaoLocal("📨 Novo convite de diária!", {
               body: `${novoConvite.contratante_nome} quer entrar em contato com você para ${novoConvite.funcao} em ${new Date(novoConvite.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}`,
@@ -2073,6 +2118,13 @@ export default function App() {
     if (error) { setLoading(false); return; }
 
     if (data) {
+      // Plano de 30 dias venceu? Reverte pra grátis (não renova sozinho).
+      // Best-effort no banco; localmente já trata como grátis pra UI não mentir.
+      if (data.plano_ativo && data.plano_ativo !== "gratis" && data.plano_expira_em
+          && new Date(data.plano_expira_em).getTime() < Date.now()) {
+        data.plano_ativo = "gratis";
+        void supabase.from("user_profiles").update({ plano_ativo: "gratis" }).eq("id", userId);
+      }
       setProfile(data);
       setTipo(data.user_type);
       setNegocio(data.segmento || null);
@@ -2166,6 +2218,7 @@ export default function App() {
       pessoa_tipo: updates.pessoa_tipo ?? profile?.pessoa_tipo ?? form.pessoaTipo ?? "fisica",
       sexo: updates.sexo ?? profile?.sexo ?? form.sexo ?? "",
       data_nascimento: updates.data_nascimento ?? profile?.data_nascimento ?? form.dataNasc ?? "",
+      cep: updates.cep ?? profile?.cep ?? (form.cep || undefined),
       endereco_empregador: updates.endereco_empregador ?? profile?.endereco_empregador ?? "",
       // PIX do diarista — coletado no wizard de cadastro e no editar-perfil.
       // Falta isso aqui fazia o wizard "salvar" sem persistir o PIX (silent drop).
@@ -2768,6 +2821,22 @@ export default function App() {
     setCancelando(false);
   };
 
+  // Anunciante encerra a vaga antecipadamente (a partir do lembrete "pra vencer").
+  // Retira do ar imediatamente, sem exigir modal de motivo — é o próprio dono.
+  const encerrarVagaAntecipado = async (d: Diaria) => {
+    if (!session?.user) return;
+    const { error } = await supabase
+      .from("diarias")
+      .update({ status: "cancelada", motivo_cancelamento: "Encerrada pelo anunciante (antes de vencer)" })
+      .eq("id", d.id)
+      .eq("empregador_id", session.user.id);
+    if (error) { setToastError("Não foi possível encerrar agora. Tente de novo."); return; }
+    const atualizada = { ...d, status: "cancelada" };
+    setDiarias(prev => prev.map(x => x.id === d.id ? atualizada : x));
+    setMinhasDiarias(prev => prev.map(x => x.id === d.id ? atualizada : x));
+    setToastSuccess("✅ Anúncio retirado do ar.");
+  };
+
   // Diarista desiste — vaga volta a ficar aberta para outros
   const desistirDiaria = async () => {
     if (!session?.user || !modalDesistir || !motivoDesistencia.trim()) return;
@@ -2948,6 +3017,9 @@ export default function App() {
     if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
     if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
     if (!serieD.error && serieD.data) setAdminSerieDiarias(serieD.data);
+    // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
+    const fin = await supabase.rpc("admin_resumo_financeiro");
+    if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
     setCarregandoAdminStats(false);
   };
 
@@ -3445,6 +3517,8 @@ export default function App() {
     if (!session?.user || !formTopico.titulo.trim() || !formTopico.conteudo.trim()) {
       setToastError("Preencha título e conteúdo."); return;
     }
+    const topicoProibido = verificarConteudoProibido(`${formTopico.titulo} ${formTopico.conteudo}`);
+    if (topicoProibido) { setToastError(topicoProibido); return; }
     setEnviandoTopico(true);
     const { data, error } = await supabase.from("topicos").insert({
       autor_id:  session.user.id,
@@ -3464,6 +3538,8 @@ export default function App() {
 
   const criarComentario = async () => {
     if (!session?.user || !topicoAtivo || !novoComentario.trim()) return;
+    const comentarioProibido = verificarConteudoProibido(novoComentario);
+    if (comentarioProibido) { setToastError(comentarioProibido); return; }
     setEnviandoComentario(true);
     const { data, error } = await supabase.from("comentarios_comunidade").insert({
       topico_id:  topicoAtivo.id,
@@ -4004,8 +4080,10 @@ export default function App() {
         setCriandoAssinatura(false);
         return;
       }
+      // Plano de 30 dias via CheckoutPro (aceita Pix). Antes era create-subscription
+      // (Preapproval recorrente), que NÃO oferece Pix — daí a troca.
       const resp = await fetch(
-        `${SUPABASE_URL}/functions/v1/create-subscription`,
+        `${SUPABASE_URL}/functions/v1/create-plano-payment`,
         {
           method: "POST",
           headers: {
@@ -4014,10 +4092,8 @@ export default function App() {
             "apikey":         SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({
-            plano:      planoId,
-            user_id:    session.user.id,
-            user_type:  modoAtual,
-            payer_email: session.user.email,
+            plano:     planoId,
+            user_type: modoAtual,
           }),
         }
       );
@@ -4082,6 +4158,10 @@ export default function App() {
     // Verificação anti-fraude
     const fraudeAviso = verificarFraudeDescricao(formDiaria.descricao);
     if (fraudeAviso) { setAuthError(fraudeAviso); return; }
+    // Moderação de conteúdo — BANE termos ilegais / que ferem a dignidade.
+    // Cobre título (local), descrição e função do anúncio.
+    const conteudoProibido = verificarConteudoProibido(`${formDiaria.local} ${formDiaria.descricao} ${formDiaria.funcao}`);
+    if (conteudoProibido) { setAuthError(conteudoProibido); return; }
     const enderecoComposto = `${formDiaria.rua}, ${formDiaria.numero}${formDiaria.complemento.trim() ? ` — ${formDiaria.complemento.trim()}` : ""}, ${formDiaria.bairro}, ${formDiaria.cidade}/${formDiaria.estado} — CEP ${formDiaria.cep}`;
     setSalvandoDiaria(true);
     const isDelivery = FUNCOES_DELIVERY.includes(formDiaria.funcao);
@@ -4781,6 +4861,174 @@ export default function App() {
       </div>
     </div>
   ) : null;
+
+  // Modal de Denúncia — compartilhado entre as duas homes (anunciante e prestador),
+  // pra que o botão "Denunciar" funcione tanto no card do prestador quanto na vaga.
+  const modalDenunciarJSX = modalDenunciar ? (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
+        <div style={{ fontSize:32, textAlign:"center", marginBottom:8 }}>⚑</div>
+        <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
+          Denunciar {modalDenunciar.tipo === "vaga" ? "anúncio" : "usuário"}
+        </div>
+        <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:20, lineHeight:1.5 }}>
+          <strong style={{ color:"var(--text-1,#0f172a)" }}>{modalDenunciar.nome}</strong><br />
+          Selecione o motivo e enviaremos para revisão.
+        </div>
+        <div style={{ display:"flex", flexDirection:"column" as const, gap:8, marginBottom:16 }}>
+          {(modalDenunciar.tipo === "vaga"
+            ? ["Informações falsas ou enganosas", "Anúncio não condiz com a realidade", "Conteúdo ofensivo ou inapropriado", "Atividade ilegal ou suspeita", "Anúncio duplicado", "Outro"]
+            : ["Comportamento inadequado", "Perfil falso ou fraude", "Assédio ou ameaça", "Dados incorretos", "Outro"]
+          ).map(motivo => (
+            <button
+              key={motivo}
+              style={{ padding:"11px 14px", borderRadius:12, border:`1.5px solid ${motivoDenuncia===motivo?"#ef4444":"#e2e8f0"}`, background:motivoDenuncia===motivo?"#fef2f2":"#f8fafc", color:motivoDenuncia===motivo?"#dc2626":"#475569", fontSize:13, fontWeight:motivoDenuncia===motivo?800:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+              onClick={() => setMotivoDenuncia(motivo)}>
+              {motivoDenuncia === motivo ? "● " : "○ "}{motivo}
+            </button>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:10 }}>
+          <button
+            style={{ flex:1, padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => { setModalDenunciar(null); setMotivoDenuncia(""); }}>
+            Cancelar
+          </button>
+          <button
+            disabled={!motivoDenuncia || enviandoDenuncia}
+            style={{ flex:1, padding:"13px", background: motivoDenuncia?"#ef4444":"#fca5a5", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor: motivoDenuncia?"pointer":"default", fontFamily:"Inter, system-ui, sans-serif", opacity: enviandoDenuncia ? 0.7 : 1 }}
+            onClick={enviarDenuncia}>
+            {enviandoDenuncia ? "Enviando..." : "Enviar denúncia"}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  // Banner MEI — pra quem é pessoa física (sem CNPJ). Compartilhado entre as
+  // duas homes. Abre a tela informativa `mei-info` (com link pro site oficial).
+  const bannerMEI = (profile && !profile.cnpj && !meiBannerOculto) ? (
+    <div style={{ margin:"12px 16px 0", background:"linear-gradient(135deg,#0f766e,#16a34a)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 4px 16px rgba(22,163,74,.28)" }}>
+      <span style={{ fontSize:26, flexShrink:0 }}>💼</span>
+      <div style={{ flex:1, minWidth:0, cursor:"pointer" }} onClick={() => setTela("mei-info")}>
+        <div style={{ fontSize:13, fontWeight:900, color:"#fff", lineHeight:1.3 }}>Trabalha por conta própria?</div>
+        <div style={{ fontSize:12, color:"rgba(255,255,255,.92)", marginTop:2, lineHeight:1.4 }}>
+          Vire <strong>MEI</strong> e tenha CNPJ, nota fiscal e aposentadoria. <u>Saiba como →</u>
+        </div>
+      </div>
+      <button aria-label="Fechar" onClick={fecharBannerMEI}
+        style={{ background:"rgba(255,255,255,.2)", border:"none", color:"#fff", borderRadius:8, width:26, height:26, fontSize:14, fontWeight:900, cursor:"pointer", flexShrink:0, fontFamily:"Inter, system-ui, sans-serif" }}>✕</button>
+    </div>
+  ) : null;
+
+  // ── LANDING DE DESKTOP ───────────────────────────────────────────────────
+  // No computador, a entrada vira um site de apresentação (largura cheia) em vez
+  // do app mobile centralizado. Os CTAs entram no mesmo fluxo do app. No celular
+  // e no app Android (Capacitor) este bloco não roda — cai no splash mobile abaixo.
+  if (tela === "splash" && isDesktop) {
+    const cats = [
+      { ic:"🏠", n:"Diarista / Faxina" }, { ic:"🔧", n:"Reparos & Obra" },
+      { ic:"💆", n:"Beleza" }, { ic:"👶", n:"Cuidadores" },
+      { ic:"🌿", n:"Jardinagem" }, { ic:"🚚", n:"Logística & Entregas" },
+      { ic:"🍳", n:"Cozinha" }, { ic:"🎉", n:"Eventos" },
+    ];
+    const passos = [
+      { ic:"📝", t:"Anuncie ou procure", d:"Publique uma vaga em minutos ou encontre serviço perto de você." },
+      { ic:"🤝", t:"Conecte com segurança", d:"Perfis com CPF/CNPJ verificado, avaliações reais e nível de confiança." },
+      { ic:"⚡", t:"Combine e resolva", d:"Fale pelo chat do app e acerte os detalhes. Sem burocracia." },
+    ];
+    const selos = [
+      { ic:"💳", l:"Pagamento via Mercado Pago" },
+      { ic:"🪪", l:"CPF / CNPJ verificado" },
+      { ic:"⭐", l:"Avaliações reais" },
+    ];
+    const btnPrimary: React.CSSProperties = { padding:"14px 26px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 8px 24px rgba(255,107,53,.45)" };
+    const btnGhost: React.CSSProperties = { padding:"14px 26px", background:"transparent", color:"#e2e8f0", border:"1.5px solid rgba(255,255,255,.25)", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" };
+    return (
+      <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 55%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", color:"#e2e8f0" }}>
+        {/* Top nav */}
+        <header style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"22px 48px", maxWidth:1180, margin:"0 auto" }}>
+          <div style={{ fontSize:26, fontWeight:900, letterSpacing:-1 }}>
+            <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
+          </div>
+          <div style={{ display:"flex", gap:12 }}>
+            <button style={{ ...btnGhost, padding:"10px 20px", fontSize:14 }} onClick={() => setTela("login")}>Entrar</button>
+            <button style={{ ...btnPrimary, padding:"10px 22px", fontSize:14 }} onClick={() => setTela("cadastro-tipo")}>Começar grátis</button>
+          </div>
+        </header>
+
+        {/* Hero */}
+        <section style={{ maxWidth:1180, margin:"0 auto", padding:"56px 48px 40px", display:"grid", gridTemplateColumns:"1.1fr 0.9fr", gap:48, alignItems:"center" }}>
+          <div>
+            <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:"rgba(255,107,53,.12)", border:"1px solid rgba(255,107,53,.3)", borderRadius:20, padding:"6px 14px", fontSize:13, fontWeight:700, color:"#FF6B35", marginBottom:20 }}>
+              ⚡ Serviços por diária — começou em Campo Grande/MS
+            </div>
+            <h1 style={{ fontSize:52, lineHeight:1.08, fontWeight:900, color:"#fff", letterSpacing:-1.5, margin:"0 0 18px" }}>
+              Quem você precisa,<br /><span style={{ color:"#FF6B35" }}>pertinho de você.</span>
+            </h1>
+            <p style={{ fontSize:18, lineHeight:1.6, color:"#94a3b8", maxWidth:520, margin:"0 0 28px" }}>
+              Anuncie uma vaga ou encontre serviço perto de você — faxina, reparos, beleza, cuidados, frete e muito mais. Combine direto, sem complicação.
+            </p>
+            <div style={{ display:"flex", gap:14, flexWrap:"wrap" as const }}>
+              <button style={btnPrimary} onClick={() => setTela("cadastro-tipo")}>Começar grátis →</button>
+              <button style={btnGhost} onClick={() => setTela("login")}>Já tenho conta</button>
+            </div>
+            <div style={{ display:"flex", gap:18, flexWrap:"wrap" as const, marginTop:28 }}>
+              {selos.map(s => (
+                <div key={s.l} style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#cbd5e1" }}>
+                  <span style={{ fontSize:16 }}>{s.ic}</span> {s.l}
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Card ilustrativo */}
+          <div style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"28px", boxShadow:"0 30px 80px rgba(0,0,0,.4)" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              {cats.map(c => (
+                <div key={c.n} style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.08)", borderRadius:14, padding:"16px 14px", display:"flex", alignItems:"center", gap:10 }}>
+                  <span style={{ fontSize:22 }}>{c.ic}</span>
+                  <span style={{ fontSize:13, fontWeight:700, color:"#f1f5f9" }}>{c.n}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Como funciona */}
+        <section style={{ maxWidth:1180, margin:"0 auto", padding:"32px 48px 56px" }}>
+          <h2 style={{ fontSize:14, fontWeight:800, color:"#FF6B35", textTransform:"uppercase" as const, letterSpacing:1, margin:"0 0 20px", textAlign:"center" as const }}>Como funciona</h2>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:20 }}>
+            {passos.map((p, i) => (
+              <div key={p.t} style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:18, padding:"24px" }}>
+                <div style={{ fontSize:30, marginBottom:10 }}>{p.ic}</div>
+                <div style={{ fontSize:17, fontWeight:800, color:"#fff", marginBottom:6 }}>{i+1}. {p.t}</div>
+                <div style={{ fontSize:14, lineHeight:1.6, color:"#94a3b8" }}>{p.d}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* CTA final */}
+        <section style={{ maxWidth:1180, margin:"0 auto", padding:"0 48px 56px" }}>
+          <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:24, padding:"40px", textAlign:"center" as const }}>
+            <div style={{ fontSize:28, fontWeight:900, color:"#fff", marginBottom:10 }}>Pronto pra começar?</div>
+            <div style={{ fontSize:16, color:"rgba(255,255,255,.92)", marginBottom:22 }}>Grátis pra anunciar e pra procurar. Leva menos de 2 minutos.</div>
+            <button style={{ ...btnPrimary, background:"#0f172a", boxShadow:"0 8px 24px rgba(0,0,0,.3)" }} onClick={() => setTela("cadastro-tipo")}>Criar minha conta grátis →</button>
+          </div>
+        </section>
+
+        {/* Footer */}
+        <footer style={{ borderTop:"1px solid rgba(255,255,255,.08)", padding:"28px 48px", maxWidth:1180, margin:"0 auto", display:"flex", flexWrap:"wrap" as const, alignItems:"center", justifyContent:"space-between", gap:16, fontSize:13, color:"#64748b" }}>
+          <div>© {new Date().getFullYear()} DiáriaJá · Campo Grande, MS</div>
+          <div style={{ display:"flex", gap:20 }}>
+            <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Privacidade</a>
+            <a href="/excluir-conta.html" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Excluir conta</a>
+            <a href="mailto:suporte@diariaja.com.br" style={{ color:"#94a3b8", textDecoration:"none" }}>suporte@diariaja.com.br</a>
+          </div>
+        </footer>
+      </div>
+    );
+  }
 
   // SPLASH
   if (tela === "splash") return (
@@ -5881,6 +6129,9 @@ export default function App() {
                     try { navigator.clipboard?.writeText("https://diariaja.vercel.app"); setToastSuccess("🔗 Link copiado! Em breve você ganha recompensas por indicar."); } catch { /* ignore */ }
                   }
                 } },
+              { icon:"💼", label:"Virar MEI (CNPJ)",
+                sub:"Formalize-se: CNPJ, nota fiscal e aposentadoria",
+                action:() => setTela("mei-info") },
             ].map((item, i, arr) => (
               <div key={item.label} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", borderBottom: i < arr.length-1 ? "1px solid var(--border-sub,#f1f5f9)" : "none", cursor:"pointer" }}
                 onClick={item.action}>
@@ -6272,6 +6523,89 @@ export default function App() {
             )}
           </>
         )}
+      </div>
+    );
+  }
+
+  // FORMALIZE-SE COMO MEI (informativo + link oficial)
+  if (tela === "mei-info") {
+    const voltar = profile?.user_type === "empregador" ? "home-empregador" : profile?.user_type === "diarista" ? "home-diarista" : "configuracoes";
+    const beneficios = [
+      { ic:"🪪", t:"CNPJ próprio", d:"No DiáriaJá você vira Pessoa Jurídica e ganha mais confiança e contatos." },
+      { ic:"🧾", t:"Emite nota fiscal", d:"Atenda empresas e clientes que exigem nota." },
+      { ic:"👵", t:"Aposentadoria e benefícios", d:"Acesso ao INSS: aposentadoria, auxílio-doença e salário-maternidade." },
+      { ic:"🏦", t:"Conta e crédito PJ", d:"Conta empresarial, empréstimos e compras no atacado." },
+    ];
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:60 }}>
+        {/* Header */}
+        <div style={{ background:"linear-gradient(135deg,#0f766e,#16a34a)", padding:"48px 20px 28px" }}>
+          <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.9)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
+            onClick={() => setTela(voltar)}>← Voltar</button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:48, height:48, background:"rgba(255,255,255,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>💼</div>
+            <div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Formalize-se como MEI</div>
+              <div style={{ fontSize:12, color:"rgba(255,255,255,.85)" }}>Tenha seu CNPJ e mais oportunidades</div>
+            </div>
+          </div>
+        </div>
+
+        {/* A DiáriaJá apoia */}
+        <div style={{ margin:"16px 16px 8px", background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"14px 16px" }}>
+          <div style={{ fontSize:14, fontWeight:800, color:"#166534", marginBottom:4 }}>💚 A DiáriaJá apoia a formalização</div>
+          <div style={{ fontSize:13, color:"#15803d", lineHeight:1.5 }}>
+            A gente acredita que quem trabalha por conta própria merece mais segurança. Trabalhador com CNPJ tem benefícios, proteção e acesso a novas oportunidades.
+          </div>
+        </div>
+
+        {/* O que é */}
+        <div style={{ margin:"8px 16px", background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+          <div style={{ fontSize:13, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:6 }}>O que é o MEI?</div>
+          <div style={{ fontSize:13, color:"var(--text-2,#475569)", lineHeight:1.6 }}>
+            O MEI (Microempreendedor Individual) é o jeito mais simples de ter um CNPJ no Brasil — feito pra quem trabalha por conta própria, como prestadores de serviço.
+          </div>
+        </div>
+
+        {/* Benefícios */}
+        <div style={{ margin:"8px 16px" }}>
+          {beneficios.map(b => (
+            <div key={b.t} style={{ display:"flex", gap:12, alignItems:"flex-start", background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", marginBottom:8, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+              <span style={{ fontSize:22, flexShrink:0 }}>{b.ic}</span>
+              <div>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--text-1,#0f172a)" }}>{b.t}</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5, marginTop:2 }}>{b.d}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Quem pode */}
+        <div style={{ margin:"8px 16px", background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:14, padding:"14px 16px" }}>
+          <div style={{ fontSize:13, fontWeight:800, color:"#9a3412", marginBottom:6 }}>Quem pode ser MEI?</div>
+          <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.6 }}>
+            Fatura até cerca de <strong>R$ 81 mil por ano</strong>, não é sócio/dono de outra empresa e exerce uma atividade permitida. Há uma taxa mensal (DAS) de aproximadamente <strong>R$ 75</strong>, que cobre seus benefícios.
+          </div>
+        </div>
+
+        {/* Botões oficiais */}
+        <div style={{ margin:"16px 16px 8px", display:"flex", flexDirection:"column" as const, gap:10 }}>
+          <a href="https://www.gov.br/empresas-e-negocios/pt-br/empreendedor" target="_blank" rel="noopener noreferrer"
+            style={{ display:"block", textAlign:"center" as const, background:"#16a34a", color:"#fff", borderRadius:14, padding:"14px", fontSize:15, fontWeight:800, textDecoration:"none", boxShadow:"0 4px 14px rgba(22,163,74,.35)" }}>
+            🟢 Abrir meu MEI no site oficial (gov.br)
+          </a>
+          <a href="https://sebrae.com.br/sites/PortalSebrae/sebraeaz/o-que-e-ser-mei,e0ba13ec29873410VgnVCM1000003b74010aRCRD" target="_blank" rel="noopener noreferrer"
+            style={{ display:"block", textAlign:"center" as const, background:"var(--bg-card,#fff)", color:"#0f766e", border:"1.5px solid #0f766e", borderRadius:14, padding:"13px", fontSize:14, fontWeight:800, textDecoration:"none" }}>
+            🔵 Ajuda gratuita do SEBRAE
+          </a>
+        </div>
+
+        {/* Aviso legal */}
+        <div style={{ margin:"8px 16px 0", padding:"12px 14px", background:"var(--bg-surface,#f8fafc)", border:"1px solid var(--border,#e2e8f0)", borderRadius:12 }}>
+          <div style={{ fontSize:11, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
+            ⚠️ A DiáriaJá é uma plataforma independente e <strong>não realiza</strong> o cadastro nem tem vínculo com o governo. A abertura do MEI é <strong>gratuita</strong> e feita somente no site oficial (gov.br). Desconfie de sites que cobram para abrir o MEI.
+          </div>
+        </div>
       </div>
     );
   }
@@ -8030,6 +8364,7 @@ export default function App() {
       ? Object.values(CATEGORIAS_NEGOCIO).find(info => (info.funcoes as readonly string[]).includes(filtroFuncao))
       : null;
     const diaristasReaisVisiveis = diaristasReais
+      .filter(d => !(d as UserProfile & { oculto?: boolean }).oculto) // auto-moderação: esconde perfis suspensos por denúncias
       .filter(d => {
         if (filtroDisp && !d.disponivel) return false;
         if (filtroFuncao !== "Todos") {
@@ -8118,6 +8453,42 @@ export default function App() {
         {/* Banner "Complete seu perfil" — movido para DEPOIS da lista de prestadores
             (money-first/gente-first): o anunciante vê os profissionais ANTES da
             cobrança de cadastro. Renderizado no fim da aba "início". */}
+
+        {/* Banner MEI — incentivo à formalização (PF sem CNPJ) */}
+        {bannerMEI}
+
+        {/* ── Lembrete: vaga PRA VENCER (manter no ar / tirar do ar) ── */}
+        {(() => {
+          const aVencer = diarias.filter(d => vagaProximaDeVencer(d) && !lembreteVencDispensados.has(d.id));
+          if (aVencer.length === 0) return null;
+          const v = aVencer[0];
+          const horaFim = (v.horario_fim || v.horario_inicio || "").slice(0, 5);
+          const dispensar = () => setLembreteVencDispensados(prev => new Set(prev).add(v.id));
+          return (
+            <div style={{ margin:"12px 16px 0", background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"14px 16px" }}>
+              <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:10 }}>
+                <span style={{ fontSize:22, lineHeight:1 }}>⏰</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:900, color:"#9a3412" }}>Sua vaga está pra vencer</div>
+                  <div style={{ fontSize:12, color:"#b45309", marginTop:2, lineHeight:1.5 }}>
+                    <strong>{v.nome_negocio || v.funcao || v.segmento}</strong> encerra hoje às {horaFim}. Ainda quer manter no ar?
+                    {aVencer.length > 1 ? ` (+${aVencer.length - 1} outra${aVencer.length > 2 ? "s" : ""} pra vencer)` : ""}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={dispensar}
+                  style={{ flex:1, padding:"10px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:40 }}>
+                  ✅ Manter no ar
+                </button>
+                <button onClick={() => { encerrarVagaAntecipado(v); dispensar(); }}
+                  style={{ flex:1, padding:"10px", background:"var(--bg-card,#fff)", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:40 }}>
+                  🗑️ Tirar do ar
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── ABA INÍCIO ── */}
         {tabEmpregador === "inicio" && (
@@ -9644,7 +10015,7 @@ export default function App() {
                 return (
                   <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
                     <div style={{ fontWeight:800, fontSize:14, color:"#9a3412", marginBottom:4 }}>
-                      🚀 Assinar Essencial — R$ {valor.toFixed(2).replace(".", ",")}/mês
+                      🚀 Ativar Essencial — R$ {valor.toFixed(2).replace(".", ",")} / 30 dias
                     </div>
                     <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.5, marginBottom:12 }}>
                       Seleções ilimitadas, IA Jájá pra criar anúncios, filtros avançados e destaque moderado.
@@ -9726,47 +10097,7 @@ export default function App() {
           </div>
         )}
 
-        {modalDenunciar && (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
-              <div style={{ fontSize:32, textAlign:"center", marginBottom:8 }}>⚑</div>
-              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
-                Denunciar {modalDenunciar.tipo === "vaga" ? "anúncio" : "usuário"}
-              </div>
-              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:20, lineHeight:1.5 }}>
-                <strong style={{ color:"var(--text-1,#0f172a)" }}>{modalDenunciar.nome}</strong><br />
-                Selecione o motivo e enviaremos para revisão.
-              </div>
-              {/* Motivos rápidos */}
-              <div style={{ display:"flex", flexDirection:"column" as const, gap:8, marginBottom:16 }}>
-                {(modalDenunciar.tipo === "vaga"
-                  ? ["Informações falsas ou enganosas", "Anúncio não condiz com a realidade", "Conteúdo ofensivo ou inapropriado", "Anúncio duplicado", "Outro"]
-                  : ["Comportamento inadequado", "Perfil falso ou fraude", "Assédio ou ameaça", "Dados incorretos", "Outro"]
-                ).map(motivo => (
-                  <button
-                    key={motivo}
-                    style={{ padding:"11px 14px", borderRadius:12, border:`1.5px solid ${motivoDenuncia===motivo?"#ef4444":"#e2e8f0"}`, background:motivoDenuncia===motivo?"#fef2f2":"#f8fafc", color:motivoDenuncia===motivo?"#dc2626":"#475569", fontSize:13, fontWeight:motivoDenuncia===motivo?800:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => setMotivoDenuncia(motivo)}>
-                    {motivoDenuncia === motivo ? "● " : "○ "}{motivo}
-                  </button>
-                ))}
-              </div>
-              <div style={{ display:"flex", gap:10 }}>
-                <button
-                  style={{ flex:1, padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                  onClick={() => { setModalDenunciar(null); setMotivoDenuncia(""); }}>
-                  Cancelar
-                </button>
-                <button
-                  disabled={!motivoDenuncia || enviandoDenuncia}
-                  style={{ flex:1, padding:"13px", background: motivoDenuncia?"#ef4444":"#fca5a5", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor: motivoDenuncia?"pointer":"default", fontFamily:"Inter, system-ui, sans-serif", opacity: enviandoDenuncia ? 0.7 : 1 }}
-                  onClick={enviarDenuncia}>
-                  {enviandoDenuncia ? "Enviando..." : "Enviar denúncia"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {modalDenunciarJSX}
 
         {/* ── Modal obrigatório: feedback de vaga expirada (sem aceite) ── */}
         {vagasExpFeedback.length > 0 && (() => {
@@ -10597,6 +10928,7 @@ export default function App() {
     };
 
     const vagasFiltradas = vagasReais
+      .filter(d => !d.oculto)                    // auto-moderação: oculta vagas suspensas por denúncias
       .filter(d => !vagasIgnoradas.has(d.id))   // oculta vagas marcadas como sem interesse
       .filter(d => !d.funcao || categoriasSelecionadas.length === 0 || categoriasSelecionadas.includes(d.funcao))
       .filter(d => filtroDataVaga === "hoje" ? d.data === hojeFmtV : filtroDataVaga === "amanha" ? d.data === amanhaFmtV : true)
@@ -10641,6 +10973,7 @@ export default function App() {
 
         {/* Modal global de logout (mesmo motivo do home-empregador) */}
         {modalConfirmLogout}
+        {modalDenunciarJSX}
 
         {/* ── Header novo estilo ── */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
@@ -10818,7 +11151,7 @@ export default function App() {
                   <button
                     style={{ flex:1, background:"#dcfce7", color:"#16a34a", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                     onClick={() => responderConvite(c.id, "aceito")}>
-                    ✅ Aceitar
+                    ✅ Aceitar e confirmar
                   </button>
                   <button
                     style={{ flex:1, background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -10826,6 +11159,44 @@ export default function App() {
                     ❌ Recusar
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Banner MEI — incentivo à formalização (PF sem CNPJ) */}
+        {bannerMEI}
+
+        {/* ── Convites ACEITOS — presença confirmada + atalho pro chat ── */}
+        {convitesRecebidos.filter(c => c.status === "aceito").length > 0 && (
+          <div style={{ margin:"12px 16px 0" }}>
+            {convitesRecebidos.filter(c => c.status === "aceito").map(c => (
+              <div key={c.id} style={{ background:"linear-gradient(135deg,#16a34a,#22c55e)", borderRadius:16, padding:"14px 16px", marginBottom:10, boxShadow:"0 4px 16px rgba(34,197,94,.3)" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                  <span style={{ fontSize:24, flexShrink:0 }}>🎯</span>
+                  <div style={{ flex:1, minWidth:0, color:"#fff" }}>
+                    <div style={{ fontWeight:900, fontSize:14, lineHeight:1.25 }}>Presença confirmada com {c.contratante_nome || "o anunciante"}!</div>
+                    <div style={{ fontSize:12, opacity:0.95, marginTop:2 }}>{c.funcao || "Serviço"} · {new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR")} · {c.horario_servico}</div>
+                  </div>
+                </div>
+                <button
+                  style={{ width:"100%", background:"var(--bg-card,#fff)", color:"#16a34a", border:"none", borderRadius:10, padding:"11px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                  onClick={() => {
+                    // Mapeia o convite pro shape de Diaria (mesmo mapeamento do lado do anunciante)
+                    // pra abrir o chat — o id do convite é a chave das mensagens.
+                    const chatComoDiaria = {
+                      id: c.id, empregador_id: c.contratante_id, diarista_aceite_id: c.diarista_id,
+                      funcao: c.funcao ?? "Serviço", data: c.data_servico, horario_inicio: c.horario_servico ?? "00:00",
+                      horario_fim: "", valor: c.valor ?? 0, nome_negocio: c.contratante_nome || c.local_servico || "Anunciante",
+                      segmento: "", descricao: c.observacoes ?? "", status: "aceita", created_at: c.created_at,
+                      tipo_oferta: "diaria" as const,
+                    };
+                    hapticTick();
+                    setChatDiariaAtiva(chatComoDiaria as any);
+                    setTabDiarista("chat");
+                  }}>
+                  💬 Abrir chat com {(c.contratante_nome || "o anunciante").split(" ")[0]}
+                </button>
               </div>
             ))}
           </div>
@@ -11896,8 +12267,33 @@ export default function App() {
               </div>
             );
           }
-          // Lista de conversas
-          const conversas = minhasDiarias.filter(d => ["aceita","em_andamento","concluida"].includes(d.status) && !hiddenChats.has(d.id));
+          // Lista de conversas — diárias aceitas + convites aceitos.
+          // BUG: o chat por CONVITE não aparecia pro prestador, porque a lista só
+          // olhava `minhasDiarias` (diárias aceitas). Um convite não é uma diária,
+          // então o anunciante via a conversa mas o prestador não. Aqui mapeamos os
+          // convites aceitos pro shape de Diaria (igual ao lado do anunciante) e
+          // mesclamos — o chat usa convite.id como diaria_id, então as msgs batem.
+          const conversasDiarias = minhasDiarias.filter(d => ["aceita","em_andamento","concluida"].includes(d.status) && !hiddenChats.has(d.id));
+          const conversasConvites = convitesRecebidos
+            .filter(c => c.status === "aceito" && !hiddenChats.has(c.id))
+            .filter(c => !conversasDiarias.some(d => d.id === c.id))
+            .map(c => ({
+              id:                 c.id,
+              empregador_id:      c.contratante_id,
+              diarista_aceite_id: c.diarista_id,
+              funcao:             c.funcao ?? "Serviço",
+              data:               c.data_servico,
+              horario_inicio:     c.horario_servico ?? "00:00",
+              horario_fim:        "",
+              valor:              c.valor ?? 0,
+              nome_negocio:       c.contratante_nome || c.local_servico || "Anunciante",
+              segmento:           "",
+              descricao:          c.observacoes ?? "",
+              status:             "aceita",
+              created_at:         c.created_at,
+              tipo_oferta:        "diaria" as const,
+            } as Diaria));
+          const conversas = [...conversasConvites, ...conversasDiarias];
           return (
             <div style={{ padding:"16px" }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
@@ -12626,6 +13022,17 @@ export default function App() {
                       </button>
                       <button style={{ ...S.btnSecondary, marginTop:8, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setVagaConfirm(null)}>
                         Cancelar
+                      </button>
+                      {/* Denunciar anúncio — abre o modal de denúncia (tipo vaga) */}
+                      <button
+                        style={{ width:"100%", marginTop:12, background:"none", border:"none", color:"#94a3b8", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                        onClick={() => {
+                          const v = vagaConfirm;
+                          setVagaConfirm(null);
+                          setModalDenunciar({ tipo:"vaga", id:v.id, nome:v.nome_negocio || v.segmento || "Anúncio" });
+                          setMotivoDenuncia("");
+                        }}>
+                        ⚑ Denunciar este anúncio
                       </button>
                     </>
                   )}
@@ -13549,6 +13956,8 @@ export default function App() {
         setAuthError("");
         const erroNome = validarNome(form.nome);
         if (erroNome) { setAuthError(erroNome); return; }
+        const bioProibida = verificarConteudoProibido(form.bio);
+        if (bioProibida) { setAuthError(bioProibida); return; }
         if (!fotoUrl) { setAuthError("⚠️ Adicione uma foto de perfil para continuar."); return; }
         if (!form.cpf || !validarCPF(form.cpf)) { setAuthError("⚠️ CPF obrigatório e deve ser válido (dígitos verificadores conferidos)."); return; }
         // Se o telefone foi destravado e mudou, invalida verificação anterior
@@ -13565,6 +13974,7 @@ export default function App() {
           cpf: form.cpf,
           sexo: form.sexo,
           data_nascimento: form.dataNasc,
+          cep: form.cep,   // persiste o CEP digitado (antes só lat/lng eram salvos)
           // Telefone trocado → re-verificação acontece via redirect pra verificar-telefone
           // (saveProfile descarta telefone_verificado; o flag continua refletindo o
           // estado antigo até o usuário confirmar o novo OTP, momento em que a RPC
@@ -15102,6 +15512,8 @@ export default function App() {
         setAuthError("");
         const erroNomeEmp = validarNome(form.nome);
         if (erroNomeEmp) { setAuthError(erroNomeEmp); return; }
+        const negProibido = verificarConteudoProibido(form.nomeNegocio);
+        if (negProibido) { setAuthError(negProibido); return; }
         const enderecoAtualizado = form.ruaEmp
           ? `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp ? `, ${form.complementoEmp}` : ""} - ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} - CEP: ${form.cepEmp}`
           : undefined;
@@ -15248,6 +15660,54 @@ export default function App() {
           ) : (
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
               {carregandoAdminStats ? "Carregando estatísticas…" : "Toque em 🔄 pra carregar."}
+            </div>
+          )}
+        </div>
+
+        {/* ── 💰 Financeiro ── */}
+        <div style={{ padding:"0 16px 16px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>💰 Financeiro</div>
+          {adminFinanceiro ? (() => {
+            const fmt = (n: unknown) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const u = adminFinanceiro.unlocks || {};
+            const pl = adminFinanceiro.planos || {};
+            const serie = Array.isArray(adminFinanceiro.unlocks_serie)
+              ? adminFinanceiro.unlocks_serie.map((d: { dia: string; valor: number }) => ({ dia: String(d.dia), valor: Number(d.valor) }))
+              : [];
+            const porPlano = Array.isArray(pl.por_plano) ? pl.por_plano : [];
+            return (
+              <>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                  {cardStat("Chat liberado — mês", `R$ ${fmt(u.valor_mes)}`, "#16a34a", "💬")}
+                  {cardStat("Chat liberado — hoje", `R$ ${fmt(u.valor_hoje)}`, "#22c55e", "📅")}
+                  {cardStat("Assinantes ativos", pl.ativos_total ?? 0, "#3A86FF", "⭐")}
+                  {cardStat("Planos/mês (estim.)", `R$ ${fmt(pl.valor_estimado)}`, "#FF6B35", "🔁")}
+                </div>
+                {serie.length > 0 && (
+                  <div style={{ marginBottom:10 }}>
+                    <MiniBars data={serie} cor="#16a34a" label="Desbloqueios de chat (R$1) — por dia" />
+                  </div>
+                )}
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:10 }}>Assinantes por plano</div>
+                  {porPlano.length === 0 ? (
+                    <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>Nenhum plano ativo ainda.</div>
+                  ) : porPlano.map((p: { plano: string; user_type: string; qtd: number }) => (
+                    <div key={`${p.user_type}-${p.plano}`} style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"5px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+                      <span style={{ color:"var(--text-2,#64748b)" }}>{p.user_type === "diarista" ? "👷 Prestador" : "🏢 Anunciante"} · {p.plano}</span>
+                      <strong style={{ color:"var(--text-1,#0f172a)" }}>{p.qtd}</strong>
+                    </div>
+                  ))}
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:10 }}>
+                    <span>Total acumulado (chat liberado)</span>
+                    <strong>R$ {fmt(u.valor_total)} · {u.total ?? 0}x</strong>
+                  </div>
+                </div>
+              </>
+            );
+          })() : (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              {carregandoAdminStats ? "Carregando financeiro…" : "Toque em 🔄 pra carregar."}
             </div>
           )}
         </div>
@@ -16512,7 +16972,7 @@ export default function App() {
                     <div style={{ fontSize:18, fontWeight:900, color:"#fff" }}>{p.nome}</div>
                     {p.valor === 0
                       ? <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:2 }}>Sempre grátis</div>
-                      : <div style={{ fontSize:13, color:"var(--text-3,#94a3b8)", marginTop:2 }}>por mês</div>
+                      : <div style={{ fontSize:13, color:"var(--text-3,#94a3b8)", marginTop:2 }}>por 30 dias</div>
                     }
                   </div>
                   <div style={{ textAlign:"right" }}>
@@ -16546,7 +17006,7 @@ export default function App() {
                       style={{ width:"100%", padding:"14px", background:p.cor, color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: algumLoading ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 16px ${p.cor}44`, opacity: algumLoading && !loadingEste ? 0.4 : algumLoading ? 0.7 : 1 }}
                       disabled={algumLoading}
                       onClick={() => { setAuthError(""); iniciarAssinatura(p.id); }}>
-                      {loadingEste ? "Aguarde..." : `Assinar ${p.nome} — R$ ${valorBR}/mês`}
+                      {loadingEste ? "Aguarde..." : `Ativar ${p.nome} — R$ ${valorBR} / 30 dias`}
                     </button>
                   );
                 })()}

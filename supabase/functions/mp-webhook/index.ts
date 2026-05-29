@@ -162,7 +162,13 @@ Deno.serve(async (req) => {
     // Replay do mesmo payload (ou ataques) batem aqui e são silenciosamente
     // ignorados. Tabela criada em supabase/migrations/webhook_idempotencia.sql.
     // INSERT com ON CONFLICT DO NOTHING — se já existe, rowcount=0.
-    const eventoId = String(body.data.id) + "::" + (body.type ?? body.topic ?? "x");
+    // FIX: idempotência por ID DA NOTIFICAÇÃO (body.id), não pelo id do recurso
+    // (body.data.id). O MP manda várias notificações do MESMO pagamento conforme
+    // o status muda (pending → approved), todas com o mesmo data.id. Usar data.id
+    // fazia a notificação de "approved" ser tratada como duplicata e ignorada —
+    // então o plano/pagamento nunca era concedido (quebrava todo Pix). O body.id
+    // é único por notificação; retries da MESMA notificação reusam o id (dedupe OK).
+    const eventoId = String(body.id ?? body.data.id) + "::" + (body.type ?? body.topic ?? "x");
     const { error: idemErr, count: idemCount } = await supabase
       .from("webhook_eventos_processados")
       .insert({ mp_evento_id: eventoId }, { count: "exact" });
@@ -245,7 +251,23 @@ Deno.serve(async (req) => {
       });
       const payment = await mpResp.json();
 
-      if (!payment.external_reference) return new Response("ok", { status: 200 });
+      // FIX CheckoutPro: o external_reference que setamos na preferência às vezes
+      // NÃO vem no objeto do pagamento — vem na merchant_order (payment.order.id).
+      // Sem este fallback, pagamentos aprovados (inclusive Pix) saíam aqui sem
+      // conceder o plano/contato.
+      let ref = String(payment.external_reference ?? "");
+      if (!ref && payment.order?.id) {
+        try {
+          const moResp = await fetch(`https://api.mercadopago.com/merchant_orders/${payment.order.id}`, {
+            headers: { "Authorization": `Bearer ${MP_TOKEN}` },
+          });
+          const mo = await moResp.json();
+          ref = String(mo.external_reference ?? "");
+        } catch (e) { console.error("[mp-webhook] merchant_order fetch falhou:", e); }
+      }
+      console.log(`[mp-webhook] payment ${await pseudo(paymentId)} status=${payment.status} ref=${ref || "(vazio)"}`);
+      if (!ref) return new Response("ok", { status: 200 });
+      payment.external_reference = ref; // resto do fluxo usa o ref já resolvido
 
       // ── Desbloqueio de contato (R$ 1) ──────────────────────────
       // Registra na tabela `contatos_desbloqueios` para que o cliente saiba
@@ -269,6 +291,27 @@ Deno.serve(async (req) => {
           }
         } else {
           console.log(`[mp-webhook] contact_unlock ignored: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
+        }
+        return new Response("ok", { status: 200 });
+      }
+
+      // ── Plano 30 dias (pagamento único via Pix/cartão) ─────────
+      // external_reference = "plano::USER_ID::PLANO_ID". Diferente do
+      // preapproval: aqui é avulso (aceita Pix) e não renova sozinho —
+      // grava plano_ativo + plano_expira_em (30 dias). O app avisa ao vencer.
+      if (String(payment.external_reference).startsWith("plano::")) {
+        const parts = String(payment.external_reference).split("::");
+        const userId = parts[1] ?? "";
+        const planoId = parts[2] ?? "";
+        if (payment.status === "approved" && userId && planoId) {
+          const expira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+          const { error: upErr } = await supabase
+            .from("user_profiles")
+            .update({ plano_ativo: planoId, plano_expira_em: expira })
+            .eq("id", userId);
+          if (upErr) console.error(`[mp-webhook] plano grant falhou:`, upErr);
+        } else {
+          console.log(`[mp-webhook] plano ignored: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
         }
         return new Response("ok", { status: 200 });
       }

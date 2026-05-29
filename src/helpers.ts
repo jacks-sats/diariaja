@@ -255,7 +255,45 @@ export function verificarFraudeDescricao(texto: string): string | null {
   return null;
 }
 
-// ── Anti-exit: detecta tentativa de trocar contato externo no chat ───────────
+// ── Moderação de conteúdo: BANE termos ilegais / que ferem a dignidade ───────
+// Diferente de verificarFraudeDescricao (que é só aviso de golpe), esta função
+// BLOQUEIA a publicação. Retorna a mensagem de bloqueio, ou null se o texto OK.
+// Normaliza acentos + caixa antes de testar. Conservadora de propósito, pra
+// evitar falso-positivo em vaga legítima (ex.: "biqueira de aço" = EPI de obra).
+// A lista é facilmente ajustável — adicione/remova padrões conforme necessário.
+const MSG_CONTEUDO_PROIBIDO =
+  "🚫 Seu texto contém um termo que viola nossas regras de conduta. Remova conteúdo ilegal, ofensivo ou que desrespeite a dignidade das pessoas e tente de novo.";
+
+const PADROES_PROIBIDOS: RegExp[] = [
+  // Drogas / tráfico ("biqueira" = boca de fumo; exceção pro EPI tratada à parte)
+  /\bboca\s+de\s+fumo\b/, /\btrafic\w*/, /\bmaconha\b/, /\bcocain\w*/, /\bcrack\b/,
+  /\bskunk\b/, /\bhero[ií]na\b/, /\bmetanfetamina\b/, /\b(vender|venda|entrega|levar)\s+(de\s+)?drogas?\b/,
+  /\bmula\s+(de\s+)?carga\b/,
+  // Armas ilegais
+  /\b(venda|comprar?|vender)\s+(de\s+)?armas?\b/, /\barma\s+de\s+fogo\b/, /\bmunic[aã]o\b/, /\bgranada\b/,
+  // Exploração sexual
+  /\bgarot[ao]\s+de\s+programa\b/, /\bprograma\s+sexual\b/, /\bfavor\s+sexual\b/,
+  /\bservi[cç]o\s+sexual\b/, /\bprostitu\w*/, /\bacompanhante\s+sexual\b/, /\bmassagem\s+com\s+final\b/,
+  // Exploração de menores / trabalho infantil
+  /\btrabalho\s+infantil\b/, /\bexplora\w*\s+de\s+menor\w*/,
+  // Discurso de ódio / pejorativos claros (dignidade humana) — lista conservadora
+  /\bviadinho\b/, /\bbichinha\b/, /\bsapat[aã]o\b/, /\btraveco\b/, /\bcrioul[oa]\b/,
+  /\bretardad[oa]\b/, /\bmongol[oó]ide\b/, /\bvagabund[ao]\b/, /\bvad(ia|ias)\b/,
+];
+
+export function verificarConteudoProibido(texto: string): string | null {
+  if (!texto) return null;
+  const t = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  // "biqueira" sozinha é boca de fumo; "biqueira de aço/ferro" é EPI legítimo.
+  if (/\bbiqueira\b/.test(t) && !/\bbiqueira\s+(de\s+)?(aco|ferro|metal|composite|plastico|seguranca)\b/.test(t))
+    return MSG_CONTEUDO_PROIBIDO;
+  for (const padrao of PADROES_PROIBIDOS) {
+    if (padrao.test(t)) return MSG_CONTEUDO_PROIBIDO;
+  }
+  return null;
+}
+
+
 export function detectarContatoExterno(msg: string): boolean {
   return /\b\d{8,11}\b/.test(msg) ||
     /whatsapp|wpp|zap|telegram|meu.n[uú]mero|me.liga|me.chama|fora.do.app/i.test(msg);
@@ -562,7 +600,30 @@ export function vagaExpirou(
   return agora.getTime() > fim.getTime();
 }
 
-// ── Endereço do empregador — parse do texto salvo de volta em campos ──────────
+// ── Vaga PRÓXIMA de vencer: ainda no ar, mas o horário-fim chega em breve ─────
+// Usado pra lembrar o anunciante ("ainda quer manter no ar ou tirar?") ANTES de
+// a vaga expirar sozinha. Só vale pra vaga ainda "aberta" (ninguém confirmado).
+// Para serviço (sem horario_fim) usa o horário de início como referência.
+export function vagaProximaDeVencer(
+  diaria: { data: string; horario_fim?: string; horario_inicio?: string; status: string },
+  horasAntes = 6,
+  agora: Date = new Date(),
+): boolean {
+  if (diaria.status !== "aberta") return false;
+  if (!diaria.data) return false;
+  const hhmm = (diaria.horario_fim && diaria.horario_fim.trim())
+    ? diaria.horario_fim
+    : diaria.horario_inicio;
+  if (!hhmm) return false;
+  const [h, m] = hhmm.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return false;
+  const fim = new Date(`${diaria.data}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+  const restanteMs = fim.getTime() - agora.getTime();
+  // Ainda no futuro (não expirou) E dentro da janela de aviso.
+  return restanteMs > 0 && restanteMs <= horasAntes * 60 * 60 * 1000;
+}
+
+
 // O perfil do empregador guarda o endereço como UMA string concatenada na coluna
 // `endereco_empregador` (não há colunas separadas). Para que a tela "Editar perfil"
 // consiga pré-preencher os campos (rua, número, complemento, bairro, cidade, UF e
