@@ -251,7 +251,23 @@ Deno.serve(async (req) => {
       });
       const payment = await mpResp.json();
 
-      if (!payment.external_reference) return new Response("ok", { status: 200 });
+      // FIX CheckoutPro: o external_reference que setamos na preferência às vezes
+      // NÃO vem no objeto do pagamento — vem na merchant_order (payment.order.id).
+      // Sem este fallback, pagamentos aprovados (inclusive Pix) saíam aqui sem
+      // conceder o plano/contato.
+      let ref = String(payment.external_reference ?? "");
+      if (!ref && payment.order?.id) {
+        try {
+          const moResp = await fetch(`https://api.mercadopago.com/merchant_orders/${payment.order.id}`, {
+            headers: { "Authorization": `Bearer ${MP_TOKEN}` },
+          });
+          const mo = await moResp.json();
+          ref = String(mo.external_reference ?? "");
+        } catch (e) { console.error("[mp-webhook] merchant_order fetch falhou:", e); }
+      }
+      console.log(`[mp-webhook] payment ${await pseudo(paymentId)} status=${payment.status} ref=${ref || "(vazio)"}`);
+      if (!ref) return new Response("ok", { status: 200 });
+      payment.external_reference = ref; // resto do fluxo usa o ref já resolvido
 
       // ── Desbloqueio de contato (R$ 1) ──────────────────────────
       // Registra na tabela `contatos_desbloqueios` para que o cliente saiba
