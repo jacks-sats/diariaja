@@ -1596,6 +1596,9 @@ export default function App() {
           const novoConvite: Convite = payload.new;
           setConvitesRecebidos(prev => [novoConvite, ...prev]);
           setToastSuccess(`📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para uma diária!`);
+          // Registra no sino de Notificações (antes só dava toast, que some sozinho).
+          setListaNotif(prev => [{ tipo: "ok", msg: `📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para ${novoConvite.funcao || "uma diária"} — aceite e combine no chat.`, ts: Date.now() }, ...prev]);
+          setNotifNaoLidas(prev => prev + 1);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             mostrarNotificacaoLocal("📨 Novo convite de diária!", {
               body: `${novoConvite.contratante_nome} quer entrar em contato com você para ${novoConvite.funcao} em ${new Date(novoConvite.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}`,
@@ -11001,7 +11004,7 @@ export default function App() {
                   <button
                     style={{ flex:1, background:"#dcfce7", color:"#16a34a", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                     onClick={() => responderConvite(c.id, "aceito")}>
-                    ✅ Aceitar
+                    ✅ Aceitar e confirmar
                   </button>
                   <button
                     style={{ flex:1, background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -11009,6 +11012,41 @@ export default function App() {
                     ❌ Recusar
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Convites ACEITOS — presença confirmada + atalho pro chat ── */}
+        {convitesRecebidos.filter(c => c.status === "aceito").length > 0 && (
+          <div style={{ margin:"12px 16px 0" }}>
+            {convitesRecebidos.filter(c => c.status === "aceito").map(c => (
+              <div key={c.id} style={{ background:"linear-gradient(135deg,#16a34a,#22c55e)", borderRadius:16, padding:"14px 16px", marginBottom:10, boxShadow:"0 4px 16px rgba(34,197,94,.3)" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                  <span style={{ fontSize:24, flexShrink:0 }}>🎯</span>
+                  <div style={{ flex:1, minWidth:0, color:"#fff" }}>
+                    <div style={{ fontWeight:900, fontSize:14, lineHeight:1.25 }}>Presença confirmada com {c.contratante_nome || "o anunciante"}!</div>
+                    <div style={{ fontSize:12, opacity:0.95, marginTop:2 }}>{c.funcao || "Serviço"} · {new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR")} · {c.horario_servico}</div>
+                  </div>
+                </div>
+                <button
+                  style={{ width:"100%", background:"var(--bg-card,#fff)", color:"#16a34a", border:"none", borderRadius:10, padding:"11px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                  onClick={() => {
+                    // Mapeia o convite pro shape de Diaria (mesmo mapeamento do lado do anunciante)
+                    // pra abrir o chat — o id do convite é a chave das mensagens.
+                    const chatComoDiaria = {
+                      id: c.id, empregador_id: c.contratante_id, diarista_aceite_id: c.diarista_id,
+                      funcao: c.funcao ?? "Serviço", data: c.data_servico, horario_inicio: c.horario_servico ?? "00:00",
+                      horario_fim: "", valor: c.valor ?? 0, nome_negocio: c.contratante_nome || c.local_servico || "Anunciante",
+                      segmento: "", descricao: c.observacoes ?? "", status: "aceita", created_at: c.created_at,
+                      tipo_oferta: "diaria" as const,
+                    };
+                    hapticTick();
+                    setChatDiariaAtiva(chatComoDiaria as any);
+                    setTabDiarista("chat");
+                  }}>
+                  💬 Abrir chat com {(c.contratante_nome || "o anunciante").split(" ")[0]}
+                </button>
               </div>
             ))}
           </div>
