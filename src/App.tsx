@@ -4826,8 +4826,8 @@ export default function App() {
         </h1>
 
         {/* Sub funcional */}
-        <p style={{ fontSize:14, color:"#94a3b8", textAlign:"center" as const, lineHeight:1.6, margin:"0 0 18px", maxWidth:320, animation:"spl-fadein 1s ease-out .4s both" }}>
-          Plataforma de anúncios de oportunidades de diária · Começou em Campo Grande/MS
+        <p style={{ fontSize:15, color:"#cbd5e1", textAlign:"center" as const, lineHeight:1.6, margin:"0 0 18px", maxWidth:340, animation:"spl-fadein 1s ease-out .4s both" }}>
+          Anuncie uma vaga ou encontre serviço pertinho de você. Faxina, reparos, beleza, cuidados e muito mais.
         </p>
 
         {/* Carrossel marquee de categorias (auto-scroll horizontal) */}
@@ -4858,9 +4858,9 @@ export default function App() {
             { ic:"🪪", lab:"CPF/CNPJ verificado" },
             { ic:"⭐", lab:"Avaliações reais" },
           ].map(s => (
-            <div key={s.lab} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"5px 10px", display:"flex", alignItems:"center", gap:5 }}>
-              <span style={{ fontSize:11 }}>{s.ic}</span>
-              <span style={{ fontSize:10, color:"#cbd5e1", fontWeight:600 }}>{s.lab}</span>
+            <div key={s.lab} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"6px 12px", display:"flex", alignItems:"center", gap:5 }}>
+              <span style={{ fontSize:13 }}>{s.ic}</span>
+              <span style={{ fontSize:12, color:"#e2e8f0", fontWeight:600 }}>{s.lab}</span>
             </div>
           ))}
         </div>
@@ -5179,13 +5179,13 @@ export default function App() {
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-0.5 }}>
           <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"var(--text-3,#94a3b8)", fontSize:14, marginTop:8 }}>Como você vai usar o app?</p>
+        <p style={{ color:"#cbd5e1", fontSize:15, marginTop:8 }}>O que você precisa hoje?</p>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:12 }}>
         {[
-          { key:"empregador", icone:"🏢", label:"Quero anunciar", desc:"Negócio, restaurante, obra..." },
-          { key:"diarista",   icone:"👷", label:"Quero prestar serviços", desc:"Encontrar anúncios próximos" },
+          { key:"empregador", icone:"🏢", label:"Quero anunciar", desc:"Publique uma vaga e encontre quem faz o serviço" },
+          { key:"diarista",   icone:"👷", label:"Quero trabalhar", desc:"Veja vagas perto de você e ganhe uma renda" },
         ].map(t => {
           const ativo = tipo === t.key;
           return (
@@ -5196,8 +5196,8 @@ export default function App() {
                 <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(0,0,0,.3)" }}>✓</div>
               )}
               <span style={{ fontSize:36 }}>{t.icone}</span>
-              <span style={{ fontWeight:800, fontSize:15, color: ativo ? "#fff" : "#f1f5f9" }}>{t.label}</span>
-              <span style={{ fontSize:11, color: ativo ? "rgba(255,255,255,.85)" : "var(--text-2,#64748b)", textAlign:"center" }}>{t.desc}</span>
+              <span style={{ fontWeight:800, fontSize:16, color: ativo ? "#fff" : "#f1f5f9" }}>{t.label}</span>
+              <span style={{ fontSize:12.5, color: ativo ? "rgba(255,255,255,.9)" : "#cbd5e1", textAlign:"center", lineHeight:1.4 }}>{t.desc}</span>
             </div>
           );
         })}
@@ -5212,9 +5212,9 @@ export default function App() {
             {ativo && (
               <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#3A86FF", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(0,0,0,.3)" }}>✓</div>
             )}
-            <span style={{ fontSize:36 }}>🏢</span>
-            <span style={{ fontWeight:800, fontSize:15, color: ativo ? "#fff" : "#f1f5f9" }}>Empresa com CNPJ</span>
-            <span style={{ fontSize:11, color: ativo ? "rgba(255,255,255,.85)" : "var(--text-2,#64748b)", textAlign:"center" as const }}>Pessoa jurídica — CNPJ obrigatório</span>
+            <span style={{ fontSize:30 }}>🏢</span>
+            <span style={{ fontWeight:800, fontSize:14, color: ativo ? "#fff" : "#e2e8f0" }}>Sou empresa (CNPJ)</span>
+            <span style={{ fontSize:12, color: ativo ? "rgba(255,255,255,.9)" : "#cbd5e1", textAlign:"center" as const, lineHeight:1.4 }}>Anuncie em nome da sua empresa — com nota fiscal</span>
           </div>
         );
       })()}
@@ -8055,7 +8055,7 @@ export default function App() {
                   <span style={{ color:negocio.cor, cursor:"pointer" }} onClick={() => { setModalInfoPerfil(true); setBioDraft(profile?.bio || ""); }}>{primeiroNome}!</span> 👋
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
-                  <span style={{ background:negocio.cor+"15", color:negocio.cor, fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>🏢 Anunciante</span>
+                  <span style={{ background:negocio.cor+"15", color:negocio.cor, fontSize:11, fontWeight:700, padding:"2px 9px", borderRadius:20 }}>🏢 Anunciante</span>
                 </div>
               </div>
             </div>
@@ -8125,7 +8125,7 @@ export default function App() {
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)" }}>📋 Complete seu perfil</div>
-                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:1 }}>{nivelLabel} — quanto mais completo, mais profissionalismo você transmite</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:1 }}>{nivelLabel} — anúncios de perfil completo atraem prestadores melhores</div>
                   </div>
                   <div style={{ fontSize:20, fontWeight:900, color:cor, marginLeft:8 }}>{comp.pct}%</div>
                 </div>
@@ -10642,7 +10642,7 @@ export default function App() {
                   <span style={{ color:"#FF6B35", cursor:"pointer" }} onClick={() => { setModalInfoPerfil(true); setBioDraft(profile?.bio || ""); }}>{primeiroNome}!</span> 👋
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
-                  <span style={{ background:"#FF6B3515", color:"#FF6B35", fontSize:10, fontWeight:700, padding:"1px 7px", borderRadius:20 }}>👷 Prestador</span>
+                  <span style={{ background:"#FF6B3515", color:"#FF6B35", fontSize:11, fontWeight:700, padding:"2px 9px", borderRadius:20 }}>👷 Prestador</span>
                   {!loading && vagasFiltradas.length > 0 && (
                     <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:600 }}>
                       · {vagasFiltradas.length === 1 ? "1 anúncio perto" : `${vagasFiltradas.length} anúncios perto`}
@@ -10727,7 +10727,7 @@ export default function App() {
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)" }}>📋 Complete seu perfil</div>
-                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:1 }}>{nivelLabel} — quanto mais completo, mais confiança você inspira</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:1 }}>{nivelLabel} — perfis completos aparecem pra mais anunciantes e recebem mais contatos</div>
                   </div>
                   <div style={{ fontSize:20, fontWeight:900, color:cor, marginLeft:8 }}>{comp.pct}%</div>
                 </div>
