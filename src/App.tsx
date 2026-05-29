@@ -66,7 +66,7 @@ import {
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
-  parseEnderecoEmpregador,
+  parseEnderecoEmpregador, verificarConteudoProibido,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -3444,6 +3444,8 @@ export default function App() {
     if (!session?.user || !formTopico.titulo.trim() || !formTopico.conteudo.trim()) {
       setToastError("Preencha título e conteúdo."); return;
     }
+    const topicoProibido = verificarConteudoProibido(`${formTopico.titulo} ${formTopico.conteudo}`);
+    if (topicoProibido) { setToastError(topicoProibido); return; }
     setEnviandoTopico(true);
     const { data, error } = await supabase.from("topicos").insert({
       autor_id:  session.user.id,
@@ -3463,6 +3465,8 @@ export default function App() {
 
   const criarComentario = async () => {
     if (!session?.user || !topicoAtivo || !novoComentario.trim()) return;
+    const comentarioProibido = verificarConteudoProibido(novoComentario);
+    if (comentarioProibido) { setToastError(comentarioProibido); return; }
     setEnviandoComentario(true);
     const { data, error } = await supabase.from("comentarios_comunidade").insert({
       topico_id:  topicoAtivo.id,
@@ -4081,6 +4085,10 @@ export default function App() {
     // Verificação anti-fraude
     const fraudeAviso = verificarFraudeDescricao(formDiaria.descricao);
     if (fraudeAviso) { setAuthError(fraudeAviso); return; }
+    // Moderação de conteúdo — BANE termos ilegais / que ferem a dignidade.
+    // Cobre título (local), descrição e função do anúncio.
+    const conteudoProibido = verificarConteudoProibido(`${formDiaria.local} ${formDiaria.descricao} ${formDiaria.funcao}`);
+    if (conteudoProibido) { setAuthError(conteudoProibido); return; }
     const enderecoComposto = `${formDiaria.rua}, ${formDiaria.numero}${formDiaria.complemento.trim() ? ` — ${formDiaria.complemento.trim()}` : ""}, ${formDiaria.bairro}, ${formDiaria.cidade}/${formDiaria.estado} — CEP ${formDiaria.cep}`;
     setSalvandoDiaria(true);
     const isDelivery = FUNCOES_DELIVERY.includes(formDiaria.funcao);
@@ -4777,6 +4785,49 @@ export default function App() {
           onClick={async () => { setConfirmLogout(false); await handleLogout(); }}>
           Sair mesmo assim
         </button>
+      </div>
+    </div>
+  ) : null;
+
+  // Modal de Denúncia — compartilhado entre as duas homes (anunciante e prestador),
+  // pra que o botão "Denunciar" funcione tanto no card do prestador quanto na vaga.
+  const modalDenunciarJSX = modalDenunciar ? (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
+        <div style={{ fontSize:32, textAlign:"center", marginBottom:8 }}>⚑</div>
+        <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
+          Denunciar {modalDenunciar.tipo === "vaga" ? "anúncio" : "usuário"}
+        </div>
+        <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:20, lineHeight:1.5 }}>
+          <strong style={{ color:"var(--text-1,#0f172a)" }}>{modalDenunciar.nome}</strong><br />
+          Selecione o motivo e enviaremos para revisão.
+        </div>
+        <div style={{ display:"flex", flexDirection:"column" as const, gap:8, marginBottom:16 }}>
+          {(modalDenunciar.tipo === "vaga"
+            ? ["Informações falsas ou enganosas", "Anúncio não condiz com a realidade", "Conteúdo ofensivo ou inapropriado", "Atividade ilegal ou suspeita", "Anúncio duplicado", "Outro"]
+            : ["Comportamento inadequado", "Perfil falso ou fraude", "Assédio ou ameaça", "Dados incorretos", "Outro"]
+          ).map(motivo => (
+            <button
+              key={motivo}
+              style={{ padding:"11px 14px", borderRadius:12, border:`1.5px solid ${motivoDenuncia===motivo?"#ef4444":"#e2e8f0"}`, background:motivoDenuncia===motivo?"#fef2f2":"#f8fafc", color:motivoDenuncia===motivo?"#dc2626":"#475569", fontSize:13, fontWeight:motivoDenuncia===motivo?800:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+              onClick={() => setMotivoDenuncia(motivo)}>
+              {motivoDenuncia === motivo ? "● " : "○ "}{motivo}
+            </button>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:10 }}>
+          <button
+            style={{ flex:1, padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => { setModalDenunciar(null); setMotivoDenuncia(""); }}>
+            Cancelar
+          </button>
+          <button
+            disabled={!motivoDenuncia || enviandoDenuncia}
+            style={{ flex:1, padding:"13px", background: motivoDenuncia?"#ef4444":"#fca5a5", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor: motivoDenuncia?"pointer":"default", fontFamily:"Inter, system-ui, sans-serif", opacity: enviandoDenuncia ? 0.7 : 1 }}
+            onClick={enviarDenuncia}>
+            {enviandoDenuncia ? "Enviando..." : "Enviar denúncia"}
+          </button>
+        </div>
       </div>
     </div>
   ) : null;
@@ -8018,6 +8069,7 @@ export default function App() {
       ? Object.values(CATEGORIAS_NEGOCIO).find(info => (info.funcoes as readonly string[]).includes(filtroFuncao))
       : null;
     const diaristasReaisVisiveis = diaristasReais
+      .filter(d => !(d as UserProfile & { oculto?: boolean }).oculto) // auto-moderação: esconde perfis suspensos por denúncias
       .filter(d => {
         if (filtroDisp && !d.disponivel) return false;
         if (filtroFuncao !== "Todos") {
@@ -9714,47 +9766,7 @@ export default function App() {
           </div>
         )}
 
-        {modalDenunciar && (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", maxWidth:380, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
-              <div style={{ fontSize:32, textAlign:"center", marginBottom:8 }}>⚑</div>
-              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
-                Denunciar {modalDenunciar.tipo === "vaga" ? "anúncio" : "usuário"}
-              </div>
-              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:20, lineHeight:1.5 }}>
-                <strong style={{ color:"var(--text-1,#0f172a)" }}>{modalDenunciar.nome}</strong><br />
-                Selecione o motivo e enviaremos para revisão.
-              </div>
-              {/* Motivos rápidos */}
-              <div style={{ display:"flex", flexDirection:"column" as const, gap:8, marginBottom:16 }}>
-                {(modalDenunciar.tipo === "vaga"
-                  ? ["Informações falsas ou enganosas", "Anúncio não condiz com a realidade", "Conteúdo ofensivo ou inapropriado", "Anúncio duplicado", "Outro"]
-                  : ["Comportamento inadequado", "Perfil falso ou fraude", "Assédio ou ameaça", "Dados incorretos", "Outro"]
-                ).map(motivo => (
-                  <button
-                    key={motivo}
-                    style={{ padding:"11px 14px", borderRadius:12, border:`1.5px solid ${motivoDenuncia===motivo?"#ef4444":"#e2e8f0"}`, background:motivoDenuncia===motivo?"#fef2f2":"#f8fafc", color:motivoDenuncia===motivo?"#dc2626":"#475569", fontSize:13, fontWeight:motivoDenuncia===motivo?800:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => setMotivoDenuncia(motivo)}>
-                    {motivoDenuncia === motivo ? "● " : "○ "}{motivo}
-                  </button>
-                ))}
-              </div>
-              <div style={{ display:"flex", gap:10 }}>
-                <button
-                  style={{ flex:1, padding:"13px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                  onClick={() => { setModalDenunciar(null); setMotivoDenuncia(""); }}>
-                  Cancelar
-                </button>
-                <button
-                  disabled={!motivoDenuncia || enviandoDenuncia}
-                  style={{ flex:1, padding:"13px", background: motivoDenuncia?"#ef4444":"#fca5a5", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor: motivoDenuncia?"pointer":"default", fontFamily:"Inter, system-ui, sans-serif", opacity: enviandoDenuncia ? 0.7 : 1 }}
-                  onClick={enviarDenuncia}>
-                  {enviandoDenuncia ? "Enviando..." : "Enviar denúncia"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {modalDenunciarJSX}
 
         {/* ── Modal obrigatório: feedback de vaga expirada (sem aceite) ── */}
         {vagasExpFeedback.length > 0 && (() => {
@@ -10585,6 +10597,7 @@ export default function App() {
     };
 
     const vagasFiltradas = vagasReais
+      .filter(d => !d.oculto)                    // auto-moderação: oculta vagas suspensas por denúncias
       .filter(d => !vagasIgnoradas.has(d.id))   // oculta vagas marcadas como sem interesse
       .filter(d => !d.funcao || categoriasSelecionadas.length === 0 || categoriasSelecionadas.includes(d.funcao))
       .filter(d => filtroDataVaga === "hoje" ? d.data === hojeFmtV : filtroDataVaga === "amanha" ? d.data === amanhaFmtV : true)
@@ -10629,6 +10642,7 @@ export default function App() {
 
         {/* Modal global de logout (mesmo motivo do home-empregador) */}
         {modalConfirmLogout}
+        {modalDenunciarJSX}
 
         {/* ── Header novo estilo ── */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
@@ -12615,6 +12629,17 @@ export default function App() {
                       <button style={{ ...S.btnSecondary, marginTop:8, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setVagaConfirm(null)}>
                         Cancelar
                       </button>
+                      {/* Denunciar anúncio — abre o modal de denúncia (tipo vaga) */}
+                      <button
+                        style={{ width:"100%", marginTop:12, background:"none", border:"none", color:"#94a3b8", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                        onClick={() => {
+                          const v = vagaConfirm;
+                          setVagaConfirm(null);
+                          setModalDenunciar({ tipo:"vaga", id:v.id, nome:v.nome_negocio || v.segmento || "Anúncio" });
+                          setMotivoDenuncia("");
+                        }}>
+                        ⚑ Denunciar este anúncio
+                      </button>
                     </>
                   )}
                 </>
@@ -13527,6 +13552,8 @@ export default function App() {
         setAuthError("");
         const erroNome = validarNome(form.nome);
         if (erroNome) { setAuthError(erroNome); return; }
+        const bioProibida = verificarConteudoProibido(form.bio);
+        if (bioProibida) { setAuthError(bioProibida); return; }
         if (!fotoUrl) { setAuthError("⚠️ Adicione uma foto de perfil para continuar."); return; }
         if (!form.cpf || !validarCPF(form.cpf)) { setAuthError("⚠️ CPF obrigatório e deve ser válido (dígitos verificadores conferidos)."); return; }
         // Se o telefone foi destravado e mudou, invalida verificação anterior
@@ -15070,6 +15097,8 @@ export default function App() {
         setAuthError("");
         const erroNomeEmp = validarNome(form.nome);
         if (erroNomeEmp) { setAuthError(erroNomeEmp); return; }
+        const negProibido = verificarConteudoProibido(form.nomeNegocio);
+        if (negProibido) { setAuthError(negProibido); return; }
         const enderecoAtualizado = form.ruaEmp
           ? `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp ? `, ${form.complementoEmp}` : ""} - ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} - CEP: ${form.cepEmp}`
           : undefined;
