@@ -283,6 +283,7 @@ export default function App() {
 
   // Painel admin + tickets de suporte (privados, 1-on-1 user × admin)
   const [adminStats, setAdminStats]               = useState<AdminStats | null>(null);
+  const [adminFinanceiro, setAdminFinanceiro]     = useState<any>(null);  // resumo financeiro do admin
   const [carregandoAdminStats, setCarregandoAdminStats] = useState(false);
   // Métricas extras + séries + drill-down
   const [adminExtras, setAdminExtras]             = useState<{
@@ -510,6 +511,14 @@ export default function App() {
 
   // Código de indicação / referral
   const [modalQuemSomos, setModalQuemSomos] = useState(false);
+  // Banner MEI — incentivo à formalização pra quem é PF (sem CNPJ). Dismissível.
+  const [meiBannerOculto, setMeiBannerOculto] = useState(() => {
+    try { return localStorage.getItem("diariaja_mei_banner_dismiss") === "1"; } catch { return false; }
+  });
+  const fecharBannerMEI = () => {
+    try { localStorage.setItem("diariaja_mei_banner_dismiss", "1"); } catch { /* modo privado */ }
+    setMeiBannerOculto(true);
+  };
 
   // Desktop vs mobile — a entrada (splash) vira uma landing "de site" no PC,
   // mantendo o app mobile-first no celular e no Capacitor (que sempre roda
@@ -939,7 +948,8 @@ export default function App() {
       const { data, error } = await supabase
         .from("user_profiles")
         .select("*")
-        .eq("user_type", "diarista")
+        .in("user_type", ["diarista", "ambos"])   // "ambos" presta serviço E anuncia — tem que aparecer pro anunciante
+        .neq("id", session.user!.id)              // não mostra o próprio perfil pro anunciante "ambos"
         .limit(200);
       if (error) console.warn("[home-empregador] erro carregando prestadores:", error.message);
       if (data) {
@@ -1609,6 +1619,9 @@ export default function App() {
           const novoConvite: Convite = payload.new;
           setConvitesRecebidos(prev => [novoConvite, ...prev]);
           setToastSuccess(`📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para uma diária!`);
+          // Registra no sino de Notificações (antes só dava toast, que some sozinho).
+          setListaNotif(prev => [{ tipo: "ok", msg: `📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para ${novoConvite.funcao || "uma diária"} — aceite e combine no chat.`, ts: Date.now() }, ...prev]);
+          setNotifNaoLidas(prev => prev + 1);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             mostrarNotificacaoLocal("📨 Novo convite de diária!", {
               body: `${novoConvite.contratante_nome} quer entrar em contato com você para ${novoConvite.funcao} em ${new Date(novoConvite.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}`,
@@ -3003,6 +3016,9 @@ export default function App() {
     if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
     if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
     if (!serieD.error && serieD.data) setAdminSerieDiarias(serieD.data);
+    // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
+    const fin = await supabase.rpc("admin_resumo_financeiro");
+    if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
     setCarregandoAdminStats(false);
   };
 
@@ -4888,6 +4904,22 @@ export default function App() {
     </div>
   ) : null;
 
+  // Banner MEI — pra quem é pessoa física (sem CNPJ). Compartilhado entre as
+  // duas homes. Abre a tela informativa `mei-info` (com link pro site oficial).
+  const bannerMEI = (profile && !profile.cnpj && !meiBannerOculto) ? (
+    <div style={{ margin:"12px 16px 0", background:"linear-gradient(135deg,#0f766e,#16a34a)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 4px 16px rgba(22,163,74,.28)" }}>
+      <span style={{ fontSize:26, flexShrink:0 }}>💼</span>
+      <div style={{ flex:1, minWidth:0, cursor:"pointer" }} onClick={() => setTela("mei-info")}>
+        <div style={{ fontSize:13, fontWeight:900, color:"#fff", lineHeight:1.3 }}>Trabalha por conta própria?</div>
+        <div style={{ fontSize:12, color:"rgba(255,255,255,.92)", marginTop:2, lineHeight:1.4 }}>
+          Vire <strong>MEI</strong> e tenha CNPJ, nota fiscal e aposentadoria. <u>Saiba como →</u>
+        </div>
+      </div>
+      <button aria-label="Fechar" onClick={fecharBannerMEI}
+        style={{ background:"rgba(255,255,255,.2)", border:"none", color:"#fff", borderRadius:8, width:26, height:26, fontSize:14, fontWeight:900, cursor:"pointer", flexShrink:0, fontFamily:"Inter, system-ui, sans-serif" }}>✕</button>
+    </div>
+  ) : null;
+
   // ── LANDING DE DESKTOP ───────────────────────────────────────────────────
   // No computador, a entrada vira um site de apresentação (largura cheia) em vez
   // do app mobile centralizado. Os CTAs entram no mesmo fluxo do app. No celular
@@ -6096,6 +6128,9 @@ export default function App() {
                     try { navigator.clipboard?.writeText("https://diariaja.vercel.app"); setToastSuccess("🔗 Link copiado! Em breve você ganha recompensas por indicar."); } catch { /* ignore */ }
                   }
                 } },
+              { icon:"💼", label:"Virar MEI (CNPJ)",
+                sub:"Formalize-se: CNPJ, nota fiscal e aposentadoria",
+                action:() => setTela("mei-info") },
             ].map((item, i, arr) => (
               <div key={item.label} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", borderBottom: i < arr.length-1 ? "1px solid var(--border-sub,#f1f5f9)" : "none", cursor:"pointer" }}
                 onClick={item.action}>
@@ -6476,6 +6511,89 @@ export default function App() {
             )}
           </>
         )}
+      </div>
+    );
+  }
+
+  // FORMALIZE-SE COMO MEI (informativo + link oficial)
+  if (tela === "mei-info") {
+    const voltar = profile?.user_type === "empregador" ? "home-empregador" : profile?.user_type === "diarista" ? "home-diarista" : "configuracoes";
+    const beneficios = [
+      { ic:"🪪", t:"CNPJ próprio", d:"No DiáriaJá você vira Pessoa Jurídica e ganha mais confiança e contatos." },
+      { ic:"🧾", t:"Emite nota fiscal", d:"Atenda empresas e clientes que exigem nota." },
+      { ic:"👵", t:"Aposentadoria e benefícios", d:"Acesso ao INSS: aposentadoria, auxílio-doença e salário-maternidade." },
+      { ic:"🏦", t:"Conta e crédito PJ", d:"Conta empresarial, empréstimos e compras no atacado." },
+    ];
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:60 }}>
+        {/* Header */}
+        <div style={{ background:"linear-gradient(135deg,#0f766e,#16a34a)", padding:"48px 20px 28px" }}>
+          <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.9)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
+            onClick={() => setTela(voltar)}>← Voltar</button>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:48, height:48, background:"rgba(255,255,255,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>💼</div>
+            <div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Formalize-se como MEI</div>
+              <div style={{ fontSize:12, color:"rgba(255,255,255,.85)" }}>Tenha seu CNPJ e mais oportunidades</div>
+            </div>
+          </div>
+        </div>
+
+        {/* A DiáriaJá apoia */}
+        <div style={{ margin:"16px 16px 8px", background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"14px 16px" }}>
+          <div style={{ fontSize:14, fontWeight:800, color:"#166534", marginBottom:4 }}>💚 A DiáriaJá apoia a formalização</div>
+          <div style={{ fontSize:13, color:"#15803d", lineHeight:1.5 }}>
+            A gente acredita que quem trabalha por conta própria merece mais segurança. Trabalhador com CNPJ tem benefícios, proteção e acesso a novas oportunidades.
+          </div>
+        </div>
+
+        {/* O que é */}
+        <div style={{ margin:"8px 16px", background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+          <div style={{ fontSize:13, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:6 }}>O que é o MEI?</div>
+          <div style={{ fontSize:13, color:"var(--text-2,#475569)", lineHeight:1.6 }}>
+            O MEI (Microempreendedor Individual) é o jeito mais simples de ter um CNPJ no Brasil — feito pra quem trabalha por conta própria, como prestadores de serviço.
+          </div>
+        </div>
+
+        {/* Benefícios */}
+        <div style={{ margin:"8px 16px" }}>
+          {beneficios.map(b => (
+            <div key={b.t} style={{ display:"flex", gap:12, alignItems:"flex-start", background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", marginBottom:8, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+              <span style={{ fontSize:22, flexShrink:0 }}>{b.ic}</span>
+              <div>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--text-1,#0f172a)" }}>{b.t}</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5, marginTop:2 }}>{b.d}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Quem pode */}
+        <div style={{ margin:"8px 16px", background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:14, padding:"14px 16px" }}>
+          <div style={{ fontSize:13, fontWeight:800, color:"#9a3412", marginBottom:6 }}>Quem pode ser MEI?</div>
+          <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.6 }}>
+            Fatura até cerca de <strong>R$ 81 mil por ano</strong>, não é sócio/dono de outra empresa e exerce uma atividade permitida. Há uma taxa mensal (DAS) de aproximadamente <strong>R$ 75</strong>, que cobre seus benefícios.
+          </div>
+        </div>
+
+        {/* Botões oficiais */}
+        <div style={{ margin:"16px 16px 8px", display:"flex", flexDirection:"column" as const, gap:10 }}>
+          <a href="https://www.gov.br/empresas-e-negocios/pt-br/empreendedor" target="_blank" rel="noopener noreferrer"
+            style={{ display:"block", textAlign:"center" as const, background:"#16a34a", color:"#fff", borderRadius:14, padding:"14px", fontSize:15, fontWeight:800, textDecoration:"none", boxShadow:"0 4px 14px rgba(22,163,74,.35)" }}>
+            🟢 Abrir meu MEI no site oficial (gov.br)
+          </a>
+          <a href="https://sebrae.com.br/sites/PortalSebrae/sebraeaz/o-que-e-ser-mei,e0ba13ec29873410VgnVCM1000003b74010aRCRD" target="_blank" rel="noopener noreferrer"
+            style={{ display:"block", textAlign:"center" as const, background:"var(--bg-card,#fff)", color:"#0f766e", border:"1.5px solid #0f766e", borderRadius:14, padding:"13px", fontSize:14, fontWeight:800, textDecoration:"none" }}>
+            🔵 Ajuda gratuita do SEBRAE
+          </a>
+        </div>
+
+        {/* Aviso legal */}
+        <div style={{ margin:"8px 16px 0", padding:"12px 14px", background:"var(--bg-surface,#f8fafc)", border:"1px solid var(--border,#e2e8f0)", borderRadius:12 }}>
+          <div style={{ fontSize:11, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
+            ⚠️ A DiáriaJá é uma plataforma independente e <strong>não realiza</strong> o cadastro nem tem vínculo com o governo. A abertura do MEI é <strong>gratuita</strong> e feita somente no site oficial (gov.br). Desconfie de sites que cobram para abrir o MEI.
+          </div>
+        </div>
       </div>
     );
   }
@@ -8323,6 +8441,9 @@ export default function App() {
         {/* Banner "Complete seu perfil" — movido para DEPOIS da lista de prestadores
             (money-first/gente-first): o anunciante vê os profissionais ANTES da
             cobrança de cadastro. Renderizado no fim da aba "início". */}
+
+        {/* Banner MEI — incentivo à formalização (PF sem CNPJ) */}
+        {bannerMEI}
 
         {/* ── Lembrete: vaga PRA VENCER (manter no ar / tirar do ar) ── */}
         {(() => {
@@ -11018,7 +11139,7 @@ export default function App() {
                   <button
                     style={{ flex:1, background:"#dcfce7", color:"#16a34a", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                     onClick={() => responderConvite(c.id, "aceito")}>
-                    ✅ Aceitar
+                    ✅ Aceitar e confirmar
                   </button>
                   <button
                     style={{ flex:1, background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:10, padding:"10px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -11026,6 +11147,44 @@ export default function App() {
                     ❌ Recusar
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Banner MEI — incentivo à formalização (PF sem CNPJ) */}
+        {bannerMEI}
+
+        {/* ── Convites ACEITOS — presença confirmada + atalho pro chat ── */}
+        {convitesRecebidos.filter(c => c.status === "aceito").length > 0 && (
+          <div style={{ margin:"12px 16px 0" }}>
+            {convitesRecebidos.filter(c => c.status === "aceito").map(c => (
+              <div key={c.id} style={{ background:"linear-gradient(135deg,#16a34a,#22c55e)", borderRadius:16, padding:"14px 16px", marginBottom:10, boxShadow:"0 4px 16px rgba(34,197,94,.3)" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                  <span style={{ fontSize:24, flexShrink:0 }}>🎯</span>
+                  <div style={{ flex:1, minWidth:0, color:"#fff" }}>
+                    <div style={{ fontWeight:900, fontSize:14, lineHeight:1.25 }}>Presença confirmada com {c.contratante_nome || "o anunciante"}!</div>
+                    <div style={{ fontSize:12, opacity:0.95, marginTop:2 }}>{c.funcao || "Serviço"} · {new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR")} · {c.horario_servico}</div>
+                  </div>
+                </div>
+                <button
+                  style={{ width:"100%", background:"var(--bg-card,#fff)", color:"#16a34a", border:"none", borderRadius:10, padding:"11px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                  onClick={() => {
+                    // Mapeia o convite pro shape de Diaria (mesmo mapeamento do lado do anunciante)
+                    // pra abrir o chat — o id do convite é a chave das mensagens.
+                    const chatComoDiaria = {
+                      id: c.id, empregador_id: c.contratante_id, diarista_aceite_id: c.diarista_id,
+                      funcao: c.funcao ?? "Serviço", data: c.data_servico, horario_inicio: c.horario_servico ?? "00:00",
+                      horario_fim: "", valor: c.valor ?? 0, nome_negocio: c.contratante_nome || c.local_servico || "Anunciante",
+                      segmento: "", descricao: c.observacoes ?? "", status: "aceita", created_at: c.created_at,
+                      tipo_oferta: "diaria" as const,
+                    };
+                    hapticTick();
+                    setChatDiariaAtiva(chatComoDiaria as any);
+                    setTabDiarista("chat");
+                  }}>
+                  💬 Abrir chat com {(c.contratante_nome || "o anunciante").split(" ")[0]}
+                </button>
               </div>
             ))}
           </div>
@@ -12096,8 +12255,33 @@ export default function App() {
               </div>
             );
           }
-          // Lista de conversas
-          const conversas = minhasDiarias.filter(d => ["aceita","em_andamento","concluida"].includes(d.status) && !hiddenChats.has(d.id));
+          // Lista de conversas — diárias aceitas + convites aceitos.
+          // BUG: o chat por CONVITE não aparecia pro prestador, porque a lista só
+          // olhava `minhasDiarias` (diárias aceitas). Um convite não é uma diária,
+          // então o anunciante via a conversa mas o prestador não. Aqui mapeamos os
+          // convites aceitos pro shape de Diaria (igual ao lado do anunciante) e
+          // mesclamos — o chat usa convite.id como diaria_id, então as msgs batem.
+          const conversasDiarias = minhasDiarias.filter(d => ["aceita","em_andamento","concluida"].includes(d.status) && !hiddenChats.has(d.id));
+          const conversasConvites = convitesRecebidos
+            .filter(c => c.status === "aceito" && !hiddenChats.has(c.id))
+            .filter(c => !conversasDiarias.some(d => d.id === c.id))
+            .map(c => ({
+              id:                 c.id,
+              empregador_id:      c.contratante_id,
+              diarista_aceite_id: c.diarista_id,
+              funcao:             c.funcao ?? "Serviço",
+              data:               c.data_servico,
+              horario_inicio:     c.horario_servico ?? "00:00",
+              horario_fim:        "",
+              valor:              c.valor ?? 0,
+              nome_negocio:       c.contratante_nome || c.local_servico || "Anunciante",
+              segmento:           "",
+              descricao:          c.observacoes ?? "",
+              status:             "aceita",
+              created_at:         c.created_at,
+              tipo_oferta:        "diaria" as const,
+            } as Diaria));
+          const conversas = [...conversasConvites, ...conversasDiarias];
           return (
             <div style={{ padding:"16px" }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
@@ -15444,6 +15628,54 @@ export default function App() {
           ) : (
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
               {carregandoAdminStats ? "Carregando estatísticas…" : "Toque em 🔄 pra carregar."}
+            </div>
+          )}
+        </div>
+
+        {/* ── 💰 Financeiro ── */}
+        <div style={{ padding:"0 16px 16px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>💰 Financeiro</div>
+          {adminFinanceiro ? (() => {
+            const fmt = (n: unknown) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const u = adminFinanceiro.unlocks || {};
+            const pl = adminFinanceiro.planos || {};
+            const serie = Array.isArray(adminFinanceiro.unlocks_serie)
+              ? adminFinanceiro.unlocks_serie.map((d: { dia: string; valor: number }) => ({ dia: String(d.dia), valor: Number(d.valor) }))
+              : [];
+            const porPlano = Array.isArray(pl.por_plano) ? pl.por_plano : [];
+            return (
+              <>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                  {cardStat("Chat liberado — mês", `R$ ${fmt(u.valor_mes)}`, "#16a34a", "💬")}
+                  {cardStat("Chat liberado — hoje", `R$ ${fmt(u.valor_hoje)}`, "#22c55e", "📅")}
+                  {cardStat("Assinantes ativos", pl.ativos_total ?? 0, "#3A86FF", "⭐")}
+                  {cardStat("Planos/mês (estim.)", `R$ ${fmt(pl.valor_estimado)}`, "#FF6B35", "🔁")}
+                </div>
+                {serie.length > 0 && (
+                  <div style={{ marginBottom:10 }}>
+                    <MiniBars data={serie} cor="#16a34a" label="Desbloqueios de chat (R$1) — por dia" />
+                  </div>
+                )}
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:10 }}>Assinantes por plano</div>
+                  {porPlano.length === 0 ? (
+                    <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>Nenhum plano ativo ainda.</div>
+                  ) : porPlano.map((p: { plano: string; user_type: string; qtd: number }) => (
+                    <div key={`${p.user_type}-${p.plano}`} style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"5px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+                      <span style={{ color:"var(--text-2,#64748b)" }}>{p.user_type === "diarista" ? "👷 Prestador" : "🏢 Anunciante"} · {p.plano}</span>
+                      <strong style={{ color:"var(--text-1,#0f172a)" }}>{p.qtd}</strong>
+                    </div>
+                  ))}
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:10 }}>
+                    <span>Total acumulado (chat liberado)</span>
+                    <strong>R$ {fmt(u.valor_total)} · {u.total ?? 0}x</strong>
+                  </div>
+                </div>
+              </>
+            );
+          })() : (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              {carregandoAdminStats ? "Carregando financeiro…" : "Toque em 🔄 pra carregar."}
             </div>
           )}
         </div>
