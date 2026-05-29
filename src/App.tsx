@@ -12079,8 +12079,33 @@ export default function App() {
               </div>
             );
           }
-          // Lista de conversas
-          const conversas = minhasDiarias.filter(d => ["aceita","em_andamento","concluida"].includes(d.status) && !hiddenChats.has(d.id));
+          // Lista de conversas — diárias aceitas + convites aceitos.
+          // BUG: o chat por CONVITE não aparecia pro prestador, porque a lista só
+          // olhava `minhasDiarias` (diárias aceitas). Um convite não é uma diária,
+          // então o anunciante via a conversa mas o prestador não. Aqui mapeamos os
+          // convites aceitos pro shape de Diaria (igual ao lado do anunciante) e
+          // mesclamos — o chat usa convite.id como diaria_id, então as msgs batem.
+          const conversasDiarias = minhasDiarias.filter(d => ["aceita","em_andamento","concluida"].includes(d.status) && !hiddenChats.has(d.id));
+          const conversasConvites = convitesRecebidos
+            .filter(c => c.status === "aceito" && !hiddenChats.has(c.id))
+            .filter(c => !conversasDiarias.some(d => d.id === c.id))
+            .map(c => ({
+              id:                 c.id,
+              empregador_id:      c.contratante_id,
+              diarista_aceite_id: c.diarista_id,
+              funcao:             c.funcao ?? "Serviço",
+              data:               c.data_servico,
+              horario_inicio:     c.horario_servico ?? "00:00",
+              horario_fim:        "",
+              valor:              c.valor ?? 0,
+              nome_negocio:       c.contratante_nome || c.local_servico || "Anunciante",
+              segmento:           "",
+              descricao:          c.observacoes ?? "",
+              status:             "aceita",
+              created_at:         c.created_at,
+              tipo_oferta:        "diaria" as const,
+            } as Diaria));
+          const conversas = [...conversasConvites, ...conversasDiarias];
           return (
             <div style={{ padding:"16px" }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
