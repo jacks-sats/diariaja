@@ -162,7 +162,13 @@ Deno.serve(async (req) => {
     // Replay do mesmo payload (ou ataques) batem aqui e são silenciosamente
     // ignorados. Tabela criada em supabase/migrations/webhook_idempotencia.sql.
     // INSERT com ON CONFLICT DO NOTHING — se já existe, rowcount=0.
-    const eventoId = String(body.data.id) + "::" + (body.type ?? body.topic ?? "x");
+    // FIX: idempotência por ID DA NOTIFICAÇÃO (body.id), não pelo id do recurso
+    // (body.data.id). O MP manda várias notificações do MESMO pagamento conforme
+    // o status muda (pending → approved), todas com o mesmo data.id. Usar data.id
+    // fazia a notificação de "approved" ser tratada como duplicata e ignorada —
+    // então o plano/pagamento nunca era concedido (quebrava todo Pix). O body.id
+    // é único por notificação; retries da MESMA notificação reusam o id (dedupe OK).
+    const eventoId = String(body.id ?? body.data.id) + "::" + (body.type ?? body.topic ?? "x");
     const { error: idemErr, count: idemCount } = await supabase
       .from("webhook_eventos_processados")
       .insert({ mp_evento_id: eventoId }, { count: "exact" });
