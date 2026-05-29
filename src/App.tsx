@@ -3993,8 +3993,7 @@ export default function App() {
   // Inicia assinatura de plano via Mercado Pago Preapproval
   const iniciarAssinatura = async (planoId: string) => {
     if (!session?.user) return;
-    // eslint-disable-next-line no-console
-    console.log("[iniciarAssinatura] iniciando", { planoId, user_type: modoAtual, user_id_prefix: session.user.id.slice(0, 8) });
+    if (import.meta.env.DEV) console.log("[iniciarAssinatura] iniciando", { planoId, user_type: modoAtual });
     setCriandoAssinatura(planoId);
     try {
       const { data: { session: sess } } = await supabase.auth.getSession();
@@ -4021,8 +4020,7 @@ export default function App() {
         }
       );
       const data = await resp.json().catch(() => ({} as { error?: string; checkout_url?: string; trace_id?: string; mp_message?: string }));
-      // eslint-disable-next-line no-console
-      console.log("[iniciarAssinatura] resposta", { status: resp.status, ok: resp.ok, trace_id: data.trace_id, has_url: !!data.checkout_url });
+      if (import.meta.env.DEV) console.log("[iniciarAssinatura] resposta", { status: resp.status, ok: resp.ok, trace_id: data.trace_id, has_url: !!data.checkout_url });
 
       if (resp.ok && data.checkout_url) {
         setToastSuccess("🏦 Abrindo Mercado Pago…");
@@ -4034,12 +4032,10 @@ export default function App() {
       const motivo = dataMaybe.mp_message || dataMaybe.error || `HTTP ${resp.status}`;
       const trace = dataMaybe.trace_id ? ` (id: ${dataMaybe.trace_id})` : "";
       setAuthError(`❌ ${motivo}${trace}`);
-      // eslint-disable-next-line no-console
-      console.error("[iniciarAssinatura] falhou", data);
+      if (import.meta.env.DEV) console.error("[iniciarAssinatura] falhou", data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // eslint-disable-next-line no-console
-      console.error("[iniciarAssinatura] exception", err);
+      if (import.meta.env.DEV) console.error("[iniciarAssinatura] exception", err);
       setAuthError(`Erro de conexão: ${msg}`);
     }
     setCriandoAssinatura(false);
@@ -4888,6 +4884,8 @@ export default function App() {
           <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setMostrarTermos(true)}>Termos</span>
           {" · "}
           <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setModalQuemSomos(true)}>Quem Somos</span>
+          {" · "}
+          <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"underline" }}>Privacidade</a>
         </p>
       </div>
 
@@ -13222,17 +13220,23 @@ export default function App() {
 
       {/* ── Painel de Verificações — sobe o nível de confiança ────────────── */}
       {profile && (() => {
+        const smsOn = MOSTRAR_VERIFICAR_TELEFONE_CTA;
         const temTel = !!(profile.telefone_verificado || telefoneVerificado);
         const docOK = profile.documento_status === "aprovado";
         const docEnv = profile.documento_status === "enviado";
         const docRej = profile.documento_status === "rejeitado";
-        // Nível atual: Confiável > Verificado > Básico
-        const nivel = (temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico";
+        // Nível atual: Confiável > Verificado > Básico.
+        // Com SMS ativo exige telefone verificado + documento. Com SMS em manutenção,
+        // a escada baseia-se só no documento (KYC) — que está 100% funcional — pra o
+        // usuário não ficar travado em "Básico" por uma verificação indisponível.
+        const nivel = smsOn
+          ? ((temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico")
+          : (docOK ? "confiavel" : docEnv ? "verificado" : "basico");
         const nivelLabel = nivel === "confiavel" ? "Confiável" : nivel === "verificado" ? "Verificado" : "Básico";
         const nivelCor = nivel === "confiavel" ? "#16a34a" : nivel === "verificado" ? "#3A86FF" : "#94a3b8";
         const nivelDesc = nivel === "confiavel" ? "Selo máximo — você ganha prioridade nas buscas"
-                        : nivel === "verificado" ? "Falta enviar RG/CNH pra virar Confiável"
-                        : "Verifique telefone pra subir pra Verificado";
+                        : nivel === "verificado" ? (smsOn ? "Falta enviar RG/CNH pra virar Confiável" : "Em análise — assim que aprovarmos seu documento você vira Confiável")
+                        : (smsOn ? "Verifique telefone pra subir pra Verificado" : "Envie seu RG ou CNH pra subir de nível");
         const Linha = (icone: string, label: string, statusTxt: string, statusCor: string, acao: () => void, podeAcao: boolean) => (
           <div onClick={podeAcao ? acao : undefined}
             style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, background:"#fff", border:"1px solid #e2e8f0", marginBottom:8, cursor: podeAcao ? "pointer" : "default" }}>
@@ -13272,10 +13276,11 @@ export default function App() {
 
             {/* Lista de verificações */}
             {Linha("📱", "Telefone (WhatsApp)",
-              temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora",
-              temTel ? "#16a34a" : "#FF6B35",
+              smsOn ? (temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora")
+                    : (profile.telefone ? "✅ Telefone cadastrado" : "Adicione seu telefone nos dados abaixo"),
+              smsOn ? (temTel ? "#16a34a" : "#FF6B35") : (profile.telefone ? "#16a34a" : "#94a3b8"),
               () => setTela("verificar-telefone"),
-              !temTel)}
+              smsOn && !temTel)}
 
             {Linha(docOK ? "✅" : docEnv ? "🔍" : docRej ? "❌" : "🆔",
               "Documento (RG ou CNH)",
@@ -14819,16 +14824,21 @@ export default function App() {
 
       {/* ── Painel de Verificações ───────────────────────────────────────── */}
       {profile && (() => {
+        const smsOn = MOSTRAR_VERIFICAR_TELEFONE_CTA;
         const temTel = !!(profile.telefone_verificado || telefoneVerificado);
         const docOK = profile.documento_status === "aprovado";
         const docEnv = profile.documento_status === "enviado";
         const docRej = profile.documento_status === "rejeitado";
-        const nivel = (temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico";
+        // Com SMS em manutenção, a escada de confiança baseia-se só no documento (KYC),
+        // pra o anunciante não ficar travado em "Básico" por uma verificação indisponível.
+        const nivel = smsOn
+          ? ((temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico")
+          : (docOK ? "confiavel" : docEnv ? "verificado" : "basico");
         const nivelLabel = nivel === "confiavel" ? "Confiável" : nivel === "verificado" ? "Verificado" : "Básico";
         const nivelCor = nivel === "confiavel" ? "#16a34a" : nivel === "verificado" ? "#3A86FF" : "#94a3b8";
         const nivelDesc = nivel === "confiavel" ? "Selo máximo — prestadores confiam mais em você"
-                        : nivel === "verificado" ? "Falta enviar RG/CNH pra virar Confiável"
-                        : "Verifique telefone pra subir pra Verificado";
+                        : nivel === "verificado" ? (smsOn ? "Falta enviar RG/CNH pra virar Confiável" : "Em análise — assim que aprovarmos seu documento você vira Confiável")
+                        : (smsOn ? "Verifique telefone pra subir pra Verificado" : "Envie seu RG ou CNH pra subir de nível");
         const Linha = (icone: string, label: string, statusTxt: string, statusCor: string, acao: () => void, podeAcao: boolean) => (
           <div onClick={podeAcao ? acao : undefined}
             style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, background:"#fff", border:"1px solid #e2e8f0", marginBottom:8, cursor: podeAcao ? "pointer" : "default" }}>
@@ -14866,10 +14876,11 @@ export default function App() {
             </div>
 
             {Linha("📱", "Telefone (WhatsApp)",
-              temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora",
-              temTel ? "#16a34a" : "#FF6B35",
+              smsOn ? (temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora")
+                    : (profile.telefone ? "✅ Telefone cadastrado" : "Adicione seu telefone nos dados abaixo"),
+              smsOn ? (temTel ? "#16a34a" : "#FF6B35") : (profile.telefone ? "#16a34a" : "#94a3b8"),
               () => setTela("verificar-telefone"),
-              !temTel)}
+              smsOn && !temTel)}
 
             {Linha(docOK ? "✅" : docEnv ? "🔍" : docRej ? "❌" : "🆔",
               "Documento (RG ou CNH)",
