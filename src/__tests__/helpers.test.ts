@@ -24,6 +24,7 @@ import {
   validarPix,
   codigoPresenca,
   parseEnderecoEmpregador,
+  verificarConteudoProibido,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -854,5 +855,52 @@ describe("parseEnderecoEmpregador", () => {
     expect(e.cep).toBe("");
     expect(e.estado).toBe("");
     expect(typeof e.rua).toBe("string");
+  });
+});
+
+describe("verificarConteudoProibido", () => {
+  it("libera vagas legítimas (retorna null)", () => {
+    expect(verificarConteudoProibido("Faxina em apartamento de 2 quartos")).toBeNull();
+    expect(verificarConteudoProibido("Preciso de diarista para limpeza pesada")).toBeNull();
+    expect(verificarConteudoProibido("Auxiliar de cozinha para evento")).toBeNull();
+    expect(verificarConteudoProibido("Motoboy para entregas de comida")).toBeNull();
+    expect(verificarConteudoProibido("")).toBeNull();
+  });
+
+  it("bloqueia 'biqueira' (boca de fumo)", () => {
+    expect(verificarConteudoProibido("Biqueira")).not.toBeNull();
+    expect(verificarConteudoProibido("trabalho na biqueira do bairro")).not.toBeNull();
+  });
+
+  it("não bloqueia 'biqueira de aço' (EPI de obra)", () => {
+    expect(verificarConteudoProibido("Pedreiro — usar bota com biqueira de aço")).toBeNull();
+    expect(verificarConteudoProibido("biqueira de ferro obrigatória")).toBeNull();
+  });
+
+  it("bloqueia drogas e tráfico", () => {
+    expect(verificarConteudoProibido("entrega de drogas")).not.toBeNull();
+    expect(verificarConteudoProibido("vender maconha")).not.toBeNull();
+    expect(verificarConteudoProibido("boca de fumo")).not.toBeNull();
+    expect(verificarConteudoProibido("preciso de traficante")).not.toBeNull();
+  });
+
+  it("bloqueia exploração sexual", () => {
+    expect(verificarConteudoProibido("Garota de programa")).not.toBeNull();
+    expect(verificarConteudoProibido("serviço sexual bem pago")).not.toBeNull();
+  });
+
+  it("bloqueia armas ilegais", () => {
+    expect(verificarConteudoProibido("venda de armas")).not.toBeNull();
+    expect(verificarConteudoProibido("arma de fogo disponível")).not.toBeNull();
+  });
+
+  it("bloqueia termos que ferem a dignidade (pejorativos claros)", () => {
+    expect(verificarConteudoProibido("não quero viadinho aqui")).not.toBeNull();
+    expect(verificarConteudoProibido("sua vagabunda")).not.toBeNull();
+  });
+
+  it("é insensível a acentos e caixa", () => {
+    expect(verificarConteudoProibido("PROSTITUIÇÃO")).not.toBeNull();
+    expect(verificarConteudoProibido("Cocaína")).not.toBeNull();
   });
 });

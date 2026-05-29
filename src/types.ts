@@ -22,6 +22,8 @@ export type TipoPreco = 'fixo' | 'a_combinar' | 'a_partir_de';
 
 export interface Diaria {
   id: string;
+  // Auto-moderação: vaga ocultada após acúmulo de denúncias (trigger no banco).
+  oculto?: boolean;
   empregador_id: string;
   nome_negocio: string;
   segmento: string;
@@ -56,6 +58,8 @@ export interface Diaria {
 
 export interface UserProfile {
   id: string;
+  // Auto-moderação: perfil ocultado após acúmulo de denúncias (trigger no banco).
+  oculto?: boolean;
   user_type: string;
   nome: string;
   telefone: string;
