@@ -562,6 +562,77 @@ export function vagaExpirou(
   return agora.getTime() > fim.getTime();
 }
 
+// ── Endereço do empregador — parse do texto salvo de volta em campos ──────────
+// O perfil do empregador guarda o endereço como UMA string concatenada na coluna
+// `endereco_empregador` (não há colunas separadas). Para que a tela "Editar perfil"
+// consiga pré-preencher os campos (rua, número, complemento, bairro, cidade, UF e
+// CEP) precisamos fazer o caminho inverso da concatenação. Tolera os dois formatos
+// que o app já gerou ao longo do tempo:
+//   A) "Rua, Num[, Compl] - Bairro, Cidade/UF - CEP: 00000-000"   (editar-perfil)
+//   B) "Rua, Num[ — Compl], Bairro, Cidade/UF — CEP 00000-000"    (cadastro)
+// Degrada com elegância: campos que não derem match voltam como "" (a tela ainda
+// mostra o "Endereço atual" cru, então nada se perde de fato).
+export interface EnderecoEmpregador {
+  cep: string; rua: string; numero: string; complemento: string;
+  bairro: string; cidade: string; estado: string;
+}
+
+export function parseEnderecoEmpregador(raw: string | null | undefined): EnderecoEmpregador {
+  const vazio: EnderecoEmpregador = { cep: "", rua: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "" };
+  if (!raw || typeof raw !== "string") return vazio;
+  const out: EnderecoEmpregador = { ...vazio };
+  let s = raw.trim();
+
+  // 1) CEP no final — aceita "CEP: 00000-000" ou "CEP 00000000", com separador
+  //    opcional (hífen, travessão ou vírgula) antes do rótulo.
+  const cepMatch = s.match(/\s*[-–—,]?\s*CEP[:\s]*([\d]{5}-?[\d]{0,3})\s*$/i);
+  if (cepMatch && cepMatch.index !== undefined) {
+    const dig = cepMatch[1].replace(/\D/g, "").slice(0, 8);
+    out.cep = dig.length > 5 ? dig.slice(0, 5) + "-" + dig.slice(5) : dig;
+    s = s.slice(0, cepMatch.index).trim();
+  }
+
+  // 2) Cidade/UF no final — "..., Cidade/UF"
+  const cidUf = s.match(/,\s*([^,/]+?)\s*\/\s*([A-Za-z]{2})\s*$/);
+  if (cidUf && cidUf.index !== undefined) {
+    out.cidade = cidUf[1].trim();
+    out.estado = cidUf[2].toUpperCase();
+    s = s.slice(0, cidUf.index).trim();
+  }
+
+  // 3) Bairro — no formato A vem após " - " (hífen com espaços); no formato B é o
+  //    último trecho separado por vírgula. O complemento do formato B usa travessão
+  //    (" — "/" – "), então um hífen ASCII só pode ser o separador do bairro.
+  const hifenIdx = s.lastIndexOf(" - ");
+  if (hifenIdx !== -1) {
+    out.bairro = s.slice(hifenIdx + 3).trim();
+    s = s.slice(0, hifenIdx).trim();
+  } else {
+    const virgIdx = s.lastIndexOf(", ");
+    if (virgIdx !== -1) {
+      out.bairro = s.slice(virgIdx + 2).trim();
+      s = s.slice(0, virgIdx).trim();
+    }
+  }
+
+  // 4) Resta "Rua, Num[, Compl]" (formato A) ou "Rua, Num[ — Compl]" (formato B).
+  const travIdx = s.search(/\s[–—]\s/); // travessão = separador de complemento (B)
+  if (travIdx !== -1) {
+    out.complemento = s.slice(travIdx).replace(/^\s*[–—]\s*/, "").trim();
+    s = s.slice(0, travIdx).trim();
+    const p = s.split(",").map(x => x.trim());
+    out.rua = p[0] || "";
+    out.numero = p[1] || "";
+  } else {
+    const p = s.split(",").map(x => x.trim());
+    out.rua = p[0] || "";
+    out.numero = p[1] || "";
+    out.complemento = p.slice(2).join(", ").trim();
+  }
+
+  return out;
+}
+
 // ── Distância geográfica (fórmula de Haversine) ───────────────────────────────
 export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
