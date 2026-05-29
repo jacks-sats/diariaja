@@ -8103,66 +8103,9 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Banner "Complete seu perfil" — atalhos pros itens críticos ── */}
-        {profile && (() => {
-          const compData = {
-            foto_url: profile.foto_url, cpf: profile.cpf, cnpj: profile.cnpj,
-            telefone: profile.telefone, telefone_verificado: profile.telefone_verificado,
-            bio: profile.bio, endereco_empregador: profile.endereco_empregador,
-            lat: profile.lat, pix_chave: profile.pix_chave, mp_user_id: profile.mp_user_id,
-          };
-          const comp = calcCompletude(compData, 0, null);
-          if (comp.pct >= 100) return null;
-          const cor = comp.pct >= 60 ? "#3A86FF" : comp.pct >= 30 ? "#f59e0b" : "#dc2626";
-          const nivelLabel = comp.pct >= 60 ? "Quase lá — falta pouco!" : comp.pct >= 30 ? "Em construção" : "Vamos começar";
-          const proxItem = comp.itens.find(i => !i.preenchido);
-          const kycPendente = profile.documento_status !== "aprovado";
-          const telPendente = !(profile.telefone_verificado);
-          return (
-            <div style={{ margin:"12px 16px 0", background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", border:`1.5px solid ${cor}30` }}>
-              <div role="button" tabIndex={0} style={{ cursor:"pointer" }}
-                onClick={() => setTela("editar-perfil-empregador")}>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)" }}>📋 Complete seu perfil</div>
-                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:1 }}>{nivelLabel} — anúncios de perfil completo atraem prestadores melhores</div>
-                  </div>
-                  <div style={{ fontSize:20, fontWeight:900, color:cor, marginLeft:8 }}>{comp.pct}%</div>
-                </div>
-                <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden" }}>
-                  <div style={{ background:cor, height:8, width:`${comp.pct}%`, borderRadius:20, transition:"width .4s" }} />
-                </div>
-              </div>
-              {(kycPendente || telPendente) && (
-                <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" as const }}>
-                  {kycPendente && (
-                    <button
-                      type="button"
-                      style={{ background:"#fef3c7", color:"#92400e", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
-                      onClick={e => { e.stopPropagation(); setTela("verificar-documento"); }}>
-                      🪪 Enviar documento
-                    </button>
-                  )}
-                  {MOSTRAR_VERIFICAR_TELEFONE_CTA && telPendente && (
-                    <button
-                      type="button"
-                      style={{ background:"#dbeafe", color:"#1e40af", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
-                      onClick={e => { e.stopPropagation(); setTela("verificar-telefone"); }}>
-                      📱 Verificar telefone
-                    </button>
-                  )}
-                </div>
-              )}
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop: (kycPendente || telPendente) ? 4 : 8 }}>
-                {proxItem && !kycPendente && !telPendente && (
-                  <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>Próximo: {proxItem.icone} {proxItem.label}</span>
-                )}
-                <span role="button" style={{ fontSize:12, fontWeight:700, color:cor, marginLeft:"auto", cursor:"pointer" }}
-                  onClick={() => setTela("editar-perfil-empregador")}>Completar agora →</span>
-              </div>
-            </div>
-          );
-        })()}
+        {/* Banner "Complete seu perfil" — movido para DEPOIS da lista de prestadores
+            (money-first/gente-first): o anunciante vê os profissionais ANTES da
+            cobrança de cadastro. Renderizado no fim da aba "início". */}
 
         {/* ── ABA INÍCIO ── */}
         {tabEmpregador === "inicio" && (
@@ -8324,6 +8267,68 @@ export default function App() {
                     );
                   })
                 )}
+
+                {/* ── Banner "Complete seu perfil" — money-first/gente-first: renderizado
+                    DEPOIS da lista de prestadores, pra recompensa vir antes da cobrança ── */}
+                {profile && (() => {
+                  const compData = {
+                    foto_url: profile.foto_url, cpf: profile.cpf, cnpj: profile.cnpj,
+                    telefone: profile.telefone, telefone_verificado: profile.telefone_verificado,
+                    bio: profile.bio, endereco_empregador: profile.endereco_empregador,
+                    lat: profile.lat, pix_chave: profile.pix_chave, mp_user_id: profile.mp_user_id,
+                  };
+                  const comp = calcCompletude(compData, 0, null);
+                  if (comp.pct >= 100) return null;
+                  const cor = comp.pct >= 60 ? "#3A86FF" : comp.pct >= 30 ? "#f59e0b" : "#dc2626";
+                  const nivelLabel = comp.pct >= 60 ? "Quase lá — falta pouco!" : comp.pct >= 30 ? "Em construção" : "Vamos começar";
+                  const proxItem = comp.itens.find(i => !i.preenchido);
+                  const kycPendente = profile.documento_status !== "aprovado";
+                  const telPendente = !(profile.telefone_verificado);
+                  return (
+                    <div style={{ margin:"4px 0 0", background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", border:`1.5px solid ${cor}30` }}>
+                      <div role="button" tabIndex={0} style={{ cursor:"pointer" }}
+                        onClick={() => setTela("editar-perfil-empregador")}>
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)" }}>📋 Complete seu perfil</div>
+                            <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:1 }}>{nivelLabel} — anúncios de perfil completo atraem prestadores melhores</div>
+                          </div>
+                          <div style={{ fontSize:20, fontWeight:900, color:cor, marginLeft:8 }}>{comp.pct}%</div>
+                        </div>
+                        <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden" }}>
+                          <div style={{ background:cor, height:8, width:`${comp.pct}%`, borderRadius:20, transition:"width .4s" }} />
+                        </div>
+                      </div>
+                      {(kycPendente || telPendente) && (
+                        <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" as const }}>
+                          {kycPendente && (
+                            <button
+                              type="button"
+                              style={{ background:"#fef3c7", color:"#92400e", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
+                              onClick={e => { e.stopPropagation(); setTela("verificar-documento"); }}>
+                              🪪 Enviar documento
+                            </button>
+                          )}
+                          {MOSTRAR_VERIFICAR_TELEFONE_CTA && telPendente && (
+                            <button
+                              type="button"
+                              style={{ background:"#dbeafe", color:"#1e40af", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
+                              onClick={e => { e.stopPropagation(); setTela("verificar-telefone"); }}>
+                              📱 Verificar telefone
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop: (kycPendente || telPendente) ? 4 : 8 }}>
+                        {proxItem && !kycPendente && !telPendente && (
+                          <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>Próximo: {proxItem.icone} {proxItem.label}</span>
+                        )}
+                        <span role="button" style={{ fontSize:12, fontWeight:700, color:cor, marginLeft:"auto", cursor:"pointer" }}
+                          onClick={() => setTela("editar-perfil-empregador")}>Completar agora →</span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
           </>
         )}
@@ -10703,74 +10708,9 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Banner "Complete seu perfil" — atalhos pros itens críticos ── */}
-        {profile && (() => {
-          const compData = {
-            foto_url: profile.foto_url, cpf: profile.cpf, cnpj: profile.cnpj,
-            telefone: profile.telefone, telefone_verificado: profile.telefone_verificado,
-            bio: profile.bio, endereco_empregador: profile.endereco_empregador,
-            lat: profile.lat, pix_chave: profile.pix_chave, mp_user_id: profile.mp_user_id,
-          };
-          const comp = calcCompletude(compData, 0, null);
-          if (comp.pct >= 100) return null;
-          const cor = comp.pct >= 60 ? "#3A86FF" : comp.pct >= 30 ? "#f59e0b" : "#dc2626";
-          const nivelLabel = comp.pct >= 60 ? "Quase lá — falta pouco!" : comp.pct >= 30 ? "Em construção" : "Vamos começar";
-          const proxItem = comp.itens.find(i => !i.preenchido);
-          // Atalhos rápidos pra itens críticos pendentes (KYC + telefone)
-          // Esses itens têm tela própria diferente do editar-perfil
-          const kycPendente = profile.documento_status !== "aprovado";
-          const telPendente = !(profile.telefone_verificado);
-          return (
-            <div style={{ margin:"12px 16px 0", background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", border:`1.5px solid ${cor}30` }}>
-              <div role="button" tabIndex={0} style={{ cursor:"pointer" }}
-                onClick={() => setTela("editar-perfil")}>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)" }}>📋 Complete seu perfil</div>
-                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:1 }}>{nivelLabel} — perfis completos aparecem pra mais anunciantes e recebem mais contatos</div>
-                  </div>
-                  <div style={{ fontSize:20, fontWeight:900, color:cor, marginLeft:8 }}>{comp.pct}%</div>
-                </div>
-                <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden" }}>
-                  <div style={{ background:cor, height:8, width:`${comp.pct}%`, borderRadius:20, transition:"width .4s" }} />
-                </div>
-              </div>
-              {/* Atalhos por item crítico — clicáveis individualmente */}
-              {(kycPendente || telPendente) && (
-                <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" as const }}>
-                  {kycPendente && (
-                    <button
-                      type="button"
-                      style={{ background:"#fef3c7", color:"#92400e", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
-                      onClick={e => { e.stopPropagation(); setTela("verificar-documento"); }}>
-                      🪪 Enviar documento
-                    </button>
-                  )}
-                  {MOSTRAR_VERIFICAR_TELEFONE_CTA && telPendente && (
-                    <button
-                      type="button"
-                      style={{ background:"#dbeafe", color:"#1e40af", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
-                      onClick={e => { e.stopPropagation(); setTela("verificar-telefone"); }}>
-                      📱 Verificar telefone
-                    </button>
-                  )}
-                  {proxItem && !kycPendente && !telPendente && (
-                    <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", padding:"6px 0" }}>
-                      Próximo: {proxItem.icone} {proxItem.label}
-                    </span>
-                  )}
-                </div>
-              )}
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop: (kycPendente || telPendente) ? 4 : 8 }}>
-                {proxItem && !kycPendente && !telPendente && (
-                  <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>Próximo: {proxItem.icone} {proxItem.label}</span>
-                )}
-                <span role="button" style={{ fontSize:12, fontWeight:700, color:cor, marginLeft:"auto", cursor:"pointer" }}
-                  onClick={() => setTela("editar-perfil")}>Completar agora →</span>
-              </div>
-            </div>
-          );
-        })()}
+        {/* Banner "Complete seu perfil" — movido para DEPOIS do feed (money-first):
+            o prestador vê as oportunidades/anúncios ANTES da cobrança de cadastro.
+            Renderizado no fim da aba "início" (ver bannerCompletudeDiarista). */}
 
         {/* ── Banner "🔥 Anúncio novo perto de você (últimas 24h)" — urgência social ── */}
         {(() => {
@@ -11317,6 +11257,75 @@ export default function App() {
                 })
               )}
             </div>
+
+            {/* ── Banner "Complete seu perfil" — money-first: renderizado DEPOIS do feed
+                de anúncios, pra recompensa (oportunidades) vir antes da cobrança ── */}
+            {profile && (() => {
+              const compData = {
+                foto_url: profile.foto_url, cpf: profile.cpf, cnpj: profile.cnpj,
+                telefone: profile.telefone, telefone_verificado: profile.telefone_verificado,
+                bio: profile.bio, endereco_empregador: profile.endereco_empregador,
+                lat: profile.lat, pix_chave: profile.pix_chave, mp_user_id: profile.mp_user_id,
+              };
+              const comp = calcCompletude(compData, 0, null);
+              if (comp.pct >= 100) return null;
+              const cor = comp.pct >= 60 ? "#3A86FF" : comp.pct >= 30 ? "#f59e0b" : "#dc2626";
+              const nivelLabel = comp.pct >= 60 ? "Quase lá — falta pouco!" : comp.pct >= 30 ? "Em construção" : "Vamos começar";
+              const proxItem = comp.itens.find(i => !i.preenchido);
+              // Atalhos rápidos pra itens críticos pendentes (KYC + telefone)
+              const kycPendente = profile.documento_status !== "aprovado";
+              const telPendente = !(profile.telefone_verificado);
+              return (
+                <div style={{ margin:"4px 16px 24px", background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.06)", border:`1.5px solid ${cor}30` }}>
+                  <div role="button" tabIndex={0} style={{ cursor:"pointer" }}
+                    onClick={() => setTela("editar-perfil")}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)" }}>📋 Complete seu perfil</div>
+                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:1 }}>{nivelLabel} — perfis completos aparecem pra mais anunciantes e recebem mais contatos</div>
+                      </div>
+                      <div style={{ fontSize:20, fontWeight:900, color:cor, marginLeft:8 }}>{comp.pct}%</div>
+                    </div>
+                    <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden" }}>
+                      <div style={{ background:cor, height:8, width:`${comp.pct}%`, borderRadius:20, transition:"width .4s" }} />
+                    </div>
+                  </div>
+                  {/* Atalhos por item crítico — clicáveis individualmente */}
+                  {(kycPendente || telPendente) && (
+                    <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" as const }}>
+                      {kycPendente && (
+                        <button
+                          type="button"
+                          style={{ background:"#fef3c7", color:"#92400e", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
+                          onClick={e => { e.stopPropagation(); setTela("verificar-documento"); }}>
+                          🪪 Enviar documento
+                        </button>
+                      )}
+                      {MOSTRAR_VERIFICAR_TELEFONE_CTA && telPendente && (
+                        <button
+                          type="button"
+                          style={{ background:"#dbeafe", color:"#1e40af", border:"none", borderRadius:20, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, minHeight:32 }}
+                          onClick={e => { e.stopPropagation(); setTela("verificar-telefone"); }}>
+                          📱 Verificar telefone
+                        </button>
+                      )}
+                      {proxItem && !kycPendente && !telPendente && (
+                        <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", padding:"6px 0" }}>
+                          Próximo: {proxItem.icone} {proxItem.label}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop: (kycPendente || telPendente) ? 4 : 8 }}>
+                    {proxItem && !kycPendente && !telPendente && (
+                      <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>Próximo: {proxItem.icone} {proxItem.label}</span>
+                    )}
+                    <span role="button" style={{ fontSize:12, fontWeight:700, color:cor, marginLeft:"auto", cursor:"pointer" }}
+                      onClick={() => setTela("editar-perfil")}>Completar agora →</span>
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
 
