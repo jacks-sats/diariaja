@@ -902,6 +902,20 @@ export default function App() {
           .then(({ data }) => setAssinaturas(Array.isArray(data) ? data : []));
       }
     }
+    // Retorno do plano de 30 dias (pagamento único via Pix/cartão).
+    const planoStatus = params.get("plano");
+    if (planoStatus === "ativado") {
+      setToastSuccess("🎉 Pagamento recebido! Seu plano será liberado em instantes.");
+      window.history.replaceState({}, "", window.location.pathname);
+      // Recarrega o perfil pra pegar o plano_ativo concedido pelo webhook.
+      if (session?.user?.id) void checkProfile(session.user.id);
+    } else if (planoStatus === "pendente") {
+      setToastSuccess("⏳ Pagamento em processamento. Seu plano libera assim que confirmar.");
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (planoStatus === "falha") {
+      setToastError("❌ Pagamento não concluído. Você pode tentar de novo em Planos.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   // BUG-M5 fix: inclui session.user.id para reprocessar quando sessão carrega após redirect OAuth
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
@@ -2103,6 +2117,13 @@ export default function App() {
     if (error) { setLoading(false); return; }
 
     if (data) {
+      // Plano de 30 dias venceu? Reverte pra grátis (não renova sozinho).
+      // Best-effort no banco; localmente já trata como grátis pra UI não mentir.
+      if (data.plano_ativo && data.plano_ativo !== "gratis" && data.plano_expira_em
+          && new Date(data.plano_expira_em).getTime() < Date.now()) {
+        data.plano_ativo = "gratis";
+        void supabase.from("user_profiles").update({ plano_ativo: "gratis" }).eq("id", userId);
+      }
       setProfile(data);
       setTipo(data.user_type);
       setNegocio(data.segmento || null);
@@ -4058,8 +4079,10 @@ export default function App() {
         setCriandoAssinatura(false);
         return;
       }
+      // Plano de 30 dias via CheckoutPro (aceita Pix). Antes era create-subscription
+      // (Preapproval recorrente), que NÃO oferece Pix — daí a troca.
       const resp = await fetch(
-        `${SUPABASE_URL}/functions/v1/create-subscription`,
+        `${SUPABASE_URL}/functions/v1/create-plano-payment`,
         {
           method: "POST",
           headers: {
@@ -4068,10 +4091,8 @@ export default function App() {
             "apikey":         SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({
-            plano:      planoId,
-            user_id:    session.user.id,
-            user_type:  modoAtual,
-            payer_email: session.user.email,
+            plano:     planoId,
+            user_type: modoAtual,
           }),
         }
       );
@@ -9982,7 +10003,7 @@ export default function App() {
                 return (
                   <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
                     <div style={{ fontWeight:800, fontSize:14, color:"#9a3412", marginBottom:4 }}>
-                      🚀 Assinar Essencial — R$ {valor.toFixed(2).replace(".", ",")}/mês
+                      🚀 Ativar Essencial — R$ {valor.toFixed(2).replace(".", ",")} / 30 dias
                     </div>
                     <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.5, marginBottom:12 }}>
                       Seleções ilimitadas, IA Jájá pra criar anúncios, filtros avançados e destaque moderado.
@@ -16919,7 +16940,7 @@ export default function App() {
                     <div style={{ fontSize:18, fontWeight:900, color:"#fff" }}>{p.nome}</div>
                     {p.valor === 0
                       ? <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:2 }}>Sempre grátis</div>
-                      : <div style={{ fontSize:13, color:"var(--text-3,#94a3b8)", marginTop:2 }}>por mês</div>
+                      : <div style={{ fontSize:13, color:"var(--text-3,#94a3b8)", marginTop:2 }}>por 30 dias</div>
                     }
                   </div>
                   <div style={{ textAlign:"right" }}>
@@ -16953,7 +16974,7 @@ export default function App() {
                       style={{ width:"100%", padding:"14px", background:p.cor, color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: algumLoading ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 16px ${p.cor}44`, opacity: algumLoading && !loadingEste ? 0.4 : algumLoading ? 0.7 : 1 }}
                       disabled={algumLoading}
                       onClick={() => { setAuthError(""); iniciarAssinatura(p.id); }}>
-                      {loadingEste ? "Aguarde..." : `Assinar ${p.nome} — R$ ${valorBR}/mês`}
+                      {loadingEste ? "Aguarde..." : `Ativar ${p.nome} — R$ ${valorBR} / 30 dias`}
                     </button>
                   );
                 })()}

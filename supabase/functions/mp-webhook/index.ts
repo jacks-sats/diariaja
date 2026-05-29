@@ -273,6 +273,27 @@ Deno.serve(async (req) => {
         return new Response("ok", { status: 200 });
       }
 
+      // ── Plano 30 dias (pagamento único via Pix/cartão) ─────────
+      // external_reference = "plano::USER_ID::PLANO_ID". Diferente do
+      // preapproval: aqui é avulso (aceita Pix) e não renova sozinho —
+      // grava plano_ativo + plano_expira_em (30 dias). O app avisa ao vencer.
+      if (String(payment.external_reference).startsWith("plano::")) {
+        const parts = String(payment.external_reference).split("::");
+        const userId = parts[1] ?? "";
+        const planoId = parts[2] ?? "";
+        if (payment.status === "approved" && userId && planoId) {
+          const expira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+          const { error: upErr } = await supabase
+            .from("user_profiles")
+            .update({ plano_ativo: planoId, plano_expira_em: expira })
+            .eq("id", userId);
+          if (upErr) console.error(`[mp-webhook] plano grant falhou:`, upErr);
+        } else {
+          console.log(`[mp-webhook] plano ignored: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
+        }
+        return new Response("ok", { status: 200 });
+      }
+
       const diariaId = payment.external_reference;
 
       const statusMap: Record<string, string> = {

@@ -90,6 +90,7 @@ export interface UserProfile {
   mp_user_id?: string;
   mp_access_token?: string;
   plano_ativo?: string;       // 'gratis' | 'destaque'
+  plano_expira_em?: string;   // vencimento do plano pago (plano de 30 dias via Pix/cartão)
   is_admin?: boolean;
   is_suporte?: boolean;       // agente de suporte — promovido pelo admin via RPC promover_suporte()
   portfolio_urls?: string[];  // até 3 fotos do trabalho (diarista)

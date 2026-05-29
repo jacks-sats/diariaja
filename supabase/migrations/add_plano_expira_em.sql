@@ -1,0 +1,11 @@
+-- ============================================================================
+-- Plano de 30 dias (pagamento único via Pix/cartão) — DiáriaJá
+-- ----------------------------------------------------------------------------
+-- O plano passa a ser pago à vista (CheckoutPro, que aceita Pix) em vez de
+-- assinatura recorrente (Preapproval, que NÃO aceita Pix). Como não renova
+-- sozinho, guardamos quando expira; o app avisa pra renovar e, ao vencer,
+-- volta o usuário pro plano grátis.
+--
+-- Aplicar no SQL Editor do Supabase. Idempotente.
+-- ============================================================================
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS plano_expira_em timestamptz;
