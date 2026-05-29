@@ -511,6 +511,21 @@ export default function App() {
   // Código de indicação / referral
   const [modalQuemSomos, setModalQuemSomos] = useState(false);
 
+  // Desktop vs mobile — a entrada (splash) vira uma landing "de site" no PC,
+  // mantendo o app mobile-first no celular e no Capacitor (que sempre roda
+  // em largura de celular, então isDesktop é sempre false lá).
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const upd = () => setIsDesktop(mq.matches);
+    upd();
+    mq.addEventListener?.("change", upd);
+    return () => mq.removeEventListener?.("change", upd);
+  }, []);
+
   // Mostrar/ocultar senha nos campos de login e cadastro
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [mostrarSenhaCadastro, setMostrarSenhaCadastro] = useState(false);
@@ -4851,6 +4866,115 @@ export default function App() {
       </div>
     </div>
   ) : null;
+
+  // ── LANDING DE DESKTOP ───────────────────────────────────────────────────
+  // No computador, a entrada vira um site de apresentação (largura cheia) em vez
+  // do app mobile centralizado. Os CTAs entram no mesmo fluxo do app. No celular
+  // e no app Android (Capacitor) este bloco não roda — cai no splash mobile abaixo.
+  if (tela === "splash" && isDesktop) {
+    const cats = [
+      { ic:"🏠", n:"Diarista / Faxina" }, { ic:"🔧", n:"Reparos & Obra" },
+      { ic:"💆", n:"Beleza" }, { ic:"👶", n:"Cuidadores" },
+      { ic:"🌿", n:"Jardinagem" }, { ic:"🚚", n:"Logística & Entregas" },
+      { ic:"🍳", n:"Cozinha" }, { ic:"🎉", n:"Eventos" },
+    ];
+    const passos = [
+      { ic:"📝", t:"Anuncie ou procure", d:"Publique uma vaga em minutos ou encontre serviço perto de você." },
+      { ic:"🤝", t:"Conecte com segurança", d:"Perfis com CPF/CNPJ verificado, avaliações reais e nível de confiança." },
+      { ic:"⚡", t:"Combine e resolva", d:"Fale pelo chat do app e acerte os detalhes. Sem burocracia." },
+    ];
+    const selos = [
+      { ic:"💳", l:"Pagamento via Mercado Pago" },
+      { ic:"🪪", l:"CPF / CNPJ verificado" },
+      { ic:"⭐", l:"Avaliações reais" },
+    ];
+    const btnPrimary: React.CSSProperties = { padding:"14px 26px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 8px 24px rgba(255,107,53,.45)" };
+    const btnGhost: React.CSSProperties = { padding:"14px 26px", background:"transparent", color:"#e2e8f0", border:"1.5px solid rgba(255,255,255,.25)", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" };
+    return (
+      <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 55%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", color:"#e2e8f0" }}>
+        {/* Top nav */}
+        <header style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"22px 48px", maxWidth:1180, margin:"0 auto" }}>
+          <div style={{ fontSize:26, fontWeight:900, letterSpacing:-1 }}>
+            <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
+          </div>
+          <div style={{ display:"flex", gap:12 }}>
+            <button style={{ ...btnGhost, padding:"10px 20px", fontSize:14 }} onClick={() => setTela("login")}>Entrar</button>
+            <button style={{ ...btnPrimary, padding:"10px 22px", fontSize:14 }} onClick={() => setTela("cadastro-tipo")}>Começar grátis</button>
+          </div>
+        </header>
+
+        {/* Hero */}
+        <section style={{ maxWidth:1180, margin:"0 auto", padding:"56px 48px 40px", display:"grid", gridTemplateColumns:"1.1fr 0.9fr", gap:48, alignItems:"center" }}>
+          <div>
+            <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:"rgba(255,107,53,.12)", border:"1px solid rgba(255,107,53,.3)", borderRadius:20, padding:"6px 14px", fontSize:13, fontWeight:700, color:"#FF6B35", marginBottom:20 }}>
+              ⚡ Serviços por diária — começou em Campo Grande/MS
+            </div>
+            <h1 style={{ fontSize:52, lineHeight:1.08, fontWeight:900, color:"#fff", letterSpacing:-1.5, margin:"0 0 18px" }}>
+              Quem você precisa,<br /><span style={{ color:"#FF6B35" }}>pertinho de você.</span>
+            </h1>
+            <p style={{ fontSize:18, lineHeight:1.6, color:"#94a3b8", maxWidth:520, margin:"0 0 28px" }}>
+              Anuncie uma vaga ou encontre serviço perto de você — faxina, reparos, beleza, cuidados, frete e muito mais. Combine direto, sem complicação.
+            </p>
+            <div style={{ display:"flex", gap:14, flexWrap:"wrap" as const }}>
+              <button style={btnPrimary} onClick={() => setTela("cadastro-tipo")}>Começar grátis →</button>
+              <button style={btnGhost} onClick={() => setTela("login")}>Já tenho conta</button>
+            </div>
+            <div style={{ display:"flex", gap:18, flexWrap:"wrap" as const, marginTop:28 }}>
+              {selos.map(s => (
+                <div key={s.l} style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#cbd5e1" }}>
+                  <span style={{ fontSize:16 }}>{s.ic}</span> {s.l}
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Card ilustrativo */}
+          <div style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"28px", boxShadow:"0 30px 80px rgba(0,0,0,.4)" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              {cats.map(c => (
+                <div key={c.n} style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.08)", borderRadius:14, padding:"16px 14px", display:"flex", alignItems:"center", gap:10 }}>
+                  <span style={{ fontSize:22 }}>{c.ic}</span>
+                  <span style={{ fontSize:13, fontWeight:700, color:"#f1f5f9" }}>{c.n}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Como funciona */}
+        <section style={{ maxWidth:1180, margin:"0 auto", padding:"32px 48px 56px" }}>
+          <h2 style={{ fontSize:14, fontWeight:800, color:"#FF6B35", textTransform:"uppercase" as const, letterSpacing:1, margin:"0 0 20px", textAlign:"center" as const }}>Como funciona</h2>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:20 }}>
+            {passos.map((p, i) => (
+              <div key={p.t} style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:18, padding:"24px" }}>
+                <div style={{ fontSize:30, marginBottom:10 }}>{p.ic}</div>
+                <div style={{ fontSize:17, fontWeight:800, color:"#fff", marginBottom:6 }}>{i+1}. {p.t}</div>
+                <div style={{ fontSize:14, lineHeight:1.6, color:"#94a3b8" }}>{p.d}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* CTA final */}
+        <section style={{ maxWidth:1180, margin:"0 auto", padding:"0 48px 56px" }}>
+          <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:24, padding:"40px", textAlign:"center" as const }}>
+            <div style={{ fontSize:28, fontWeight:900, color:"#fff", marginBottom:10 }}>Pronto pra começar?</div>
+            <div style={{ fontSize:16, color:"rgba(255,255,255,.92)", marginBottom:22 }}>Grátis pra anunciar e pra procurar. Leva menos de 2 minutos.</div>
+            <button style={{ ...btnPrimary, background:"#0f172a", boxShadow:"0 8px 24px rgba(0,0,0,.3)" }} onClick={() => setTela("cadastro-tipo")}>Criar minha conta grátis →</button>
+          </div>
+        </section>
+
+        {/* Footer */}
+        <footer style={{ borderTop:"1px solid rgba(255,255,255,.08)", padding:"28px 48px", maxWidth:1180, margin:"0 auto", display:"flex", flexWrap:"wrap" as const, alignItems:"center", justifyContent:"space-between", gap:16, fontSize:13, color:"#64748b" }}>
+          <div>© {new Date().getFullYear()} DiáriaJá · Campo Grande, MS</div>
+          <div style={{ display:"flex", gap:20 }}>
+            <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Privacidade</a>
+            <a href="/excluir-conta.html" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Excluir conta</a>
+            <a href="mailto:suporte@diariaja.com.br" style={{ color:"#94a3b8", textDecoration:"none" }}>suporte@diariaja.com.br</a>
+          </div>
+        </footer>
+      </div>
+    );
+  }
 
   // SPLASH
   if (tela === "splash") return (
