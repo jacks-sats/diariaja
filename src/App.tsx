@@ -129,10 +129,11 @@ function QRScannerComponent({ onResult, onError, onClose }: {
   return <div id="qr-reader" style={{ width:"100%", borderRadius:12, overflow:"hidden" }} />;
 }
 
-// Verificação por SMS está em manutenção (provider não configurado em produção).
-// Mantemos a tela `verificar-telefone` acessível para admin, mas escondemos
-// os CTAs de marketing nos cards de progresso de perfil. Volte para `true`
-// quando o envio de SMS estiver online novamente.
+// Verificação por WhatsApp (Edge Function verificar-whatsapp → Twilio Verify).
+// Os CTAs de verificação só aparecem quando esta flag está ligada. Mantenha
+// `false` até os secrets do Twilio estarem setados no Supabase
+// (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_VERIFY_SERVICE_SID) e a
+// Edge Function `verificar-whatsapp` deployada — aí vire para `true`.
 const MOSTRAR_VERIFICAR_TELEFONE_CTA = false;
 
 // Helper: mostra notificação local compatível com mobile/PWA.
@@ -6163,7 +6164,7 @@ export default function App() {
           <>
             <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
               Verificar seu telefone é o primeiro passo da progressão de confiabilidade.
-              Receberá um SMS com um código de 6 dígitos.
+              Receberá pelo WhatsApp um código de 6 dígitos.
             </p>
             {etapaVerifTel === "input" ? (
               <>
@@ -6182,31 +6183,43 @@ export default function App() {
                     const e164 = formatarE164(form.telefone);
                     if (!e164) { setAuthError("Não consegui formatar o número."); return; }
                     setEnviandoVerif(true);
-                    // Tenta enviar OTP real via Supabase. Se o provider de SMS
-                    // não estiver configurado no Dashboard, cai no fallback.
-                    const { error } = await supabase.auth.updateUser({ phone: e164 });
-                    setEnviandoVerif(false);
-                    if (error) {
-                      const msg = error.message?.toLowerCase() || "";
-                      if (msg.includes("sms") || msg.includes("phone") || msg.includes("provider")) {
-                        setAuthError("📵 SMS ainda não disponível na plataforma. Em breve liberamos esta verificação. Continue usando o app normalmente.");
-                      } else {
-                        setAuthError("Erro: " + error.message);
+                    // Envia o código via WhatsApp (Edge Function verificar-whatsapp → Twilio Verify).
+                    try {
+                      const { data: { session: sess } } = await supabase.auth.getSession();
+                      const resp = await fetch(`${SUPABASE_URL}/functions/v1/verificar-whatsapp`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type":  "application/json",
+                          "Authorization": `Bearer ${sess?.access_token ?? SUPABASE_ANON_KEY}`,
+                          "apikey":        SUPABASE_ANON_KEY,
+                        },
+                        body: JSON.stringify({ acao: "enviar", telefone: form.telefone }),
+                      });
+                      const data = await resp.json().catch(() => ({} as { error?: string }));
+                      setEnviandoVerif(false);
+                      if (resp.status === 503) {
+                        setAuthError("📵 Verificação por WhatsApp ainda não está ativa. Continue usando o app normalmente.");
+                        return;
                       }
-                      return;
+                      if (!resp.ok) {
+                        setAuthError(data.error || "Não consegui enviar o código agora. Tente novamente.");
+                        return;
+                      }
+                      await saveProfile({ telefone: form.telefone.trim() });
+                      setEtapaVerifTel("codigo");
+                      setToastSuccess("📲 Código enviado pelo WhatsApp");
+                    } catch {
+                      setEnviandoVerif(false);
+                      setAuthError("❌ Erro de conexão. Verifique sua internet e tente de novo.");
                     }
-                    // Salva o telefone e marca aguardando código
-                    await saveProfile({ telefone: form.telefone.trim() });
-                    setEtapaVerifTel("codigo");
-                    setToastSuccess("📲 Código enviado por SMS");
                   }}>
-                  {enviandoVerif ? "Enviando..." : "📲 Enviar código por SMS"}
+                  {enviandoVerif ? "Enviando..." : "📲 Enviar código pelo WhatsApp"}
                 </button>
               </>
             ) : (
               <>
                 <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"14px 16px", marginBottom:16, fontSize:13, color:"#166534", lineHeight:1.5 }}>
-                  📲 Um código foi enviado por SMS para <strong>{form.telefone}</strong>. Pode levar até 1 minuto pra chegar.
+                  📲 Um código foi enviado pelo <strong>WhatsApp</strong> para <strong>{form.telefone}</strong>. Pode levar até 1 minuto pra chegar.
                 </div>
                 <label style={S.label}>Código de verificação</label>
                 <input style={{ ...S.input, letterSpacing:8, fontSize:20, textAlign:"center" as const }}
@@ -6218,38 +6231,37 @@ export default function App() {
                   onClick={async () => {
                     setAuthError("");
                     if (codigoVerifInput.length < 6) { setAuthError("Digite o código de 6 dígitos."); return; }
-                    const e164 = formatarE164(form.telefone);
-                    if (!e164) { setAuthError("Erro ao reformatar número."); return; }
                     setEnviandoVerif(true);
-                    // Valida o OTP de verdade no Supabase
-                    const { error } = await supabase.auth.verifyOtp({
-                      phone: e164,
-                      token: codigoVerifInput,
-                      type: "phone_change",
-                    });
-                    if (error) {
+                    // Confere o código no servidor (Edge Function → Twilio Verify).
+                    // Se aprovado, a função grava telefone_verificado=true via service_role.
+                    try {
+                      const { data: { session: sess } } = await supabase.auth.getSession();
+                      const resp = await fetch(`${SUPABASE_URL}/functions/v1/verificar-whatsapp`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type":  "application/json",
+                          "Authorization": `Bearer ${sess?.access_token ?? SUPABASE_ANON_KEY}`,
+                          "apikey":        SUPABASE_ANON_KEY,
+                        },
+                        body: JSON.stringify({ acao: "conferir", telefone: form.telefone, codigo: codigoVerifInput }),
+                      });
+                      const data = await resp.json().catch(() => ({} as { ok?: boolean; error?: string }));
                       setEnviandoVerif(false);
-                      setAuthError("Código inválido ou expirado. Tente novamente.");
-                      return;
-                    }
-                    // Persiste no perfil via RPC server-side — o trigger anti-escalada
-                    // bloqueia UPDATE direto em telefone_verificado pelo client.
-                    const telDigitos = form.telefone.replace(/\D/g, "");
-                    const { error: rpcErr } = await supabase.rpc("confirmar_telefone_verificado", {
-                      p_telefone: telDigitos,
-                    });
-                    if (rpcErr) {
+                      if (!resp.ok || !data.ok) {
+                        setAuthError(data.error || "Código inválido ou expirado. Tente novamente.");
+                        return;
+                      }
+                      const telDigitos = form.telefone.replace(/\D/g, "");
+                      setProfile(prev => prev ? { ...prev, telefone: telDigitos, telefone_verificado: true } : prev);
+                      setTelefoneVerificado(true);
+                      try { localStorage.setItem("diariaja_tel_verif","1"); } catch {}
+                      hapticConfirm();
+                      setToastSuccess("✅ Telefone verificado — Nível Básico desbloqueado!");
+                      setTela("configuracoes");
+                    } catch {
                       setEnviandoVerif(false);
-                      setAuthError("Telefone verificado no SMS, mas falha ao salvar no perfil. " + rpcErr.message);
-                      return;
+                      setAuthError("❌ Erro de conexão. Verifique sua internet e tente de novo.");
                     }
-                    setProfile(prev => prev ? { ...prev, telefone: telDigitos, telefone_verificado: true } : prev);
-                    setTelefoneVerificado(true);
-                    try { localStorage.setItem("diariaja_tel_verif","1"); } catch {}
-                    hapticConfirm();
-                    setEnviandoVerif(false);
-                    setToastSuccess("✅ Telefone verificado — Nível Básico desbloqueado!");
-                    setTela("configuracoes");
                   }}>
                   {enviandoVerif ? "Verificando..." : "Confirmar código"}
                 </button>
