@@ -25,6 +25,7 @@ import {
   codigoPresenca,
   parseEnderecoEmpregador,
   verificarConteudoProibido,
+  vagaProximaDeVencer,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -902,5 +903,28 @@ describe("verificarConteudoProibido", () => {
   it("é insensível a acentos e caixa", () => {
     expect(verificarConteudoProibido("PROSTITUIÇÃO")).not.toBeNull();
     expect(verificarConteudoProibido("Cocaína")).not.toBeNull();
+  });
+});
+
+describe("vagaProximaDeVencer", () => {
+  const base = new Date("2026-05-29T12:00:00");
+  it("true quando aberta e fim em 3h (dentro da janela de 6h)", () => {
+    expect(vagaProximaDeVencer({ data: "2026-05-29", horario_fim: "15:00", status: "aberta" }, 6, base)).toBe(true);
+  });
+  it("false quando fim ainda longe (20h)", () => {
+    expect(vagaProximaDeVencer({ data: "2026-05-30", horario_fim: "08:00", status: "aberta" }, 6, base)).toBe(false);
+  });
+  it("false quando já passou do fim (não é 'pra vencer', já venceu)", () => {
+    expect(vagaProximaDeVencer({ data: "2026-05-29", horario_fim: "10:00", status: "aberta" }, 6, base)).toBe(false);
+  });
+  it("false quando status não é 'aberta'", () => {
+    expect(vagaProximaDeVencer({ data: "2026-05-29", horario_fim: "15:00", status: "aceita" }, 6, base)).toBe(false);
+  });
+  it("usa horario_inicio quando não há horario_fim (serviço)", () => {
+    expect(vagaProximaDeVencer({ data: "2026-05-29", horario_inicio: "14:00", status: "aberta" }, 6, base)).toBe(true);
+  });
+  it("false sem data/horário", () => {
+    expect(vagaProximaDeVencer({ data: "", horario_fim: "15:00", status: "aberta" }, 6, base)).toBe(false);
+    expect(vagaProximaDeVencer({ data: "2026-05-29", status: "aberta" }, 6, base)).toBe(false);
   });
 });

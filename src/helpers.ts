@@ -600,7 +600,30 @@ export function vagaExpirou(
   return agora.getTime() > fim.getTime();
 }
 
-// ── Endereço do empregador — parse do texto salvo de volta em campos ──────────
+// ── Vaga PRÓXIMA de vencer: ainda no ar, mas o horário-fim chega em breve ─────
+// Usado pra lembrar o anunciante ("ainda quer manter no ar ou tirar?") ANTES de
+// a vaga expirar sozinha. Só vale pra vaga ainda "aberta" (ninguém confirmado).
+// Para serviço (sem horario_fim) usa o horário de início como referência.
+export function vagaProximaDeVencer(
+  diaria: { data: string; horario_fim?: string; horario_inicio?: string; status: string },
+  horasAntes = 6,
+  agora: Date = new Date(),
+): boolean {
+  if (diaria.status !== "aberta") return false;
+  if (!diaria.data) return false;
+  const hhmm = (diaria.horario_fim && diaria.horario_fim.trim())
+    ? diaria.horario_fim
+    : diaria.horario_inicio;
+  if (!hhmm) return false;
+  const [h, m] = hhmm.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return false;
+  const fim = new Date(`${diaria.data}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+  const restanteMs = fim.getTime() - agora.getTime();
+  // Ainda no futuro (não expirou) E dentro da janela de aviso.
+  return restanteMs > 0 && restanteMs <= horasAntes * 60 * 60 * 1000;
+}
+
+
 // O perfil do empregador guarda o endereço como UMA string concatenada na coluna
 // `endereco_empregador` (não há colunas separadas). Para que a tela "Editar perfil"
 // consiga pré-preencher os campos (rua, número, complemento, bairro, cidade, UF e

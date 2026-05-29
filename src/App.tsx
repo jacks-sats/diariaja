@@ -62,7 +62,7 @@ import {
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
-  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou,
+  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
@@ -222,6 +222,8 @@ export default function App() {
   const [authError, setAuthError]         = useState("");
   const [authLoading, setAuthLoading]     = useState(false);
   const [minhasDiarias, setMinhasDiarias] = useState<Diaria[]>([]);
+  // Lembrete "vaga pra vencer": ids dispensados pelo anunciante ("manter no ar") nesta sessão
+  const [lembreteVencDispensados, setLembreteVencDispensados] = useState<Set<string>>(new Set());
   const [qrDiaria, setQrDiaria]           = useState<Diaria | null>(null);
   const [scannerAberto, setScannerAberto] = useState(false);
   const [scanMsg, setScanMsg]             = useState<{ok:boolean,txt:string}|null>(null);
@@ -2765,6 +2767,22 @@ export default function App() {
     setModalCancelar(null);
     setMotivoCancelamento("");
     setCancelando(false);
+  };
+
+  // Anunciante encerra a vaga antecipadamente (a partir do lembrete "pra vencer").
+  // Retira do ar imediatamente, sem exigir modal de motivo — é o próprio dono.
+  const encerrarVagaAntecipado = async (d: Diaria) => {
+    if (!session?.user) return;
+    const { error } = await supabase
+      .from("diarias")
+      .update({ status: "cancelada", motivo_cancelamento: "Encerrada pelo anunciante (antes de vencer)" })
+      .eq("id", d.id)
+      .eq("empregador_id", session.user.id);
+    if (error) { setToastError("Não foi possível encerrar agora. Tente de novo."); return; }
+    const atualizada = { ...d, status: "cancelada" };
+    setDiarias(prev => prev.map(x => x.id === d.id ? atualizada : x));
+    setMinhasDiarias(prev => prev.map(x => x.id === d.id ? atualizada : x));
+    setToastSuccess("✅ Anúncio retirado do ar.");
   };
 
   // Diarista desiste — vaga volta a ficar aberta para outros
@@ -8158,6 +8176,39 @@ export default function App() {
         {/* Banner "Complete seu perfil" — movido para DEPOIS da lista de prestadores
             (money-first/gente-first): o anunciante vê os profissionais ANTES da
             cobrança de cadastro. Renderizado no fim da aba "início". */}
+
+        {/* ── Lembrete: vaga PRA VENCER (manter no ar / tirar do ar) ── */}
+        {(() => {
+          const aVencer = diarias.filter(d => vagaProximaDeVencer(d) && !lembreteVencDispensados.has(d.id));
+          if (aVencer.length === 0) return null;
+          const v = aVencer[0];
+          const horaFim = (v.horario_fim || v.horario_inicio || "").slice(0, 5);
+          const dispensar = () => setLembreteVencDispensados(prev => new Set(prev).add(v.id));
+          return (
+            <div style={{ margin:"12px 16px 0", background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"14px 16px" }}>
+              <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:10 }}>
+                <span style={{ fontSize:22, lineHeight:1 }}>⏰</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:900, color:"#9a3412" }}>Sua vaga está pra vencer</div>
+                  <div style={{ fontSize:12, color:"#b45309", marginTop:2, lineHeight:1.5 }}>
+                    <strong>{v.nome_negocio || v.funcao || v.segmento}</strong> encerra hoje às {horaFim}. Ainda quer manter no ar?
+                    {aVencer.length > 1 ? ` (+${aVencer.length - 1} outra${aVencer.length > 2 ? "s" : ""} pra vencer)` : ""}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={dispensar}
+                  style={{ flex:1, padding:"10px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:40 }}>
+                  ✅ Manter no ar
+                </button>
+                <button onClick={() => { encerrarVagaAntecipado(v); dispensar(); }}
+                  style={{ flex:1, padding:"10px", background:"var(--bg-card,#fff)", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:40 }}>
+                  🗑️ Tirar do ar
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── ABA INÍCIO ── */}
         {tabEmpregador === "inicio" && (
