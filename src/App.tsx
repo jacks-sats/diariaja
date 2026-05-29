@@ -129,10 +129,11 @@ function QRScannerComponent({ onResult, onError, onClose }: {
   return <div id="qr-reader" style={{ width:"100%", borderRadius:12, overflow:"hidden" }} />;
 }
 
-// Verificação por SMS está em manutenção (provider não configurado em produção).
-// Mantemos a tela `verificar-telefone` acessível para admin, mas escondemos
-// os CTAs de marketing nos cards de progresso de perfil. Volte para `true`
-// quando o envio de SMS estiver online novamente.
+// Verificação por WhatsApp (Edge Function verificar-whatsapp → Twilio Verify).
+// Os CTAs de verificação só aparecem quando esta flag está ligada. Mantenha
+// `false` até os secrets do Twilio estarem setados no Supabase
+// (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_VERIFY_SERVICE_SID) e a
+// Edge Function `verificar-whatsapp` deployada — aí vire para `true`.
 const MOSTRAR_VERIFICAR_TELEFONE_CTA = false;
 
 // Helper: mostra notificação local compatível com mobile/PWA.
@@ -6056,7 +6057,7 @@ export default function App() {
             {[
               { icon:"👤", label:"Alterar perfil", sub:"Nome, foto, especialidade e dados", action:() => setTela(modoAtual === "diarista" ? "editar-perfil" : "editar-perfil-empregador") },
               { icon:"🔑", label:"Alterar senha", sub:"Mude sua senha de acesso", action:() => setTela("alterar-senha") },
-              { icon:"📱", label:"Verificar número de telefone", sub: telefoneVerificado ? "✅ Número verificado" : "Confirme seu número para mais segurança", action:() => setTela("verificar-telefone") },
+              ...(MOSTRAR_VERIFICAR_TELEFONE_CTA ? [{ icon:"📱", label:"Verificar número de telefone", sub: telefoneVerificado ? "✅ Número verificado" : "Confirme seu número para mais segurança", action:() => setTela("verificar-telefone") }] : []),
               { icon: profile?.documento_status === "aprovado" ? "✅" : profile?.documento_status === "enviado" ? "🔍" : profile?.documento_status === "rejeitado" ? "❌" : "🆔",
                 label:"Verificar identidade (RG/CNH)",
                 sub: profile?.documento_status === "aprovado" ? "✅ Documento aprovado"
@@ -6414,7 +6415,7 @@ export default function App() {
           <>
             <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
               Verificar seu telefone é o primeiro passo da progressão de confiabilidade.
-              Receberá um SMS com um código de 6 dígitos.
+              Receberá pelo WhatsApp um código de 6 dígitos.
             </p>
             {etapaVerifTel === "input" ? (
               <>
@@ -6433,31 +6434,43 @@ export default function App() {
                     const e164 = formatarE164(form.telefone);
                     if (!e164) { setAuthError("Não consegui formatar o número."); return; }
                     setEnviandoVerif(true);
-                    // Tenta enviar OTP real via Supabase. Se o provider de SMS
-                    // não estiver configurado no Dashboard, cai no fallback.
-                    const { error } = await supabase.auth.updateUser({ phone: e164 });
-                    setEnviandoVerif(false);
-                    if (error) {
-                      const msg = error.message?.toLowerCase() || "";
-                      if (msg.includes("sms") || msg.includes("phone") || msg.includes("provider")) {
-                        setAuthError("📵 SMS ainda não disponível na plataforma. Em breve liberamos esta verificação. Continue usando o app normalmente.");
-                      } else {
-                        setAuthError("Erro: " + error.message);
+                    // Envia o código via WhatsApp (Edge Function verificar-whatsapp → Twilio Verify).
+                    try {
+                      const { data: { session: sess } } = await supabase.auth.getSession();
+                      const resp = await fetch(`${SUPABASE_URL}/functions/v1/verificar-whatsapp`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type":  "application/json",
+                          "Authorization": `Bearer ${sess?.access_token ?? SUPABASE_ANON_KEY}`,
+                          "apikey":        SUPABASE_ANON_KEY,
+                        },
+                        body: JSON.stringify({ acao: "enviar", telefone: form.telefone }),
+                      });
+                      const data = await resp.json().catch(() => ({} as { error?: string }));
+                      setEnviandoVerif(false);
+                      if (resp.status === 503) {
+                        setAuthError("📵 Verificação por WhatsApp ainda não está ativa. Continue usando o app normalmente.");
+                        return;
                       }
-                      return;
+                      if (!resp.ok) {
+                        setAuthError(data.error || "Não consegui enviar o código agora. Tente novamente.");
+                        return;
+                      }
+                      await saveProfile({ telefone: form.telefone.trim() });
+                      setEtapaVerifTel("codigo");
+                      setToastSuccess("📲 Código enviado pelo WhatsApp");
+                    } catch {
+                      setEnviandoVerif(false);
+                      setAuthError("❌ Erro de conexão. Verifique sua internet e tente de novo.");
                     }
-                    // Salva o telefone e marca aguardando código
-                    await saveProfile({ telefone: form.telefone.trim() });
-                    setEtapaVerifTel("codigo");
-                    setToastSuccess("📲 Código enviado por SMS");
                   }}>
-                  {enviandoVerif ? "Enviando..." : "📲 Enviar código por SMS"}
+                  {enviandoVerif ? "Enviando..." : "📲 Enviar código pelo WhatsApp"}
                 </button>
               </>
             ) : (
               <>
                 <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"14px 16px", marginBottom:16, fontSize:13, color:"#166534", lineHeight:1.5 }}>
-                  📲 Um código foi enviado por SMS para <strong>{form.telefone}</strong>. Pode levar até 1 minuto pra chegar.
+                  📲 Um código foi enviado pelo <strong>WhatsApp</strong> para <strong>{form.telefone}</strong>. Pode levar até 1 minuto pra chegar.
                 </div>
                 <label style={S.label}>Código de verificação</label>
                 <input style={{ ...S.input, letterSpacing:8, fontSize:20, textAlign:"center" as const }}
@@ -6469,38 +6482,37 @@ export default function App() {
                   onClick={async () => {
                     setAuthError("");
                     if (codigoVerifInput.length < 6) { setAuthError("Digite o código de 6 dígitos."); return; }
-                    const e164 = formatarE164(form.telefone);
-                    if (!e164) { setAuthError("Erro ao reformatar número."); return; }
                     setEnviandoVerif(true);
-                    // Valida o OTP de verdade no Supabase
-                    const { error } = await supabase.auth.verifyOtp({
-                      phone: e164,
-                      token: codigoVerifInput,
-                      type: "phone_change",
-                    });
-                    if (error) {
+                    // Confere o código no servidor (Edge Function → Twilio Verify).
+                    // Se aprovado, a função grava telefone_verificado=true via service_role.
+                    try {
+                      const { data: { session: sess } } = await supabase.auth.getSession();
+                      const resp = await fetch(`${SUPABASE_URL}/functions/v1/verificar-whatsapp`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type":  "application/json",
+                          "Authorization": `Bearer ${sess?.access_token ?? SUPABASE_ANON_KEY}`,
+                          "apikey":        SUPABASE_ANON_KEY,
+                        },
+                        body: JSON.stringify({ acao: "conferir", telefone: form.telefone, codigo: codigoVerifInput }),
+                      });
+                      const data = await resp.json().catch(() => ({} as { ok?: boolean; error?: string }));
                       setEnviandoVerif(false);
-                      setAuthError("Código inválido ou expirado. Tente novamente.");
-                      return;
-                    }
-                    // Persiste no perfil via RPC server-side — o trigger anti-escalada
-                    // bloqueia UPDATE direto em telefone_verificado pelo client.
-                    const telDigitos = form.telefone.replace(/\D/g, "");
-                    const { error: rpcErr } = await supabase.rpc("confirmar_telefone_verificado", {
-                      p_telefone: telDigitos,
-                    });
-                    if (rpcErr) {
+                      if (!resp.ok || !data.ok) {
+                        setAuthError(data.error || "Código inválido ou expirado. Tente novamente.");
+                        return;
+                      }
+                      const telDigitos = form.telefone.replace(/\D/g, "");
+                      setProfile(prev => prev ? { ...prev, telefone: telDigitos, telefone_verificado: true } : prev);
+                      setTelefoneVerificado(true);
+                      try { localStorage.setItem("diariaja_tel_verif","1"); } catch {}
+                      hapticConfirm();
+                      setToastSuccess("✅ Telefone verificado — Nível Básico desbloqueado!");
+                      setTela("configuracoes");
+                    } catch {
                       setEnviandoVerif(false);
-                      setAuthError("Telefone verificado no SMS, mas falha ao salvar no perfil. " + rpcErr.message);
-                      return;
+                      setAuthError("❌ Erro de conexão. Verifique sua internet e tente de novo.");
                     }
-                    setProfile(prev => prev ? { ...prev, telefone: telDigitos, telefone_verificado: true } : prev);
-                    setTelefoneVerificado(true);
-                    try { localStorage.setItem("diariaja_tel_verif","1"); } catch {}
-                    hapticConfirm();
-                    setEnviandoVerif(false);
-                    setToastSuccess("✅ Telefone verificado — Nível Básico desbloqueado!");
-                    setTela("configuracoes");
                   }}>
                   {enviandoVerif ? "Verificando..." : "Confirmar código"}
                 </button>
@@ -13634,12 +13646,16 @@ export default function App() {
         const docEnv = profile.documento_status === "enviado";
         const docRej = profile.documento_status === "rejeitado";
         // Nível atual: Confiável > Verificado > Básico
-        const nivel = (temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico";
+        // Com a verificação de telefone desligada, a escada de confiança passa
+        // a se basear no DOCUMENTO (RG/CNH): enviar o documento sobe o nível.
+        const nivel = MOSTRAR_VERIFICAR_TELEFONE_CTA
+          ? ((temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico")
+          : (docOK ? "confiavel" : docEnv ? "verificado" : "basico");
         const nivelLabel = nivel === "confiavel" ? "Confiável" : nivel === "verificado" ? "Verificado" : "Básico";
         const nivelCor = nivel === "confiavel" ? "#16a34a" : nivel === "verificado" ? "#3A86FF" : "#94a3b8";
         const nivelDesc = nivel === "confiavel" ? "Selo máximo — você ganha prioridade nas buscas"
-                        : nivel === "verificado" ? "Falta enviar RG/CNH pra virar Confiável"
-                        : "Verifique telefone pra subir pra Verificado";
+                        : nivel === "verificado" ? (MOSTRAR_VERIFICAR_TELEFONE_CTA ? "Falta enviar RG/CNH pra virar Confiável" : "Documento em análise — em breve vira Confiável")
+                        : (MOSTRAR_VERIFICAR_TELEFONE_CTA ? "Verifique telefone pra subir pra Verificado" : "Envie seu RG/CNH pra subir de nível");
         const Linha = (icone: string, label: string, statusTxt: string, statusCor: string, acao: () => void, podeAcao: boolean) => (
           <div onClick={podeAcao ? acao : undefined}
             style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, background:"#fff", border:"1px solid #e2e8f0", marginBottom:8, cursor: podeAcao ? "pointer" : "default" }}>
@@ -13678,11 +13694,17 @@ export default function App() {
             </div>
 
             {/* Lista de verificações */}
-            {Linha("📱", "Telefone (WhatsApp)",
-              temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora",
-              temTel ? "#16a34a" : "#FF6B35",
-              () => setTela("verificar-telefone"),
-              !temTel)}
+            {MOSTRAR_VERIFICAR_TELEFONE_CTA
+              ? Linha("📱", "Telefone (WhatsApp)",
+                  temTel ? "✅ Verificado" : "Pendente — toque pra verificar agora",
+                  temTel ? "#16a34a" : "#FF6B35",
+                  () => setTela("verificar-telefone"),
+                  !temTel)
+              : Linha("📱", "Telefone (WhatsApp)",
+                  profile.telefone ? "✅ Telefone cadastrado" : "Adicione seu telefone no perfil",
+                  profile.telefone ? "#16a34a" : "#94a3b8",
+                  () => {},
+                  false)}
 
             {Linha(docOK ? "✅" : docEnv ? "🔍" : docRej ? "❌" : "🆔",
               "Documento (RG ou CNH)",
@@ -15233,12 +15255,16 @@ export default function App() {
         const docOK = profile.documento_status === "aprovado";
         const docEnv = profile.documento_status === "enviado";
         const docRej = profile.documento_status === "rejeitado";
-        const nivel = (temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico";
+        // Com a verificação de telefone desligada, a escada de confiança passa
+        // a se basear no DOCUMENTO (RG/CNH): enviar o documento sobe o nível.
+        const nivel = MOSTRAR_VERIFICAR_TELEFONE_CTA
+          ? ((temTel && docOK) ? "confiavel" : temTel ? "verificado" : "basico")
+          : (docOK ? "confiavel" : docEnv ? "verificado" : "basico");
         const nivelLabel = nivel === "confiavel" ? "Confiável" : nivel === "verificado" ? "Verificado" : "Básico";
         const nivelCor = nivel === "confiavel" ? "#16a34a" : nivel === "verificado" ? "#3A86FF" : "#94a3b8";
         const nivelDesc = nivel === "confiavel" ? "Selo máximo — prestadores confiam mais em você"
-                        : nivel === "verificado" ? "Falta enviar RG/CNH pra virar Confiável"
-                        : "Verifique telefone pra subir pra Verificado";
+                        : nivel === "verificado" ? (MOSTRAR_VERIFICAR_TELEFONE_CTA ? "Falta enviar RG/CNH pra virar Confiável" : "Documento em análise — em breve vira Confiável")
+                        : (MOSTRAR_VERIFICAR_TELEFONE_CTA ? "Verifique telefone pra subir pra Verificado" : "Envie seu RG/CNH pra subir de nível");
         const Linha = (icone: string, label: string, statusTxt: string, statusCor: string, acao: () => void, podeAcao: boolean) => (
           <div onClick={podeAcao ? acao : undefined}
             style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, background:"#fff", border:"1px solid #e2e8f0", marginBottom:8, cursor: podeAcao ? "pointer" : "default" }}>
@@ -15275,11 +15301,17 @@ export default function App() {
               ))}
             </div>
 
-            {Linha("📱", "Telefone (WhatsApp)",
-              temTel ? "✅ Verificado por SMS" : "Pendente — toque pra verificar agora",
-              temTel ? "#16a34a" : "#FF6B35",
-              () => setTela("verificar-telefone"),
-              !temTel)}
+            {MOSTRAR_VERIFICAR_TELEFONE_CTA
+              ? Linha("📱", "Telefone (WhatsApp)",
+                  temTel ? "✅ Verificado" : "Pendente — toque pra verificar agora",
+                  temTel ? "#16a34a" : "#FF6B35",
+                  () => setTela("verificar-telefone"),
+                  !temTel)
+              : Linha("📱", "Telefone (WhatsApp)",
+                  profile.telefone ? "✅ Telefone cadastrado" : "Adicione seu telefone no perfil",
+                  profile.telefone ? "#16a34a" : "#94a3b8",
+                  () => {},
+                  false)}
 
             {Linha(docOK ? "✅" : docEnv ? "🔍" : docRej ? "❌" : "🆔",
               "Documento (RG ou CNH)",
