@@ -283,6 +283,7 @@ export default function App() {
 
   // Painel admin + tickets de suporte (privados, 1-on-1 user × admin)
   const [adminStats, setAdminStats]               = useState<AdminStats | null>(null);
+  const [adminFinanceiro, setAdminFinanceiro]     = useState<any>(null);  // resumo financeiro do admin
   const [carregandoAdminStats, setCarregandoAdminStats] = useState(false);
   // Métricas extras + séries + drill-down
   const [adminExtras, setAdminExtras]             = useState<{
@@ -2982,6 +2983,9 @@ export default function App() {
     if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
     if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
     if (!serieD.error && serieD.data) setAdminSerieDiarias(serieD.data);
+    // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
+    const fin = await supabase.rpc("admin_resumo_financeiro");
+    if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
     setCarregandoAdminStats(false);
   };
 
@@ -15423,6 +15427,54 @@ export default function App() {
           ) : (
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
               {carregandoAdminStats ? "Carregando estatísticas…" : "Toque em 🔄 pra carregar."}
+            </div>
+          )}
+        </div>
+
+        {/* ── 💰 Financeiro ── */}
+        <div style={{ padding:"0 16px 16px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>💰 Financeiro</div>
+          {adminFinanceiro ? (() => {
+            const fmt = (n: unknown) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const u = adminFinanceiro.unlocks || {};
+            const pl = adminFinanceiro.planos || {};
+            const serie = Array.isArray(adminFinanceiro.unlocks_serie)
+              ? adminFinanceiro.unlocks_serie.map((d: { dia: string; valor: number }) => ({ dia: String(d.dia), valor: Number(d.valor) }))
+              : [];
+            const porPlano = Array.isArray(pl.por_plano) ? pl.por_plano : [];
+            return (
+              <>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                  {cardStat("Chat liberado — mês", `R$ ${fmt(u.valor_mes)}`, "#16a34a", "💬")}
+                  {cardStat("Chat liberado — hoje", `R$ ${fmt(u.valor_hoje)}`, "#22c55e", "📅")}
+                  {cardStat("Assinantes ativos", pl.ativos_total ?? 0, "#3A86FF", "⭐")}
+                  {cardStat("Planos/mês (estim.)", `R$ ${fmt(pl.valor_estimado)}`, "#FF6B35", "🔁")}
+                </div>
+                {serie.length > 0 && (
+                  <div style={{ marginBottom:10 }}>
+                    <MiniBars data={serie} cor="#16a34a" label="Desbloqueios de chat (R$1) — por dia" />
+                  </div>
+                )}
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:10 }}>Assinantes por plano</div>
+                  {porPlano.length === 0 ? (
+                    <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>Nenhum plano ativo ainda.</div>
+                  ) : porPlano.map((p: { plano: string; user_type: string; qtd: number }) => (
+                    <div key={`${p.user_type}-${p.plano}`} style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"5px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+                      <span style={{ color:"var(--text-2,#64748b)" }}>{p.user_type === "diarista" ? "👷 Prestador" : "🏢 Anunciante"} · {p.plano}</span>
+                      <strong style={{ color:"var(--text-1,#0f172a)" }}>{p.qtd}</strong>
+                    </div>
+                  ))}
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:10 }}>
+                    <span>Total acumulado (chat liberado)</span>
+                    <strong>R$ {fmt(u.valor_total)} · {u.total ?? 0}x</strong>
+                  </div>
+                </div>
+              </>
+            );
+          })() : (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              {carregandoAdminStats ? "Carregando financeiro…" : "Toque em 🔄 pra carregar."}
             </div>
           )}
         </div>
