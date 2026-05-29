@@ -1,0 +1,12 @@
+-- ============================================================================
+-- CEP do prestador (diarista) — DiáriaJá
+-- ----------------------------------------------------------------------------
+-- O perfil do diarista guardava só lat/lng (geocodificado), nunca o CEP digitado.
+-- Resultado: ao reabrir "Editar perfil", o campo CEP voltava vazio (embora a
+-- localização estivesse salva). Esta coluna passa a persistir o CEP informado.
+--
+-- ⚠️ APLICAR ESTA MIGRATION ANTES de subir o frontend que grava `cep`, senão o
+--    upsert de user_profiles falha (coluna inexistente) e quebra TODO o
+--    salvamento de perfil. Idempotente (pode re-rodar).
+-- ============================================================================
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS cep text;

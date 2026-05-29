@@ -828,6 +828,7 @@ export default function App() {
       funcao:      profile.funcao || "",
       sexo:        profile.sexo || "",
       dataNasc:    profile.data_nascimento || "",
+      cep:         profile.cep || "",   // CEP do prestador (diarista)
       // Endereço do empregador (parse da string salva → campos editáveis).
       cepEmp:        end.cep,
       ruaEmp:        end.rua,
@@ -2167,6 +2168,7 @@ export default function App() {
       pessoa_tipo: updates.pessoa_tipo ?? profile?.pessoa_tipo ?? form.pessoaTipo ?? "fisica",
       sexo: updates.sexo ?? profile?.sexo ?? form.sexo ?? "",
       data_nascimento: updates.data_nascimento ?? profile?.data_nascimento ?? form.dataNasc ?? "",
+      cep: updates.cep ?? profile?.cep ?? (form.cep || undefined),
       endereco_empregador: updates.endereco_empregador ?? profile?.endereco_empregador ?? "",
       // PIX do diarista — coletado no wizard de cadastro e no editar-perfil.
       // Falta isso aqui fazia o wizard "salvar" sem persistir o PIX (silent drop).
@@ -13621,6 +13623,7 @@ export default function App() {
           cpf: form.cpf,
           sexo: form.sexo,
           data_nascimento: form.dataNasc,
+          cep: form.cep,   // persiste o CEP digitado (antes só lat/lng eram salvos)
           // Telefone trocado → re-verificação acontece via redirect pra verificar-telefone
           // (saveProfile descarta telefone_verificado; o flag continua refletindo o
           // estado antigo até o usuário confirmar o novo OTP, momento em que a RPC
