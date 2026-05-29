@@ -84,6 +84,7 @@ export interface UserProfile {
   responsavel_cpf?: string;   // CPF do responsável (privado)
   sexo?: string;
   data_nascimento?: string;
+  cep?: string;                       // CEP do prestador (diarista) — usado p/ distância
   endereco_empregador?: string;
   created_at?: string;
   mp_user_id?: string;
