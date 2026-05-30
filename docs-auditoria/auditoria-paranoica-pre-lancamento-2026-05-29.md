@@ -49,7 +49,15 @@ Autor: auditoria assistida por IA. Escopo: `src/`, `supabase/functions/`,
 - **A2 (UPDATE amplo em `diarias`) — CONFIRMADO no Dashboard; SQL pronto:** policy
   `diarias_aceitar` deixa qualquer autenticado editar vaga aberta alheia. Fix:
   `fix_a2_remove_diarias_update_amplo.sql`. **APLICAR no Supabase.**
-- Médios/baixos restantes — pendentes.
+- **M3 (gate admin/suporte em render + restore de tela privilegiada) — feito:**
+  navegação movida para um `useEffect`-guarda (sem `setState` em render) e telas
+  `admin-painel`/`painel-suporte`/`alterar-senha`/`verificar-telefone` adicionadas
+  à blocklist de restauração do localStorage.
+- **M5 (toggles otimistas sem revert) — feito:** `handleToggleDisponivel` e
+  `handleToggleDia` revertem o estado e avisam se `saveProfile` falhar.
+- **M7 (usuário meio-criado / termos não persistidos) — pendente** (mais delicado,
+  mexe no fluxo de signup — fica para rodada dedicada).
+- Demais médios/baixos restantes — pendentes.
 
 ---
 

@@ -950,6 +950,17 @@ export default function App() {
     }
   }, [tela, negocioSelecionado, profile]);
 
+  // M3: guarda de telas privilegiadas em useEffect (não em render). Se o usuário
+  // não tem permissão, redireciona pra configurações — sem chamar setState
+  // durante o render (anti-pattern que rodava nos gates de admin/suporte).
+  useEffect(() => {
+    if (tela === "admin-painel" && !profile?.is_admin) {
+      setTela("configuracoes");
+    } else if (tela === "painel-suporte" && !(profile?.is_admin || profile?.is_suporte)) {
+      setTela("configuracoes");
+    }
+  }, [tela, profile?.is_admin, profile?.is_suporte]);
+
   // Carrega diaristas reais cadastrados no banco
   useEffect(() => {
     if (tela !== "home-empregador" || !session?.user) return;
@@ -2195,7 +2206,10 @@ export default function App() {
       const telaSalva = (() => { try { return localStorage.getItem("diariaja_tela") || ""; } catch { return ""; } })();
       // Telas que NÃO devem ser restauradas (requerem autenticação/fluxo limpo)
       // Telas que dependem de seleção em memória (não restaurar do localStorage)
-      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat"]);
+      // M3: inclui telas privilegiadas/contextuais que NÃO devem ser restauradas
+      // do localStorage (evita flash de painel admin/suporte ao recarregar e
+      // telas que precisam de contexto).
+      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat","admin-painel","painel-suporte","alterar-senha","verificar-telefone"]);
       const podeRestaurar = (t: string) => t && !TELAS_AUTH.has(t);
 
       // Sem CEP cadastrado → bloqueia até resolver (feed depende de lat/lng)
@@ -4743,18 +4757,30 @@ export default function App() {
 
   // Salva disponibilidade no banco ao clicar no toggle
   const handleToggleDisponivel = async () => {
+    const valorAnterior = disponivelAgora;
     const novoValor = !disponivelAgora;
-    setDisponivel(novoValor);
-    await saveProfile({ disponivel: novoValor });
+    setDisponivel(novoValor);  // otimista
+    const ok = await saveProfile({ disponivel: novoValor });
+    if (!ok) {
+      // M5: reverte o toggle se o save falhar, pra UI não divergir do banco.
+      setDisponivel(valorAnterior);
+      setToastError("Não foi possível salvar a disponibilidade. Tente de novo.");
+    }
   };
 
   // Salva agenda no banco ao clicar num dia
   const handleToggleDia = async (dia: string) => {
+    const agendaAnterior = agendaSelecionada;
     const novaAgenda = agendaSelecionada.includes(dia)
       ? agendaSelecionada.filter(d => d !== dia)
       : [...agendaSelecionada, dia];
-    setAgenda(novaAgenda);
-    await saveProfile({ agenda: novaAgenda });
+    setAgenda(novaAgenda);  // otimista
+    const ok = await saveProfile({ agenda: novaAgenda });
+    if (!ok) {
+      // M5: reverte a agenda se o save falhar.
+      setAgenda(agendaAnterior);
+      setToastError("Não foi possível salvar a agenda. Tente de novo.");
+    }
   };
 
   // SVG do Google — usado nos botões de login/cadastro com Google
@@ -15634,7 +15660,8 @@ export default function App() {
 
   // ── PAINEL ADMIN ────────────────────────────────────────────────────────────
   if (tela === "admin-painel") {
-    if (!profile?.is_admin) { setTela("configuracoes"); return null; }
+    // M3: a navegação é feita pelo useEffect-guarda acima; aqui só não renderiza.
+    if (!profile?.is_admin) return null;
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     const tk = adminTickets;
     // Card stat clicável que abre drill-down. Se `drillTipo` é null, não é clicável.
@@ -16231,8 +16258,8 @@ export default function App() {
   // `promover_suporte` caem aqui. Sem stats, sem KYC, sem antecedentes,
   // sem gestão de equipe — só o trabalho de ticket.
   if (tela === "painel-suporte") {
+    // M3: navegação no useEffect-guarda acima; aqui só não renderiza.
     if (!(profile?.is_admin || profile?.is_suporte)) {
-      setTela("configuracoes");
       return null;
     }
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
