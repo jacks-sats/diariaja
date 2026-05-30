@@ -29,7 +29,7 @@ const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-secret",
 };
 
 // Resolve a partir do banco quais destinatários o caller tem permissão pra
@@ -208,30 +208,42 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    // ── Auth: exige JWT de usuário logado (não aceita anon) ────────────────
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Não autorizado." }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authErr } = await supabaseUser.auth.getUser();
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Token inválido ou expirado." }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // ── Auth: JWT de usuário logado OU segredo interno (cron/infra) ────────
+    // O modo interno só existe se INTERNAL_PUSH_SECRET estiver setado nas
+    // secrets. Usado por funções de infra (ex.: lembrar-diarias via pg_cron)
+    // que não têm JWT de usuário. Sem o secret setado, o bypass nunca liga.
+    const internalSecret = Deno.env.get("INTERNAL_PUSH_SECRET") ?? "";
+    const isInternal = internalSecret.length > 0
+      && (req.headers.get("x-internal-secret") ?? "") === internalSecret;
 
-    // Rate-limit: 30 pushes / 60s por usuário. Suficiente pra qualquer
-    // fluxo natural (notifica candidato selecionado, etc.); bloqueia spam.
-    const blocked = await rateLimitOrReject(
-      { key: `send-push:user:${user.id}`, max: 30, windowSeconds: 60, corsHeaders },
-      supabaseUser,
-    );
-    if (blocked) return blocked;
+    let supabaseUser: ReturnType<typeof createClient> | null = null;
+    let callerId = "";
+    if (!isInternal) {
+      const authHeader = req.headers.get("Authorization");
+      if (!authHeader) {
+        return new Response(JSON.stringify({ error: "Não autorizado." }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user }, error: authErr } = await supabaseUser.auth.getUser();
+      if (authErr || !user) {
+        return new Response(JSON.stringify({ error: "Token inválido ou expirado." }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      callerId = user.id;
+
+      // Rate-limit: 30 pushes / 60s por usuário. Suficiente pra qualquer
+      // fluxo natural (notifica candidato selecionado, etc.); bloqueia spam.
+      const blocked = await rateLimitOrReject(
+        { key: `send-push:user:${callerId}`, max: 30, windowSeconds: 60, corsHeaders },
+        supabaseUser,
+      );
+      if (blocked) return blocked;
+    }
 
     const { user_ids: userIdsRaw, title, body: msgBody, url = "/", tipo = "default" } = await req.json() as {
       user_ids: string[];
@@ -251,8 +263,10 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // ── Filtra destinatários: caller só pode notificar quem tem relação ──
-    const user_ids = await filtrarDestinatariosAutorizados(supabaseAdmin, user.id, userIdsRaw);
+    // ── Destinatários: modo interno envia direto; usuário passa pelo filtro ─
+    const user_ids = isInternal
+      ? userIdsRaw
+      : await filtrarDestinatariosAutorizados(supabaseAdmin, callerId, userIdsRaw);
     if (!user_ids.length) {
       // Não revela quais foram bloqueados — resposta idêntica à de "sem subscription"
       return new Response(JSON.stringify({ sent: 0, reason: "no_subscriptions" }), {

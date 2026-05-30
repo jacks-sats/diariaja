@@ -1,0 +1,49 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Fase C — Agendamento do lembrete push (pg_cron → Edge Function)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- A cada 10min, chama a Edge Function `lembrar-diarias`, que notifica
+-- empregador + diarista das diárias que começam nos próximos 30min e marca
+-- `lembrete_enviado_em` (coluna criada na Fase A).
+--
+-- Pré-requisitos:
+--   1. Deploy da function:
+--        supabase functions deploy lembrar-diarias --no-verify-jwt
+--   2. Secret compartilhado com a send-push (usado no modo interno):
+--        supabase secrets set INTERNAL_PUSH_SECRET=<segredo-forte-aleatório>
+--   3. pg_cron + pg_net habilitados (Supabase Pro/self-hosted).
+--
+-- ⚠️ Não commitamos URL do projeto nem o secret — preencher abaixo e rodar
+--    manualmente no SQL Editor. Mantido COMENTADO para não falhar em ambiente
+--    sem pg_cron/pg_net.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- CREATE EXTENSION IF NOT EXISTS pg_cron;
+-- CREATE EXTENSION IF NOT EXISTS pg_net;
+--
+-- -- (Re)agenda o job de 10 em 10 minutos:
+-- SELECT cron.unschedule('lembrar-diarias-10min')
+--   WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'lembrar-diarias-10min');
+--
+-- SELECT cron.schedule(
+--   'lembrar-diarias-10min',
+--   '*/10 * * * *',
+--   $$
+--     SELECT net.http_post(
+--       url     := 'https://<PROJECT_REF>.supabase.co/functions/v1/lembrar-diarias',
+--       headers := jsonb_build_object(
+--         'Content-Type',      'application/json',
+--         'x-internal-secret', '<INTERNAL_PUSH_SECRET>'
+--       ),
+--       body    := '{}'::jsonb
+--     );
+--   $$
+-- );
+--
+-- Para desfazer:
+--   SELECT cron.unschedule('lembrar-diarias-10min');
+--
+-- Teste manual da function (sem cron), via curl:
+--   curl -X POST 'https://<PROJECT_REF>.supabase.co/functions/v1/lembrar-diarias' \
+--        -H 'x-internal-secret: <INTERNAL_PUSH_SECRET>'
+
+SELECT 'Fase C: ver instruções comentadas neste arquivo para agendar o lembrete.' AS resultado;
