@@ -1033,8 +1033,9 @@ export default function App() {
           if (cands && cands.length > 0) {
             setCandidaturas(cands);
             const dids = [...new Set(cands.map((c:any) => c.diarista_id))];
-            const { data: profs } = await supabase.from("user_profiles").select("*").in("id", dids);
-            if (profs) { const m: Record<string,UserProfile> = {}; profs.forEach((p:any) => { m[p.id] = p; }); setCandidatosProfiles(m); }
+            // C2: perfis de candidatos não trazem telefone/PIX/token — só colunas públicas.
+            const { data: profs } = await supabase.from("user_profiles").select(COLUNAS_PERFIL_PUBLICO).in("id", dids);
+            if (profs) { const m: Record<string,UserProfile> = {}; (profs as unknown as UserProfile[]).forEach((p) => { m[p.id] = p; }); setCandidatosProfiles(m); }
           }
           // Carrega contagem de dislikes por vaga
           carregarDislikesPorVaga(ids);
@@ -1562,8 +1563,8 @@ export default function App() {
           if (!minhasDiariasIds.includes(c.diaria_id)) return;
           setCandidaturas(prev => [...prev, c]);
           // Carrega perfil do candidato
-          const { data } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
-          if (data) setCandidatosProfiles(prev => ({ ...prev, [c.diarista_id]: data }));
+          const { data } = await supabase.from("user_profiles").select(COLUNAS_PERFIL_PUBLICO).eq("id", c.diarista_id).single();
+          if (data) setCandidatosProfiles(prev => ({ ...prev, [c.diarista_id]: data as unknown as UserProfile }));
           // BUG-2 fix: toast in-app independente da permissão de push
           const vaga = diariasRef.current.find(d => d.id === c.diaria_id);
           const nomeVaga = vaga?.funcao || vaga?.segmento || "seu anúncio";
@@ -1587,11 +1588,11 @@ export default function App() {
     const faltando = cands.map(c => c.diarista_id).filter(id => !candidatosProfiles[id]);
     if (faltando.length === 0) return;
     (async () => {
-      const { data: profs } = await supabase.from("user_profiles").select("*").in("id", faltando);
+      const { data: profs } = await supabase.from("user_profiles").select(COLUNAS_PERFIL_PUBLICO).in("id", faltando);
       if (profs && profs.length > 0) {
         setCandidatosProfiles(prev => {
           const m = { ...prev };
-          profs.forEach((p: any) => { m[p.id] = p; });
+          (profs as unknown as UserProfile[]).forEach((p) => { m[p.id] = p; });
           return m;
         });
       }
