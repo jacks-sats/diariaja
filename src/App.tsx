@@ -4923,28 +4923,6 @@ export default function App() {
     );
   };
 
-  // Card de acesso à Comunidade na home (no lugar onde antes ficava o banner da
-  // Universidade). Azul/teal pra diferenciar dos banners laranja do Já Decola.
-  const CardComunidadeHero = () => (
-    <div role="button" tabIndex={0}
-      style={{
-        margin:"4px 16px 14px",
-        background:"linear-gradient(135deg,#0ea5e9,#6366f1)",
-        borderRadius:18, padding:"16px 18px", color:"#fff",
-        cursor:"pointer", boxShadow:"0 6px 22px rgba(14,165,233,.35)",
-        display:"flex", alignItems:"center", gap:14,
-      }}
-      onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
-      <div style={{ width:50, height:50, background:"rgba(255,255,255,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0 }}>🏘️</div>
-      <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontSize:10, fontWeight:800, opacity:0.9, letterSpacing:0.4, textTransform:"uppercase" as const }}>Comunidade DiáriaJá</div>
-        <div style={{ fontSize:15, fontWeight:900, lineHeight:1.2, marginTop:2 }}>Participe da comunidade</div>
-        <div style={{ fontSize:11.5, opacity:0.92, marginTop:2 }}>Dicas, dúvidas e conquistas · e aprenda no Já Decola 🚀</div>
-      </div>
-      <div style={{ fontSize:20, opacity:0.9, flexShrink:0 }}>→</div>
-    </div>
-  );
-
   // LOADING
   // ── Barra de progresso global (aparece em qualquer operação assíncrona) ─────
   const anyLoading = loading || salvandoPerfil || authLoading || salvandoDiaria || enviandoAvalMutua || selecionando;
@@ -8666,9 +8644,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Acesso à Comunidade na home */}
-        {CardComunidadeHero()}
-
         {/* Banner "Complete seu perfil" — movido para DEPOIS da lista de prestadores
             (money-first/gente-first): o anunciante vê os profissionais ANTES da
             cobrança de cadastro. Renderizado no fim da aba "início". */}
@@ -11435,8 +11410,6 @@ export default function App() {
             {/* Stats rápidas: nível + ganhos do mês */}
             {(() => {
               const concl = minhasDiarias.filter(d => d.status === "concluida");
-              const mesAtual = new Date().toISOString().slice(0,7);
-              const ganhoMes = concl.filter(d => d.data.slice(0,7) === mesAtual).reduce((s,d)=>s+d.valor,0);
               const nivel = nivelDiarista(concl.length);
               // Ranking local: top 5 diaristas por diárias concluídas
               const top5 = Object.entries(diaristasContagemDiarias).sort((a,b)=>b[1]-a[1]).slice(0,5);
@@ -11448,10 +11421,13 @@ export default function App() {
                     <div style={{ fontWeight:900, fontSize:16, color:nivel.cor, marginTop:2 }}>{nivel.icone} {nivel.nome}</div>
                     <div style={{ fontSize:10, color:"var(--text-2,#64748b)", marginTop:2 }}>{concl.length} diária{concl.length!==1?"s":""} feita{concl.length!==1?"s":""}</div>
                   </div>
-                  <div style={{ flex:1, background:"linear-gradient(135deg,#0f172a,#1e3a5f)", borderRadius:14, padding:"12px 14px", border:"none" }}>
-                    <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Este mês</div>
-                    <div style={{ fontWeight:900, fontSize:16, color:"#4ade80", marginTop:2 }}>R$ {ganhoMes.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
-                    <div style={{ fontSize:10, color:"rgba(255,255,255,.4)", marginTop:2 }}>ganhos do mês</div>
+                  {/* Comunidade — no lugar do antigo "Este mês" (o ganho do mês já aparece na aba Diárias) */}
+                  <div role="button" tabIndex={0}
+                    style={{ flex:1, background:"linear-gradient(135deg,#0ea5e9,#6366f1)", borderRadius:14, padding:"12px 14px", border:"none", cursor:"pointer", boxShadow:"0 2px 10px rgba(14,165,233,.3)" }}
+                    onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,.7)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Comunidade</div>
+                    <div style={{ fontWeight:900, fontSize:16, color:"#fff", marginTop:2 }}>🏘️ Entrar</div>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,.65)", marginTop:2 }}>dicas e dúvidas</div>
                   </div>
                   {meuRank >= 0 && (
                     <div style={{ flex:1, background:"linear-gradient(135deg,#7c3aed,#FF6B35)", borderRadius:14, padding:"12px 14px" }}>
@@ -11463,9 +11439,6 @@ export default function App() {
                 </div>
               );
             })()}
-
-            {/* Acesso à Comunidade na home */}
-            {CardComunidadeHero()}
 
             {/* ── Cabeçalho com contador de novos anúncios + filtros ── */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 20px 10px" }}>
