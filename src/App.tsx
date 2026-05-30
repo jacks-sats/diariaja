@@ -274,6 +274,7 @@ export default function App() {
   const [modalCandidatos, setModalCandidatos]         = useState<Diaria|null>(null);
   const [selecionando, setSelecionando]               = useState(false);
   const [confirmando, setConfirmando]                 = useState(false);
+  const [checkinGpsId, setCheckinGpsId]               = useState<string | null>(null); // diária com check-in GPS em andamento
   // Perfil do candidato (empregador vê detalhes ao clicar no card)
   const [perfilCandidato, setPerfilCandidato]         = useState<UserProfile|null>(null);
   const [avaliacoesCandidato, setAvaliacoesCandidato] = useState<{id:string,nota:number,comentario:string,created_at:string}[]>([]);
@@ -4123,6 +4124,53 @@ export default function App() {
     setTermoDiaristaCheck(false);
     // BUG-4 fix: feedback de sucesso para o diarista após confirmação
     setToastSuccess("✅ Presença confirmada! O anunciante foi notificado. Gere o QR Code no dia da diária.");
+  };
+
+  // Check-in por GPS (Fase B): o próprio diarista bate ponto ao chegar, sem
+  // depender do empregador escanear o QR. Usa o RPC registrar_checkin (valida
+  // status + janela + proximidade no servidor).
+  const confirmarChegadaGPS = async (diaria: Diaria) => {
+    if (!session?.user) return;
+    if (!("geolocation" in navigator)) {
+      setToastError("📍 Seu aparelho não permite localização. Use o QR Code com o empregador.");
+      return;
+    }
+    setCheckinGpsId(diaria.id);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const { data, error } = await supabase.rpc("registrar_checkin", {
+          p_diaria_id: diaria.id, p_metodo: "gps", p_lat: latitude, p_lng: longitude,
+        });
+        setCheckinGpsId(null);
+        if (error) { setToastError("Erro ao registrar chegada: " + error.message); return; }
+        if (data && data.ok === false) {
+          const msgs: Record<string, string> = {
+            fora_da_janela:  "⏰ Fora do horário da diária. O check-in vale de 30min antes até 2h após o fim.",
+            status_invalido: "Esta diária não está mais aguardando check-in.",
+            muito_longe:     `📍 Você está longe do local${data.distancia_m ? ` (~${data.distancia_m}m)` : ""}. Aproxime-se para bater o ponto.`,
+            sem_permissao:   "Você não faz parte desta diária.",
+          };
+          setToastError(msgs[data.erro] || ("Não foi possível registrar: " + data.erro));
+          return;
+        }
+        setMinhasDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "em_andamento", checkin_em: new Date().toISOString(), checkin_metodo: "gps" } : d));
+        hapticConfirm();
+        setToastSuccess("✅ Chegada registrada! A diária está em andamento.");
+        // Notifica o empregador que o profissional fez check-in
+        enviarPush(
+          [diaria.empregador_id],
+          "Profissional chegou 📍",
+          `${profile?.nome?.split(" ")[0] || "O profissional"} fez check-in em "${diaria.funcao || diaria.segmento}".`,
+          { tipo: "confirmacao", url: "/" },
+        );
+      },
+      () => {
+        setCheckinGpsId(null);
+        setToastError("📍 Não consegui acessar sua localização. Permita o acesso ou use o QR Code.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
   };
 
   const excluirChat = async (diaId: string) => {
@@ -12255,6 +12303,14 @@ export default function App() {
                       onClick={e => { e.stopPropagation(); setQrDiaria(dia); }}>
                       📲 Mostrar QR Code para o empregador
                     </button>
+                    {dia.status === "aceita" && (
+                      <button
+                        disabled={checkinGpsId === dia.id}
+                        style={{ width:"100%", padding:"11px", background: checkinGpsId === dia.id ? "#86efac" : "#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor: checkinGpsId === dia.id ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
+                        onClick={e => { e.stopPropagation(); confirmarChegadaGPS(dia); }}>
+                        {checkinGpsId === dia.id ? "📍 Registrando..." : "📍 Cheguei — registrar chegada"}
+                      </button>
+                    )}
                     {dia.status === "aceita" && (
                       <button
                         style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
