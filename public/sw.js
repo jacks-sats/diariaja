@@ -1,6 +1,7 @@
 // Service Worker — DiáriaJá PWA
 // v2 — estratégia network-first para HTML (evita tela branca após deploy)
-const CACHE = "diariajaV3";
+// v4 — corrige "Response body is already used" na rota de assets (clone síncrono)
+const CACHE = "diariajaV4";
 
 // Só pré-cacheia assets estáticos imutáveis (nunca o index.html)
 const STATIC_ASSETS = ["/icon-192.png", "/icon-512.png", "/manifest.json"];
@@ -62,7 +63,14 @@ self.addEventListener("fetch", e => {
     e.respondWith(
       caches.match(e.request).then(cached => {
         const networkFetch = fetch(e.request).then(res => {
-          if (res.ok) caches.open(CACHE).then(c => c.put(e.request, res.clone()));
+          // FIX: clona SINCRONAMENTE antes do caches.open() (async). Antes o
+          // res.clone() rodava dentro do callback de caches.open(), quando o
+          // body já tinha sido consumido pelo `return res` → erro "Response
+          // body is already used". As outras rotas já clonavam antes do async.
+          if (res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE).then(c => c.put(e.request, clone));
+          }
           return res;
         });
         return cached || networkFetch;
