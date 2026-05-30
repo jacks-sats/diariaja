@@ -100,6 +100,15 @@ serve(async (req) => {
     await safeDelete("score_events",      supabaseAdmin.from("score_events").delete().eq("user_id", userId));
     await safeDelete("feedback_vaga_expirada",  supabaseAdmin.from("feedback_vaga_expirada").delete().eq("empregador_id", userId));
     await safeDelete("feedback_pos_conclusao",  supabaseAdmin.from("feedback_pos_conclusao").delete().eq("empregador_id", userId));
+    // B8 auditoria: resíduos LGPD que faltavam. Tabelas podem não existir em todos
+    // os ambientes — safeDelete tolera "relation does not exist".
+    // NÃO apagamos kyc_acessos_log (trilha de auditoria de acesso a KYC — base legal
+    // de retenção, LGPD Art. 37) nem webhook_eventos_processados (não tem dado pessoal,
+    // é só dedupe por id de notificação do MP).
+    await safeDelete("contatos_desbloqueios", supabaseAdmin.from("contatos_desbloqueios").delete().eq("empregador_id", userId));
+    await safeDelete("oauth_states",          supabaseAdmin.from("oauth_states").delete().eq("user_id", userId));
+    await safeDelete("usuarios_bloqueados",   supabaseAdmin.from("usuarios_bloqueados").delete().or(`bloqueador_id.eq.${userId},alvo_id.eq.${userId}`));
+    await safeDelete("kyc_documentos",        supabaseAdmin.from("kyc_documentos").delete().eq("user_id", userId));
 
     // Desliga o diarista de diárias passadas onde ele foi selecionado — caso
     // contrário a FK pode bloquear o delete (RESTRICT) ou orfanar histórico.
