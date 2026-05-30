@@ -11,6 +11,22 @@ Autor: auditoria assistida por IA. Escopo: `src/`, `supabase/functions/`,
 
 ---
 
+## 📌 Progresso das correções (atualizado)
+
+- **C2 (vazamento de PII) — PARCIAL (passo A feito):** o feed de prestadores e os
+  perfis de candidatos não baixam mais `telefone`/`pix_chave`/`mp_access_token`
+  (allowlist `COLUNAS_PERFIL_PUBLICO`). Falta o **passo B** (RPC de perfil público
+  + RPC de contato ciente de pagamento + `REVOKE` de coluna) para fechar o valor de
+  CPF/CNPJ, as leituras do prestador selecionado e o vetor anon-key. **Risco do B: alto.**
+- **C3 (plano avulso não liberava) — CLIENTE feito, SQL pendente de aplicação:**
+  `usePlan` agora honra `user_profiles.plano_ativo`+`plano_expira_em`.
+  **AÇÃO MANUAL OBRIGATÓRIA:** aplicar `supabase/migrations/fix_c3_plano_avulso_no_gate.sql`
+  no SQL Editor do Supabase — sem isso o anunciante que pagou via Pix continua sendo
+  cobrado R$1 (o gate server-side não enxerga o plano).
+- **C1, A1–A6** — pendentes.
+
+---
+
 ## ETAPA 1 — Mapeamento
 
 **Stack:** React 18 + TS strict + Vite 5 (SPA, sem router — navegação por string

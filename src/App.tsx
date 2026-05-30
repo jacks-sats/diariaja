@@ -446,7 +446,9 @@ export default function App() {
   // uso, e gates de feature. Sempre que precisar checar "o usuário pode X?",
   // use `permissions.*` (ou consulte `pode_selecionar_candidato` no banco
   // pra decisões críticas — ele é a fonte oficial).
-  const plans       = usePlan(assinaturas);
+  // C3: passa o perfil pra usePlan honrar o plano avulso de 30 dias
+  // (user_profiles.plano_ativo + plano_expira_em), não só a tabela assinaturas.
+  const plans       = usePlan(assinaturas, profile);
   const limits      = useLimits(plans, diarias, contatosDesbloqueados, diariasConcluidasComoDiarista);
   const permissions = usePermissions(plans);
 
