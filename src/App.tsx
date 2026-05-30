@@ -1055,20 +1055,23 @@ export default function App() {
     }
     const vaga = vagasExpFeedback[0];
     setEnviandoFeedbackExp(true);
-    const { error } = await supabase.from("feedback_vaga_expirada").insert({
-      diaria_id:        vaga.id,
-      empregador_id:    session.user.id,
-      motivo_categoria: motivoExpSelecionado,
-      motivo_texto:     motivoExpTexto.trim() || null,
-    });
-    setEnviandoFeedbackExp(false);
-    if (error) { setToastError("Erro: " + error.message); return; }
-    trackEvento("feedback_vaga_expirada", session.user.id, "empregador", {
-      diaria_id: vaga.id, motivo: motivoExpSelecionado,
-    });
-    setVagasExpFeedback(prev => prev.slice(1));
-    setMotivoExpSelecionado("");
-    setMotivoExpTexto("");
+    try {
+      const { error } = await supabase.from("feedback_vaga_expirada").insert({
+        diaria_id:        vaga.id,
+        empregador_id:    session.user.id,
+        motivo_categoria: motivoExpSelecionado,
+        motivo_texto:     motivoExpTexto.trim() || null,
+      });
+      if (error) { setToastError("Erro: " + error.message); return; }
+      trackEvento("feedback_vaga_expirada", session.user.id, "empregador", {
+        diaria_id: vaga.id, motivo: motivoExpSelecionado,
+      });
+      setVagasExpFeedback(prev => prev.slice(1));
+      setMotivoExpSelecionado("");
+      setMotivoExpTexto("");
+    } finally {
+      setEnviandoFeedbackExp(false);  // A4
+    }
   };
 
   // ── Envio de pesquisa pós-conclusão (modal obrigatório) ─────────────────────
@@ -1079,24 +1082,27 @@ export default function App() {
     if (posRecomendaria === null)  { setToastError("Informe se você recomendaria o profissional."); return; }
     const diaria = diariasPosFeedback[0];
     setEnviandoFeedbackPos(true);
-    const { error } = await supabase.from("feedback_pos_conclusao").insert({
-      diaria_id:         diaria.id,
-      empregador_id:     session.user.id,
-      chegou_no_horario: posChegouHorario,
-      nota_qualidade:    posNotaQualidade,
-      recomendaria:      posRecomendaria,
-      comentario:        posComentario.trim() || null,
-    });
-    setEnviandoFeedbackPos(false);
-    if (error) { setToastError("Erro: " + error.message); return; }
-    trackEvento("feedback_pos_conclusao", session.user.id, "empregador", {
-      diaria_id: diaria.id, nota: posNotaQualidade, recomendaria: posRecomendaria, no_horario: posChegouHorario,
-    });
-    setDiariasPosFeedback(prev => prev.slice(1));
-    setPosChegouHorario(null);
-    setPosNotaQualidade(0);
-    setPosRecomendaria(null);
-    setPosComentario("");
+    try {
+      const { error } = await supabase.from("feedback_pos_conclusao").insert({
+        diaria_id:         diaria.id,
+        empregador_id:     session.user.id,
+        chegou_no_horario: posChegouHorario,
+        nota_qualidade:    posNotaQualidade,
+        recomendaria:      posRecomendaria,
+        comentario:        posComentario.trim() || null,
+      });
+      if (error) { setToastError("Erro: " + error.message); return; }
+      trackEvento("feedback_pos_conclusao", session.user.id, "empregador", {
+        diaria_id: diaria.id, nota: posNotaQualidade, recomendaria: posRecomendaria, no_horario: posChegouHorario,
+      });
+      setDiariasPosFeedback(prev => prev.slice(1));
+      setPosChegouHorario(null);
+      setPosNotaQualidade(0);
+      setPosRecomendaria(null);
+      setPosComentario("");
+    } finally {
+      setEnviandoFeedbackPos(false);  // A4
+    }
   };
 
   // Loader do feed do diarista — extraído pra ser reutilizável pelo pull-to-refresh
@@ -1230,6 +1236,7 @@ export default function App() {
     if (tela !== "perfil-empregador" || !empregadorAberto) return;
     setCarregandoEmpAberto(true);
     (async () => {
+      try {
       // Avaliações com nome do diarista que avaliou (sem revelar contato)
       const { data: avs } = await supabase
         .from("avaliacoes_empregador")
@@ -1261,7 +1268,9 @@ export default function App() {
           .maybeSingle();
         if (rep) setReputacaoEmp(prev => ({ ...prev, [empregadorAberto.id]: rep }));
       }
-      setCarregandoEmpAberto(false);
+      } finally {
+        setCarregandoEmpAberto(false);  // A4: nunca trava o perfil em loading
+      }
     })();
   }, [tela, empregadorAberto?.id]);
 
@@ -1299,26 +1308,29 @@ export default function App() {
     if (avalEmpCumpriu === null)     { setToastError("Informe se o anunciante cumpriu o combinado."); return; }
     const diaria = diariasAvaliarEmp[0];
     setEnviandoAvalEmpOb(true);
-    const { error } = await supabase.from("avaliacoes_empregador").insert({
-      diarista_id:       session.user.id,
-      empregador_id:     diaria.empregador_id,
-      diaria_id:         diaria.id,
-      nota:              avalEmpNota,
-      pagou_combinado:   avalEmpPagou,
-      cumpriu_combinado: avalEmpCumpriu,
-      comentario:        avalEmpComentario.trim() || null,
-    });
-    setEnviandoAvalEmpOb(false);
-    if (error) { setToastError("Erro: " + error.message); return; }
-    trackEvento("avaliacao_enviada", session.user.id, "diarista", {
-      tipo: "empregador", nota: avalEmpNota, pagou: avalEmpPagou, cumpriu: avalEmpCumpriu,
-    });
-    setAvaliadosDiarias(prev => new Set([...prev, diaria.id]));
-    setDiariasAvaliarEmp(prev => prev.slice(1));
-    setAvalEmpNota(0);
-    setAvalEmpPagou(null);
-    setAvalEmpCumpriu(null);
-    setAvalEmpComentario("");
+    try {
+      const { error } = await supabase.from("avaliacoes_empregador").insert({
+        diarista_id:       session.user.id,
+        empregador_id:     diaria.empregador_id,
+        diaria_id:         diaria.id,
+        nota:              avalEmpNota,
+        pagou_combinado:   avalEmpPagou,
+        cumpriu_combinado: avalEmpCumpriu,
+        comentario:        avalEmpComentario.trim() || null,
+      });
+      if (error) { setToastError("Erro: " + error.message); return; }
+      trackEvento("avaliacao_enviada", session.user.id, "diarista", {
+        tipo: "empregador", nota: avalEmpNota, pagou: avalEmpPagou, cumpriu: avalEmpCumpriu,
+      });
+      setAvaliadosDiarias(prev => new Set([...prev, diaria.id]));
+      setDiariasAvaliarEmp(prev => prev.slice(1));
+      setAvalEmpNota(0);
+      setAvalEmpPagou(null);
+      setAvalEmpCumpriu(null);
+      setAvalEmpComentario("");
+    } finally {
+      setEnviandoAvalEmpOb(false);  // A4
+    }
   };
 
   // Carrega avaliações do diarista real ao abrir o perfil dele
@@ -2911,18 +2923,21 @@ export default function App() {
   const enviarDenuncia = async () => {
     if (!session?.user || !modalDenunciar || !motivoDenuncia.trim()) return;
     setEnviandoDenuncia(true);
-    const { error } = await supabase.from("denuncias").insert({
-      denunciante_id:  session.user.id,
-      tipo:            modalDenunciar.tipo,
-      alvo_id:         modalDenunciar.id,
-      alvo_nome:       modalDenunciar.nome,
-      motivo:          motivoDenuncia.trim(),
-    });
-    setEnviandoDenuncia(false);
-    if (error) { setToastError("Falha ao enviar denúncia. Tente novamente."); return; }
-    setModalDenunciar(null);
-    setMotivoDenuncia("");
-    setToastSuccess("⚑ Denúncia enviada. Vamos analisar em breve.");
+    try {
+      const { error } = await supabase.from("denuncias").insert({
+        denunciante_id:  session.user.id,
+        tipo:            modalDenunciar.tipo,
+        alvo_id:         modalDenunciar.id,
+        alvo_nome:       modalDenunciar.nome,
+        motivo:          motivoDenuncia.trim(),
+      });
+      if (error) { setToastError("Falha ao enviar denúncia. Tente novamente."); return; }
+      setModalDenunciar(null);
+      setMotivoDenuncia("");
+      setToastSuccess("⚑ Denúncia enviada. Vamos analisar em breve.");
+    } finally {
+      setEnviandoDenuncia(false);  // A4: nunca trava, mesmo se o insert rejeitar
+    }
   };
 
   // ── NÃO TENHO INTERESSE ───────────────────────────────────────────────────
@@ -2986,6 +3001,7 @@ export default function App() {
     }
     setEnviandoConvite(true);
     const horarioCompleto = `${formConvite.horario} (${formConvite.cargaHoraria}h de trabalho)`;
+    try {
     const { error } = await supabase.from("convites").insert({
       contratante_id:   session.user.id,
       diarista_id:      diaristaSelecionadaReal.id,
@@ -2999,7 +3015,6 @@ export default function App() {
       valor:            diaristaSelecionadaReal.valor_diaria || null,
       status:           "pendente",
     });
-    setEnviandoConvite(false);
     if (error) {
       setToastError(`Erro ao enviar convite: ${error.message}`);
       return;
@@ -3010,6 +3025,9 @@ export default function App() {
     if (session?.user) carregarConvites(session.user.id, "empregador");
     setTabEmpregador("diarias");
     setToastSuccess(`📨 Convite enviado para ${diaristaSelecionadaReal?.nome}! Aguardando resposta.`);
+    } finally {
+      setEnviandoConvite(false);  // A4: reseta o loading mesmo se o insert rejeitar
+    }
   };
 
   const responderConvite = async (conviteId: string, resposta: "aceito" | "recusado") => {
@@ -3035,21 +3053,24 @@ export default function App() {
   const carregarAdminStats = async () => {
     if (!profile?.is_admin) return;
     setCarregandoAdminStats(true);
-    const { data, error } = await supabase.rpc("admin_stats");
-    if (!error && data?.[0]) setAdminStats(data[0] as AdminStats);
-    // Em paralelo: extras + 2 séries temporais pra os gráficos
-    const [extras, serieU, serieD] = await Promise.all([
-      supabase.rpc("admin_metricas_extras"),
-      supabase.rpc("admin_metricas_serie", { p_metrica: "novos_usuarios", p_dias: 14 }),
-      supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_criadas", p_dias: 14 }),
-    ]);
-    if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
-    if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
-    if (!serieD.error && serieD.data) setAdminSerieDiarias(serieD.data);
-    // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
-    const fin = await supabase.rpc("admin_resumo_financeiro");
-    if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
-    setCarregandoAdminStats(false);
+    try {
+      const { data, error } = await supabase.rpc("admin_stats");
+      if (!error && data?.[0]) setAdminStats(data[0] as AdminStats);
+      // Em paralelo: extras + 2 séries temporais pra os gráficos
+      const [extras, serieU, serieD] = await Promise.all([
+        supabase.rpc("admin_metricas_extras"),
+        supabase.rpc("admin_metricas_serie", { p_metrica: "novos_usuarios", p_dias: 14 }),
+        supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_criadas", p_dias: 14 }),
+      ]);
+      if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
+      if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
+      if (!serieD.error && serieD.data) setAdminSerieDiarias(serieD.data);
+      // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
+      const fin = await supabase.rpc("admin_resumo_financeiro");
+      if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
+    } finally {
+      setCarregandoAdminStats(false);  // A4
+    }
   };
 
   // Abre modal drill-down ao clicar num card de stat (carrega RPC com lista
@@ -3060,9 +3081,12 @@ export default function App() {
     setAdminDrillIcone(icone);
     setAdminDrillLista([]);
     setCarregandoDrill(true);
-    const { data, error } = await supabase.rpc("admin_drill_lista", { p_tipo: tipo, p_limit: 50 });
-    if (!error && data) setAdminDrillLista(data as AdminDrillItem[]);
-    setCarregandoDrill(false);
+    try {
+      const { data, error } = await supabase.rpc("admin_drill_lista", { p_tipo: tipo, p_limit: 50 });
+      if (!error && data) setAdminDrillLista(data as AdminDrillItem[]);
+    } finally {
+      setCarregandoDrill(false);  // A4
+    }
   };
 
   // Carrega todos os tickets ordenados por última atualização (visão admin/suporte)
@@ -3166,28 +3190,31 @@ export default function App() {
     const senderRole: "user" | "admin" =
       (profile?.is_admin || profile?.is_suporte) && ticketAtivo.user_id !== session.user.id ? "admin" : "user";
 
-    const { error } = await supabase.from("suporte_respostas").insert({
-      ticket_id: ticketAtivo.id,
-      sender_id: session.user.id,
-      sender_role: senderRole,
-      mensagem: msg,
-    });
-    setEnviandoRespostaTicket(false);
-    if (error) {
-      setToastError("Falha ao enviar resposta. Tente de novo.");
-      return;
-    }
-    setNovaRespostaTicket("");
-    await carregarRespostasTicket(ticketAtivo.id);
+    try {
+      const { error } = await supabase.from("suporte_respostas").insert({
+        ticket_id: ticketAtivo.id,
+        sender_id: session.user.id,
+        sender_role: senderRole,
+        mensagem: msg,
+      });
+      if (error) {
+        setToastError("Falha ao enviar resposta. Tente de novo.");
+        return;
+      }
+      setNovaRespostaTicket("");
+      await carregarRespostasTicket(ticketAtivo.id);
 
-    // Se admin respondeu, dispara push pro usuário dono do ticket
-    if (senderRole === "admin") {
-      enviarPush(
-        [ticketAtivo.user_id],
-        "DiáriaJá — Suporte",
-        "A equipe respondeu seu ticket. Toque para abrir.",
-        { tipo: "mensagem", url: "/?tela=meus-tickets" },
-      );
+      // Se admin respondeu, dispara push pro usuário dono do ticket
+      if (senderRole === "admin") {
+        enviarPush(
+          [ticketAtivo.user_id],
+          "DiáriaJá — Suporte",
+          "A equipe respondeu seu ticket. Toque para abrir.",
+          { tipo: "mensagem", url: "/?tela=meus-tickets" },
+        );
+      }
+    } finally {
+      setEnviandoRespostaTicket(false);  // A4
     }
   };
 
@@ -3546,20 +3573,23 @@ export default function App() {
     const topicoProibido = verificarConteudoProibido(`${formTopico.titulo} ${formTopico.conteudo}`);
     if (topicoProibido) { setToastError(topicoProibido); return; }
     setEnviandoTopico(true);
-    const { data, error } = await supabase.from("topicos").insert({
-      autor_id:  session.user.id,
-      autor_nome: profile?.nome || "Usuário",
-      autor_tipo: tipo || "empregador",
-      titulo:    formTopico.titulo.trim(),
-      conteudo:  formTopico.conteudo.trim(),
-      categoria: formTopico.categoria,
-    }).select().single();
-    setEnviandoTopico(false);
-    if (error) { setToastError("Erro ao criar tópico."); return; }
-    setTopicos(prev => [data, ...prev]);
-    setModalNovoTopico(false);
-    setFormTopico({ titulo: "", conteudo: "", categoria: "geral" });
-    setToastSuccess("✅ Tópico publicado na comunidade!");
+    try {
+      const { data, error } = await supabase.from("topicos").insert({
+        autor_id:  session.user.id,
+        autor_nome: profile?.nome || "Usuário",
+        autor_tipo: tipo || "empregador",
+        titulo:    formTopico.titulo.trim(),
+        conteudo:  formTopico.conteudo.trim(),
+        categoria: formTopico.categoria,
+      }).select().single();
+      if (error) { setToastError("Erro ao criar tópico."); return; }
+      setTopicos(prev => [data, ...prev]);
+      setModalNovoTopico(false);
+      setFormTopico({ titulo: "", conteudo: "", categoria: "geral" });
+      setToastSuccess("✅ Tópico publicado na comunidade!");
+    } finally {
+      setEnviandoTopico(false);  // A4
+    }
   };
 
   const criarComentario = async () => {
@@ -3567,20 +3597,23 @@ export default function App() {
     const comentarioProibido = verificarConteudoProibido(novoComentario);
     if (comentarioProibido) { setToastError(comentarioProibido); return; }
     setEnviandoComentario(true);
-    const { data, error } = await supabase.from("comentarios_comunidade").insert({
-      topico_id:  topicoAtivo.id,
-      autor_id:   session.user.id,
-      autor_nome: profile?.nome || "Usuário",
-      autor_tipo: tipo || "empregador",
-      conteudo:   novoComentario.trim(),
-    }).select().single();
-    setEnviandoComentario(false);
-    if (error) { setToastError("Erro ao comentar."); return; }
-    setComentariosTopico(prev => [...prev, data]);
-    setNovoComentario("");
-    // Atualiza contador do tópico
-    await supabase.from("topicos").update({ total_comentarios: (topicoAtivo.total_comentarios || 0) + 1 }).eq("id", topicoAtivo.id);
-    setTopicoAtivo(prev => prev ? { ...prev, total_comentarios: (prev.total_comentarios || 0) + 1 } : prev);
+    try {
+      const { data, error } = await supabase.from("comentarios_comunidade").insert({
+        topico_id:  topicoAtivo.id,
+        autor_id:   session.user.id,
+        autor_nome: profile?.nome || "Usuário",
+        autor_tipo: tipo || "empregador",
+        conteudo:   novoComentario.trim(),
+      }).select().single();
+      if (error) { setToastError("Erro ao comentar."); return; }
+      setComentariosTopico(prev => [...prev, data]);
+      setNovoComentario("");
+      // Atualiza contador do tópico
+      await supabase.from("topicos").update({ total_comentarios: (topicoAtivo.total_comentarios || 0) + 1 }).eq("id", topicoAtivo.id);
+      setTopicoAtivo(prev => prev ? { ...prev, total_comentarios: (prev.total_comentarios || 0) + 1 } : prev);
+    } finally {
+      setEnviandoComentario(false);  // A4
+    }
   };
 
   const deletarTopico = async (topicoId: string) => {
@@ -3704,13 +3737,16 @@ export default function App() {
     setAvaliacoesCandidato([]);
     setDiariasCandidato(0);
     setLoadingPerfil(true);
-    const [{ data: avs }, { count }] = await Promise.all([
-      supabase.from("avaliacoes_diarista").select("id,nota,comentario,created_at").eq("diarista_id", dp.id).order("created_at", { ascending: false }),
-      supabase.from("diarias").select("id", { count: "exact", head: true }).eq("diarista_aceite_id", dp.id).eq("status", "concluida"),
-    ]);
-    if (avs) setAvaliacoesCandidato(avs);
-    setDiariasCandidato(count ?? 0);
-    setLoadingPerfil(false);
+    try {
+      const [{ data: avs }, { count }] = await Promise.all([
+        supabase.from("avaliacoes_diarista").select("id,nota,comentario,created_at").eq("diarista_id", dp.id).order("created_at", { ascending: false }),
+        supabase.from("diarias").select("id", { count: "exact", head: true }).eq("diarista_aceite_id", dp.id).eq("status", "concluida"),
+      ]);
+      if (avs) setAvaliacoesCandidato(avs);
+      setDiariasCandidato(count ?? 0);
+    } finally {
+      setLoadingPerfil(false);  // A4: evita skeleton infinito se a query rejeitar
+    }
   };
 
   // Diarista registra interesse numa vaga (novo fluxo)

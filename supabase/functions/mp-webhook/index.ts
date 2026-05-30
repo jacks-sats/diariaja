@@ -64,24 +64,10 @@ async function validarAssinatura(req: Request, body: string): Promise<boolean> {
   // e o HMAC não batia → 401.
   const dataId     = url.searchParams.get("data.id") ?? url.searchParams.get("id") ?? "";
 
-  // DEBUG: loga TUDO que recebeu pra diagnosticar 401s. Remover após OK.
-  // Inclui char codes do primeiro/último char do secret pra detectar
-  // whitespace/newline invisível que vem de paste.
-  const firstCharCode = WEBHOOK_SECRET.length > 0 ? WEBHOOK_SECRET.charCodeAt(0) : -1;
-  const lastCharCode  = WEBHOOK_SECRET.length > 0 ? WEBHOOK_SECRET.charCodeAt(WEBHOOK_SECRET.length - 1) : -1;
-  console.log("[mp-webhook][SIG] received headers:", {
-    has_x_signature: !!xSignature,
-    x_signature_full: xSignature,                          // sig completa pra debug — secret não vaza aqui
-    has_x_request_id: !!xRequestId,
-    x_request_id: xRequestId,
-    data_id: dataId || "(empty)",
-    url: req.url,
-    secret_length: WEBHOOK_SECRET.length,
-    secret_first4: WEBHOOK_SECRET.slice(0, 4),
-    secret_last4: WEBHOOK_SECRET.slice(-4),
-    secret_first_char_code: firstCharCode,                 // detecta whitespace inicial (32=space, 10=\n)
-    secret_last_char_code: lastCharCode,                   // detecta whitespace final
-  });
+  // M1 auditoria: removidos os logs de DEBUG que expunham material sensível
+  // (trechos do MP_WEBHOOK_SECRET, x-signature completa e o HMAC computado).
+  // Logs do Supabase ficam ~7 dias e são visíveis a qualquer dev do projeto —
+  // não devem conter pista de segredo nem do hash de assinatura.
 
   // Formato MP: "ts=<timestamp>,v1=<hash>"
   const parts: Record<string, string> = {};
@@ -126,8 +112,10 @@ async function validarAssinatura(req: Request, body: string): Promise<boolean> {
 
   const match = timingSafeEqualHex(computed, hash);
 
-  // DEBUG: loga HMAC computed vs received pra debug. Remover após OK.
-  console.log("[mp-webhook][SIG] HMAC check", { template, received_hash: hash, computed_hash: computed, match });
+  // M1: em falha de assinatura logamos só um marcador, sem o hash recebido/computado.
+  if (!match) {
+    console.warn("[mp-webhook][SIG] assinatura não confere (ts dentro da janela).");
+  }
 
   return match;
 }
@@ -228,12 +216,36 @@ Deno.serve(async (req) => {
           .eq("id", userId);
       }
 
-      // Se cancelou → reverte para grátis
+      // Se cancelou → reverte para grátis, MAS só se o usuário não tiver outra
+      // fonte de plano ativa (A3 auditoria). No modelo dual-track um usuário
+      // 'ambos' pode ter 2 assinaturas (1 por papel); cancelar uma NÃO pode
+      // derrubar o plano do outro papel. E o plano avulso de 30 dias (Pix) vive
+      // no próprio plano_ativo + plano_expira_em — zerar cegamente apagaria um
+      // avulso ainda vigente.
       if (novoStatus === "cancelado") {
-        await supabase
+        // Outra assinatura recorrente ainda ativa?
+        const { data: outras } = await supabase
+          .from("assinaturas")
+          .select("plano")
+          .eq("user_id", userId)
+          .eq("status", "ativo");
+        const temOutraAtiva = Array.isArray(outras) && outras.length > 0;
+
+        // Plano avulso (30 dias) ainda vigente?
+        const { data: prof } = await supabase
           .from("user_profiles")
-          .update({ plano_ativo: "gratis" })
-          .eq("id", userId);
+          .select("plano_expira_em")
+          .eq("id", userId)
+          .single();
+        const avulsoVigente = !!prof?.plano_expira_em
+          && new Date(prof.plano_expira_em).getTime() > Date.now();
+
+        if (!temOutraAtiva && !avulsoVigente) {
+          await supabase
+            .from("user_profiles")
+            .update({ plano_ativo: "gratis" })
+            .eq("id", userId);
+        }
       }
 
       console.log(`Assinatura ${await pseudo(subId)}: ${novoStatus} (user ${await pseudo(userId)}, plano ${plano})`);

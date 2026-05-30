@@ -28,9 +28,16 @@ Autor: auditoria assistida por IA. Escopo: `src/`, `supabase/functions/`,
   `UPDATE diarias` (bloqueia a 4ª seleção sem pagar, mesmo via API/DevTools).
   Não exige mudança de cliente. **AÇÃO MANUAL OBRIGATÓRIA:** aplicar
   `supabase/migrations/fix_c1_enforce_selecao_candidato.sql` (depois do SQL do C3).
-- **A4 (loading trava o app) — feito (parcial):** `saveProfile` (loading global) e
-  `revisarDocumento` (admin) agora em `try/finally`. Demais ~12 handlers de loading
-  seguem como follow-up de baixo risco.
+- **A4 (loading trava o app) — FEITO (completo):** os 14 handlers de loading agora
+  em `try/finally` (saveProfile, revisarDocumento, enviarConvite, enviarDenuncia,
+  criarTopico, criarComentario, enviarRespostaTicket, abrirPerfilCandidato,
+  enviarFeedbackVagaExpirada, enviarFeedbackPosConclusao, enviarAvaliacaoEmpObrigatoria,
+  carregarAdminStats, abrirDrillAdmin, useEffect perfil-empregador).
+- **A3 (cancelamento derruba plano do outro papel) — feito (precisa redeploy do webhook):**
+  o webhook só reverte `plano_ativo` para 'gratis' se não houver outra assinatura ativa
+  nem plano avulso vigente.
+- **M1 (logs de segredo/HMAC no webhook) — feito (precisa redeploy do webhook):**
+  removidos os logs de DEBUG que expunham trechos do secret e o HMAC.
 - **A5 (falso sucesso na exclusão LGPD) — feito:** só mostra "Conta excluída" se a
   Edge Function `delete-user` confirmar; senão orienta contato com o suporte.
 - **A6 ("indicar amigos" fake) — feito:** virou "Compartilhar o app", sem promessa de
