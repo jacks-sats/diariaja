@@ -98,3 +98,22 @@ CREATE POLICY bloqueio_owner_insert ON public.usuarios_bloqueados AS PERMISSIVE 
 CREATE POLICY bloqueio_owner_select ON public.usuarios_bloqueados AS PERMISSIVE FOR SELECT TO authenticated USING ((bloqueador_id = auth.uid()));
 CREATE POLICY webhook_eventos_service_only ON public.webhook_eventos_processados AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY webhook_eventos_service_role ON public.webhook_eventos_processados AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- GRANTS + RLS-ENABLED (verificado em 2026-05-30)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Grants de tabela: `anon` e `authenticated` têm privilégios amplos em quase
+-- todas as tabelas — é o MODELO PADRÃO do Supabase (a proteção real é o RLS,
+-- não o grant). Desvios confirmados (nossas correções pegaram):
+--   - diarias:        anon SEM DML (A2 revogou).
+--   - user_profiles:  SEM SELECT de tabela p/ anon/authenticated (C2 B.3 — é por
+--                     coluna agora; sensíveis revogadas).
+--   - convites:       authenticated SEM UPDATE de tabela (column-restricted em
+--                     status — fix IMP-S3).
+--   - assinaturas:    escrita só service_role.
+--
+-- ✅ TODAS as tabelas de `public` têm RLS HABILITADO (verificado:
+--    SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+--     WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity=false;
+--    → 0 rows). Logo, os grants amplos NÃO são exploráveis: o RLS gateia tudo.
+-- ─────────────────────────────────────────────────────────────────────────────
