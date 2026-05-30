@@ -343,6 +343,29 @@ export default function App() {
   const [academyQuizRespostas, setAcademyQuizRespostas]   = useState<Record<string, string>>({});
   const [academyQuizResultado, setAcademyQuizResultado]   = useState<{ acertos: number; total: number; passou: boolean; cooldown_ate?: string; curso_concluido?: boolean } | null>(null);
   const [academyQuizMostrando, setAcademyQuizMostrando]   = useState(false);
+  // Fase 7 — anti-fraude v2 da leitura de aula
+  const [academyScrollOk, setAcademyScrollOk]             = useState(false);          // rolou até o fim
+  const [academyEntendi, setAcademyEntendi]               = useState(false);          // confirmou que leu
+  const [academyMicroResp, setAcademyMicroResp]           = useState<string | null>(null); // micro-check inline
+  const [academyTempoRestante, setAcademyTempoRestante]   = useState(0);              // countdown ao vivo (s)
+
+  // Gate de leitura: countdown do tempo mínimo + detecção de scroll-até-o-fim
+  useEffect(() => {
+    if (!academyAulaAberta || academyQuizMostrando) return;
+    const calc = () => {
+      const passou = Math.floor((Date.now() - academyAulaInicio) / 1000);
+      setAcademyTempoRestante(Math.max(0, academyAulaAberta.tempo_min_seg - passou));
+    };
+    const checkScroll = () => {
+      const docH = document.documentElement.scrollHeight;
+      const visto = window.scrollY + window.innerHeight;
+      if (docH <= window.innerHeight + 4 || visto >= docH - 80) setAcademyScrollOk(true);
+    };
+    calc(); checkScroll();
+    const id = setInterval(calc, 1000);
+    window.addEventListener("scroll", checkScroll, { passive: true });
+    return () => { clearInterval(id); window.removeEventListener("scroll", checkScroll); };
+  }, [academyAulaAberta, academyQuizMostrando, academyAulaInicio]);
 
   // KYC — upload/revisão de RG ou CNH
   const [docFile, setDocFile]                     = useState<File | null>(null);
@@ -2456,6 +2479,11 @@ export default function App() {
     setAcademyAulaInicio(Date.now());
     setAcademyQuizMostrando(false);
     setAcademyQuizResultado(null);
+    // Fase 7 — zera os gates de leitura da nova aula
+    setAcademyScrollOk(false);
+    setAcademyEntendi(false);
+    setAcademyMicroResp(null);
+    setAcademyTempoRestante(aula.tempo_min_seg);
     setTela("academy-aula");
     window.scrollTo({ top: 0 });
   };
@@ -6052,6 +6080,18 @@ export default function App() {
     const aulasMod = academyAulas.filter(a => a.modulo_id === academyAulaModuloId);
     const idxAtual = aulasMod.findIndex(a => a.id === aula.id);
     const proxAula = idxAtual >= 0 && idxAtual < aulasMod.length - 1 ? aulasMod[idxAtual + 1] : null;
+    // Fase 7 — anti-fraude v2: extrai um micro-check inline do conteúdo.
+    // Sintaxe (linha única no conteúdo): [CHECK]Pergunta?||Resposta certa||Errada||Errada
+    const checkLine = aula.conteudo.split("\n").map(l => l.trim()).find(l => l.startsWith("[CHECK]"));
+    const checkPartes = checkLine ? checkLine.slice(7).split("||").map(s => s.trim()).filter(Boolean) : [];
+    const microPergunta: { q: string; correta: string } | null =
+      checkPartes.length >= 3 ? { q: checkPartes[0], correta: checkPartes[1] } : null;
+    const microOpcoesRaw: string[] = checkPartes.length >= 3 ? checkPartes.slice(1) : [];
+    const linhasConteudo = aula.conteudo.split("\n").filter(l => !l.trim().startsWith("[CHECK]")); // tira a linha do corpo
+    const hashStr = (s: string) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
+    const microOpcoes = [...microOpcoesRaw].sort((a, b) => hashStr(aula.id + a) - hashStr(aula.id + b)); // ordem estável e embaralhada
+    const microOk = !microPergunta || academyMicroResp === microPergunta.correta;
+    const podeConcluir = academyTempoRestante <= 0 && academyScrollOk && academyEntendi && microOk;
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background: curso ? `linear-gradient(135deg, ${curso.cor}, ${curso.cor}cc)` : "linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"48px 20px 22px", color:"#fff" }}>
@@ -6063,7 +6103,7 @@ export default function App() {
         <div style={{ padding:"22px 18px" }}>
           <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"18px 20px", boxShadow:"0 2px 10px rgba(0,0,0,.05)" }}>
             <div style={{ fontSize:14, color:"var(--text-1,#0f172a)", lineHeight:1.7, whiteSpace:"pre-wrap" as const }}>
-              {aula.conteudo.split("\n").map((linha, i) => {
+              {linhasConteudo.map((linha, i) => {
                 if (linha.startsWith("**") && linha.endsWith("**")) {
                   return <div key={i} style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", margin:"12px 0 4px" }}>{linha.replace(/\*\*/g, "")}</div>;
                 }
@@ -6073,8 +6113,41 @@ export default function App() {
             </div>
           </div>
 
+          {/* Fase 7 — micro-check no meio da leitura (só aparece se a aula tiver [CHECK]) */}
+          {microPergunta && (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"16px 18px", marginTop:14, boxShadow:"0 2px 10px rgba(0,0,0,.05)", border:"1.5px solid #FF6B3540" }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"#FF6B35", marginBottom:6 }}>✋ Pausa pra fixar</div>
+              <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:12, lineHeight:1.5 }}>{microPergunta.q}</div>
+              {microOpcoes.map((op) => {
+                const sel = academyMicroResp === op;
+                const certo = sel && op === microPergunta!.correta;
+                const erro  = sel && op !== microPergunta!.correta;
+                return (
+                  <div key={op} role="button" tabIndex={0}
+                    style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 14px", marginBottom:6, borderRadius:10, cursor:"pointer", minHeight:46,
+                      border: certo ? "2px solid #16a34a" : erro ? "2px solid #dc2626" : "1.5px solid var(--border,#e2e8f0)",
+                      background: certo ? "#16a34a12" : erro ? "#dc262612" : "transparent" }}
+                    onClick={() => setAcademyMicroResp(op)}>
+                    <span style={{ flex:1, fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.4 }}>{op}</span>
+                    {certo && <span>✅</span>}{erro && <span>❌</span>}
+                  </div>
+                );
+              })}
+              {academyMicroResp && !microOk && (
+                <div style={{ fontSize:12, color:"#dc2626", fontWeight:700, marginTop:4 }}>Não é essa — releia o trecho e tente de novo.</div>
+              )}
+            </div>
+          )}
+
+          {/* Confirmação de leitura (verificação de interação) */}
+          <label style={{ display:"flex", alignItems:"center", gap:10, marginTop:14, padding:"12px 14px", background:"var(--bg-card,#fff)", borderRadius:12, cursor:"pointer", boxShadow:"0 2px 10px rgba(0,0,0,.05)" }}>
+            <input type="checkbox" checked={academyEntendi} onChange={e => setAcademyEntendi(e.target.checked)} style={{ width:20, height:20, accentColor:"#FF6B35", cursor:"pointer", flexShrink:0 }} />
+            <span style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)" }}>Li e entendi este conteúdo</span>
+          </label>
+
           <button
-            style={{ width:"100%", padding:"15px", marginTop:18, background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 16px rgba(255,107,53,.4)", minHeight:48 }}
+            disabled={!podeConcluir}
+            style={{ width:"100%", padding:"15px", marginTop:14, background: podeConcluir ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: podeConcluir ? "pointer" : "not-allowed", fontFamily:"Inter, system-ui, sans-serif", boxShadow: podeConcluir ? "0 4px 16px rgba(255,107,53,.4)" : "none", minHeight:48 }}
             onClick={async () => {
               const ok = await concluirAulaAtual();
               if (!ok) return;
@@ -6086,7 +6159,11 @@ export default function App() {
                 setToastSuccess("✅ Aula concluída!");
               }
             }}>
-            {proxAula ? "✓ Concluir e ir pra próxima" : "✓ Concluir aula"}
+            {academyTempoRestante > 0 ? `⏱️ Leia com calma — ${academyTempoRestante}s`
+              : !academyScrollOk ? "↓ Role até o fim da aula"
+              : !microOk ? "Responda a pausa acima"
+              : !academyEntendi ? "Marque “Li e entendi”"
+              : proxAula ? "✓ Concluir e ir pra próxima" : "✓ Concluir aula"}
           </button>
         </div>
       </div>
