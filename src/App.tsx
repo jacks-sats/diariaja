@@ -16988,6 +16988,9 @@ export default function App() {
         {toastSuccess && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, whiteSpace:"nowrap" }}>{toastSuccess}</div>}
         {toastError   && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999 }}>{toastError}</div>}
 
+        {/* MEI — em cima do Já Decola: incentivo a virar MEI/CNPJ (abre a tela mei-info) */}
+        {bannerMEI}
+
         {/* ── Já Decola — card destacado dentro da Comunidade ── */}
         <div role="button" tabIndex={0}
           style={{
