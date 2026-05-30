@@ -63,7 +63,6 @@ AS $$
     'cep',                 up.cep,
     'plano_ativo',         up.plano_ativo,
     'plano_expira_em',     up.plano_expira_em,
-    'portfolio_urls',      up.portfolio_urls,
     'telefone_verificado', up.telefone_verificado,
     'documento_status',    up.documento_status,
     'tem_documento',       ((up.cpf IS NOT NULL AND up.cpf <> '') OR (up.cnpj IS NOT NULL AND up.cnpj <> '')),

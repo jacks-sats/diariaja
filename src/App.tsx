@@ -146,11 +146,13 @@ const MOSTRAR_VERIFICAR_TELEFONE_CTA = false;
 // Mantém cpf/cnpj por enquanto porque o selo "✅ Verificado" depende da presença
 // deles na UI; a remoção do VALOR (via flag derivada server-side) + o REVOKE de
 // coluna no banco ficam para o Passo B desta correção.
+// NOTA: portfolio_urls foi removida da lista — a coluna não existe na tabela em
+// produção (a migration nunca foi aplicada), e selecioná-la quebraria a query.
 const COLUNAS_PERFIL_PUBLICO =
   "id, oculto, user_type, nome, nome_negocio, segmento, funcao, valor_diaria, " +
   "disponivel, agenda, bio, foto_url, categorias, lat, lng, cpf, cnpj, " +
   "pessoa_tipo, razao_social, nome_fantasia, responsavel_nome, cep, plano_ativo, " +
-  "plano_expira_em, portfolio_urls, telefone_verificado, documento_status";
+  "plano_expira_em, telefone_verificado, documento_status";
 
 // Helper: mostra notificação local compatível com mobile/PWA.
 // Em Android Chrome/PWA, `mostrarNotificacaoLocal(...)` é PROIBIDO — só funciona via
