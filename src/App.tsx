@@ -3465,12 +3465,58 @@ export default function App() {
 
   // ── KYC: Upload + Revisão de documentos (RG/CNH) ──────────────────────────
 
-  // User escolhe arquivo — só seta preview, NÃO faz upload ainda
-  const onDocFileSelected = (file: File) => {
-    setDocFile(file);
+  // Comprime/redimensiona uma imagem no browser (canvas) pra caber no limite de
+  // upload. Foto de celular moderno passa de 5 MB fácil — sem isso o usuário
+  // travava ao enviar o documento ("não consegue"). Mantém proporção; reduz
+  // dimensão e qualidade até caber. PDF ou erro → devolve o original.
+  const comprimirImagemDoc = async (file: File, maxBytes = 4 * 1024 * 1024, maxDim = 1600): Promise<File> => {
+    if (!file.type.startsWith("image/")) return file;
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = reject;
+        i.src = dataUrl;
+      });
+      let width = img.width, height = img.height;
+      if (width > maxDim || height > maxDim) {
+        const escala = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * escala);
+        height = Math.round(height * escala);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return file;
+      ctx.drawImage(img, 0, 0, width, height);
+      let q = 0.9;
+      let blob: Blob | null = await new Promise(res => canvas.toBlob(res, "image/jpeg", q));
+      while (blob && blob.size > maxBytes && q > 0.4) {
+        q -= 0.15;
+        blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", q));
+      }
+      if (!blob) return file;
+      return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+    } catch {
+      return file;
+    }
+  };
+
+  // User escolhe arquivo — comprime imagem grande automaticamente e seta preview.
+  // NÃO faz upload ainda (isso é no enviarDocumentoKYC).
+  const onDocFileSelected = async (file: File) => {
+    // Foto de celular costuma passar de 5 MB → comprime antes (resolve o travamento)
+    const arquivo = await comprimirImagemDoc(file);
+    setDocFile(arquivo);
     // Revoga preview anterior pra evitar memory leak em mobile (fotos de 5 MB)
     if (docPreview) { try { URL.revokeObjectURL(docPreview); } catch {} }
-    setDocPreview(URL.createObjectURL(file));
+    setDocPreview(URL.createObjectURL(arquivo));
   };
 
   // User envia o documento — upload pro bucket privado + UPDATE no profile
@@ -3478,7 +3524,7 @@ export default function App() {
     if (!session?.user?.id || !docFile || enviandoDoc) return;
     // Validações
     if (docFile.size > 5 * 1024 * 1024) {
-      setToastError("Arquivo muito grande (máximo 5 MB).");
+      setToastError("Arquivo ainda muito grande mesmo após o ajuste. Tente uma foto menor ou em PDF.");
       return;
     }
     const mimePermitidos = ["image/jpeg","image/png","image/webp","application/pdf"];
@@ -16796,7 +16842,7 @@ export default function App() {
             <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🆔</div>
             <div>
               <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Verificar identidade</div>
-              <div style={{ fontSize:13, color:"#94a3b8" }}>Suba para o nível Confiável</div>
+              <div style={{ fontSize:13, color:"#94a3b8" }}>Opcional · rende pontos de confiança</div>
             </div>
           </div>
         </div>
@@ -16811,6 +16857,11 @@ export default function App() {
                 <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.5 }}>{info.sub}</div>
               </div>
             </div>
+          </div>
+
+          {/* Opcional — não trava o uso do app */}
+          <div style={{ background:"#ecfdf5", border:"1px solid #a7f3d0", borderRadius:12, padding:"12px 14px", marginBottom:12, fontSize:12.5, color:"#047857", lineHeight:1.6, fontWeight:600 }}>
+            ✋ <strong>É opcional.</strong> Você já pode usar o app normalmente. Enviar o documento só serve pra ganhar pontos de confiança e o selo <strong>Confiável</strong>.
           </div>
 
           {/* LGPD info */}
@@ -16855,7 +16906,7 @@ export default function App() {
                   <div>
                     <div style={{ fontSize:36, marginBottom:6 }}>📷</div>
                     <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Toque para tirar foto ou escolher</div>
-                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>JPG, PNG, WEBP ou PDF · máx 5 MB</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>Pode tirar foto na hora — ajustamos o tamanho automaticamente</div>
                   </div>
                 )}
               </label>
