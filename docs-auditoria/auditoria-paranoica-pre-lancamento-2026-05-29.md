@@ -57,7 +57,45 @@ Autor: auditoria assistida por IA. Escopo: `src/`, `supabase/functions/`,
   `handleToggleDia` revertem o estado e avisam se `saveProfile` falhar.
 - **M7 (usuário meio-criado / termos não persistidos) — pendente** (mais delicado,
   mexe no fluxo de signup — fica para rodada dedicada).
-- Demais médios/baixos restantes — pendentes.
+- **B2 (código morto) — feito:** removidos `handleAtualizarLocalizacao` (nunca
+  chamado) e o estado órfão `localizandoDiaria`.
+- Demais médios/baixos restantes (M7, B3 favoritos só local, etc.) — pendentes.
+
+---
+
+## 📋 C2 Passo B — plano para sessão dedicada (com teste em navegador)
+
+O vazamento **em massa** já foi cortado (passo A). O passo B fecha o resto:
+o **valor de cpf/cnpj** no tráfego, o telefone/PIX do prestador selecionado, e o
+**vetor anon-key** (a policy de SELECT de `user_profiles` é `USING=true`).
+
+**Por que precisa de teste:** reescreve o `checkProfile` (carga central do app) e o
+fluxo de pagamento PIX ao prestador. Aplicar o `REVOKE` antes do cliente migrar
+**quebra produção**. Sequência obrigatória: criar RPCs → migrar cliente → validar
+no navegador (login, ver perfil, pagar prestador) → só então `REVOKE`.
+
+**1. Migration aditiva (segura, não quebra nada sozinha):**
+- `meu_perfil()` → retorna o perfil COMPLETO de `auth.uid()` (pro dono ler telefone/
+  cpf/pix após o REVOKE).
+- `perfis_publicos(p_ids uuid[])` → colunas públicas + flags derivadas
+  `tem_documento` (cpf/cnpj presentes) e `nivel` (espelha `calcularNivelConfiabilidade`).
+- `contato_prestador(p_diarista_id uuid)` → telefone + pix_chave/pix_tipo SOMENTE se
+  `auth.uid()` tem relação legítima (diária com `diarista_aceite_id = p_diarista_id`,
+  ou convite aceito, ou desbloqueio pago em `contatos_desbloqueios`).
+
+**2. Cliente:**
+- `checkProfile` e leituras do próprio perfil → `meu_perfil()`.
+- Leituras de terceiros (feed, candidatos, convites) → `perfis_publicos()`; nível e
+  selo "Verificado" passam a usar `tem_documento`/`nivel` (deixa de precisar de cpf/cnpj).
+- `modalPix`/`diaristasAceites` → `contato_prestador()` para a chave PIX.
+
+**3. REVOKE (aplicar POR ÚLTIMO, após validar o cliente em produção):**
+```sql
+REVOKE SELECT (telefone, cpf, cnpj, responsavel_cpf, mp_access_token, mp_user_id,
+               pix_chave, pix_tipo, documento_url, antecedentes_url,
+               data_nascimento, sexo)
+  ON user_profiles FROM authenticated, anon;
+```
 
 ---
 

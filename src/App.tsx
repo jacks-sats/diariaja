@@ -204,7 +204,6 @@ export default function App() {
   const [buscandoCEPPerfil, setBuscandoCEPPerfil] = useState(false);  // diarista profile CEP
   const [latPerfilCEP, setLatPerfilCEP]           = useState<number | null>(null); // geocoded from profile CEP
   const [lngPerfilCEP, setLngPerfilCEP]           = useState<number | null>(null);
-  const [localizandoDiaria, setLocalizandoDiaria] = useState(false);
   const [latDiaria, setLatDiaria]                 = useState<number | null>(null);
   const [lngDiaria, setLngDiaria]                 = useState<number | null>(null);
   const [salvandoDiaria, setSalvandoDiaria]       = useState(false);
@@ -2692,19 +2691,6 @@ export default function App() {
 
 
   // Atualiza localização do usuário (usado no perfil após cadastro)
-  const handleAtualizarLocalizacao = () => {
-    if (!navigator.geolocation) { setAuthError("Geolocalização não suportada neste dispositivo."); return; }
-    setAuthError("");
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const ok = await saveProfile({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        if (ok) setToastSuccess("📍 Localização atualizada!");
-      },
-      () => setAuthError("Permissão negada. Ative a localização nas configurações."),
-      { timeout: 15000, enableHighAccuracy: true }
-    );
-  };
-
   // Salva SOMENTE a foto_url no banco — evita sobrescrever outros campos (closure issue)
   const salvarFotoUrl = async (url: string) => {
     if (!session?.user) return false;
