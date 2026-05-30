@@ -62,7 +62,7 @@ import {
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
-  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer,
+  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
@@ -2853,16 +2853,42 @@ export default function App() {
   };
 
   // Empregador escaneia QR → confirma início da diária
-  const confirmarInicio = async (diariaId: string) => {
+  // Check-in: passa pelo RPC `registrar_checkin` (autoritativo no servidor —
+  // valida status + janela de horário). `metodo`: 'qr' (scan) ou 'codigo'.
+  // Mantém fallback para o update legado caso o RPC ainda não esteja no banco
+  // (segurança de ordem de deploy).
+  const confirmarInicio = async (diariaId: string, metodo: "qr" | "codigo" | "gps" = "qr", lat?: number, lng?: number) => {
     if (!session?.user) return;
-    const { error } = await supabase
-      .from("diarias")
-      .update({ status: "em_andamento" })
-      .eq("id", diariaId)
-      .eq("empregador_id", session.user.id);
-    if (error) { setScanMsg({ ok:false, txt:"Erro: " + error.message }); return; }
+    const checkinNow = new Date().toISOString();
+    const { data, error } = await supabase.rpc("registrar_checkin", {
+      p_diaria_id: diariaId,
+      p_metodo: metodo,
+      p_lat: lat ?? null,
+      p_lng: lng ?? null,
+    });
+    // RPC ainda não instalado no banco → fallback para o update legado
+    const rpcAusente = !!error && (error.code === "PGRST202" || /registrar_checkin/.test(error.message || ""));
+    if (rpcAusente) {
+      const { error: errLegado } = await supabase
+        .from("diarias").update({ status: "em_andamento" })
+        .eq("id", diariaId).eq("empregador_id", session.user.id);
+      if (errLegado) { setScanMsg({ ok:false, txt:"Erro: " + errLegado.message }); return; }
+    } else if (error) {
+      setScanMsg({ ok:false, txt:"Erro: " + error.message }); return;
+    } else if (data && data.ok === false) {
+      const msgs: Record<string, string> = {
+        fora_da_janela:  "⏰ Fora do horário da diária. O check-in vale de 30min antes do início até 2h após o fim.",
+        status_invalido: "Esta diária não está mais aguardando check-in.",
+        muito_longe:     `📍 Você está longe do local${data.distancia_m ? ` (~${data.distancia_m}m)` : ""}. Aproxime-se para confirmar.`,
+        sem_permissao:   "Você não faz parte desta diária.",
+        nao_encontrada:  "Diária não encontrada.",
+        nao_autenticado: "Sessão expirada. Entre novamente.",
+      };
+      setScanMsg({ ok:false, txt: msgs[data.erro] || ("Não foi possível confirmar: " + data.erro) });
+      return;
+    }
     setScanMsg({ ok:true, txt:"✅ Início confirmado! A diária está em andamento." });
-    setDiarias(prev => prev.map(d => d.id === diariaId ? { ...d, status:"em_andamento" } : d));
+    setDiarias(prev => prev.map(d => d.id === diariaId ? { ...d, status:"em_andamento", checkin_em: d.checkin_em || checkinNow, checkin_metodo: d.checkin_metodo || metodo } : d));
     hapticConfirm();
     // Push pro diarista: o empregador confirmou sua chegada
     const diaria = diarias.find(d => d.id === diariaId);
@@ -2876,17 +2902,26 @@ export default function App() {
     }
   };
 
-  // Empregador marca diária como concluída
+  // Empregador marca diária como concluída — via RPC `registrar_checkout`
+  // (grava checkout_em para a trilha de auditoria). Fallback para update legado
+  // se o RPC ainda não estiver no banco (ordem de deploy).
   const concluirDiaria = async (diariaId: string) => {
     if (!session?.user) return;
-    const { error } = await supabase
-      .from("diarias")
-      .update({ status: "concluida" })
-      .eq("id", diariaId)
-      .eq("empregador_id", session.user.id);
-    if (error) { setAuthError("Erro ao concluir: " + error.message); return; }
+    const checkoutNow = new Date().toISOString();
+    const { data, error } = await supabase.rpc("registrar_checkout", { p_diaria_id: diariaId, p_lat: null, p_lng: null });
+    const rpcAusente = !!error && (error.code === "PGRST202" || /registrar_checkout/.test(error.message || ""));
+    if (rpcAusente) {
+      const { error: errLegado } = await supabase
+        .from("diarias").update({ status: "concluida" })
+        .eq("id", diariaId).eq("empregador_id", session.user.id);
+      if (errLegado) { setAuthError("Erro ao concluir: " + errLegado.message); return; }
+    } else if (error) {
+      setAuthError("Erro ao concluir: " + error.message); return;
+    } else if (data && data.ok === false) {
+      setAuthError("Não foi possível concluir: " + (data.erro || "erro")); return;
+    }
     const diariaAtualizada = diarias.find(d => d.id === diariaId);
-    setDiarias(prev => prev.map(d => d.id === diariaId ? { ...d, status:"concluida" } : d));
+    setDiarias(prev => prev.map(d => d.id === diariaId ? { ...d, status:"concluida", checkout_em: d.checkout_em || checkoutNow } : d));
     // Auto-abre recibo para o empregador após conclusão
     if (diariaAtualizada) setTimeout(() => setModalRecibo({ ...diariaAtualizada, status:"concluida" }), 400);
   };
@@ -10542,7 +10577,7 @@ export default function App() {
                   }
                   setCodigoManual("");
                   setScannerAberto(false);
-                  confirmarInicio(alvo.id);
+                  confirmarInicio(alvo.id, "codigo");
                 }}>
                 ✅ Confirmar chegada
               </button>
@@ -12133,7 +12168,9 @@ export default function App() {
               ? (dia.tempo_estimado_min >= 60 ? `${Math.round(dia.tempo_estimado_min/60)}h` : `${dia.tempo_estimado_min}min`)
               : ehServ ? "a combinar" : "";
             const st = stMap[dia.status] ?? stMap.aceita;
-            const mostrarQR = dia.status === "aceita" || dia.status === "em_andamento";
+            // QR/código de presença só dentro da janela de check-in (corrige o
+            // "expirada ainda pede QR": uma diária que passou da hora some o QR).
+            const mostrarQR = (dia.status === "aceita" || dia.status === "em_andamento") && checkinDentroDaJanela(dia);
             return (
               <div
                 style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", borderLeft:`4px solid ${st.borda}`, cursor:"pointer" }}

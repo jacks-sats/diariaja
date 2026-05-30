@@ -26,6 +26,7 @@ import {
   parseEnderecoEmpregador,
   verificarConteudoProibido,
   vagaProximaDeVencer,
+  checkinDentroDaJanela,
   calcularNivelAcademy,
 } from "../helpers";
 
@@ -927,6 +928,34 @@ describe("vagaProximaDeVencer", () => {
   it("false sem data/horário", () => {
     expect(vagaProximaDeVencer({ data: "", horario_fim: "15:00", status: "aberta" }, 6, base)).toBe(false);
     expect(vagaProximaDeVencer({ data: "2026-05-29", status: "aberta" }, 6, base)).toBe(false);
+  });
+});
+
+describe("checkinDentroDaJanela", () => {
+  // Diária 14:00–18:00. Janela válida: 13:30 (–30min) até 20:00 (+2h).
+  const dia = { data: "2026-05-29", horario_inicio: "14:00", horario_fim: "18:00" };
+  it("true durante a diária", () => {
+    expect(checkinDentroDaJanela(dia, new Date("2026-05-29T15:00:00"))).toBe(true);
+  });
+  it("true 30min antes do início", () => {
+    expect(checkinDentroDaJanela(dia, new Date("2026-05-29T13:35:00"))).toBe(true);
+  });
+  it("false bem antes do início (mais de 30min)", () => {
+    expect(checkinDentroDaJanela(dia, new Date("2026-05-29T12:00:00"))).toBe(false);
+  });
+  it("true até 2h depois do fim", () => {
+    expect(checkinDentroDaJanela(dia, new Date("2026-05-29T19:30:00"))).toBe(true);
+  });
+  it("false depois de 2h do fim (origem do 'expirada ainda pede QR')", () => {
+    expect(checkinDentroDaJanela(dia, new Date("2026-05-29T20:30:00"))).toBe(false);
+  });
+  it("usa horario_inicio quando não há horario_fim (serviço)", () => {
+    const serv = { data: "2026-05-29", horario_inicio: "14:00" };
+    expect(checkinDentroDaJanela(serv, new Date("2026-05-29T15:30:00"))).toBe(true);
+    expect(checkinDentroDaJanela(serv, new Date("2026-05-29T17:00:00"))).toBe(false);
+  });
+  it("false sem data", () => {
+    expect(checkinDentroDaJanela({ data: "", horario_inicio: "14:00" }, new Date("2026-05-29T15:00:00"))).toBe(false);
   });
 });
 
