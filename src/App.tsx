@@ -769,6 +769,11 @@ export default function App() {
 
   // FIX 2: ref para capturar o tipo atual dentro do closure do onAuthStateChange
   const tipoRef = useRef<string | null>(null);
+  // Evita que o SIGNED_IN re-emitido (ex.: quando o app volta a ter foco após o
+  // usuário sair pra copiar CPF/CEP) re-rode checkProfile e jogue a pessoa "pro
+  // início" no meio do preenchimento. Marca true após a 1ª navegação da sessão;
+  // reseta no logout (SIGNED_OUT / sessão nula).
+  const sessaoNavegadaRef = useRef(false);
   const notifHojeEnviadaRef = useRef(false); // evita reenviar notif de "diária hoje" na mesma sessão
   // BUG-H5 fix: ref para acessar diarias atual no closure do Realtime sem declarar dependência
   const diariasRef = useRef<Diaria[]>([]);
@@ -2120,6 +2125,11 @@ export default function App() {
         setTela("alterar-senha");
         return;
       }
+      // BLINDAGEM: se a sessão já foi tratada/navegada, um SIGNED_IN/INITIAL_SESSION
+      // re-emitido (ex.: o app recupera o foco quando o usuário volta de copiar
+      // CPF/CEP em outro app) NÃO deve re-rodar checkProfile — senão a pessoa é
+      // jogada "pro início" no meio do preenchimento. Só atualiza a sessão.
+      if (session && sessaoNavegadaRef.current) { setSession(session); return; }
       setSession(session);
       // Re-tenta persistir aceite dos termos se ficou pendente do signup (LGPD)
       if (session && event === "SIGNED_IN") {
@@ -2132,6 +2142,9 @@ export default function App() {
         } catch { /* ignore */ }
       }
       if (session) {
+        // Marca que esta sessão já está sendo navegada — re-emits futuros do
+        // SIGNED_IN (foco/visibilidade) caem na blindagem acima e não re-navegam.
+        sessaoNavegadaRef.current = true;
         (async () => {
           try {
             const { data } = await supabase
@@ -2189,6 +2202,8 @@ export default function App() {
           }
         })();
       } else {
+        // Logout / sessão expirada → libera a blindagem pra próxima sessão navegar.
+        sessaoNavegadaRef.current = false;
         setProfile(null);
         setTela("splash");
         setLoading(false);
