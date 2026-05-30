@@ -4923,29 +4923,6 @@ export default function App() {
     );
   };
 
-  // Fase 3: card "hero" da Universidade no topo da home (Já Decola na home).
-  // Destaca o curso obrigatório de onboarding. Azul pra diferenciar dos banners
-  // inline (laranja) e puxar o olhar.
-  const CardUniversidadeHero = () => (
-    <div role="button" tabIndex={0}
-      style={{
-        margin:"4px 16px 14px",
-        background:"linear-gradient(135deg,#3A86FF,#6366f1)",
-        borderRadius:18, padding:"16px 18px", color:"#fff",
-        cursor:"pointer", boxShadow:"0 6px 22px rgba(58,134,255,.35)",
-        display:"flex", alignItems:"center", gap:14,
-      }}
-      onClick={() => { carregarAcademyCursos(); setTela("academy"); }}>
-      <div style={{ width:50, height:50, background:"rgba(255,255,255,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0 }}>🎓</div>
-      <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontSize:10, fontWeight:800, opacity:0.9, letterSpacing:0.4, textTransform:"uppercase" as const }}>Universidade DiáriaJá</div>
-        <div style={{ fontSize:15, fontWeight:900, lineHeight:1.2, marginTop:2 }}>Comece pelo curso "Como funciona o app"</div>
-        <div style={{ fontSize:11.5, opacity:0.92, marginTop:2 }}>5 min · ganhe o selo "Usuário Capacitado" 🎓 e +25 pontos</div>
-      </div>
-      <div style={{ fontSize:20, opacity:0.9, flexShrink:0 }}>→</div>
-    </div>
-  );
-
   // LOADING
   // ── Barra de progresso global (aparece em qualquer operação assíncrona) ─────
   const anyLoading = loading || salvandoPerfil || authLoading || salvandoDiaria || enviandoAvalMutua || selecionando;
@@ -8667,9 +8644,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Fase 3: Universidade em destaque na home */}
-        {CardUniversidadeHero()}
-
         {/* Banner "Complete seu perfil" — movido para DEPOIS da lista de prestadores
             (money-first/gente-first): o anunciante vê os profissionais ANTES da
             cobrança de cadastro. Renderizado no fim da aba "início". */}
@@ -11464,9 +11438,6 @@ export default function App() {
                 </div>
               );
             })()}
-
-            {/* Fase 3: Universidade em destaque na home */}
-            {CardUniversidadeHero()}
 
             {/* ── Cabeçalho com contador de novos anúncios + filtros ── */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 20px 10px" }}>
