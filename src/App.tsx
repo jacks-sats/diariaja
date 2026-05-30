@@ -3478,7 +3478,7 @@ export default function App() {
     if (!session?.user?.id || !docFile || enviandoDoc) return;
     // Validações
     if (docFile.size > 5 * 1024 * 1024) {
-      setToastError("Arquivo muito grande (máximo 5 MB).");
+      setToastError("Arquivo ainda muito grande mesmo após o ajuste. Tente uma foto menor ou em PDF.");
       return;
     }
     const mimePermitidos = ["image/jpeg","image/png","image/webp","application/pdf"];
@@ -16796,7 +16796,7 @@ export default function App() {
             <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🆔</div>
             <div>
               <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Verificar identidade</div>
-              <div style={{ fontSize:13, color:"#94a3b8" }}>Suba para o nível Confiável</div>
+              <div style={{ fontSize:13, color:"#94a3b8" }}>Opcional · rende pontos de confiança</div>
             </div>
           </div>
         </div>
@@ -16811,6 +16811,11 @@ export default function App() {
                 <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.5 }}>{info.sub}</div>
               </div>
             </div>
+          </div>
+
+          {/* Opcional — não trava o uso do app */}
+          <div style={{ background:"#ecfdf5", border:"1px solid #a7f3d0", borderRadius:12, padding:"12px 14px", marginBottom:12, fontSize:12.5, color:"#047857", lineHeight:1.6, fontWeight:600 }}>
+            ✋ <strong>É opcional.</strong> Você já pode usar o app normalmente. Enviar o documento só serve pra ganhar pontos de confiança e o selo <strong>Confiável</strong>.
           </div>
 
           {/* LGPD info */}
@@ -16855,7 +16860,7 @@ export default function App() {
                   <div>
                     <div style={{ fontSize:36, marginBottom:6 }}>📷</div>
                     <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Toque para tirar foto ou escolher</div>
-                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>JPG, PNG, WEBP ou PDF · máx 5 MB</div>
+                    <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:4 }}>Pode tirar foto na hora — ajustamos o tamanho automaticamente</div>
                   </div>
                 )}
               </label>
