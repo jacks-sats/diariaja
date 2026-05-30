@@ -3465,12 +3465,58 @@ export default function App() {
 
   // ── KYC: Upload + Revisão de documentos (RG/CNH) ──────────────────────────
 
-  // User escolhe arquivo — só seta preview, NÃO faz upload ainda
-  const onDocFileSelected = (file: File) => {
-    setDocFile(file);
+  // Comprime/redimensiona uma imagem no browser (canvas) pra caber no limite de
+  // upload. Foto de celular moderno passa de 5 MB fácil — sem isso o usuário
+  // travava ao enviar o documento ("não consegue"). Mantém proporção; reduz
+  // dimensão e qualidade até caber. PDF ou erro → devolve o original.
+  const comprimirImagemDoc = async (file: File, maxBytes = 4 * 1024 * 1024, maxDim = 1600): Promise<File> => {
+    if (!file.type.startsWith("image/")) return file;
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = reject;
+        i.src = dataUrl;
+      });
+      let width = img.width, height = img.height;
+      if (width > maxDim || height > maxDim) {
+        const escala = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * escala);
+        height = Math.round(height * escala);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return file;
+      ctx.drawImage(img, 0, 0, width, height);
+      let q = 0.9;
+      let blob: Blob | null = await new Promise(res => canvas.toBlob(res, "image/jpeg", q));
+      while (blob && blob.size > maxBytes && q > 0.4) {
+        q -= 0.15;
+        blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", q));
+      }
+      if (!blob) return file;
+      return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+    } catch {
+      return file;
+    }
+  };
+
+  // User escolhe arquivo — comprime imagem grande automaticamente e seta preview.
+  // NÃO faz upload ainda (isso é no enviarDocumentoKYC).
+  const onDocFileSelected = async (file: File) => {
+    // Foto de celular costuma passar de 5 MB → comprime antes (resolve o travamento)
+    const arquivo = await comprimirImagemDoc(file);
+    setDocFile(arquivo);
     // Revoga preview anterior pra evitar memory leak em mobile (fotos de 5 MB)
     if (docPreview) { try { URL.revokeObjectURL(docPreview); } catch {} }
-    setDocPreview(URL.createObjectURL(file));
+    setDocPreview(URL.createObjectURL(arquivo));
   };
 
   // User envia o documento — upload pro bucket privado + UPDATE no profile
