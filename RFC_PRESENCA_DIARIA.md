@@ -211,14 +211,20 @@ ALTER TABLE diarias
 **Regras:**
 1. **Cancelar exige motivo** — `motivo_cancelamento` passa a ser obrigatório no fluxo
    de cancelamento (já previsto na máquina de estados, hoje opcional).
-2. **Portão na criação** — ao tocar "Criar diária", se o empregador tiver pendência
-   nos **últimos 30 dias**, abre um modal **bloqueante**:
-   *"Conte o que aconteceu na sua diária anterior para publicar uma nova."*
-   Opções rápidas (1 toque): `diarista não compareceu` · `resolvi por fora` ·
-   `não precisei mais` · `cancelei` · `prefiro não informar`. Escolher → grava
-   `resolucao_motivo` + `resolvida_em` → libera.
-3. **Reforço server-side (opcional):** trigger `BEFORE INSERT` em `diarias` que
-   recusa se houver pendência — impede burlar via API direta.
+2. **Nudge na criação (decisão do time: aviso insistente, NÃO impede)** — ao tocar
+   "Criar diária", se o empregador tiver pendência nos **últimos 30 dias**, abre um
+   modal/banner forte: *"Conte o que aconteceu na sua diária anterior."* com opções
+   rápidas (1 toque): `diarista não compareceu` · `resolvi por fora` ·
+   `não precisei mais` · `cancelei` · `prefiro não informar`. Responder grava
+   `resolucao_motivo` + `resolvida_em`. **Pode prosseguir mesmo sem responder** — é
+   reforço/coleta de dado, não bloqueio. (A mesma estrutura permite virar bloqueio
+   total no futuro só trocando a flag — sem reescrever nada.)
+3. **Reforço server-side (não nesta fase):** um trigger `BEFORE INSERT` poderia
+   recusar criação com pendência — fica reservado para quando/se virar bloqueio duro.
+
+**Escopo inicial (recomendação aceita): só o empregador.** O **no-show do diarista
+já é capturado** desde a Fase A (`checkin_em IS NULL`); o portão do lado diarista
+(bloquear candidaturas) fica como evolução guiada por dado, sem retrabalho.
 
 **Anti-trap (regras de ouro):** sempre resolvível pelo próprio usuário; sempre há
 opção neutra ("prefiro não informar"); só conta pendências recentes; nunca um beco
