@@ -213,11 +213,26 @@ it reloads at most once per session.
 
 ### Payments model
 
-Empregador pays the full diária amount via Mercado Pago CheckoutPro. The
-diarista is repaid via PIX by the platform (no automatic split). Platform
-fee is 1.5% (the `ai-support` system prompt and the diarista app reference
-this — keep in sync if it changes). `diarias.pagamento_status` follows:
-`pendente → aguardando → pago` (or `falhou`/`cancelado`/`reembolsado`).
+**A DiáriaJá NÃO intermedia o valor da diária.** O pagamento da diária é
+**direto entre anunciante e diarista** (combinado por fora, ex.: PIX entre eles).
+O frontend **não chama mais** `create-payment` (veja o comentário em
+`App.tsx` — `iniciarPagamentoMP` foi removido). A Edge Function `create-payment`
+permanece deployada apenas caso o modelo volte a intermediar no futuro.
+
+A monetização da plataforma vem de:
+1. **R$ 1 por contato extra** — quando o anunciante no plano grátis estoura a
+   cota de seleções/contatos do mês, paga R$ 1 para liberar aquele contato
+   (`create-contact-payment`, RPC `pode_selecionar_candidato`/`exige_cobranca_r1`,
+   estado `contatosLiberados`). É o "pagar para liberar".
+2. **Assinaturas** (Mercado Pago Preapproval / CheckoutPro) — planos pagos.
+
+`diarias.pagamento_status` e os campos MP de `diarias` são legado do modelo
+antigo de intermediação — mantidos por compatibilidade, mas não dirigem o fluxo
+atual. O `mp-webhook` ainda mapeia status do MP (incl. `refunded → reembolsado`)
+para os fluxos de contato/assinatura.
+
+> ⚠️ Não existe **estorno automático** no app hoje (nem do R$ 1 nem de diária).
+> Qualquer reembolso é tratado pelo lado do Mercado Pago.
 
 Subscriptions (Preapproval): `assinaturas.status` tracks
 `pendente|ativo|pausado|cancelado`. When `ativo`, `user_profiles.plano_ativo`

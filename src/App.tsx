@@ -26,7 +26,7 @@ const hapticTick = () => { try { navigator.vibrate?.(8); } catch {} };
 const hapticConfirm = () => { try { navigator.vibrate?.([100, 50, 200]); } catch {} };
 
 // ── Wrapper pra disparar push notification via Edge Function send-push ──────
-type PushTipo = "mensagem" | "vaga_proxima" | "candidatura" | "selecionado" | "confirmacao" | "default";
+type PushTipo = "mensagem" | "vaga_proxima" | "candidatura" | "selecionado" | "confirmacao" | "convite_resposta" | "default";
 async function enviarPush(
   userIds: string[],
   title: string,
@@ -3115,12 +3115,25 @@ export default function App() {
   };
 
   const responderConvite = async (conviteId: string, resposta: "aceito" | "recusado") => {
+    const conv = convitesRecebidos.find(c => c.id === conviteId);
     const { error } = await supabase.from("convites")
       .update({ status: resposta })
       .eq("id", conviteId);
     if (error) { setToastError("Erro ao responder convite."); return; }
     setConvitesRecebidos(prev => prev.map(c => c.id === conviteId ? { ...c, status: resposta } : c));
     setToastSuccess(resposta === "aceito" ? "✅ Convite aceito! O anunciante será notificado." : "❌ Convite recusado.");
+    // Notifica o anunciante sobre a resposta (antes não havia push de volta)
+    if (conv?.contratante_id) {
+      const primeiroNome = profile?.nome?.split(" ")[0] || "O profissional";
+      enviarPush(
+        [conv.contratante_id],
+        resposta === "aceito" ? "Convite aceito ✅" : "Convite recusado",
+        resposta === "aceito"
+          ? `${primeiroNome} aceitou seu convite para ${conv.funcao || "a diária"}. Libere o contato pra combinar os detalhes.`
+          : `${primeiroNome} não pôde aceitar seu convite para ${conv.funcao || "a diária"}.`,
+        { tipo: "convite_resposta", url: "/" },
+      );
+    }
   };
 
   const cancelarConvite = async (conviteId: string) => {
