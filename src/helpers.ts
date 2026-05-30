@@ -584,6 +584,68 @@ export function formatTempoRelativo(
   return `${dd}/${mm}`;
 }
 
+// ── Máquina de estados do ciclo de vida da diária ───────────────────────────
+// Fonte única de verdade do fluxo de contratação (candidatura e convite), pra
+// poder ser testada fora do App.tsx (que é o monólito não-testado).
+//
+// Fluxo feliz (candidatura):
+//   aberta → (anunciante seleciona) pendente → (prestador confirma) aceita
+//          → (check-in) em_andamento → (check-out) concluida
+// Ramos:
+//   • desiste:  pendente|aceita → aberta  (volta pro feed)
+//   • no-show:  pendente|aceita → expirada  (expirou sem virar diária)
+//   • cancela:  qualquer não-terminal → cancelada
+export const STATUS_DIARIA = [
+  "aberta", "pendente", "aceita", "em_andamento", "concluida", "cancelada", "expirada",
+] as const;
+export type StatusDiaria = (typeof STATUS_DIARIA)[number];
+
+const TRANSICOES_DIARIA: Record<string, StatusDiaria[]> = {
+  aberta:       ["pendente", "expirada", "cancelada"],
+  pendente:     ["aceita", "aberta", "expirada", "cancelada"], // aceita=confirma, aberta=desiste
+  aceita:       ["em_andamento", "aberta", "expirada", "cancelada"], // em_andamento=check-in, aberta=desiste, expirada=no-show
+  em_andamento: ["concluida", "cancelada"],
+  concluida:    [],
+  cancelada:    [],
+  expirada:     [],
+};
+
+// Uma transição de status é permitida pelo fluxo? (de === para é sempre falso)
+export function transicaoDiariaPermitida(de: string, para: string): boolean {
+  if (de === para) return false;
+  return (TRANSICOES_DIARIA[de] ?? []).includes(para as StatusDiaria);
+}
+
+// Estado terminal: não há transição de saída.
+export function statusTerminal(status: string): boolean {
+  return (TRANSICOES_DIARIA[status]?.length ?? 0) === 0;
+}
+
+// ── Liberação de contato (chat + endereço) ───────────────────────────────────
+// Chat e endereço só abrem DEPOIS que o prestador confirma a presença (status
+// 'aceita'). Antes disso (aberta/pendente) o contato fica fechado — é o que
+// protege o modelo de "pagar R$1 pra liberar".
+const STATUS_COM_CONTATO = ["aceita", "em_andamento", "concluida"];
+export function contatoLiberado(status: string): boolean {
+  return STATUS_COM_CONTATO.includes(status);
+}
+
+// ── Cota de seleção do mês (crédito interno) ─────────────────────────────────
+// A seleção consome 1 da cota grátis SE tem prestador selecionado e NÃO virou
+// no-show. No-show ('expirada') é creditado de volta — o anunciante escolhe
+// outro sem pagar de novo. Desistência limpa diarista_aceite_id → também não conta.
+export function contaNaCotaSelecao(
+  d: { diarista_aceite_id?: string | null; status: string },
+): boolean {
+  return !!d.diarista_aceite_id && d.status !== "expirada";
+}
+
+// ── Resposta de convite (fluxo 2) ────────────────────────────────────────────
+export const RESPOSTAS_CONVITE = ["aceito", "recusado"] as const;
+export function respostaConviteValida(resposta: string): boolean {
+  return (RESPOSTAS_CONVITE as readonly string[]).includes(resposta);
+}
+
 // ── Vaga expirada: data + horario_fim já passou e nada foi confirmado ────────
 // Recebe os campos crus do banco; retorna true se a vaga deveria sair do feed.
 export function vagaExpirou(

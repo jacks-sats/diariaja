@@ -67,7 +67,7 @@ import {
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido,
-  calcularNivelAcademy,
+  calcularNivelAcademy, contatoLiberado,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -10723,7 +10723,7 @@ export default function App() {
             );
           }
           // Lista de conversas (diárias aceitas/em andamento)
-          const conversas = diarias.filter(d => d.diarista_aceite_id && ["aceita","em_andamento","concluida"].includes(d.status) && !hiddenChats.has(d.id));
+          const conversas = diarias.filter(d => d.diarista_aceite_id && contatoLiberado(d.status) && !hiddenChats.has(d.id));
           return (
             <div style={{ padding:"16px" }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
@@ -12228,7 +12228,7 @@ export default function App() {
                   )}
                 </div>
                 {/* Endereço — visível apenas após aceitar */}
-                {dia.endereco && (dia.status === "aceita" || dia.status === "em_andamento" || dia.status === "concluida") && (
+                {dia.endereco && contatoLiberado(dia.status) && (
                   <div style={{ display:"flex", alignItems:"flex-start", gap:6, marginTop:8, background:"#f0fdf4", borderRadius:10, padding:"8px 12px" }}>
                     <span style={{ fontSize:14, flexShrink:0, marginTop:1 }}>📍</span>
                     <div style={{ flex:1 }}>
@@ -12704,7 +12704,7 @@ export default function App() {
           // então o anunciante via a conversa mas o prestador não. Aqui mapeamos os
           // convites aceitos pro shape de Diaria (igual ao lado do anunciante) e
           // mesclamos — o chat usa convite.id como diaria_id, então as msgs batem.
-          const conversasDiarias = minhasDiarias.filter(d => ["aceita","em_andamento","concluida"].includes(d.status) && !hiddenChats.has(d.id));
+          const conversasDiarias = minhasDiarias.filter(d => contatoLiberado(d.status) && !hiddenChats.has(d.id));
           const conversasConvites = convitesRecebidos
             .filter(c => c.status === "aceito" && !hiddenChats.has(c.id))
             .filter(c => !conversasDiarias.some(d => d.id === c.id))
@@ -13152,7 +13152,7 @@ export default function App() {
             cancelada:    { bg:"#fee2e2", color:"#dc2626", txt:"✗ Cancelada" },
           };
           const stD = stMapD[d.status] ?? stMapD.aceita;
-          const enderecoLiberado = d.status === "aceita" || d.status === "em_andamento" || d.status === "concluida";
+          const enderecoLiberado = contatoLiberado(d.status);
           return (
             <div style={S.modalOverlay} onClick={() => setDetalhesDiaria(null)}>
               <div style={{ ...S.modal, maxHeight:"90vh", overflowY:"auto", padding:0 }} onClick={e => e.stopPropagation()}>
