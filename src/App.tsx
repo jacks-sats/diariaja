@@ -245,6 +245,7 @@ export default function App() {
   const [avaliadosDiarias, setAvaliadosDiarias]   = useState<Set<string>>(new Set()); // diaria_ids já avaliados
   const [avaliacoesDiaristaReal, setAvaliacoesDiaristaReal] = useState<{id:string,nota:number,comentario:string,created_at:string}[]>([]);
   const [mediaEmpregadorPerfil, setMediaEmpregadorPerfil] = useState<number|null>(null); // média do empregador logado
+  const [reputacaoEmpProprio, setReputacaoEmpProprio] = useState<ReputacaoEmpregador | null>(null); // reputação detalhada do próprio anunciante
   const [msgNaoLidas, setMsgNaoLidas] = useState(0); // badge de mensagens não lidas
   const [alertaAceite, setAlertaAceite] = useState<Diaria | null>(null); // modal quando diarista aceita diária do empregador
   const [modalCancelar, setModalCancelar] = useState<Diaria | null>(null);
@@ -1386,6 +1387,9 @@ export default function App() {
         const media = data.reduce((s: number, r: any) => s + r.nota, 0) / data.length;
         setMediaEmpregadorPerfil(media);
       }
+      // Reputação detalhada do próprio anunciante (paga/cumpre o combinado)
+      const { data: repProp } = await supabase.from("reputacao_empregadores").select("*").eq("empregador_id", session.user!.id).maybeSingle();
+      setReputacaoEmpProprio((repProp as ReputacaoEmpregador) || null);
       // Carrega quais diárias o empregador já avaliou
       const { data: jaAvaliou } = await supabase
         .from("avaliacoes_diarista")
@@ -10761,6 +10765,165 @@ export default function App() {
                 )}
               </div>
             </div>
+
+            {/* ── Selo de confiabilidade do anunciante ── */}
+            {(() => {
+              const nivelConf = calcularNivelConfiabilidade({
+                telefone_verificado: profile?.telefone_verificado || telefoneVerificado,
+                email_confirmado: !!session?.user?.email_confirmed_at,
+                cpf: profile?.cpf, cnpj: profile?.cnpj,
+                documento_status: profile?.documento_status,
+                mfa_enabled: false,
+              });
+              return (
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:12 }}>
+                  <div style={{ width:46, height:46, borderRadius:14, background:nivelConf.cor+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                    <ShieldCheck size={24} color={nivelConf.cor} />
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.4 }}>Selo de confiabilidade</div>
+                    <div style={{ fontWeight:900, fontSize:15, color:nivelConf.cor }}>Nível {nivelConf.nivel} · {nivelConf.nome}</div>
+                    {nivelConf.pendencias.length > 0 && (
+                      <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.4 }}>{nivelConf.pendencias[0]}</div>
+                    )}
+                  </div>
+                  {nivelConf.proximo && (
+                    <button style={{ background:nivelConf.cor, color:"#fff", border:"none", borderRadius:10, padding:"8px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
+                      onClick={() => setTela("editar-perfil-empregador")}>Subir →</button>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── Reputação detalhada (paga/cumpre o combinado) ── */}
+            {(() => {
+              const rep = reputacaoEmpProprio;
+              const cor = (v:number) => v >= 80 ? "#16a34a" : v >= 50 ? "#d97706" : "#dc2626";
+              if (!rep || !rep.total_avaliacoes) {
+                return (
+                  <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                    <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:4 }}>💬 Sua reputação</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>Você ainda não recebeu avaliações dos prestadores. Pague e cumpra o combinado pra construir uma boa reputação ⭐</div>
+                  </div>
+                );
+              }
+              return (
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                    <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>💬 Sua reputação</div>
+                    <div style={{ fontWeight:900, fontSize:15, color:"#d97706" }}>★ {rep.nota_media?.toFixed?.(1) ?? rep.nota_media} <span style={{ color:"var(--text-3,#94a3b8)", fontSize:11, fontWeight:600 }}>· {rep.total_avaliacoes} aval.</span></div>
+                  </div>
+                  {typeof rep.pct_pagou_combinado === "number" && (
+                    <div style={{ marginBottom:10 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
+                        <span style={{ color:"var(--text-2,#64748b)", fontWeight:700 }}>💰 Paga o combinado</span>
+                        <strong style={{ color:cor(rep.pct_pagou_combinado) }}>{rep.pct_pagou_combinado}%</strong>
+                      </div>
+                      <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:6, height:6, overflow:"hidden" }}><div style={{ background:cor(rep.pct_pagou_combinado), height:6, width:`${rep.pct_pagou_combinado}%`, borderRadius:6 }} /></div>
+                    </div>
+                  )}
+                  {typeof rep.pct_cumpriu_combinado === "number" && (
+                    <div>
+                      <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
+                        <span style={{ color:"var(--text-2,#64748b)", fontWeight:700 }}>✅ Cumpre o combinado</span>
+                        <strong style={{ color:cor(rep.pct_cumpriu_combinado) }}>{rep.pct_cumpriu_combinado}%</strong>
+                      </div>
+                      <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:6, height:6, overflow:"hidden" }}><div style={{ background:cor(rep.pct_cumpriu_combinado), height:6, width:`${rep.pct_cumpriu_combinado}%`, borderRadius:6 }} /></div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── Completude do perfil (anunciante) ── */}
+            {(() => {
+              const itens = [
+                { chave:"foto", icone:"📷", label:"Foto de perfil",       ok: !!profile?.foto_url },
+                { chave:"bio",  icone:"📝", label:"Apresentação",         ok: !!(profile?.bio && profile.bio.trim()) },
+                { chave:"doc",  icone:"🪪", label: profile?.pessoa_tipo === "juridica" ? "CNPJ" : "CPF", ok: !!(profile?.cnpj || profile?.cpf) },
+                { chave:"tel",  icone:"📱", label:"Telefone verificado",  ok: !!(profile?.telefone_verificado || telefoneVerificado) },
+                { chave:"end",  icone:"📍", label:"Endereço",             ok: !!profile?.endereco_empregador },
+              ];
+              const feitos = itens.filter(i => i.ok).length;
+              const pct = Math.round((feitos / itens.length) * 100);
+              return (
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                    <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>📋 Completude do perfil</div>
+                    <div style={{ fontWeight:900, fontSize:18, color: pct >= 80 ? "#16a34a" : pct >= 50 ? "#f59e0b" : "#dc2626" }}>{pct}%</div>
+                  </div>
+                  <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:20, height:8, overflow:"hidden", marginBottom:12 }}>
+                    <div style={{ background: pct >= 80 ? "#16a34a" : "linear-gradient(90deg,#FF6B35,#f59e0b)", height:8, width:`${pct}%`, borderRadius:20, transition:"width .4s" }} />
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                    {itens.map(item => (
+                      <div key={item.chave} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", background: item.ok ? "transparent" : "rgba(251,191,36,.08)", border: item.ok ? "none" : "1px solid rgba(251,191,36,.3)", borderRadius:10 }}>
+                        <span style={{ fontSize:18 }}>{item.icone}</span>
+                        <div style={{ flex:1, fontSize:13, fontWeight:700, color: item.ok ? "var(--text-1,#0f172a)" : "#92400e" }}>{item.label}</div>
+                        {item.ok
+                          ? <span style={{ color:"#16a34a", fontSize:18, fontWeight:900 }}>✓</span>
+                          : <span style={{ color:"#FF6B35", fontSize:12, fontWeight:800, cursor:"pointer", whiteSpace:"nowrap" as const }} onClick={() => setTela("editar-perfil-empregador")}>Preencher →</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── Conquistas do anunciante ── */}
+            {(() => {
+              const totalAnuncios = diarias.length;
+              const concl = diarias.filter(d => d.status === "concluida").length;
+              const media = mediaEmpregadorPerfil ?? 0;
+              const totalAval = reputacaoEmpProprio?.total_avaliacoes ?? 0;
+              const pctPagou = reputacaoEmpProprio?.pct_pagou_combinado ?? 0;
+              const nivelConf = calcularNivelConfiabilidade({
+                telefone_verificado: profile?.telefone_verificado || telefoneVerificado,
+                email_confirmado: !!session?.user?.email_confirmed_at,
+                cpf: profile?.cpf, cnpj: profile?.cnpj, documento_status: profile?.documento_status, mfa_enabled:false,
+              });
+              const conquistas: { chave:string; icone:string; titulo:string; descricao:string; alcancada:boolean; progresso?:{ atual:number; alvo:number } }[] = [
+                { chave:"primeiro",     icone:"📢", titulo:"Primeiro anúncio",   descricao:"Publicou sua 1ª diária",        alcancada: totalAnuncios >= 1, progresso:{ atual: Math.min(totalAnuncios,1), alvo:1 } },
+                { chave:"ativo",        icone:"🤝", titulo:"Contratante ativo",   descricao:"5 diárias concluídas",          alcancada: concl >= 5,  progresso:{ atual: Math.min(concl,5),  alvo:5 } },
+                { chave:"grande",       icone:"💎", titulo:"Grande contratante",  descricao:"15 diárias concluídas",         alcancada: concl >= 15, progresso:{ atual: Math.min(concl,15), alvo:15 } },
+                { chave:"pagador",      icone:"💰", titulo:"Pagador pontual",     descricao:"90%+ paga o combinado",         alcancada: totalAval >= 3 && pctPagou >= 90 },
+                { chave:"bem_avaliado", icone:"⭐", titulo:"Bem avaliado",        descricao:"Nota 4.5+ (3+ avaliações)",     alcancada: totalAval >= 3 && media >= 4.5 },
+                { chave:"verificado",   icone:"✅", titulo:"Anunciante verificado", descricao:"Nível de confiança 3+",       alcancada: nivelConf.nivel >= 3 },
+              ];
+              const alcancadas = conquistas.filter(c => c.alcancada).length;
+              return (
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                    <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>🏅 Conquistas</div>
+                    <div style={{ fontSize:13, fontWeight:800, color:"var(--text-2,#64748b)" }}>{alcancadas}/{conquistas.length}</div>
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    {conquistas.map(c => {
+                      const ativa = c.alcancada;
+                      const pctC = c.progresso ? Math.min(100, (c.progresso.atual / c.progresso.alvo) * 100) : 0;
+                      return (
+                        <div key={c.chave} style={{ background: ativa ? "rgba(34,197,94,.08)" : "var(--bg-surface,#f8fafc)", border: ativa ? "1.5px solid #22c55e" : "1px solid var(--border-sub,#f1f5f9)", borderRadius:12, padding:"12px 11px", opacity: ativa ? 1 : 0.7 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                            <span style={{ fontSize:22, filter: ativa ? "none" : "grayscale(.7)" }}>{c.icone}</span>
+                            {ativa && <span style={{ fontSize:10, fontWeight:800, color:"#16a34a", background:"#dcfce7", borderRadius:8, padding:"1px 6px" }}>✓ Conquistado</span>}
+                          </div>
+                          <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:2 }}>{c.titulo}</div>
+                          <div style={{ fontSize:11, color:"var(--text-2,#64748b)", lineHeight:1.4 }}>{c.descricao}</div>
+                          {!ativa && c.progresso && (
+                            <>
+                              <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:6, height:4, overflow:"hidden", marginTop:8 }}>
+                                <div style={{ background:"#FF6B35", height:4, width:`${pctC}%`, borderRadius:6 }} />
+                              </div>
+                              <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", fontWeight:700, marginTop:4 }}>{c.progresso.atual} / {c.progresso.alvo}</div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Bio */}
             <div style={S.section}>
