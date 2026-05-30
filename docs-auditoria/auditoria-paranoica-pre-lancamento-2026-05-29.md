@@ -28,7 +28,15 @@ Autor: auditoria assistida por IA. Escopo: `src/`, `supabase/functions/`,
   `UPDATE diarias` (bloqueia a 4ª seleção sem pagar, mesmo via API/DevTools).
   Não exige mudança de cliente. **AÇÃO MANUAL OBRIGATÓRIA:** aplicar
   `supabase/migrations/fix_c1_enforce_selecao_candidato.sql` (depois do SQL do C3).
-- **A1–A6** — pendentes.
+- **A4 (loading trava o app) — feito (parcial):** `saveProfile` (loading global) e
+  `revisarDocumento` (admin) agora em `try/finally`. Demais ~12 handlers de loading
+  seguem como follow-up de baixo risco.
+- **A5 (falso sucesso na exclusão LGPD) — feito:** só mostra "Conta excluída" se a
+  Edge Function `delete-user` confirmar; senão orienta contato com o suporte.
+- **A6 ("indicar amigos" fake) — feito:** virou "Compartilhar o app", sem promessa de
+  recompensa inexistente.
+- **B1 (log DEBUG em revisarDocumento) — feito** (removido junto do A4).
+- **A1, A2, A3** e médios/baixos restantes — pendentes.
 
 ---
 

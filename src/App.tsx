@@ -2248,11 +2248,17 @@ export default function App() {
       pix_chave: updates.pix_chave ?? profile?.pix_chave,
       pix_tipo:  updates.pix_tipo  ?? profile?.pix_tipo,
     };
-    const { error } = await supabase.from("user_profiles").upsert(full);
-    setSalvandoPerfil(false);
-    if (error) { setAuthError("Erro ao salvar perfil: " + error.message); return false; }
-    setProfile(full);
-    return true;
+    // A4: try/finally garante que o loading global (salvandoPerfil) sempre
+    // reseta — antes, se o upsert REJEITASSE (rede/timeout), o setSalvandoPerfil(false)
+    // não rodava e o app inteiro ficava travado em loading até reload.
+    try {
+      const { error } = await supabase.from("user_profiles").upsert(full);
+      if (error) { setAuthError("Erro ao salvar perfil: " + error.message); return false; }
+      setProfile(full);
+      return true;
+    } finally {
+      setSalvandoPerfil(false);
+    }
   };
 
   // Traduz mensagens de erro brutas do Supabase para pt-BR
@@ -3427,14 +3433,6 @@ export default function App() {
 
   // Admin: aprovar/rejeitar via RPC (que valida is_admin no banco)
   const revisarDocumento = async (decisao: "aprovado" | "rejeitado") => {
-    // DEBUG 2026-05-28: descobrir por que silenciosamente não revisa.
-    console.warn("[revisarDocumento] click", {
-      is_admin: profile?.is_admin,
-      has_docRevisao: !!docRevisao,
-      docRevisao_user_id: docRevisao?.user_id,
-      revisandoDoc,
-      decisao,
-    });
     if (!profile?.is_admin || !docRevisao || revisandoDoc) {
       setToastError(
         !profile?.is_admin ? "Você não tem permissão (is_admin=false). Manda print desse aviso."
@@ -3448,29 +3446,34 @@ export default function App() {
       return;
     }
     setRevisandoDoc(true);
-    const { error } = await supabase.rpc("revisar_documento", {
-      p_user_id: docRevisao.user_id,
-      p_decisao: decisao,
-      p_motivo: decisao === "rejeitado" ? docMotivoRejeicao.trim() : null,
-    });
-    setRevisandoDoc(false);
-    if (error) {
-      setToastError("Falha ao revisar: " + error.message);
-      return;
+    // A4: try/finally garante reset do loading mesmo se a RPC rejeitar (rede/
+    // timeout) — antes o admin ficava travado sem conseguir revisar.
+    try {
+      const { error } = await supabase.rpc("revisar_documento", {
+        p_user_id: docRevisao.user_id,
+        p_decisao: decisao,
+        p_motivo: decisao === "rejeitado" ? docMotivoRejeicao.trim() : null,
+      });
+      if (error) {
+        setToastError("Falha ao revisar: " + error.message);
+        return;
+      }
+      // Push pro user
+      enviarPush(
+        [docRevisao.user_id],
+        decisao === "aprovado" ? "✅ Documento aprovado!" : "❌ Documento rejeitado",
+        decisao === "aprovado"
+          ? "Sua identidade foi verificada. Bem-vindo ao nível Confiável!"
+          : `Motivo: ${docMotivoRejeicao.trim()}. Você pode reenviar pelo app.`,
+        { tipo: "confirmacao", url: "/?tela=configuracoes" },
+      );
+      setToastSuccess(`✅ Documento ${decisao}.`);
+      setDocRevisao(null);
+      setDocMotivoRejeicao("");
+      await carregarDocsPendentes();
+    } finally {
+      setRevisandoDoc(false);
     }
-    // Push pro user
-    enviarPush(
-      [docRevisao.user_id],
-      decisao === "aprovado" ? "✅ Documento aprovado!" : "❌ Documento rejeitado",
-      decisao === "aprovado"
-        ? "Sua identidade foi verificada. Bem-vindo ao nível Confiável!"
-        : `Motivo: ${docMotivoRejeicao.trim()}. Você pode reenviar pelo app.`,
-      { tipo: "confirmacao", url: "/?tela=configuracoes" },
-    );
-    setToastSuccess(`✅ Documento ${decisao}.`);
-    setDocRevisao(null);
-    setDocMotivoRejeicao("");
-    await carregarDocsPendentes();
   };
 
   // ── Admin: revisão de antecedentes criminais (espelha o KYC) ──────────────
@@ -6143,13 +6146,15 @@ export default function App() {
               { icon:"🏘️", label:"Comunidade",
                 sub:"Tópicos, dicas e conversas com outros usuários",
                 action:() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); } },
-              { icon:"🎁", label:"Indicar amigos",
-                sub:"Em breve: ganhe destaque ao convidar prestadores/anunciantes",
+              { icon:"📣", label:"Compartilhar o app",
+                // A6: removida a promessa de "recompensas/destaque por indicar" —
+                // não existe programa de indicação. Mantém só o compartilhar real.
+                sub:"Compartilhe o DiáriaJá com quem você conhece",
                 action:() => {
                   if (navigator.share) {
                     navigator.share({ title:"DiáriaJá", text:"Encontre prestadores qualificados no DiáriaJá!", url:"https://diariaja.vercel.app" }).catch(() => {});
                   } else {
-                    try { navigator.clipboard?.writeText("https://diariaja.vercel.app"); setToastSuccess("🔗 Link copiado! Em breve você ganha recompensas por indicar."); } catch { /* ignore */ }
+                    try { navigator.clipboard?.writeText("https://diariaja.vercel.app"); setToastSuccess("🔗 Link copiado!"); } catch { /* ignore */ }
                   }
                 } },
               { icon:"💼", label:"Virar MEI (CNPJ)",
@@ -6259,8 +6264,14 @@ export default function App() {
                 disabled={deletandoConta}
                 onClick={async () => {
                   setDeletandoConta(true);
+                  // A5: só declara "Conta excluída" se a exclusão REAL (Edge Function
+                  // delete-user, que apaga auth.users via service_role) confirmar.
+                  // Antes, qualquer falha caía num fallback silencioso e ainda mostrava
+                  // sucesso — usuário achava que seus dados sumiram quando podiam
+                  // permanecer (risco jurídico LGPD).
+                  let sucesso = false;
+                  let erroDetalhe = "";
                   try {
-                    // Chama Edge Function que apaga auth.users via service_role
                     const { data: { session: sess } } = await supabase.auth.getSession();
                     const res = await fetch(
                       `${SUPABASE_URL}/functions/v1/delete-user`,
@@ -6272,16 +6283,21 @@ export default function App() {
                         },
                       }
                     );
-                    if (!res.ok) {
-                      // Fallback: apaga só o perfil se Edge Function não estiver deployada
+                    if (res.ok) {
+                      sucesso = true;
+                    } else {
+                      try { const j = await res.json(); erroDetalhe = j?.error ?? ""; } catch { /* corpo não-JSON */ }
+                      if (!erroDetalhe) erroDetalhe = `HTTP ${res.status}`;
+                      // Fallback: ao menos tira o perfil de circulação. NÃO conta como
+                      // exclusão completa (a conta de auth e outros dados podem ficar).
                       if (session?.user?.id) {
-                        await supabase.from("user_profiles").delete().eq("id", session.user.id);
+                        try { await supabase.from("user_profiles").delete().eq("id", session.user.id); } catch { /* RLS/rede */ }
                       }
                     }
-                  } catch {
-                    // Fallback silencioso
+                  } catch (e) {
+                    erroDetalhe = e instanceof Error ? e.message : "erro de rede";
                     if (session?.user?.id) {
-                      await supabase.from("user_profiles").delete().eq("id", session.user.id);
+                      try { await supabase.from("user_profiles").delete().eq("id", session.user.id); } catch { /* RLS/rede */ }
                     }
                   }
                   // Limpa localStorage
@@ -6292,7 +6308,15 @@ export default function App() {
                   await supabase.auth.signOut();
                   setConfirmDeleteConta(false);
                   setDeletandoConta(false);
-                  setToastSuccess("Conta excluída. Até logo!");
+                  if (sucesso) {
+                    setToastSuccess("Conta excluída. Até logo!");
+                  } else {
+                    setToastError(
+                      "Não conseguimos confirmar a exclusão completa da sua conta. " +
+                      "Para garantir a remoção dos seus dados (LGPD), entre em contato: " +
+                      "suporte@diariaja.com.br" + (erroDetalhe ? ` (${erroDetalhe})` : "")
+                    );
+                  }
                 }}>
                 {deletandoConta ? "Excluindo..." : "Confirmar exclusão"}
               </button>
