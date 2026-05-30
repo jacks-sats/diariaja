@@ -78,28 +78,42 @@ combinam a diária no chat (pagamento da diária é direto entre eles)
 
 ---
 
-## Decisão em aberto — política do R$ 1 quando não vira diária
+## Política do R$ 1 quando não vira diária — DECIDIDO: crédito interno ✅
 
 O fluxo ideal pede "estorno". Como há tensão direta com a receita
-("preciso ganhar"), esta é uma **decisão de negócio**, não de engenharia. Opções:
+("preciso ganhar"), foi uma **decisão de negócio**. Opções avaliadas:
 
 | Opção | Efeito na receita | Efeito na confiança | Complexidade |
 | --- | --- | --- | --- |
-| **A. Não devolver** (status quo) | 👍 máxima | 👎 anunciante paga e pode não fechar | nenhuma |
-| **B. Crédito interno** — restaura a liberação/cota para o anunciante escolher outro sem pagar de novo | 😐 neutra (não perde dinheiro, só não cobra 2x) | 👍 boa | média (mexe na cota/`contatosLiberados`) |
-| **C. Estorno real do R$ 1** via Mercado Pago | 👎 perde a receita | 👍 máxima | alta (refund MP + idempotência) |
+| A. Não devolver (status quo) | 👍 máxima | 👎 anunciante paga e pode não fechar | nenhuma |
+| **B. Crédito interno** ✅ **escolhido** | 😐 neutra (não perde dinheiro, só não cobra 2x) | 👍 boa | média |
+| C. Estorno real do R$ 1 via Mercado Pago | 👎 perde a receita | 👍 máxima | alta |
 
-**Recomendação:** **opção B (crédito interno)** — preserva a receita e ainda assim
-"não pune" o anunciante por um prestador que sumiu. Combina bem com reabrir a vaga
-automaticamente (abaixo).
+**Decisão: opção B (crédito interno)** — preserva a receita e não pune o anunciante
+por um prestador que sumiu.
 
-## Outras melhorias propostas (não implementadas)
-- **Reabertura automática:** prestador selecionado que não confirma até a janela
-  da Fase A → vaga volta a `aberta` (em vez de só expirar), liberando outro
-  candidato. Casa com a opção B.
-- (Fase A.5 já cobre: feedback obrigatório de no-show.)
+### Como o crédito interno funciona (implementado)
 
-## Entregue nesta leva
+A cota grátis do mês é contada por `diarias` com `diarista_aceite_id` setado no
+mês (limite = 3 + desbloqueios R$ 1). O crédito acontece **devolvendo a cota**,
+não dinheiro:
+
+- **Desistência do prestador** (`desistirDiaria`): limpa `diarista_aceite_id` →
+  a diária deixa de contar **automaticamente**. (Já era assim.)
+- **No-show** (`migration credito_interno_no_show.sql`): a seleção que expira sem
+  virar diária (`status = 'expirada'`) deixa de contar na cota — o anunciante
+  recupera a vaga grátis daquele mês para escolher outro, **sem pagar de novo**.
+- Os desbloqueios R$ 1 (`contatos_desbloqueios`) somam ao limite o mês inteiro,
+  então um R$ 1 "perdido" num no-show vira crédito utilizável em outra seleção.
+
+> Sobre "reabrir a vaga": no no-show o horário da diária **já passou**, então
+> reabrir a mesma vaga não faz sentido — o que vale é devolver a **cota** (acima),
+> e isso está feito. Para desistência antes da data, a vaga volta a `aberta`
+> normalmente (`desistirDiaria`).
+
+## Entregue
 - ✅ Notificação ao anunciante quando o prestador responde ao convite (push).
 - ✅ Correção do `CLAUDE.md` (modelo de pagamento estava desatualizado).
 - ✅ Este documento de fluxos verificados.
+- ✅ **Crédito interno**: no-show não consome a cota de seleção do mês.
+- ℹ️ Feedback obrigatório de no-show já é coberto pela Fase A.5.
