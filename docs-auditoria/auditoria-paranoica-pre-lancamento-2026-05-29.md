@@ -23,7 +23,12 @@ Autor: auditoria assistida por IA. Escopo: `src/`, `supabase/functions/`,
   **AÇÃO MANUAL OBRIGATÓRIA:** aplicar `supabase/migrations/fix_c3_plano_avulso_no_gate.sql`
   no SQL Editor do Supabase — sem isso o anunciante que pagou via Pix continua sendo
   cobrado R$1 (o gate server-side não enxerga o plano).
-- **C1, A1–A6** — pendentes.
+- **C1 (bypass do paywall de seleção) — SQL pendente de aplicação:** trigger
+  server-side `enforce_limite_selecao_candidato` revalida o limite no próprio
+  `UPDATE diarias` (bloqueia a 4ª seleção sem pagar, mesmo via API/DevTools).
+  Não exige mudança de cliente. **AÇÃO MANUAL OBRIGATÓRIA:** aplicar
+  `supabase/migrations/fix_c1_enforce_selecao_candidato.sql` (depois do SQL do C3).
+- **A1–A6** — pendentes.
 
 ---
 
