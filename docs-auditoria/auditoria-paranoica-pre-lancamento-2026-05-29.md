@@ -43,7 +43,13 @@ Autor: auditoria assistida por IA. Escopo: `src/`, `supabase/functions/`,
 - **A6 ("indicar amigos" fake) — feito:** virou "Compartilhar o app", sem promessa de
   recompensa inexistente.
 - **B1 (log DEBUG em revisarDocumento) — feito** (removido junto do A4).
-- **A1, A2, A3** e médios/baixos restantes — pendentes.
+- **A1 (escalada a admin via INSERT) — CONFIRMADO no Dashboard; SQL pronto:** a
+  policy de INSERT de `user_profiles` não trava `is_admin` e o trigger anti-escalada
+  só pega UPDATE. Fix: `fix_a1_force_safe_defaults_insert.sql`. **APLICAR no Supabase.**
+- **A2 (UPDATE amplo em `diarias`) — CONFIRMADO no Dashboard; SQL pronto:** policy
+  `diarias_aceitar` deixa qualquer autenticado editar vaga aberta alheia. Fix:
+  `fix_a2_remove_diarias_update_amplo.sql`. **APLICAR no Supabase.**
+- Médios/baixos restantes — pendentes.
 
 ---
 
