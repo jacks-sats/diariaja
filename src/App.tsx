@@ -4923,6 +4923,28 @@ export default function App() {
     );
   };
 
+  // Card de acesso à Comunidade na home (no lugar onde antes ficava o banner da
+  // Universidade). Azul/teal pra diferenciar dos banners laranja do Já Decola.
+  const CardComunidadeHero = () => (
+    <div role="button" tabIndex={0}
+      style={{
+        margin:"4px 16px 14px",
+        background:"linear-gradient(135deg,#0ea5e9,#6366f1)",
+        borderRadius:18, padding:"16px 18px", color:"#fff",
+        cursor:"pointer", boxShadow:"0 6px 22px rgba(14,165,233,.35)",
+        display:"flex", alignItems:"center", gap:14,
+      }}
+      onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
+      <div style={{ width:50, height:50, background:"rgba(255,255,255,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0 }}>🏘️</div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:10, fontWeight:800, opacity:0.9, letterSpacing:0.4, textTransform:"uppercase" as const }}>Comunidade DiáriaJá</div>
+        <div style={{ fontSize:15, fontWeight:900, lineHeight:1.2, marginTop:2 }}>Participe da comunidade</div>
+        <div style={{ fontSize:11.5, opacity:0.92, marginTop:2 }}>Dicas, dúvidas e conquistas · e aprenda no Já Decola 🚀</div>
+      </div>
+      <div style={{ fontSize:20, opacity:0.9, flexShrink:0 }}>→</div>
+    </div>
+  );
+
   // LOADING
   // ── Barra de progresso global (aparece em qualquer operação assíncrona) ─────
   const anyLoading = loading || salvandoPerfil || authLoading || salvandoDiaria || enviandoAvalMutua || selecionando;
@@ -8644,6 +8666,9 @@ export default function App() {
           </div>
         )}
 
+        {/* Acesso à Comunidade na home */}
+        {CardComunidadeHero()}
+
         {/* Banner "Complete seu perfil" — movido para DEPOIS da lista de prestadores
             (money-first/gente-first): o anunciante vê os profissionais ANTES da
             cobrança de cadastro. Renderizado no fim da aba "início". */}
@@ -11438,6 +11463,9 @@ export default function App() {
                 </div>
               );
             })()}
+
+            {/* Acesso à Comunidade na home */}
+            {CardComunidadeHero()}
 
             {/* ── Cabeçalho com contador de novos anúncios + filtros ── */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 20px 10px" }}>
