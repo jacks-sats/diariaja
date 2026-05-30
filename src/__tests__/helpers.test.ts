@@ -27,6 +27,7 @@ import {
   verificarConteudoProibido,
   vagaProximaDeVencer,
   checkinDentroDaJanela,
+  diariaNoShow,
   calcularNivelAcademy,
 } from "../helpers";
 
@@ -956,6 +957,27 @@ describe("checkinDentroDaJanela", () => {
   });
   it("false sem data", () => {
     expect(checkinDentroDaJanela({ data: "", horario_inicio: "14:00" }, new Date("2026-05-29T15:00:00"))).toBe(false);
+  });
+});
+
+describe("diariaNoShow", () => {
+  // Diária 14:00–18:00. No-show só após fim+2h = 20:00.
+  const base = { data: "2026-05-29", horario_inicio: "14:00", horario_fim: "18:00", diarista_aceite_id: "x" };
+  it("true: aceita, sem check-in, passou de fim+2h", () => {
+    expect(diariaNoShow({ ...base, status: "aceita" }, new Date("2026-05-29T20:30:00"))).toBe(true);
+  });
+  it("false: ainda dentro da tolerância de 2h", () => {
+    expect(diariaNoShow({ ...base, status: "aceita" }, new Date("2026-05-29T19:30:00"))).toBe(false);
+  });
+  it("false: já fez check-in", () => {
+    expect(diariaNoShow({ ...base, status: "aceita", checkin_em: "2026-05-29T14:05:00Z" }, new Date("2026-05-29T20:30:00"))).toBe(false);
+  });
+  it("false: status diferente de aceita", () => {
+    expect(diariaNoShow({ ...base, status: "em_andamento" }, new Date("2026-05-29T20:30:00"))).toBe(false);
+    expect(diariaNoShow({ ...base, status: "concluida" }, new Date("2026-05-29T20:30:00"))).toBe(false);
+  });
+  it("false: sem data", () => {
+    expect(diariaNoShow({ ...base, data: "", status: "aceita" }, new Date("2026-05-29T20:30:00"))).toBe(false);
   });
 });
 

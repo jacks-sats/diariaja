@@ -300,3 +300,15 @@ export const MOTIVOS_VAGA_EXPIRADA: { id: string; label: string; emoji: string }
   { id: "contratei_fora", label: "Acabei conectando com alguém fora do app", emoji: "🚪" },
   { id: "outro",          label: "Outro motivo (descrever)",              emoji: "✏️"  },
 ];
+
+// Motivos quando a diária TINHA um profissional confirmado mas expirou sem
+// check-in (no-show). Usado no mesmo modal de feedback obrigatório (Fase A.5).
+// Reaproveita 'contratei_fora'/'desisti'/'outro' já aceitos pelo banco.
+export const MOTIVOS_NO_SHOW: { id: string; label: string; emoji: string }[] = [
+  { id: "diarista_nao_compareceu", label: "O profissional não apareceu",            emoji: "🚫" },
+  { id: "diarista_cancelou",       label: "O profissional avisou que não viria",    emoji: "📵" },
+  { id: "compareceu_sem_registro", label: "Compareceu, mas esqueci de confirmar",   emoji: "✅" },
+  { id: "contratei_fora",          label: "Resolvi por fora do app",                emoji: "🚪" },
+  { id: "desisti",                 label: "Não precisei mais",                      emoji: "🤷" },
+  { id: "outro",                   label: "Outro motivo (descrever)",               emoji: "✏️"  },
+];
