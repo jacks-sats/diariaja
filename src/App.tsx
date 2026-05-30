@@ -67,6 +67,7 @@ import {
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido,
+  calcularNivelAcademy,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -5776,6 +5777,9 @@ export default function App() {
   if (tela === "academy") {
     const voltarHome = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     const certIds = new Set(academyCertificados.map(c => c.curso_id));
+    // Fase 2: XP = soma dos pontos dos cursos concluídos → nível Bronze→Diamante.
+    const xpTotal = academyCertificados.reduce((s, c) => s + (academyCursos.find(x => x.id === c.curso_id)?.pontos_score || 0), 0);
+    const nivelAc = calcularNivelAcademy(xpTotal);
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
         {/* Header gradiente */}
@@ -5788,27 +5792,23 @@ export default function App() {
               <div style={{ fontSize:13, opacity:0.9 }}>Aprenda, ganhe selos, decole na plataforma</div>
             </div>
           </div>
-          {/* Stats do user */}
-          <div style={{ display:"flex", gap:10, marginTop:18 }}>
-            <div style={{ flex:1, background:"rgba(255,255,255,.15)", borderRadius:12, padding:"10px 12px" }}>
-              <div style={{ fontSize:22, fontWeight:900 }}>{academyCertificados.length}</div>
-              <div style={{ fontSize:11, opacity:0.85 }}>Cursos concluídos</div>
-            </div>
-            <div style={{ flex:1, background:"rgba(255,255,255,.15)", borderRadius:12, padding:"10px 12px" }}>
-              <div style={{ fontSize:22, fontWeight:900 }}>
-                {academyCertificados.reduce((s, c) => {
-                  const curso = academyCursos.find(x => x.id === c.curso_id);
-                  return s + (curso?.pontos_score || 0);
-                }, 0)}
+          {/* Nível na Universidade (XP → Bronze/Prata/Ouro/Diamante) */}
+          <div style={{ marginTop:18, background:"rgba(255,255,255,.15)", borderRadius:14, padding:"14px 16px" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:48, height:48, borderRadius:24, background:"rgba(255,255,255,.22)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0 }}>{nivelAc.icone}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:17, fontWeight:900 }}>Nível {nivelAc.nome}</div>
+                <div style={{ fontSize:12, opacity:0.9 }}>{xpTotal} XP · {academyCertificados.length} curso{academyCertificados.length !== 1 ? "s" : ""} concluído{academyCertificados.length !== 1 ? "s" : ""}</div>
               </div>
-              <div style={{ fontSize:11, opacity:0.85 }}>Pontos no score</div>
             </div>
-            <div style={{ flex:1, background:"rgba(255,255,255,.15)", borderRadius:12, padding:"10px 12px" }}>
-              <div style={{ fontSize:22, fontWeight:900 }}>
-                {academyCertificados.length === 0 ? "🌱" : academyCertificados.length < 3 ? "🚀" : academyCertificados.length < 5 ? "⭐" : "👑"}
+            <div style={{ marginTop:12 }}>
+              <div style={{ height:8, background:"rgba(255,255,255,.25)", borderRadius:4, overflow:"hidden" as const }}>
+                <div style={{ height:"100%", width:`${nivelAc.progressoPct}%`, background:"#fff", borderRadius:4, transition:"width .4s" }} />
               </div>
-              <div style={{ fontSize:11, opacity:0.85 }}>
-                {academyCertificados.length === 0 ? "Iniciante" : academyCertificados.length < 3 ? "Decolagem" : academyCertificados.length < 5 ? "Profissional" : "Mestre"}
+              <div style={{ fontSize:11, opacity:0.9, marginTop:6 }}>
+                {nivelAc.xpProximoNivel === null
+                  ? "🏆 Nível máximo! Você é Diamante."
+                  : `Faltam ${nivelAc.faltam} XP pro próximo nível (${nivelAc.xpProximoNivel} XP)`}
               </div>
             </div>
           </div>
