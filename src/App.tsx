@@ -747,7 +747,15 @@ export default function App() {
   // BUG-H5 fix: ref para acessar diarias atual no closure do Realtime sem declarar dependência
   const diariasRef = useRef<Diaria[]>([]);
   useEffect(() => { diariasRef.current = diarias; }, [diarias]);
-  useEffect(() => { tipoRef.current = tipo; }, [tipo]);
+  useEffect(() => {
+    tipoRef.current = tipo;
+    // M7: espelha o tipo escolhido em localStorage. tipoRef (useRef) não sobrevive
+    // a reload/redirect OAuth — isso permite completar o cadastro automaticamente
+    // quando o usuário volta (ex.: confirmou e-mail) sem refazer a escolha de tipo.
+    try {
+      if (tipo === "diarista" || tipo === "empregador") localStorage.setItem("diariaja_tipo_pendente", tipo);
+    } catch { /* ignore */ }
+  }, [tipo]);
   // Persiste o modo atual para sobreviver ao reload da página
   useEffect(() => { localStorage.setItem("diariaja_modo", modoAtual); }, [modoAtual]);
   // Persiste a tela atual para não sair da página ao recarregar
@@ -2101,29 +2109,43 @@ export default function App() {
             if (data?.user_type) {
               await checkProfile(session.user.id);
             } else {
-              // Profile não existe ainda. Pode ser primeiro login via Google OAuth.
-              // Estratégia minimal-first: se o user já escolheu o tipo antes (tipoRef),
-              // criamos um perfil mínimo automaticamente e mandamos direto pra home.
-              // O resto do onboarding vira o banner "Complete seu perfil".
-              const t = tipoRef.current;
+              // Profile não existe ainda. Pode ser: 1º login via Google OAuth, OU
+              // signup por e-mail confirmado num device/aba diferente (onde o
+              // tipoRef já se perdeu). Estratégia minimal-first: cria um perfil
+              // mínimo automaticamente e manda pra home; o resto vira o banner
+              // "Complete seu perfil".
+              const meta = (session.user.user_metadata || {}) as Record<string, unknown>;
+              // M7: fallback do tipo — tipoRef (memória) → user_metadata (sobrevive
+              // a reload/device, gravado no signup) → localStorage (espelho).
+              let tipoLS = "";
+              try { tipoLS = localStorage.getItem("diariaja_tipo_pendente") || ""; } catch { /* ignore */ }
+              const metaTipo = meta.user_type === "empregador" || meta.user_type === "diarista" ? String(meta.user_type) : "";
+              const t = tipoRef.current || metaTipo || tipoLS;
               if (t === "empregador" || t === "diarista") {
-                // Pega nome/foto do Google se disponível
-                const meta = (session.user.user_metadata || {}) as Record<string, unknown>;
                 const nomeGoogle = String(meta.full_name || meta.name || "").trim();
                 const fotoGoogle = String(meta.avatar_url || meta.picture || "").trim();
+                // M7: respeita pessoa_tipo do metadata (PJ grava "juridica" no signup).
+                const pessoaTipo = meta.pessoa_tipo === "juridica" ? "juridica" : "fisica";
                 try {
                   await supabase.from("user_profiles").upsert({
                     id: session.user.id,
                     user_type: t,
                     nome: nomeGoogle,
                     foto_url: fotoGoogle || "",
-                    pessoa_tipo: "fisica",
+                    pessoa_tipo: pessoaTipo,
                   }, { onConflict: "id" });
+                  // M7: persiste o aceite de termos (LGPD) mesmo se o flag em
+                  // localStorage não existir (caso de confirmar e-mail noutro device).
+                  supabase.rpc("aceitar_termos", { p_versao: TERMOS_VERSAO }).then(
+                    () => { try { localStorage.removeItem("diariaja_termos_pendente_db"); } catch { /* ignore */ } },
+                    () => {},
+                  );
+                  try { localStorage.removeItem("diariaja_tipo_pendente"); } catch { /* ignore */ }
                 } catch { /* RLS pode bloquear em "Confirm email" — re-tenta no próximo login */ }
                 if (t === "empregador") setTela("home-empregador");
                 else setTela("home-diarista");
               } else {
-                // Sem tipo selecionado — primeira vez via Google direto. Manda escolher.
+                // Sem tipo conhecido — primeira vez via Google direto. Manda escolher.
                 setTela("cadastro-tipo");
               }
               setLoading(false);
