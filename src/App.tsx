@@ -5038,6 +5038,23 @@ export default function App() {
     </div>
   ) : null;
 
+  // Variante do banner MEI pra Comunidade: âncora fixa de formalização. NÃO
+  // depende do "fechar" da home (meiBannerOculto) e não tem ✕ — só some pra
+  // quem já tem CNPJ (o incentivo não se aplica).
+  const bannerMEIComunidade = (profile && !profile.cnpj) ? (
+    <div role="button" tabIndex={0} onClick={() => setTela("mei-info")}
+      style={{ margin:"12px 16px 0", background:"linear-gradient(135deg,#0f766e,#16a34a)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 4px 16px rgba(22,163,74,.28)", cursor:"pointer" }}>
+      <span style={{ fontSize:26, flexShrink:0 }}>💼</span>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:13, fontWeight:900, color:"#fff", lineHeight:1.3 }}>Trabalha por conta própria?</div>
+        <div style={{ fontSize:12, color:"rgba(255,255,255,.92)", marginTop:2, lineHeight:1.4 }}>
+          Vire <strong>MEI</strong> e tenha CNPJ, nota fiscal e aposentadoria. <u>Saiba como →</u>
+        </div>
+      </div>
+      <span style={{ fontSize:20, color:"#fff", flexShrink:0 }}>→</span>
+    </div>
+  ) : null;
+
   // ── LANDING DE DESKTOP ───────────────────────────────────────────────────
   // No computador, a entrada vira um site de apresentação (largura cheia) em vez
   // do app mobile centralizado. Os CTAs entram no mesmo fluxo do app. No celular
@@ -16988,8 +17005,9 @@ export default function App() {
         {toastSuccess && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, whiteSpace:"nowrap" }}>{toastSuccess}</div>}
         {toastError   && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999 }}>{toastError}</div>}
 
-        {/* MEI — em cima do Já Decola: incentivo a virar MEI/CNPJ (abre a tela mei-info) */}
-        {bannerMEI}
+        {/* MEI — em cima do Já Decola: incentivo a virar MEI/CNPJ (abre a tela mei-info).
+            Versão fixa da Comunidade (não some se o usuário fechou o banner na home). */}
+        {bannerMEIComunidade}
 
         {/* ── Já Decola — card destacado dentro da Comunidade ── */}
         <div role="button" tabIndex={0}
