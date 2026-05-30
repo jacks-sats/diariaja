@@ -600,6 +600,26 @@ export function vagaExpirou(
   return agora.getTime() > fim.getTime();
 }
 
+// ── No-show: diária aceita, com profissional, mas que passou da janela sem ──
+// check-in. Espelha o critério do servidor (`expirar_e_encerrar_diarias`):
+// status 'aceita', sem `checkin_em`, e já passou `horario_fim + 2h` (mesma
+// tolerância da janela de check-in). Usado para expirar no-show no client
+// mesmo antes de o pg_cron estar ativo, alimentando o feedback obrigatório.
+export function diariaNoShow(
+  diaria: { data: string; horario_inicio?: string; horario_fim?: string; status: string; checkin_em?: string | null; diarista_aceite_id?: string | null },
+  agora: Date = new Date(),
+): boolean {
+  if (diaria.status !== "aceita") return false;
+  if (diaria.checkin_em) return false;
+  if (!diaria.data) return false;
+  const ini = (diaria.horario_inicio && diaria.horario_inicio.trim()) || "00:00";
+  const fimRaw = (diaria.horario_fim && diaria.horario_fim.trim()) || ini;
+  const [hf, mf] = fimRaw.split(":").map(Number);
+  if (Number.isNaN(hf) || Number.isNaN(mf)) return false;
+  const fim = new Date(`${diaria.data}T${String(hf).padStart(2, "0")}:${String(mf).padStart(2, "0")}:00`);
+  return agora.getTime() > fim.getTime() + 2 * 60 * 60 * 1000;
+}
+
 // ── Janela de check-in: presença só é confirmável perto do horário ──────────
 // A confirmação de presença (QR/GPS/código) vale apenas dentro de
 // [horario_inicio − 30min, horario_fim + 2h]. Fora disso o servidor (RPC

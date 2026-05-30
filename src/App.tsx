@@ -57,12 +57,12 @@ import {
   FUNCOES_DELIVERY, CATEGORIAS_NEGOCIO, MEDIAS_CAMPO_GRANDE,
   PLANOS_EMPREGADOR, PLANOS_DIARISTA,
   DIAS, DIAS_LABEL, MAX_INTERESSADOS, avatarColors, TODAS_AS_FUNCOES,
-  MOTIVOS_VAGA_EXPIRADA, TEMPOS_ESTIMADOS_SERVICO, TIPO_OFERTA_PADRAO_POR_CATEGORIA,
+  MOTIVOS_VAGA_EXPIRADA, MOTIVOS_NO_SHOW, TEMPOS_ESTIMADOS_SERVICO, TIPO_OFERTA_PADRAO_POR_CATEGORIA,
 } from "./constants";
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
-  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela,
+  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
@@ -1020,8 +1020,10 @@ export default function App() {
         .neq("status", "cancelada")
         .order("created_at", { ascending: false });
       if (data) {
-        // ── Auto-expira vagas que passaram do horário_fim ──────────────────
-        const venceram = data.filter((d: any) => vagaExpirou(d));
+        // ── Auto-expira vagas vencidas E no-show (aceita sem check-in) ──────
+        // (reforço client; o servidor/cron é a fonte da verdade, mas isto
+        //  garante o feedback obrigatório mesmo sem pg_cron ativo)
+        const venceram = data.filter((d: any) => vagaExpirou(d) || diariaNoShow(d));
         if (venceram.length > 0) {
           await supabase
             .from("diarias")
@@ -10346,18 +10348,29 @@ export default function App() {
         {vagasExpFeedback.length > 0 && (() => {
           const vaga = vagasExpFeedback[0];
           const fila = vagasExpFeedback.length;
+          // No-show: tinha profissional confirmado mas a diária expirou sem
+          // check-in. Copy e motivos diferentes do "ninguém aceitou".
+          const ehNoShow = !!vaga.diarista_aceite_id && !vaga.checkin_em;
+          const motivos = ehNoShow ? MOTIVOS_NO_SHOW : MOTIVOS_VAGA_EXPIRADA;
           return (
             <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
               <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"24px 22px", width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}>
-                <div style={{ fontSize:36, textAlign:"center", marginBottom:8 }}>⏰</div>
+                <div style={{ fontSize:36, textAlign:"center", marginBottom:8 }}>{ehNoShow ? "📍" : "⏰"}</div>
                 <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:4 }}>
-                  Anúncio expirou sem ninguém aceitar
+                  {ehNoShow ? "Profissional confirmou mas não fez check-in" : "Anúncio expirou sem ninguém aceitar"}
                 </div>
                 <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:16, lineHeight:1.5 }}>
-                  Seu anúncio de <strong>{vaga.funcao || vaga.segmento}</strong> em{" "}
-                  <strong>{new Date(vaga.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong> passou do horário.
-                  <br /><br />
-                  Nos conte rapidinho o que aconteceu — ajuda muito a gente a melhorar.
+                  {ehNoShow ? (
+                    <>Sua diária de <strong>{vaga.funcao || vaga.segmento}</strong> em{" "}
+                    <strong>{new Date(vaga.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong> tinha um profissional
+                    confirmado, mas não houve check-in.<br /><br />
+                    O que aconteceu? Isso ajuda a manter a plataforma confiável.</>
+                  ) : (
+                    <>Seu anúncio de <strong>{vaga.funcao || vaga.segmento}</strong> em{" "}
+                    <strong>{new Date(vaga.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong> passou do horário.
+                    <br /><br />
+                    Nos conte rapidinho o que aconteceu — ajuda muito a gente a melhorar.</>
+                  )}
                 </div>
                 {fila > 1 && (
                   <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginBottom:10 }}>
@@ -10365,7 +10378,7 @@ export default function App() {
                   </div>
                 )}
                 <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
-                  {MOTIVOS_VAGA_EXPIRADA.map(m => (
+                  {motivos.map(m => (
                     <button
                       key={m.id}
                       onClick={() => setMotivoExpSelecionado(m.id)}
