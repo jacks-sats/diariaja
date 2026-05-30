@@ -2691,6 +2691,35 @@ export default function App() {
     if (error) setAuthError(traduzirErroAuth(error.message));
   };
 
+  // Cadastro EXPRESS para quem já está logado (ex.: entrou com Google e ainda
+  // não tem perfil). Espelha o caminho leve do cadastro por e-mail: cria um
+  // perfil mínimo (tipo + nome + foto vindos do Google) e vai DIRETO pra home —
+  // sem os formulários gigantes. Foto/CPF/função/valor/CEP ficam pro banner
+  // "Complete seu perfil" e telas internas. Reduz a fricção do primeiro contato.
+  const iniciarCadastroExpress = async (tipoEscolhido: string) => {
+    if (!session?.user) { setTela("cadastro-tipo"); return; }
+    const meta = (session.user.user_metadata ?? {}) as Record<string, unknown>;
+    const nomeGoogle = String(meta.full_name || meta.name || session.user.email?.split("@")[0] || "").trim();
+    const fotoGoogle = String(meta.avatar_url || meta.picture || "").trim();
+    // Registra aceite de termos (LGPD) — equivalente ao fluxo de e-mail.
+    try { localStorage.setItem("diariaja_termos_" + TERMOS_VERSAO, "1"); } catch { /* ignore */ }
+    try { localStorage.setItem("diariaja_termos_data", new Date().toISOString()); } catch { /* ignore */ }
+    const ok = await saveProfile({
+      user_type: tipoEscolhido,
+      nome: nomeGoogle,
+      pessoa_tipo: "fisica",
+      ...(fotoGoogle ? { foto_url: fotoGoogle } : {}),
+    });
+    if (!ok) { setAuthError("Não foi possível iniciar sua conta. Tente novamente."); return; }
+    if (fotoGoogle) setFotoUrl(fotoGoogle);
+    try { await supabase.rpc("aceitar_termos", { p_versao: TERMOS_VERSAO }); } catch { /* RPC tenta de novo no próximo login */ }
+    trackEvento("cadastro_express", session.user.id, tipoEscolhido === "diarista" ? "diarista" : "empregador", { via: "google" });
+    // Direto pra home — mesmo destino do cadastro por e-mail.
+    if (tipoEscolhido === "diarista") setTela("home-diarista");
+    else if (tipoEscolhido === "empregador") setTela("home-empregador");
+    else setTela("cadastro-tipo");
+  };
+
   // P0-2 auditoria: inicia OAuth do Mercado Pago com nonce one-time (anti-CSRF).
   // Chama RPC `criar_oauth_state('mercadopago')` que insere uma linha em
   // `oauth_states` com TTL 10 min, vinculada ao auth.uid() atual. Devolve o
@@ -5716,13 +5745,19 @@ export default function App() {
             if (session) { setTela("cadastro-empregador"); }
             else { setTela("cadastro-empresa"); }
           } else if (session) {
-            setTela(tipo === "empregador" ? "cadastro-empregador" : "cadastro-diarista");
+            // Já logado (ex.: Google) → cadastro express: perfil mínimo e entra
+            // direto. O resto (foto/CPF/função/valor/CEP) é pedido dentro do app.
+            iniciarCadastroExpress(tipo!);
           } else {
             setTela("cadastro-auth");
           }
         }}>
         {tipo ? "Continuar →" : "👆 Escolha um tipo de conta acima"}
       </button>
+      <p style={{ color:"rgba(255,255,255,.5)", fontSize:11, textAlign:"center" as const, lineHeight:1.5, marginTop:12 }}>
+        Ao continuar, você concorda com os{" "}
+        <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#cbd5e1", textDecoration:"underline" }}>Termos e a Política de Privacidade</a>.
+      </p>
     </div>
   );
 
