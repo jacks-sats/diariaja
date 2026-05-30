@@ -8908,8 +8908,8 @@ export default function App() {
                               <button
                                 style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                                 onClick={async () => {
-                                  const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
-                                  if (dp) { setDiaristaSelecionadaReal(dp); setTela("perfil-diarista-real"); }
+                                  const { data: dp } = await supabase.from("user_profiles").select(COLUNAS_PERFIL_PUBLICO).eq("id", c.diarista_id).single();
+                                  if (dp) { setDiaristaSelecionadaReal(dp as unknown as UserProfile); setTela("perfil-diarista-real"); }
                                 }}>
                                 📱 Ver contato de {c.diarista_nome?.split(" ")[0]}
                               </button>
@@ -8929,8 +8929,8 @@ export default function App() {
                             <button
                               style={{ width:"100%", padding:"9px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                               onClick={async () => {
-                                const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
-                                if (dp) { setDiaristaSelecionadaReal(dp); setTela("perfil-diarista-real"); }
+                                const { data: dp } = await supabase.from("user_profiles").select(COLUNAS_PERFIL_PUBLICO).eq("id", c.diarista_id).single();
+                                if (dp) { setDiaristaSelecionadaReal(dp as unknown as UserProfile); setTela("perfil-diarista-real"); }
                               }}>
                               👤 Ver perfil completo
                             </button>
