@@ -136,6 +136,11 @@ function QRScannerComponent({ onResult, onError, onClose }: {
 // Edge Function `verificar-whatsapp` deployada — aí vire para `true`.
 const MOSTRAR_VERIFICAR_TELEFONE_CTA = false;
 
+// C2 passo B: a leitura de perfis de TERCEIROS agora passa pelas RPCs
+// perfis_publicos()/prestadores_publicos() (sem telefone/cpf/cnpj/PIX/token,
+// com derivados tem_documento e nivel). O antigo COLUNAS_PERFIL_PUBLICO foi
+// removido — não há mais select de colunas cruas de perfil alheio no cliente.
+
 // Helper: mostra notificação local compatível com mobile/PWA.
 // Em Android Chrome/PWA, `mostrarNotificacaoLocal(...)` é PROIBIDO — só funciona via
 // ServiceWorkerRegistration.showNotification(). Em desktop, ambos funcionam.
@@ -188,7 +193,6 @@ export default function App() {
   const [buscandoCEPPerfil, setBuscandoCEPPerfil] = useState(false);  // diarista profile CEP
   const [latPerfilCEP, setLatPerfilCEP]           = useState<number | null>(null); // geocoded from profile CEP
   const [lngPerfilCEP, setLngPerfilCEP]           = useState<number | null>(null);
-  const [localizandoDiaria, setLocalizandoDiaria] = useState(false);
   const [latDiaria, setLatDiaria]                 = useState<number | null>(null);
   const [lngDiaria, setLngDiaria]                 = useState<number | null>(null);
   const [salvandoDiaria, setSalvandoDiaria]       = useState(false);
@@ -430,7 +434,9 @@ export default function App() {
   // uso, e gates de feature. Sempre que precisar checar "o usuário pode X?",
   // use `permissions.*` (ou consulte `pode_selecionar_candidato` no banco
   // pra decisões críticas — ele é a fonte oficial).
-  const plans       = usePlan(assinaturas);
+  // C3: passa o perfil pra usePlan honrar o plano avulso de 30 dias
+  // (user_profiles.plano_ativo + plano_expira_em), não só a tabela assinaturas.
+  const plans       = usePlan(assinaturas, profile);
   const limits      = useLimits(plans, diarias, contatosDesbloqueados, diariasConcluidasComoDiarista);
   const permissions = usePermissions(plans);
 
@@ -932,6 +938,17 @@ export default function App() {
     }
   }, [tela, negocioSelecionado, profile]);
 
+  // M3: guarda de telas privilegiadas em useEffect (não em render). Se o usuário
+  // não tem permissão, redireciona pra configurações — sem chamar setState
+  // durante o render (anti-pattern que rodava nos gates de admin/suporte).
+  useEffect(() => {
+    if (tela === "admin-painel" && !profile?.is_admin) {
+      setTela("configuracoes");
+    } else if (tela === "painel-suporte" && !(profile?.is_admin || profile?.is_suporte)) {
+      setTela("configuracoes");
+    }
+  }, [tela, profile?.is_admin, profile?.is_suporte]);
+
   // Carrega diaristas reais cadastrados no banco
   useEffect(() => {
     if (tela !== "home-empregador" || !session?.user) return;
@@ -946,16 +963,15 @@ export default function App() {
       // → anunciante via "Nenhum profissional ainda" mesmo com prestadores
       // cadastrados. Removi a ordenação até adicionarmos created_at na tabela
       // ou identificarmos coluna alternativa estável.
-      const { data, error } = await supabase
-        .from("user_profiles")
-        .select("*")
-        .in("user_type", ["diarista", "ambos"])   // "ambos" presta serviço E anuncia — tem que aparecer pro anunciante
-        .neq("id", session.user!.id)              // não mostra o próprio perfil pro anunciante "ambos"
-        .limit(200);
+      // C2 passo B: feed via RPC prestadores_publicos — retorna só dados públicos
+      // + derivados (tem_documento, nivel), sem telefone/cpf/cnpj/PIX/token. Filtra
+      // por papel (diarista/ambos) e exclui o próprio usuário no servidor.
+      const { data, error } = await supabase.rpc("prestadores_publicos", { p_limit: 200 });
       if (error) console.warn("[home-empregador] erro carregando prestadores:", error.message);
       if (data) {
-        setDiaristasReais(data);
-        diaristasReaisRef.current = data;
+        const lista = (data as unknown as UserProfile[]) ?? [];
+        setDiaristasReais(lista);
+        diaristasReaisRef.current = lista;
       }
     })();
   }, [tela, session?.user?.id]);
@@ -1013,8 +1029,9 @@ export default function App() {
           if (cands && cands.length > 0) {
             setCandidaturas(cands);
             const dids = [...new Set(cands.map((c:any) => c.diarista_id))];
-            const { data: profs } = await supabase.from("user_profiles").select("*").in("id", dids);
-            if (profs) { const m: Record<string,UserProfile> = {}; profs.forEach((p:any) => { m[p.id] = p; }); setCandidatosProfiles(m); }
+            // C2: perfis de candidatos não trazem telefone/PIX/token — só colunas públicas.
+            const { data: profs } = await supabase.rpc("perfis_publicos", { p_ids: dids });
+            if (profs) { const m: Record<string,UserProfile> = {}; (profs as unknown as UserProfile[]).forEach((p) => { m[p.id] = p; }); setCandidatosProfiles(m); }
           }
           // Carrega contagem de dislikes por vaga
           carregarDislikesPorVaga(ids);
@@ -1032,20 +1049,23 @@ export default function App() {
     }
     const vaga = vagasExpFeedback[0];
     setEnviandoFeedbackExp(true);
-    const { error } = await supabase.from("feedback_vaga_expirada").insert({
-      diaria_id:        vaga.id,
-      empregador_id:    session.user.id,
-      motivo_categoria: motivoExpSelecionado,
-      motivo_texto:     motivoExpTexto.trim() || null,
-    });
-    setEnviandoFeedbackExp(false);
-    if (error) { setToastError("Erro: " + error.message); return; }
-    trackEvento("feedback_vaga_expirada", session.user.id, "empregador", {
-      diaria_id: vaga.id, motivo: motivoExpSelecionado,
-    });
-    setVagasExpFeedback(prev => prev.slice(1));
-    setMotivoExpSelecionado("");
-    setMotivoExpTexto("");
+    try {
+      const { error } = await supabase.from("feedback_vaga_expirada").insert({
+        diaria_id:        vaga.id,
+        empregador_id:    session.user.id,
+        motivo_categoria: motivoExpSelecionado,
+        motivo_texto:     motivoExpTexto.trim() || null,
+      });
+      if (error) { setToastError("Erro: " + error.message); return; }
+      trackEvento("feedback_vaga_expirada", session.user.id, "empregador", {
+        diaria_id: vaga.id, motivo: motivoExpSelecionado,
+      });
+      setVagasExpFeedback(prev => prev.slice(1));
+      setMotivoExpSelecionado("");
+      setMotivoExpTexto("");
+    } finally {
+      setEnviandoFeedbackExp(false);  // A4
+    }
   };
 
   // ── Envio de pesquisa pós-conclusão (modal obrigatório) ─────────────────────
@@ -1056,24 +1076,27 @@ export default function App() {
     if (posRecomendaria === null)  { setToastError("Informe se você recomendaria o profissional."); return; }
     const diaria = diariasPosFeedback[0];
     setEnviandoFeedbackPos(true);
-    const { error } = await supabase.from("feedback_pos_conclusao").insert({
-      diaria_id:         diaria.id,
-      empregador_id:     session.user.id,
-      chegou_no_horario: posChegouHorario,
-      nota_qualidade:    posNotaQualidade,
-      recomendaria:      posRecomendaria,
-      comentario:        posComentario.trim() || null,
-    });
-    setEnviandoFeedbackPos(false);
-    if (error) { setToastError("Erro: " + error.message); return; }
-    trackEvento("feedback_pos_conclusao", session.user.id, "empregador", {
-      diaria_id: diaria.id, nota: posNotaQualidade, recomendaria: posRecomendaria, no_horario: posChegouHorario,
-    });
-    setDiariasPosFeedback(prev => prev.slice(1));
-    setPosChegouHorario(null);
-    setPosNotaQualidade(0);
-    setPosRecomendaria(null);
-    setPosComentario("");
+    try {
+      const { error } = await supabase.from("feedback_pos_conclusao").insert({
+        diaria_id:         diaria.id,
+        empregador_id:     session.user.id,
+        chegou_no_horario: posChegouHorario,
+        nota_qualidade:    posNotaQualidade,
+        recomendaria:      posRecomendaria,
+        comentario:        posComentario.trim() || null,
+      });
+      if (error) { setToastError("Erro: " + error.message); return; }
+      trackEvento("feedback_pos_conclusao", session.user.id, "empregador", {
+        diaria_id: diaria.id, nota: posNotaQualidade, recomendaria: posRecomendaria, no_horario: posChegouHorario,
+      });
+      setDiariasPosFeedback(prev => prev.slice(1));
+      setPosChegouHorario(null);
+      setPosNotaQualidade(0);
+      setPosRecomendaria(null);
+      setPosComentario("");
+    } finally {
+      setEnviandoFeedbackPos(false);  // A4
+    }
   };
 
   // Loader do feed do diarista — extraído pra ser reutilizável pelo pull-to-refresh
@@ -1207,6 +1230,7 @@ export default function App() {
     if (tela !== "perfil-empregador" || !empregadorAberto) return;
     setCarregandoEmpAberto(true);
     (async () => {
+      try {
       // Avaliações com nome do diarista que avaliou (sem revelar contato)
       const { data: avs } = await supabase
         .from("avaliacoes_empregador")
@@ -1238,7 +1262,9 @@ export default function App() {
           .maybeSingle();
         if (rep) setReputacaoEmp(prev => ({ ...prev, [empregadorAberto.id]: rep }));
       }
-      setCarregandoEmpAberto(false);
+      } finally {
+        setCarregandoEmpAberto(false);  // A4: nunca trava o perfil em loading
+      }
     })();
   }, [tela, empregadorAberto?.id]);
 
@@ -1253,11 +1279,9 @@ export default function App() {
       hideLoadingBar();
       return;
     }
-    const { data } = await supabase
-      .from("user_profiles")
-      .select("*")
-      .eq("id", empregadorId)
-      .maybeSingle();
+    // C2 passo B: perfil do anunciante (terceiro) via perfis_publicos — sem cpf/telefone.
+    const { data: empArr } = await supabase.rpc("perfis_publicos", { p_ids: [empregadorId] });
+    const data = (empArr as unknown as UserProfile[] | null)?.[0] ?? null;
     hideLoadingBar();
     if (data) {
       setEmpregadoresProfiles(prev => ({ ...prev, [empregadorId]: data }));
@@ -1276,26 +1300,29 @@ export default function App() {
     if (avalEmpCumpriu === null)     { setToastError("Informe se o anunciante cumpriu o combinado."); return; }
     const diaria = diariasAvaliarEmp[0];
     setEnviandoAvalEmpOb(true);
-    const { error } = await supabase.from("avaliacoes_empregador").insert({
-      diarista_id:       session.user.id,
-      empregador_id:     diaria.empregador_id,
-      diaria_id:         diaria.id,
-      nota:              avalEmpNota,
-      pagou_combinado:   avalEmpPagou,
-      cumpriu_combinado: avalEmpCumpriu,
-      comentario:        avalEmpComentario.trim() || null,
-    });
-    setEnviandoAvalEmpOb(false);
-    if (error) { setToastError("Erro: " + error.message); return; }
-    trackEvento("avaliacao_enviada", session.user.id, "diarista", {
-      tipo: "empregador", nota: avalEmpNota, pagou: avalEmpPagou, cumpriu: avalEmpCumpriu,
-    });
-    setAvaliadosDiarias(prev => new Set([...prev, diaria.id]));
-    setDiariasAvaliarEmp(prev => prev.slice(1));
-    setAvalEmpNota(0);
-    setAvalEmpPagou(null);
-    setAvalEmpCumpriu(null);
-    setAvalEmpComentario("");
+    try {
+      const { error } = await supabase.from("avaliacoes_empregador").insert({
+        diarista_id:       session.user.id,
+        empregador_id:     diaria.empregador_id,
+        diaria_id:         diaria.id,
+        nota:              avalEmpNota,
+        pagou_combinado:   avalEmpPagou,
+        cumpriu_combinado: avalEmpCumpriu,
+        comentario:        avalEmpComentario.trim() || null,
+      });
+      if (error) { setToastError("Erro: " + error.message); return; }
+      trackEvento("avaliacao_enviada", session.user.id, "diarista", {
+        tipo: "empregador", nota: avalEmpNota, pagou: avalEmpPagou, cumpriu: avalEmpCumpriu,
+      });
+      setAvaliadosDiarias(prev => new Set([...prev, diaria.id]));
+      setDiariasAvaliarEmp(prev => prev.slice(1));
+      setAvalEmpNota(0);
+      setAvalEmpPagou(null);
+      setAvalEmpCumpriu(null);
+      setAvalEmpComentario("");
+    } finally {
+      setEnviandoAvalEmpOb(false);  // A4
+    }
   };
 
   // Carrega avaliações do diarista real ao abrir o perfil dele
@@ -1542,7 +1569,8 @@ export default function App() {
           if (!minhasDiariasIds.includes(c.diaria_id)) return;
           setCandidaturas(prev => [...prev, c]);
           // Carrega perfil do candidato
-          const { data } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
+          const { data: arr } = await supabase.rpc("perfis_publicos", { p_ids: [c.diarista_id] });
+          const data = (arr as unknown as UserProfile[] | null)?.[0];
           if (data) setCandidatosProfiles(prev => ({ ...prev, [c.diarista_id]: data }));
           // BUG-2 fix: toast in-app independente da permissão de push
           const vaga = diariasRef.current.find(d => d.id === c.diaria_id);
@@ -1567,11 +1595,11 @@ export default function App() {
     const faltando = cands.map(c => c.diarista_id).filter(id => !candidatosProfiles[id]);
     if (faltando.length === 0) return;
     (async () => {
-      const { data: profs } = await supabase.from("user_profiles").select("*").in("id", faltando);
+      const { data: profs } = await supabase.rpc("perfis_publicos", { p_ids: faltando });
       if (profs && profs.length > 0) {
         setCandidatosProfiles(prev => {
           const m = { ...prev };
-          profs.forEach((p: any) => { m[p.id] = p; });
+          (profs as unknown as UserProfile[]).forEach((p) => { m[p.id] = p; });
           return m;
         });
       }
@@ -1825,10 +1853,12 @@ export default function App() {
     const ids = [...new Set(diarias.filter(d => d.diarista_aceite_id).map(d => d.diarista_aceite_id!))];
     if (!ids.length) return;
     (async () => {
-      const { data } = await supabase.from("user_profiles").select("*").in("id", ids);
+      // C2 passo B: display via perfis_publicos (nome/foto/nível, sem telefone/cpf).
+      // O contato/PIX é buscado à parte (contato_prestador) quando o modal PIX abre.
+      const { data } = await supabase.rpc("perfis_publicos", { p_ids: ids });
       if (data) {
         const map: Record<string, UserProfile> = {};
-        data.forEach((p: UserProfile) => { map[p.id] = p; });
+        (data as unknown as UserProfile[]).forEach((p) => { map[p.id] = p; });
         setDiaristasAceites(prev => ({ ...prev, ...map }));
       }
       // Conta diárias concluídas de cada diarista
@@ -1842,16 +1872,21 @@ export default function App() {
     })();
   }, [diarias]);
 
-  // BUG-FIX: Quando o modal PIX abre de um Convite, busca o perfil do diarista se ainda não está em cache
-  // Convite usa diarista_id; Diaria usa diarista_aceite_id
+  // C2 passo B: ao abrir o modal PIX, carrega (1) o perfil público do prestador
+  // para exibição (se ainda não estiver em cache) e (2) o CONTATO/PIX via
+  // contato_prestador() — que só devolve telefone/cpf/pix se houver relação
+  // legítima (diária com ele selecionado ou convite aceito).
+  // Convite usa diarista_id; Diária usa diarista_aceite_id.
   useEffect(() => {
     if (!modalPix) return;
     const id = (modalPix as any).diarista_aceite_id || (modalPix as any).diarista_id;
-    if (!id || diaristasAceites[id]) return; // já carregado
-    supabase.from("user_profiles").select("*").eq("id", id).single()
-      .then(({ data }) => {
-        if (data) setDiaristasAceites(prev => ({ ...prev, [id]: data as UserProfile }));
-      });
+    if (!id || diaristasAceites[id]) return;
+    // Só o perfil PÚBLICO (nome p/ exibição). Nenhum dado de contato/PIX é
+    // carregado — o pagamento é combinado direto entre as partes pelo chat.
+    supabase.rpc("perfis_publicos", { p_ids: [id] }).then(({ data }) => {
+      const p = (data as unknown as UserProfile[] | null)?.[0];
+      if (p) setDiaristasAceites(prev => ({ ...prev, [id]: p }));
+    });
   }, [modalPix]);
 
   // Carrega mensagens do chat ativo + marca como lidas as do destinatário=eu
@@ -2109,11 +2144,11 @@ export default function App() {
   }, []);
 
   const checkProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from("user_profiles")
-      .select("*")
-      .eq("id", userId)
-      .maybeSingle();
+    // C2 passo B: lê o PRÓPRIO perfil via RPC meu_perfil() (perfil completo do
+    // dono via SECURITY DEFINER) — continua funcionando após o REVOKE das
+    // colunas sensíveis em user_profiles para o role authenticated.
+    const { data: raw, error } = await supabase.rpc("meu_perfil");
+    const data = raw as UserProfile | null;
 
     if (error) { setLoading(false); return; }
 
@@ -2160,7 +2195,10 @@ export default function App() {
       const telaSalva = (() => { try { return localStorage.getItem("diariaja_tela") || ""; } catch { return ""; } })();
       // Telas que NÃO devem ser restauradas (requerem autenticação/fluxo limpo)
       // Telas que dependem de seleção em memória (não restaurar do localStorage)
-      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat"]);
+      // M3: inclui telas privilegiadas/contextuais que NÃO devem ser restauradas
+      // do localStorage (evita flash de painel admin/suporte ao recarregar e
+      // telas que precisam de contexto).
+      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat","admin-painel","painel-suporte","alterar-senha","verificar-telefone"]);
       const podeRestaurar = (t: string) => t && !TELAS_AUTH.has(t);
 
       // Sem CEP cadastrado → bloqueia até resolver (feed depende de lat/lng)
@@ -2225,11 +2263,17 @@ export default function App() {
       pix_chave: updates.pix_chave ?? profile?.pix_chave,
       pix_tipo:  updates.pix_tipo  ?? profile?.pix_tipo,
     };
-    const { error } = await supabase.from("user_profiles").upsert(full);
-    setSalvandoPerfil(false);
-    if (error) { setAuthError("Erro ao salvar perfil: " + error.message); return false; }
-    setProfile(full);
-    return true;
+    // A4: try/finally garante que o loading global (salvandoPerfil) sempre
+    // reseta — antes, se o upsert REJEITASSE (rede/timeout), o setSalvandoPerfil(false)
+    // não rodava e o app inteiro ficava travado em loading até reload.
+    try {
+      const { error } = await supabase.from("user_profiles").upsert(full);
+      if (error) { setAuthError("Erro ao salvar perfil: " + error.message); return false; }
+      setProfile(full);
+      return true;
+    } finally {
+      setSalvandoPerfil(false);
+    }
   };
 
   // Traduz mensagens de erro brutas do Supabase para pt-BR
@@ -2637,19 +2681,6 @@ export default function App() {
 
 
   // Atualiza localização do usuário (usado no perfil após cadastro)
-  const handleAtualizarLocalizacao = () => {
-    if (!navigator.geolocation) { setAuthError("Geolocalização não suportada neste dispositivo."); return; }
-    setAuthError("");
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const ok = await saveProfile({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        if (ok) setToastSuccess("📍 Localização atualizada!");
-      },
-      () => setAuthError("Permissão negada. Ative a localização nas configurações."),
-      { timeout: 15000, enableHighAccuracy: true }
-    );
-  };
-
   // Salva SOMENTE a foto_url no banco — evita sobrescrever outros campos (closure issue)
   const salvarFotoUrl = async (url: string) => {
     if (!session?.user) return false;
@@ -2882,18 +2913,21 @@ export default function App() {
   const enviarDenuncia = async () => {
     if (!session?.user || !modalDenunciar || !motivoDenuncia.trim()) return;
     setEnviandoDenuncia(true);
-    const { error } = await supabase.from("denuncias").insert({
-      denunciante_id:  session.user.id,
-      tipo:            modalDenunciar.tipo,
-      alvo_id:         modalDenunciar.id,
-      alvo_nome:       modalDenunciar.nome,
-      motivo:          motivoDenuncia.trim(),
-    });
-    setEnviandoDenuncia(false);
-    if (error) { setToastError("Falha ao enviar denúncia. Tente novamente."); return; }
-    setModalDenunciar(null);
-    setMotivoDenuncia("");
-    setToastSuccess("⚑ Denúncia enviada. Vamos analisar em breve.");
+    try {
+      const { error } = await supabase.from("denuncias").insert({
+        denunciante_id:  session.user.id,
+        tipo:            modalDenunciar.tipo,
+        alvo_id:         modalDenunciar.id,
+        alvo_nome:       modalDenunciar.nome,
+        motivo:          motivoDenuncia.trim(),
+      });
+      if (error) { setToastError("Falha ao enviar denúncia. Tente novamente."); return; }
+      setModalDenunciar(null);
+      setMotivoDenuncia("");
+      setToastSuccess("⚑ Denúncia enviada. Vamos analisar em breve.");
+    } finally {
+      setEnviandoDenuncia(false);  // A4: nunca trava, mesmo se o insert rejeitar
+    }
   };
 
   // ── NÃO TENHO INTERESSE ───────────────────────────────────────────────────
@@ -2957,6 +2991,7 @@ export default function App() {
     }
     setEnviandoConvite(true);
     const horarioCompleto = `${formConvite.horario} (${formConvite.cargaHoraria}h de trabalho)`;
+    try {
     const { error } = await supabase.from("convites").insert({
       contratante_id:   session.user.id,
       diarista_id:      diaristaSelecionadaReal.id,
@@ -2970,7 +3005,6 @@ export default function App() {
       valor:            diaristaSelecionadaReal.valor_diaria || null,
       status:           "pendente",
     });
-    setEnviandoConvite(false);
     if (error) {
       setToastError(`Erro ao enviar convite: ${error.message}`);
       return;
@@ -2981,6 +3015,9 @@ export default function App() {
     if (session?.user) carregarConvites(session.user.id, "empregador");
     setTabEmpregador("diarias");
     setToastSuccess(`📨 Convite enviado para ${diaristaSelecionadaReal?.nome}! Aguardando resposta.`);
+    } finally {
+      setEnviandoConvite(false);  // A4: reseta o loading mesmo se o insert rejeitar
+    }
   };
 
   const responderConvite = async (conviteId: string, resposta: "aceito" | "recusado") => {
@@ -3006,21 +3043,24 @@ export default function App() {
   const carregarAdminStats = async () => {
     if (!profile?.is_admin) return;
     setCarregandoAdminStats(true);
-    const { data, error } = await supabase.rpc("admin_stats");
-    if (!error && data?.[0]) setAdminStats(data[0] as AdminStats);
-    // Em paralelo: extras + 2 séries temporais pra os gráficos
-    const [extras, serieU, serieD] = await Promise.all([
-      supabase.rpc("admin_metricas_extras"),
-      supabase.rpc("admin_metricas_serie", { p_metrica: "novos_usuarios", p_dias: 14 }),
-      supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_criadas", p_dias: 14 }),
-    ]);
-    if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
-    if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
-    if (!serieD.error && serieD.data) setAdminSerieDiarias(serieD.data);
-    // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
-    const fin = await supabase.rpc("admin_resumo_financeiro");
-    if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
-    setCarregandoAdminStats(false);
+    try {
+      const { data, error } = await supabase.rpc("admin_stats");
+      if (!error && data?.[0]) setAdminStats(data[0] as AdminStats);
+      // Em paralelo: extras + 2 séries temporais pra os gráficos
+      const [extras, serieU, serieD] = await Promise.all([
+        supabase.rpc("admin_metricas_extras"),
+        supabase.rpc("admin_metricas_serie", { p_metrica: "novos_usuarios", p_dias: 14 }),
+        supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_criadas", p_dias: 14 }),
+      ]);
+      if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
+      if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
+      if (!serieD.error && serieD.data) setAdminSerieDiarias(serieD.data);
+      // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
+      const fin = await supabase.rpc("admin_resumo_financeiro");
+      if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
+    } finally {
+      setCarregandoAdminStats(false);  // A4
+    }
   };
 
   // Abre modal drill-down ao clicar num card de stat (carrega RPC com lista
@@ -3031,9 +3071,12 @@ export default function App() {
     setAdminDrillIcone(icone);
     setAdminDrillLista([]);
     setCarregandoDrill(true);
-    const { data, error } = await supabase.rpc("admin_drill_lista", { p_tipo: tipo, p_limit: 50 });
-    if (!error && data) setAdminDrillLista(data as AdminDrillItem[]);
-    setCarregandoDrill(false);
+    try {
+      const { data, error } = await supabase.rpc("admin_drill_lista", { p_tipo: tipo, p_limit: 50 });
+      if (!error && data) setAdminDrillLista(data as AdminDrillItem[]);
+    } finally {
+      setCarregandoDrill(false);  // A4
+    }
   };
 
   // Carrega todos os tickets ordenados por última atualização (visão admin/suporte)
@@ -3137,28 +3180,31 @@ export default function App() {
     const senderRole: "user" | "admin" =
       (profile?.is_admin || profile?.is_suporte) && ticketAtivo.user_id !== session.user.id ? "admin" : "user";
 
-    const { error } = await supabase.from("suporte_respostas").insert({
-      ticket_id: ticketAtivo.id,
-      sender_id: session.user.id,
-      sender_role: senderRole,
-      mensagem: msg,
-    });
-    setEnviandoRespostaTicket(false);
-    if (error) {
-      setToastError("Falha ao enviar resposta. Tente de novo.");
-      return;
-    }
-    setNovaRespostaTicket("");
-    await carregarRespostasTicket(ticketAtivo.id);
+    try {
+      const { error } = await supabase.from("suporte_respostas").insert({
+        ticket_id: ticketAtivo.id,
+        sender_id: session.user.id,
+        sender_role: senderRole,
+        mensagem: msg,
+      });
+      if (error) {
+        setToastError("Falha ao enviar resposta. Tente de novo.");
+        return;
+      }
+      setNovaRespostaTicket("");
+      await carregarRespostasTicket(ticketAtivo.id);
 
-    // Se admin respondeu, dispara push pro usuário dono do ticket
-    if (senderRole === "admin") {
-      enviarPush(
-        [ticketAtivo.user_id],
-        "DiáriaJá — Suporte",
-        "A equipe respondeu seu ticket. Toque para abrir.",
-        { tipo: "mensagem", url: "/?tela=meus-tickets" },
-      );
+      // Se admin respondeu, dispara push pro usuário dono do ticket
+      if (senderRole === "admin") {
+        enviarPush(
+          [ticketAtivo.user_id],
+          "DiáriaJá — Suporte",
+          "A equipe respondeu seu ticket. Toque para abrir.",
+          { tipo: "mensagem", url: "/?tela=meus-tickets" },
+        );
+      }
+    } finally {
+      setEnviandoRespostaTicket(false);  // A4
     }
   };
 
@@ -3404,14 +3450,6 @@ export default function App() {
 
   // Admin: aprovar/rejeitar via RPC (que valida is_admin no banco)
   const revisarDocumento = async (decisao: "aprovado" | "rejeitado") => {
-    // DEBUG 2026-05-28: descobrir por que silenciosamente não revisa.
-    console.warn("[revisarDocumento] click", {
-      is_admin: profile?.is_admin,
-      has_docRevisao: !!docRevisao,
-      docRevisao_user_id: docRevisao?.user_id,
-      revisandoDoc,
-      decisao,
-    });
     if (!profile?.is_admin || !docRevisao || revisandoDoc) {
       setToastError(
         !profile?.is_admin ? "Você não tem permissão (is_admin=false). Manda print desse aviso."
@@ -3425,29 +3463,34 @@ export default function App() {
       return;
     }
     setRevisandoDoc(true);
-    const { error } = await supabase.rpc("revisar_documento", {
-      p_user_id: docRevisao.user_id,
-      p_decisao: decisao,
-      p_motivo: decisao === "rejeitado" ? docMotivoRejeicao.trim() : null,
-    });
-    setRevisandoDoc(false);
-    if (error) {
-      setToastError("Falha ao revisar: " + error.message);
-      return;
+    // A4: try/finally garante reset do loading mesmo se a RPC rejeitar (rede/
+    // timeout) — antes o admin ficava travado sem conseguir revisar.
+    try {
+      const { error } = await supabase.rpc("revisar_documento", {
+        p_user_id: docRevisao.user_id,
+        p_decisao: decisao,
+        p_motivo: decisao === "rejeitado" ? docMotivoRejeicao.trim() : null,
+      });
+      if (error) {
+        setToastError("Falha ao revisar: " + error.message);
+        return;
+      }
+      // Push pro user
+      enviarPush(
+        [docRevisao.user_id],
+        decisao === "aprovado" ? "✅ Documento aprovado!" : "❌ Documento rejeitado",
+        decisao === "aprovado"
+          ? "Sua identidade foi verificada. Bem-vindo ao nível Confiável!"
+          : `Motivo: ${docMotivoRejeicao.trim()}. Você pode reenviar pelo app.`,
+        { tipo: "confirmacao", url: "/?tela=configuracoes" },
+      );
+      setToastSuccess(`✅ Documento ${decisao}.`);
+      setDocRevisao(null);
+      setDocMotivoRejeicao("");
+      await carregarDocsPendentes();
+    } finally {
+      setRevisandoDoc(false);
     }
-    // Push pro user
-    enviarPush(
-      [docRevisao.user_id],
-      decisao === "aprovado" ? "✅ Documento aprovado!" : "❌ Documento rejeitado",
-      decisao === "aprovado"
-        ? "Sua identidade foi verificada. Bem-vindo ao nível Confiável!"
-        : `Motivo: ${docMotivoRejeicao.trim()}. Você pode reenviar pelo app.`,
-      { tipo: "confirmacao", url: "/?tela=configuracoes" },
-    );
-    setToastSuccess(`✅ Documento ${decisao}.`);
-    setDocRevisao(null);
-    setDocMotivoRejeicao("");
-    await carregarDocsPendentes();
   };
 
   // ── Admin: revisão de antecedentes criminais (espelha o KYC) ──────────────
@@ -3520,20 +3563,23 @@ export default function App() {
     const topicoProibido = verificarConteudoProibido(`${formTopico.titulo} ${formTopico.conteudo}`);
     if (topicoProibido) { setToastError(topicoProibido); return; }
     setEnviandoTopico(true);
-    const { data, error } = await supabase.from("topicos").insert({
-      autor_id:  session.user.id,
-      autor_nome: profile?.nome || "Usuário",
-      autor_tipo: tipo || "empregador",
-      titulo:    formTopico.titulo.trim(),
-      conteudo:  formTopico.conteudo.trim(),
-      categoria: formTopico.categoria,
-    }).select().single();
-    setEnviandoTopico(false);
-    if (error) { setToastError("Erro ao criar tópico."); return; }
-    setTopicos(prev => [data, ...prev]);
-    setModalNovoTopico(false);
-    setFormTopico({ titulo: "", conteudo: "", categoria: "geral" });
-    setToastSuccess("✅ Tópico publicado na comunidade!");
+    try {
+      const { data, error } = await supabase.from("topicos").insert({
+        autor_id:  session.user.id,
+        autor_nome: profile?.nome || "Usuário",
+        autor_tipo: tipo || "empregador",
+        titulo:    formTopico.titulo.trim(),
+        conteudo:  formTopico.conteudo.trim(),
+        categoria: formTopico.categoria,
+      }).select().single();
+      if (error) { setToastError("Erro ao criar tópico."); return; }
+      setTopicos(prev => [data, ...prev]);
+      setModalNovoTopico(false);
+      setFormTopico({ titulo: "", conteudo: "", categoria: "geral" });
+      setToastSuccess("✅ Tópico publicado na comunidade!");
+    } finally {
+      setEnviandoTopico(false);  // A4
+    }
   };
 
   const criarComentario = async () => {
@@ -3541,20 +3587,23 @@ export default function App() {
     const comentarioProibido = verificarConteudoProibido(novoComentario);
     if (comentarioProibido) { setToastError(comentarioProibido); return; }
     setEnviandoComentario(true);
-    const { data, error } = await supabase.from("comentarios_comunidade").insert({
-      topico_id:  topicoAtivo.id,
-      autor_id:   session.user.id,
-      autor_nome: profile?.nome || "Usuário",
-      autor_tipo: tipo || "empregador",
-      conteudo:   novoComentario.trim(),
-    }).select().single();
-    setEnviandoComentario(false);
-    if (error) { setToastError("Erro ao comentar."); return; }
-    setComentariosTopico(prev => [...prev, data]);
-    setNovoComentario("");
-    // Atualiza contador do tópico
-    await supabase.from("topicos").update({ total_comentarios: (topicoAtivo.total_comentarios || 0) + 1 }).eq("id", topicoAtivo.id);
-    setTopicoAtivo(prev => prev ? { ...prev, total_comentarios: (prev.total_comentarios || 0) + 1 } : prev);
+    try {
+      const { data, error } = await supabase.from("comentarios_comunidade").insert({
+        topico_id:  topicoAtivo.id,
+        autor_id:   session.user.id,
+        autor_nome: profile?.nome || "Usuário",
+        autor_tipo: tipo || "empregador",
+        conteudo:   novoComentario.trim(),
+      }).select().single();
+      if (error) { setToastError("Erro ao comentar."); return; }
+      setComentariosTopico(prev => [...prev, data]);
+      setNovoComentario("");
+      // Atualiza contador do tópico
+      await supabase.from("topicos").update({ total_comentarios: (topicoAtivo.total_comentarios || 0) + 1 }).eq("id", topicoAtivo.id);
+      setTopicoAtivo(prev => prev ? { ...prev, total_comentarios: (prev.total_comentarios || 0) + 1 } : prev);
+    } finally {
+      setEnviandoComentario(false);  // A4
+    }
   };
 
   const deletarTopico = async (topicoId: string) => {
@@ -3678,13 +3727,16 @@ export default function App() {
     setAvaliacoesCandidato([]);
     setDiariasCandidato(0);
     setLoadingPerfil(true);
-    const [{ data: avs }, { count }] = await Promise.all([
-      supabase.from("avaliacoes_diarista").select("id,nota,comentario,created_at").eq("diarista_id", dp.id).order("created_at", { ascending: false }),
-      supabase.from("diarias").select("id", { count: "exact", head: true }).eq("diarista_aceite_id", dp.id).eq("status", "concluida"),
-    ]);
-    if (avs) setAvaliacoesCandidato(avs);
-    setDiariasCandidato(count ?? 0);
-    setLoadingPerfil(false);
+    try {
+      const [{ data: avs }, { count }] = await Promise.all([
+        supabase.from("avaliacoes_diarista").select("id,nota,comentario,created_at").eq("diarista_id", dp.id).order("created_at", { ascending: false }),
+        supabase.from("diarias").select("id", { count: "exact", head: true }).eq("diarista_aceite_id", dp.id).eq("status", "concluida"),
+      ]);
+      if (avs) setAvaliacoesCandidato(avs);
+      setDiariasCandidato(count ?? 0);
+    } finally {
+      setLoadingPerfil(false);  // A4: evita skeleton infinito se a query rejeitar
+    }
   };
 
   // Diarista registra interesse numa vaga (novo fluxo)
@@ -4681,18 +4733,30 @@ export default function App() {
 
   // Salva disponibilidade no banco ao clicar no toggle
   const handleToggleDisponivel = async () => {
+    const valorAnterior = disponivelAgora;
     const novoValor = !disponivelAgora;
-    setDisponivel(novoValor);
-    await saveProfile({ disponivel: novoValor });
+    setDisponivel(novoValor);  // otimista
+    const ok = await saveProfile({ disponivel: novoValor });
+    if (!ok) {
+      // M5: reverte o toggle se o save falhar, pra UI não divergir do banco.
+      setDisponivel(valorAnterior);
+      setToastError("Não foi possível salvar a disponibilidade. Tente de novo.");
+    }
   };
 
   // Salva agenda no banco ao clicar num dia
   const handleToggleDia = async (dia: string) => {
+    const agendaAnterior = agendaSelecionada;
     const novaAgenda = agendaSelecionada.includes(dia)
       ? agendaSelecionada.filter(d => d !== dia)
       : [...agendaSelecionada, dia];
-    setAgenda(novaAgenda);
-    await saveProfile({ agenda: novaAgenda });
+    setAgenda(novaAgenda);  // otimista
+    const ok = await saveProfile({ agenda: novaAgenda });
+    if (!ok) {
+      // M5: reverte a agenda se o save falhar.
+      setAgenda(agendaAnterior);
+      setToastError("Não foi possível salvar a agenda. Tente de novo.");
+    }
   };
 
   // SVG do Google — usado nos botões de login/cadastro com Google
@@ -6120,13 +6184,15 @@ export default function App() {
               { icon:"🏘️", label:"Comunidade",
                 sub:"Tópicos, dicas e conversas com outros usuários",
                 action:() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); } },
-              { icon:"🎁", label:"Indicar amigos",
-                sub:"Em breve: ganhe destaque ao convidar prestadores/anunciantes",
+              { icon:"📣", label:"Compartilhar o app",
+                // A6: removida a promessa de "recompensas/destaque por indicar" —
+                // não existe programa de indicação. Mantém só o compartilhar real.
+                sub:"Compartilhe o DiáriaJá com quem você conhece",
                 action:() => {
                   if (navigator.share) {
                     navigator.share({ title:"DiáriaJá", text:"Encontre prestadores qualificados no DiáriaJá!", url:"https://diariaja.vercel.app" }).catch(() => {});
                   } else {
-                    try { navigator.clipboard?.writeText("https://diariaja.vercel.app"); setToastSuccess("🔗 Link copiado! Em breve você ganha recompensas por indicar."); } catch { /* ignore */ }
+                    try { navigator.clipboard?.writeText("https://diariaja.vercel.app"); setToastSuccess("🔗 Link copiado!"); } catch { /* ignore */ }
                   }
                 } },
               { icon:"💼", label:"Virar MEI (CNPJ)",
@@ -6236,8 +6302,14 @@ export default function App() {
                 disabled={deletandoConta}
                 onClick={async () => {
                   setDeletandoConta(true);
+                  // A5: só declara "Conta excluída" se a exclusão REAL (Edge Function
+                  // delete-user, que apaga auth.users via service_role) confirmar.
+                  // Antes, qualquer falha caía num fallback silencioso e ainda mostrava
+                  // sucesso — usuário achava que seus dados sumiram quando podiam
+                  // permanecer (risco jurídico LGPD).
+                  let sucesso = false;
+                  let erroDetalhe = "";
                   try {
-                    // Chama Edge Function que apaga auth.users via service_role
                     const { data: { session: sess } } = await supabase.auth.getSession();
                     const res = await fetch(
                       `${SUPABASE_URL}/functions/v1/delete-user`,
@@ -6249,16 +6321,21 @@ export default function App() {
                         },
                       }
                     );
-                    if (!res.ok) {
-                      // Fallback: apaga só o perfil se Edge Function não estiver deployada
+                    if (res.ok) {
+                      sucesso = true;
+                    } else {
+                      try { const j = await res.json(); erroDetalhe = j?.error ?? ""; } catch { /* corpo não-JSON */ }
+                      if (!erroDetalhe) erroDetalhe = `HTTP ${res.status}`;
+                      // Fallback: ao menos tira o perfil de circulação. NÃO conta como
+                      // exclusão completa (a conta de auth e outros dados podem ficar).
                       if (session?.user?.id) {
-                        await supabase.from("user_profiles").delete().eq("id", session.user.id);
+                        try { await supabase.from("user_profiles").delete().eq("id", session.user.id); } catch { /* RLS/rede */ }
                       }
                     }
-                  } catch {
-                    // Fallback silencioso
+                  } catch (e) {
+                    erroDetalhe = e instanceof Error ? e.message : "erro de rede";
                     if (session?.user?.id) {
-                      await supabase.from("user_profiles").delete().eq("id", session.user.id);
+                      try { await supabase.from("user_profiles").delete().eq("id", session.user.id); } catch { /* RLS/rede */ }
                     }
                   }
                   // Limpa localStorage
@@ -6269,7 +6346,15 @@ export default function App() {
                   await supabase.auth.signOut();
                   setConfirmDeleteConta(false);
                   setDeletandoConta(false);
-                  setToastSuccess("Conta excluída. Até logo!");
+                  if (sucesso) {
+                    setToastSuccess("Conta excluída. Até logo!");
+                  } else {
+                    setToastError(
+                      "Não conseguimos confirmar a exclusão completa da sua conta. " +
+                      "Para garantir a remoção dos seus dados (LGPD), entre em contato: " +
+                      "suporte@diariaja.com.br" + (erroDetalhe ? ` (${erroDetalhe})` : "")
+                    );
+                  }
                 }}>
                 {deletandoConta ? "Excluindo..." : "Confirmar exclusão"}
               </button>
@@ -8799,7 +8884,8 @@ export default function App() {
                               <button
                                 style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                                 onClick={async () => {
-                                  const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
+                                  const { data: dpArr } = await supabase.rpc("perfis_publicos", { p_ids: [c.diarista_id] });
+                                  const dp = (dpArr as unknown as UserProfile[] | null)?.[0];
                                   if (dp) { setDiaristaSelecionadaReal(dp); setTela("perfil-diarista-real"); }
                                 }}>
                                 📱 Ver contato de {c.diarista_nome?.split(" ")[0]}
@@ -8820,7 +8906,8 @@ export default function App() {
                             <button
                               style={{ width:"100%", padding:"9px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                               onClick={async () => {
-                                const { data: dp } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
+                                const { data: dpArr } = await supabase.rpc("perfis_publicos", { p_ids: [c.diarista_id] });
+                                const dp = (dpArr as unknown as UserProfile[] | null)?.[0];
                                 if (dp) { setDiaristaSelecionadaReal(dp); setTela("perfil-diarista-real"); }
                               }}>
                               👤 Ver perfil completo
@@ -9141,7 +9228,8 @@ export default function App() {
                                 onClick={async () => {
                                   let perfil = dp;
                                   if (!perfil) {
-                                    const { data: p } = await supabase.from("user_profiles").select("*").eq("id", dia.diarista_aceite_id!).single();
+                                    const { data: pArr } = await supabase.rpc("perfis_publicos", { p_ids: [dia.diarista_aceite_id!] });
+                                    const p = (pArr as unknown as UserProfile[] | null)?.[0];
                                     if (p) { setDiaristasAceites(prev => ({ ...prev, [dia.diarista_aceite_id!]: p })); perfil = p; }
                                   }
                                   if (perfil) abrirPerfilCandidato(perfil);
@@ -9154,14 +9242,16 @@ export default function App() {
                                   <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
                                     <span style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Carregando..."}</span>
                                     {dp && (() => {
-                                      const n = calcularNivelConfiabilidade({
+                                      // C2 passo B: usa o nível derivado server-side (perfis_publicos);
+                                      // fallback pro cálculo local se vier de uma fonte antiga (com cpf).
+                                      const nivelDp = dp.nivel ?? calcularNivelConfiabilidade({
                                         telefone_verificado: dp.telefone_verificado,
-                                        email_confirmado: true, // assume email confirmado se o user é visível na lista
+                                        email_confirmado: true,
                                         cpf: dp.cpf, cnpj: dp.cnpj,
                                         documento_status: dp.documento_status,
                                         mfa_enabled: false,
-                                      });
-                                      return <BadgeVerificado nivel={n.nivel} tamanho="sm" />;
+                                      }).nivel;
+                                      return <BadgeVerificado nivel={nivelDp} tamanho="sm" />;
                                     })()}
                                   </div>
                                   <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, display:"flex", alignItems:"center", gap:6 }}>
@@ -9205,7 +9295,8 @@ export default function App() {
                                 onClick={async () => {
                                   let perfil = dp;
                                   if (!perfil) {
-                                    const { data: p } = await supabase.from("user_profiles").select("*").eq("id", dia.diarista_aceite_id!).single();
+                                    const { data: pArr } = await supabase.rpc("perfis_publicos", { p_ids: [dia.diarista_aceite_id!] });
+                                    const p = (pArr as unknown as UserProfile[] | null)?.[0];
                                     if (p) { setDiaristasAceites(prev => ({ ...prev, [dia.diarista_aceite_id!]: p })); perfil = p; }
                                   }
                                   if (perfil) abrirPerfilCandidato(perfil);
@@ -9446,7 +9537,8 @@ export default function App() {
                         onClick={async () => {
                           let perfil = candidatosProfiles[c.diarista_id];
                           if (!perfil) {
-                            const { data: p } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
+                            const { data: pArr } = await supabase.rpc("perfis_publicos", { p_ids: [c.diarista_id] });
+                            const p = (pArr as unknown as UserProfile[] | null)?.[0];
                             if (p) { setCandidatosProfiles(prev => ({ ...prev, [c.diarista_id]: p })); perfil = p; }
                           }
                           if (perfil) abrirPerfilCandidato(perfil);
@@ -9830,7 +9922,8 @@ export default function App() {
           // Suporta tanto Diaria (diarista_aceite_id) quanto Convite (diarista_id)
           const pixDiaristaId = (modalPix as any).diarista_aceite_id || (modalPix as any).diarista_id;
           const dp = pixDiaristaId ? diaristasAceites[pixDiaristaId] : null;
-          const chavePix = dp?.telefone?.replace(/\D/g,"") || dp?.cpf?.replace(/\D/g,"") || "—";
+          // C2/privacidade: o app NÃO revela mais chave PIX/CPF/telefone do
+          // prestador. O pagamento é combinado direto entre as partes pelo chat.
           const isDeliveryPix = FUNCOES_DELIVERY.includes(modalPix.funcao);
           const valorEncostada = modalPix.valor_encostada;
           return (
@@ -9844,7 +9937,7 @@ export default function App() {
 
                 <div style={{ textAlign:"center", marginBottom:20 }}>
                   <div style={{ fontSize:44, lineHeight:1, marginBottom:8 }}>🏦</div>
-                  <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>Pagar via PIX</div>
+                  <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>Pagamento da diária</div>
                   <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:4 }}>
                     Serviço: <strong>{modalPix.funcao || modalPix.segmento}</strong>
                   </div>
@@ -9862,31 +9955,16 @@ export default function App() {
                     <span style={{ fontSize:13, color:"var(--text-label,#475569)" }}>Valor combinado</span>
                     <span style={{ fontSize:22, fontWeight:900, color:"#22c55e" }}>R$ {modalPix.valor}</span>
                   </div>
-                  {dp ? (
-                    <>
-                      <div style={{ fontSize:13, color:"var(--text-label,#475569)", marginBottom:4 }}>Profissional: <strong style={{ color:"var(--text-1,#0f172a)" }}>{dp.nome}</strong></div>
-                      <div style={{ background:"var(--bg-card,#fff)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 14px", marginTop:10 }}>
-                        <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, marginBottom:4 }}>CHAVE PIX (telefone/CPF)</div>
-                        <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)", letterSpacing:0.5 }}>{chavePix}</div>
-                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:4 }}>{dp.nome?.split(" ")[0]}</div>
-                      </div>
-                      <button
-                        style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:10 }}
-                        onClick={() => { navigator.clipboard?.writeText(chavePix); setToastSuccess("✅ Chave PIX copiada!"); }}>
-                        📋 Copiar chave PIX
-                      </button>
-                    </>
-                  ) : pixDiaristaId ? (
-                    /* Perfil ainda carregando (fetch em andamento) */
-                    <div style={{ textAlign:"center", padding:"16px 0", color:"var(--text-3,#94a3b8)", fontSize:13 }}>
-                      ⏳ Carregando dados do profissional…
-                    </div>
-                  ) : (
-                    /* Nenhum prestador associado ainda */
-                    <div style={{ background:"#fef3c7", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#92400e", marginTop:8 }}>
-                      ⚠️ Nenhum profissional confirmado ainda. Aguarde o aceite para liberar os dados de pagamento.
-                    </div>
+                  {dp?.nome && (
+                    <div style={{ fontSize:13, color:"var(--text-label,#475569)", marginBottom:4 }}>Profissional: <strong style={{ color:"var(--text-1,#0f172a)" }}>{dp.nome}</strong></div>
                   )}
+                  {/* Privacidade: o pagamento é combinado direto entre as partes pelo
+                      chat — o app não expõe chave PIX/CPF/telefone do prestador. */}
+                  <div style={{ background:"var(--bg-card,#fff)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 14px", marginTop:10 }}>
+                    <div style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.6 }}>
+                      💬 Combinem a forma de pagamento <strong>direto pelo chat</strong> — <strong>PIX ou dinheiro</strong>, como vocês preferirem. O DiáriaJá não processa nem intermedia esse valor.
+                    </div>
+                  </div>
                 </div>
 
                 {/* Taxa de plataforma — só para delivery */}
@@ -9913,7 +9991,7 @@ export default function App() {
                 )}
 
                 <div style={{ background:"#fef3c7", borderRadius:12, padding:"9px 13px", fontSize:12, color:"#92400e", lineHeight:1.5, marginBottom:16 }}>
-                  ℹ️ Realize o pagamento pelo app do seu banco usando a chave PIX acima. O DiáriaJá não processa pagamentos — somos uma plataforma de anúncios.
+                  ℹ️ O pagamento da diária é combinado e feito direto entre vocês (PIX ou dinheiro). O DiáriaJá não processa pagamentos — somos uma plataforma de anúncios.
                 </div>
 
                 <button
@@ -14289,7 +14367,7 @@ export default function App() {
           <h2 style={S.perfilNome}>{d.nome}</h2>
           <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" as const, justifyContent:"center", marginTop:4 }}>
             <div style={S.perfilRamo}>{d.funcao}</div>
-            {(d.cpf || d.cnpj) && (
+            {(d.tem_documento ?? !!(d.cpf || d.cnpj)) && (
               <span style={{ background:"#dcfce7", color:"#16a34a", fontSize:11, fontWeight:800, padding:"2px 9px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:3 }}>
                 ✅ Verificado
               </span>
@@ -15551,7 +15629,8 @@ export default function App() {
 
   // ── PAINEL ADMIN ────────────────────────────────────────────────────────────
   if (tela === "admin-painel") {
-    if (!profile?.is_admin) { setTela("configuracoes"); return null; }
+    // M3: a navegação é feita pelo useEffect-guarda acima; aqui só não renderiza.
+    if (!profile?.is_admin) return null;
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     const tk = adminTickets;
     // Card stat clicável que abre drill-down. Se `drillTipo` é null, não é clicável.
@@ -16148,8 +16227,8 @@ export default function App() {
   // `promover_suporte` caem aqui. Sem stats, sem KYC, sem antecedentes,
   // sem gestão de equipe — só o trabalho de ticket.
   if (tela === "painel-suporte") {
+    // M3: navegação no useEffect-guarda acima; aqui só não renderiza.
     if (!(profile?.is_admin || profile?.is_suporte)) {
-      setTela("configuracoes");
       return null;
     }
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";

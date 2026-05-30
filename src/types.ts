@@ -115,6 +115,11 @@ export interface UserProfile {
   // Audit trail de aceite dos Termos (LGPD — prova server-side)
   termos_aceitos_em?: string;
   termos_versao?: string;
+  // ── C2 passo B: flags derivadas vindas da RPC perfis_publicos ─────────────
+  // Para perfis de TERCEIROS o servidor não devolve mais cpf/cnpj — manda estes
+  // derivados no lugar (pro selo "Verificado" e o badge de nível).
+  tem_documento?: boolean;
+  nivel?: number;
 }
 
 // ── Já Decola — Sistema educacional gamificado ─────────────────────────────
