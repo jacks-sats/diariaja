@@ -89,7 +89,10 @@ no navegador (login, ver perfil, pagar prestador) → só então `REVOKE`.
   selo "Verificado" passam a usar `tem_documento`/`nivel` (deixa de precisar de cpf/cnpj).
 - `modalPix`/`diaristasAceites` → `contato_prestador()` para a chave PIX.
 
-**3. REVOKE (aplicar POR ÚLTIMO, após validar o cliente em produção):**
+**STATUS:** B.1 (RPCs) ✅ aplicada · B.2 (cliente) ✅ feita (commit) · B.3 (REVOKE) ⬜ pendente.
+Inclui RPC extra `prestadores_publicos(limit)` para o feed (filtra por papel).
+
+**3. REVOKE (aplicar POR ÚLTIMO, após validar o cliente na preview/produção):**
 ```sql
 REVOKE SELECT (telefone, cpf, cnpj, responsavel_cpf, mp_access_token, mp_user_id,
                pix_chave, pix_tipo, documento_url, antecedentes_url,

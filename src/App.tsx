@@ -136,23 +136,10 @@ function QRScannerComponent({ onResult, onError, onClose }: {
 // Edge Function `verificar-whatsapp` deployada — aí vire para `true`.
 const MOSTRAR_VERIFICAR_TELEFONE_CTA = false;
 
-// ── C2 (anti-vazamento de PII) — colunas públicas de user_profiles ───────────
-// Usado em leituras EM MASSA de perfis de TERCEIROS (ex.: feed de prestadores na
-// home do anunciante), onde a UI só mostra dados públicos. NUNCA inclui campos
-// sensíveis que não são renderizados para terceiros: telefone, chave PIX, tokens
-// do Mercado Pago, URLs de documentos/antecedentes, CPF do responsável (PJ),
-// data de nascimento, sexo, flags de admin/suporte, endereço, e o created_at
-// (que NÃO existe na tabela em produção — selecioná-lo derruba a query).
-// Mantém cpf/cnpj por enquanto porque o selo "✅ Verificado" depende da presença
-// deles na UI; a remoção do VALOR (via flag derivada server-side) + o REVOKE de
-// coluna no banco ficam para o Passo B desta correção.
-// NOTA: portfolio_urls foi removida da lista — a coluna não existe na tabela em
-// produção (a migration nunca foi aplicada), e selecioná-la quebraria a query.
-const COLUNAS_PERFIL_PUBLICO =
-  "id, oculto, user_type, nome, nome_negocio, segmento, funcao, valor_diaria, " +
-  "disponivel, agenda, bio, foto_url, categorias, lat, lng, cpf, cnpj, " +
-  "pessoa_tipo, razao_social, nome_fantasia, responsavel_nome, cep, plano_ativo, " +
-  "plano_expira_em, telefone_verificado, documento_status";
+// C2 passo B: a leitura de perfis de TERCEIROS agora passa pelas RPCs
+// perfis_publicos()/prestadores_publicos() (sem telefone/cpf/cnpj/PIX/token,
+// com derivados tem_documento e nivel). O antigo COLUNAS_PERFIL_PUBLICO foi
+// removido — não há mais select de colunas cruas de perfil alheio no cliente.
 
 // Helper: mostra notificação local compatível com mobile/PWA.
 // Em Android Chrome/PWA, `mostrarNotificacaoLocal(...)` é PROIBIDO — só funciona via
@@ -408,6 +395,9 @@ export default function App() {
   // Recibo digital
   const [modalRecibo, setModalRecibo] = useState<Diaria | null>(null);
   const [modalPix, setModalPix] = useState<Diaria | null>(null);
+  // C2 passo B: contato/PIX do prestador (telefone/cpf/pix_chave) carregado via
+  // RPC contato_prestador() quando o modal PIX abre — não vem mais no perfil público.
+  const [contatoPix, setContatoPix] = useState<{ telefone?: string; cpf?: string; pix_chave?: string; pix_tipo?: string } | null>(null);
   // State modalPagamentoMP removido — DiáriaJá não intermedia valor da diária.
   // State criandoPagamento removido junto com iniciarPagamentoMP.
   // Dual track: usuário 'ambos' pode ter 2 assinaturas ativas (1 diarista + 1
@@ -976,18 +966,13 @@ export default function App() {
       // → anunciante via "Nenhum profissional ainda" mesmo com prestadores
       // cadastrados. Removi a ordenação até adicionarmos created_at na tabela
       // ou identificarmos coluna alternativa estável.
-      const { data, error } = await supabase
-        .from("user_profiles")
-        // C2: feed de prestadores não traz telefone/PIX/token/docs — só colunas públicas.
-        .select(COLUNAS_PERFIL_PUBLICO)
-        .in("user_type", ["diarista", "ambos"])   // "ambos" presta serviço E anuncia — tem que aparecer pro anunciante
-        .neq("id", session.user!.id)              // não mostra o próprio perfil pro anunciante "ambos"
-        .limit(200);
+      // C2 passo B: feed via RPC prestadores_publicos — retorna só dados públicos
+      // + derivados (tem_documento, nivel), sem telefone/cpf/cnpj/PIX/token. Filtra
+      // por papel (diarista/ambos) e exclui o próprio usuário no servidor.
+      const { data, error } = await supabase.rpc("prestadores_publicos", { p_limit: 200 });
       if (error) console.warn("[home-empregador] erro carregando prestadores:", error.message);
       if (data) {
-        // select() com string não-literal perde a inferência de tipo do supabase-js;
-        // o shape em runtime é o perfil público (sem telefone/PIX/token) — cast explícito.
-        const lista = data as unknown as UserProfile[];
+        const lista = (data as unknown as UserProfile[]) ?? [];
         setDiaristasReais(lista);
         diaristasReaisRef.current = lista;
       }
@@ -1048,7 +1033,7 @@ export default function App() {
             setCandidaturas(cands);
             const dids = [...new Set(cands.map((c:any) => c.diarista_id))];
             // C2: perfis de candidatos não trazem telefone/PIX/token — só colunas públicas.
-            const { data: profs } = await supabase.from("user_profiles").select(COLUNAS_PERFIL_PUBLICO).in("id", dids);
+            const { data: profs } = await supabase.rpc("perfis_publicos", { p_ids: dids });
             if (profs) { const m: Record<string,UserProfile> = {}; (profs as unknown as UserProfile[]).forEach((p) => { m[p.id] = p; }); setCandidatosProfiles(m); }
           }
           // Carrega contagem de dislikes por vaga
@@ -1297,11 +1282,9 @@ export default function App() {
       hideLoadingBar();
       return;
     }
-    const { data } = await supabase
-      .from("user_profiles")
-      .select("*")
-      .eq("id", empregadorId)
-      .maybeSingle();
+    // C2 passo B: perfil do anunciante (terceiro) via perfis_publicos — sem cpf/telefone.
+    const { data: empArr } = await supabase.rpc("perfis_publicos", { p_ids: [empregadorId] });
+    const data = (empArr as unknown as UserProfile[] | null)?.[0] ?? null;
     hideLoadingBar();
     if (data) {
       setEmpregadoresProfiles(prev => ({ ...prev, [empregadorId]: data }));
@@ -1589,8 +1572,9 @@ export default function App() {
           if (!minhasDiariasIds.includes(c.diaria_id)) return;
           setCandidaturas(prev => [...prev, c]);
           // Carrega perfil do candidato
-          const { data } = await supabase.from("user_profiles").select(COLUNAS_PERFIL_PUBLICO).eq("id", c.diarista_id).single();
-          if (data) setCandidatosProfiles(prev => ({ ...prev, [c.diarista_id]: data as unknown as UserProfile }));
+          const { data: arr } = await supabase.rpc("perfis_publicos", { p_ids: [c.diarista_id] });
+          const data = (arr as unknown as UserProfile[] | null)?.[0];
+          if (data) setCandidatosProfiles(prev => ({ ...prev, [c.diarista_id]: data }));
           // BUG-2 fix: toast in-app independente da permissão de push
           const vaga = diariasRef.current.find(d => d.id === c.diaria_id);
           const nomeVaga = vaga?.funcao || vaga?.segmento || "seu anúncio";
@@ -1614,7 +1598,7 @@ export default function App() {
     const faltando = cands.map(c => c.diarista_id).filter(id => !candidatosProfiles[id]);
     if (faltando.length === 0) return;
     (async () => {
-      const { data: profs } = await supabase.from("user_profiles").select(COLUNAS_PERFIL_PUBLICO).in("id", faltando);
+      const { data: profs } = await supabase.rpc("perfis_publicos", { p_ids: faltando });
       if (profs && profs.length > 0) {
         setCandidatosProfiles(prev => {
           const m = { ...prev };
@@ -1872,10 +1856,12 @@ export default function App() {
     const ids = [...new Set(diarias.filter(d => d.diarista_aceite_id).map(d => d.diarista_aceite_id!))];
     if (!ids.length) return;
     (async () => {
-      const { data } = await supabase.from("user_profiles").select("*").in("id", ids);
+      // C2 passo B: display via perfis_publicos (nome/foto/nível, sem telefone/cpf).
+      // O contato/PIX é buscado à parte (contato_prestador) quando o modal PIX abre.
+      const { data } = await supabase.rpc("perfis_publicos", { p_ids: ids });
       if (data) {
         const map: Record<string, UserProfile> = {};
-        data.forEach((p: UserProfile) => { map[p.id] = p; });
+        (data as unknown as UserProfile[]).forEach((p) => { map[p.id] = p; });
         setDiaristasAceites(prev => ({ ...prev, ...map }));
       }
       // Conta diárias concluídas de cada diarista
@@ -1889,16 +1875,25 @@ export default function App() {
     })();
   }, [diarias]);
 
-  // BUG-FIX: Quando o modal PIX abre de um Convite, busca o perfil do diarista se ainda não está em cache
-  // Convite usa diarista_id; Diaria usa diarista_aceite_id
+  // C2 passo B: ao abrir o modal PIX, carrega (1) o perfil público do prestador
+  // para exibição (se ainda não estiver em cache) e (2) o CONTATO/PIX via
+  // contato_prestador() — que só devolve telefone/cpf/pix se houver relação
+  // legítima (diária com ele selecionado ou convite aceito).
+  // Convite usa diarista_id; Diária usa diarista_aceite_id.
   useEffect(() => {
+    setContatoPix(null);
     if (!modalPix) return;
     const id = (modalPix as any).diarista_aceite_id || (modalPix as any).diarista_id;
-    if (!id || diaristasAceites[id]) return; // já carregado
-    supabase.from("user_profiles").select("*").eq("id", id).single()
-      .then(({ data }) => {
-        if (data) setDiaristasAceites(prev => ({ ...prev, [id]: data as UserProfile }));
+    if (!id) return;
+    if (!diaristasAceites[id]) {
+      supabase.rpc("perfis_publicos", { p_ids: [id] }).then(({ data }) => {
+        const p = (data as unknown as UserProfile[] | null)?.[0];
+        if (p) setDiaristasAceites(prev => ({ ...prev, [id]: p }));
       });
+    }
+    supabase.rpc("contato_prestador", { p_diarista_id: id }).then(({ data }) => {
+      if (data) setContatoPix(data as { telefone?: string; cpf?: string; pix_chave?: string; pix_tipo?: string });
+    });
   }, [modalPix]);
 
   // Carrega mensagens do chat ativo + marca como lidas as do destinatário=eu
@@ -2156,11 +2151,11 @@ export default function App() {
   }, []);
 
   const checkProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from("user_profiles")
-      .select("*")
-      .eq("id", userId)
-      .maybeSingle();
+    // C2 passo B: lê o PRÓPRIO perfil via RPC meu_perfil() (perfil completo do
+    // dono via SECURITY DEFINER) — continua funcionando após o REVOKE das
+    // colunas sensíveis em user_profiles para o role authenticated.
+    const { data: raw, error } = await supabase.rpc("meu_perfil");
+    const data = raw as UserProfile | null;
 
     if (error) { setLoading(false); return; }
 
@@ -8896,8 +8891,9 @@ export default function App() {
                               <button
                                 style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                                 onClick={async () => {
-                                  const { data: dp } = await supabase.from("user_profiles").select(COLUNAS_PERFIL_PUBLICO).eq("id", c.diarista_id).single();
-                                  if (dp) { setDiaristaSelecionadaReal(dp as unknown as UserProfile); setTela("perfil-diarista-real"); }
+                                  const { data: dpArr } = await supabase.rpc("perfis_publicos", { p_ids: [c.diarista_id] });
+                                  const dp = (dpArr as unknown as UserProfile[] | null)?.[0];
+                                  if (dp) { setDiaristaSelecionadaReal(dp); setTela("perfil-diarista-real"); }
                                 }}>
                                 📱 Ver contato de {c.diarista_nome?.split(" ")[0]}
                               </button>
@@ -8917,8 +8913,9 @@ export default function App() {
                             <button
                               style={{ width:"100%", padding:"9px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                               onClick={async () => {
-                                const { data: dp } = await supabase.from("user_profiles").select(COLUNAS_PERFIL_PUBLICO).eq("id", c.diarista_id).single();
-                                if (dp) { setDiaristaSelecionadaReal(dp as unknown as UserProfile); setTela("perfil-diarista-real"); }
+                                const { data: dpArr } = await supabase.rpc("perfis_publicos", { p_ids: [c.diarista_id] });
+                                const dp = (dpArr as unknown as UserProfile[] | null)?.[0];
+                                if (dp) { setDiaristaSelecionadaReal(dp); setTela("perfil-diarista-real"); }
                               }}>
                               👤 Ver perfil completo
                             </button>
@@ -9238,7 +9235,8 @@ export default function App() {
                                 onClick={async () => {
                                   let perfil = dp;
                                   if (!perfil) {
-                                    const { data: p } = await supabase.from("user_profiles").select("*").eq("id", dia.diarista_aceite_id!).single();
+                                    const { data: pArr } = await supabase.rpc("perfis_publicos", { p_ids: [dia.diarista_aceite_id!] });
+                                    const p = (pArr as unknown as UserProfile[] | null)?.[0];
                                     if (p) { setDiaristasAceites(prev => ({ ...prev, [dia.diarista_aceite_id!]: p })); perfil = p; }
                                   }
                                   if (perfil) abrirPerfilCandidato(perfil);
@@ -9251,14 +9249,16 @@ export default function App() {
                                   <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
                                     <span style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Carregando..."}</span>
                                     {dp && (() => {
-                                      const n = calcularNivelConfiabilidade({
+                                      // C2 passo B: usa o nível derivado server-side (perfis_publicos);
+                                      // fallback pro cálculo local se vier de uma fonte antiga (com cpf).
+                                      const nivelDp = dp.nivel ?? calcularNivelConfiabilidade({
                                         telefone_verificado: dp.telefone_verificado,
-                                        email_confirmado: true, // assume email confirmado se o user é visível na lista
+                                        email_confirmado: true,
                                         cpf: dp.cpf, cnpj: dp.cnpj,
                                         documento_status: dp.documento_status,
                                         mfa_enabled: false,
-                                      });
-                                      return <BadgeVerificado nivel={n.nivel} tamanho="sm" />;
+                                      }).nivel;
+                                      return <BadgeVerificado nivel={nivelDp} tamanho="sm" />;
                                     })()}
                                   </div>
                                   <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, display:"flex", alignItems:"center", gap:6 }}>
@@ -9302,7 +9302,8 @@ export default function App() {
                                 onClick={async () => {
                                   let perfil = dp;
                                   if (!perfil) {
-                                    const { data: p } = await supabase.from("user_profiles").select("*").eq("id", dia.diarista_aceite_id!).single();
+                                    const { data: pArr } = await supabase.rpc("perfis_publicos", { p_ids: [dia.diarista_aceite_id!] });
+                                    const p = (pArr as unknown as UserProfile[] | null)?.[0];
                                     if (p) { setDiaristasAceites(prev => ({ ...prev, [dia.diarista_aceite_id!]: p })); perfil = p; }
                                   }
                                   if (perfil) abrirPerfilCandidato(perfil);
@@ -9543,7 +9544,8 @@ export default function App() {
                         onClick={async () => {
                           let perfil = candidatosProfiles[c.diarista_id];
                           if (!perfil) {
-                            const { data: p } = await supabase.from("user_profiles").select("*").eq("id", c.diarista_id).single();
+                            const { data: pArr } = await supabase.rpc("perfis_publicos", { p_ids: [c.diarista_id] });
+                            const p = (pArr as unknown as UserProfile[] | null)?.[0];
                             if (p) { setCandidatosProfiles(prev => ({ ...prev, [c.diarista_id]: p })); perfil = p; }
                           }
                           if (perfil) abrirPerfilCandidato(perfil);
@@ -9927,7 +9929,11 @@ export default function App() {
           // Suporta tanto Diaria (diarista_aceite_id) quanto Convite (diarista_id)
           const pixDiaristaId = (modalPix as any).diarista_aceite_id || (modalPix as any).diarista_id;
           const dp = pixDiaristaId ? diaristasAceites[pixDiaristaId] : null;
-          const chavePix = dp?.telefone?.replace(/\D/g,"") || dp?.cpf?.replace(/\D/g,"") || "—";
+          // C2 passo B: contato/PIX vem do contato_prestador() (state contatoPix),
+          // não mais do perfil público. Prioriza a chave PIX dedicada.
+          const chavePix = (contatoPix?.pix_chave
+            || contatoPix?.telefone?.replace(/\D/g,"")
+            || contatoPix?.cpf?.replace(/\D/g,"")) || "—";
           const isDeliveryPix = FUNCOES_DELIVERY.includes(modalPix.funcao);
           const valorEncostada = modalPix.valor_encostada;
           return (
@@ -14386,7 +14392,7 @@ export default function App() {
           <h2 style={S.perfilNome}>{d.nome}</h2>
           <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" as const, justifyContent:"center", marginTop:4 }}>
             <div style={S.perfilRamo}>{d.funcao}</div>
-            {(d.cpf || d.cnpj) && (
+            {(d.tem_documento ?? !!(d.cpf || d.cnpj)) && (
               <span style={{ background:"#dcfce7", color:"#16a34a", fontSize:11, fontWeight:800, padding:"2px 9px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:3 }}>
                 ✅ Verificado
               </span>
