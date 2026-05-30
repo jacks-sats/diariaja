@@ -5825,17 +5825,25 @@ export default function App() {
           ) : (
             academyCursos.map(curso => {
               const concluido = certIds.has(curso.id);
+              // Curso obrigatório de onboarding — destaque "comece aqui" pra todos.
+              const obrigatorio = curso.slug === "como-funciona-app";
               return (
                 <div key={curso.id} role="button" tabIndex={0}
                   style={{
                     background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", marginBottom:12,
-                    boxShadow:"0 2px 10px rgba(0,0,0,.06)", cursor:"pointer", border: concluido ? `2px solid ${curso.cor}` : "1px solid var(--border,#e2e8f0)",
+                    boxShadow:"0 2px 10px rgba(0,0,0,.06)", cursor:"pointer",
+                    border: concluido ? `2px solid ${curso.cor}` : obrigatorio ? `2px solid ${curso.cor}` : "1px solid var(--border,#e2e8f0)",
                     position:"relative" as const, overflow:"hidden" as const,
                   }}
                   onClick={() => abrirCursoAcademy(curso)}>
                   {concluido && (
                     <div style={{ position:"absolute" as const, top:0, right:0, background:curso.cor, color:"#fff", fontSize:10, fontWeight:800, padding:"4px 10px", borderBottomLeftRadius:10 }}>
                       ✓ CONCLUÍDO
+                    </div>
+                  )}
+                  {!concluido && obrigatorio && (
+                    <div style={{ position:"absolute" as const, top:0, right:0, background:curso.cor, color:"#fff", fontSize:10, fontWeight:800, padding:"4px 10px", borderBottomLeftRadius:10 }}>
+                      📲 COMECE AQUI
                     </div>
                   )}
                   <div style={{ display:"flex", alignItems:"center", gap:14 }}>
