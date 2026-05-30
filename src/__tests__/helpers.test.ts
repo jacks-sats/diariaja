@@ -26,6 +26,7 @@ import {
   parseEnderecoEmpregador,
   verificarConteudoProibido,
   vagaProximaDeVencer,
+  calcularNivelAcademy,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -926,5 +927,38 @@ describe("vagaProximaDeVencer", () => {
   it("false sem data/horário", () => {
     expect(vagaProximaDeVencer({ data: "", horario_fim: "15:00", status: "aberta" }, 6, base)).toBe(false);
     expect(vagaProximaDeVencer({ data: "2026-05-29", status: "aberta" }, 6, base)).toBe(false);
+  });
+});
+
+describe("calcularNivelAcademy", () => {
+  it("XP 0 → Bronze, progresso pro próximo", () => {
+    const n = calcularNivelAcademy(0);
+    expect(n.nome).toBe("Bronze");
+    expect(n.nivel).toBe(1);
+    expect(n.faltam).toBe(50);
+    expect(n.progressoPct).toBe(0);
+  });
+  it("XP 25 (curso obrigatório) ainda é Bronze, 50% do caminho", () => {
+    const n = calcularNivelAcademy(25);
+    expect(n.nome).toBe("Bronze");
+    expect(n.faltam).toBe(25);
+    expect(n.progressoPct).toBe(50);
+  });
+  it("XP 50 → Prata", () => {
+    expect(calcularNivelAcademy(50).nome).toBe("Prata");
+  });
+  it("XP 120 → Ouro", () => {
+    expect(calcularNivelAcademy(120).nome).toBe("Ouro");
+  });
+  it("XP 250+ → Diamante (máx, sem próximo)", () => {
+    const n = calcularNivelAcademy(300);
+    expect(n.nome).toBe("Diamante");
+    expect(n.xpProximoNivel).toBeNull();
+    expect(n.faltam).toBe(0);
+    expect(n.progressoPct).toBe(100);
+  });
+  it("valores inválidos (NaN/negativo) → Bronze 0", () => {
+    expect(calcularNivelAcademy(NaN).xp).toBe(0);
+    expect(calcularNivelAcademy(-10).nome).toBe("Bronze");
   });
 });

@@ -703,3 +703,42 @@ export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: numb
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
+
+// ── Níveis da Universidade (Já Decola): XP → Bronze/Prata/Ouro/Diamante ───────
+// XP = soma dos `pontos_score` dos cursos concluídos. Puro/testável.
+export interface NivelAcademy {
+  nivel: 1 | 2 | 3 | 4;
+  nome: string;                  // Bronze | Prata | Ouro | Diamante
+  icone: string;
+  cor: string;
+  xp: number;
+  xpProximoNivel: number | null; // XP pra subir; null se já é Diamante (máx)
+  faltam: number;                // quanto falta pro próximo (0 se máx)
+  progressoPct: number;          // 0–100 dentro da faixa atual
+}
+
+const NIVEIS_ACADEMY = [
+  { nivel: 1 as const, nome: "Bronze",   icone: "🥉", cor: "#cd7f32", min: 0   },
+  { nivel: 2 as const, nome: "Prata",    icone: "🥈", cor: "#94a3b8", min: 50  },
+  { nivel: 3 as const, nome: "Ouro",     icone: "🥇", cor: "#f59e0b", min: 120 },
+  { nivel: 4 as const, nome: "Diamante", icone: "💎", cor: "#3A86FF", min: 250 },
+];
+
+export function calcularNivelAcademy(xp: number): NivelAcademy {
+  const x = Math.max(0, Math.floor(Number.isFinite(xp) ? xp : 0));
+  let idx = 0;
+  for (let i = NIVEIS_ACADEMY.length - 1; i >= 0; i--) {
+    if (x >= NIVEIS_ACADEMY[i].min) { idx = i; break; }
+  }
+  const atual = NIVEIS_ACADEMY[idx];
+  const prox = NIVEIS_ACADEMY[idx + 1];
+  const xpProximoNivel = prox ? prox.min : null;
+  const faltam = prox ? Math.max(0, prox.min - x) : 0;
+  const progressoPct = prox
+    ? Math.min(100, Math.max(0, Math.round(((x - atual.min) / (prox.min - atual.min)) * 100)))
+    : 100;
+  return {
+    nivel: atual.nivel, nome: atual.nome, icone: atual.icone, cor: atual.cor,
+    xp: x, xpProximoNivel, faltam, progressoPct,
+  };
+}
