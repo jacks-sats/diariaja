@@ -191,6 +191,46 @@ Novo job agendado (`pg_cron` a cada 10 min) → Edge Function `lembrar-diarias`:
 Mecanismo: `cron.schedule` chama a Edge Function via `net.http_post` (pg_net), ou
 Supabase Scheduled Function. Reusa o `send-push` já existente (RFC 8291/VAPID).
 
+### 4.7 Portão de pendências — responsabilização antes de nova diária
+
+Mecanismo de *accountability*: uma diária que termina de forma **anormal** vira uma
+**pendência** que o criador precisa **explicar** antes de publicar outra. Só é
+possível porque a Fase A passa a gravar `checkin_em` e a expirar no servidor.
+
+**Quando uma diária vira pendência (precisa de desfecho):**
+- `status='expirada'` **e** `checkin_em IS NULL` **e** `resolucao_motivo IS NULL`
+  (ninguém pegou **ou** diarista aceitou e não compareceu).
+
+**Novas colunas em `diarias`:**
+```sql
+ALTER TABLE diarias
+  ADD COLUMN IF NOT EXISTS resolucao_motivo TEXT,        -- por que não aconteceu
+  ADD COLUMN IF NOT EXISTS resolvida_em     TIMESTAMPTZ;
+```
+
+**Regras:**
+1. **Cancelar exige motivo** — `motivo_cancelamento` passa a ser obrigatório no fluxo
+   de cancelamento (já previsto na máquina de estados, hoje opcional).
+2. **Portão na criação** — ao tocar "Criar diária", se o empregador tiver pendência
+   nos **últimos 30 dias**, abre um modal **bloqueante**:
+   *"Conte o que aconteceu na sua diária anterior para publicar uma nova."*
+   Opções rápidas (1 toque): `diarista não compareceu` · `resolvi por fora` ·
+   `não precisei mais` · `cancelei` · `prefiro não informar`. Escolher → grava
+   `resolucao_motivo` + `resolvida_em` → libera.
+3. **Reforço server-side (opcional):** trigger `BEFORE INSERT` em `diarias` que
+   recusa se houver pendência — impede burlar via API direta.
+
+**Anti-trap (regras de ouro):** sempre resolvível pelo próprio usuário; sempre há
+opção neutra ("prefiro não informar"); só conta pendências recentes; nunca um beco
+sem saída. O objetivo é **dado + responsabilização**, não punição.
+
+**Simetria (decisão à parte):** o mesmo conceito vale para o **diarista** que dá
+no-show — bloquear novas **candidaturas** até justificar. Alimenta reputação/confiança
+e é mais valioso para o lado da oferta, mas é escopo separado deste portão.
+
+**Valor:** reduz ghosting, gera dados operacionais ("por que diárias falham") e
+melhora a confiança mútua do marketplace.
+
 ---
 
 ## 5. Linha do tempo de uma diária (visão integrada)
@@ -263,6 +303,12 @@ T+2h    [cron] aceita vencida + sem checkin_em → status 'expirada' (no-show)
 - **Client:** QR/código passam a chamar `registrar_checkin` (grava timestamp);
   esconder QR fora da janela; mostrar duração quando houver check-out.
 - **Entrega:** corrige "expirada ainda pede QR", cria trilha de auditoria, expira no servidor.
+
+### Fase A.5 — Portão de pendências *(accountability)*
+- **SQL:** colunas `resolucao_motivo`/`resolvida_em`; (opcional) trigger `BEFORE INSERT`.
+- **Client:** cancelamento exige motivo; modal bloqueante de desfecho ao criar diária.
+- **Entrega:** sem ghosting impune; dados de "por que a diária não aconteceu".
+- **Depende da Fase A** (precisa de `checkin_em` + no-show server-side).
 
 ### Fase B — Check-in por GPS
 - **Client:** botão "📍 Cheguei" no card do diarista → `registrar_checkin(metodo='gps')`.
