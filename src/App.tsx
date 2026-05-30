@@ -2077,8 +2077,10 @@ export default function App() {
       });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // Ignora eventos que não mudam estado (ex: TOKEN_REFRESHED quando já estava logado)
-      if (event === "TOKEN_REFRESHED") return;
+      // B5: TOKEN_REFRESHED — atualiza a session no state (pra não ficar com
+      // access_token velho) mas NÃO re-roda checkProfile/navegação (o usuário já
+      // está logado e na tela dele).
+      if (event === "TOKEN_REFRESHED") { if (session) setSession(session); return; }
       // Recuperação de senha: o usuário abriu o link do e-mail. Vai direto pra
       // tela de definir nova senha (em vez de cair na splash sem aviso).
       if (event === "PASSWORD_RECOVERY") {
