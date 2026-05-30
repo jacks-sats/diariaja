@@ -395,9 +395,6 @@ export default function App() {
   // Recibo digital
   const [modalRecibo, setModalRecibo] = useState<Diaria | null>(null);
   const [modalPix, setModalPix] = useState<Diaria | null>(null);
-  // C2 passo B: contato/PIX do prestador (telefone/cpf/pix_chave) carregado via
-  // RPC contato_prestador() quando o modal PIX abre — não vem mais no perfil público.
-  const [contatoPix, setContatoPix] = useState<{ telefone?: string; cpf?: string; pix_chave?: string; pix_tipo?: string } | null>(null);
   // State modalPagamentoMP removido — DiáriaJá não intermedia valor da diária.
   // State criandoPagamento removido junto com iniciarPagamentoMP.
   // Dual track: usuário 'ambos' pode ter 2 assinaturas ativas (1 diarista + 1
@@ -1881,18 +1878,14 @@ export default function App() {
   // legítima (diária com ele selecionado ou convite aceito).
   // Convite usa diarista_id; Diária usa diarista_aceite_id.
   useEffect(() => {
-    setContatoPix(null);
     if (!modalPix) return;
     const id = (modalPix as any).diarista_aceite_id || (modalPix as any).diarista_id;
-    if (!id) return;
-    if (!diaristasAceites[id]) {
-      supabase.rpc("perfis_publicos", { p_ids: [id] }).then(({ data }) => {
-        const p = (data as unknown as UserProfile[] | null)?.[0];
-        if (p) setDiaristasAceites(prev => ({ ...prev, [id]: p }));
-      });
-    }
-    supabase.rpc("contato_prestador", { p_diarista_id: id }).then(({ data }) => {
-      if (data) setContatoPix(data as { telefone?: string; cpf?: string; pix_chave?: string; pix_tipo?: string });
+    if (!id || diaristasAceites[id]) return;
+    // Só o perfil PÚBLICO (nome p/ exibição). Nenhum dado de contato/PIX é
+    // carregado — o pagamento é combinado direto entre as partes pelo chat.
+    supabase.rpc("perfis_publicos", { p_ids: [id] }).then(({ data }) => {
+      const p = (data as unknown as UserProfile[] | null)?.[0];
+      if (p) setDiaristasAceites(prev => ({ ...prev, [id]: p }));
     });
   }, [modalPix]);
 
@@ -9929,11 +9922,8 @@ export default function App() {
           // Suporta tanto Diaria (diarista_aceite_id) quanto Convite (diarista_id)
           const pixDiaristaId = (modalPix as any).diarista_aceite_id || (modalPix as any).diarista_id;
           const dp = pixDiaristaId ? diaristasAceites[pixDiaristaId] : null;
-          // C2 passo B: contato/PIX vem do contato_prestador() (state contatoPix),
-          // não mais do perfil público. Prioriza a chave PIX dedicada.
-          const chavePix = (contatoPix?.pix_chave
-            || contatoPix?.telefone?.replace(/\D/g,"")
-            || contatoPix?.cpf?.replace(/\D/g,"")) || "—";
+          // C2/privacidade: o app NÃO revela mais chave PIX/CPF/telefone do
+          // prestador. O pagamento é combinado direto entre as partes pelo chat.
           const isDeliveryPix = FUNCOES_DELIVERY.includes(modalPix.funcao);
           const valorEncostada = modalPix.valor_encostada;
           return (
@@ -9947,7 +9937,7 @@ export default function App() {
 
                 <div style={{ textAlign:"center", marginBottom:20 }}>
                   <div style={{ fontSize:44, lineHeight:1, marginBottom:8 }}>🏦</div>
-                  <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>Pagar via PIX</div>
+                  <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>Pagamento da diária</div>
                   <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:4 }}>
                     Serviço: <strong>{modalPix.funcao || modalPix.segmento}</strong>
                   </div>
@@ -9965,31 +9955,16 @@ export default function App() {
                     <span style={{ fontSize:13, color:"var(--text-label,#475569)" }}>Valor combinado</span>
                     <span style={{ fontSize:22, fontWeight:900, color:"#22c55e" }}>R$ {modalPix.valor}</span>
                   </div>
-                  {dp ? (
-                    <>
-                      <div style={{ fontSize:13, color:"var(--text-label,#475569)", marginBottom:4 }}>Profissional: <strong style={{ color:"var(--text-1,#0f172a)" }}>{dp.nome}</strong></div>
-                      <div style={{ background:"var(--bg-card,#fff)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 14px", marginTop:10 }}>
-                        <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, marginBottom:4 }}>CHAVE PIX (telefone/CPF)</div>
-                        <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)", letterSpacing:0.5 }}>{chavePix}</div>
-                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:4 }}>{dp.nome?.split(" ")[0]}</div>
-                      </div>
-                      <button
-                        style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:10 }}
-                        onClick={() => { navigator.clipboard?.writeText(chavePix); setToastSuccess("✅ Chave PIX copiada!"); }}>
-                        📋 Copiar chave PIX
-                      </button>
-                    </>
-                  ) : pixDiaristaId ? (
-                    /* Perfil ainda carregando (fetch em andamento) */
-                    <div style={{ textAlign:"center", padding:"16px 0", color:"var(--text-3,#94a3b8)", fontSize:13 }}>
-                      ⏳ Carregando dados do profissional…
-                    </div>
-                  ) : (
-                    /* Nenhum prestador associado ainda */
-                    <div style={{ background:"#fef3c7", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#92400e", marginTop:8 }}>
-                      ⚠️ Nenhum profissional confirmado ainda. Aguarde o aceite para liberar os dados de pagamento.
-                    </div>
+                  {dp?.nome && (
+                    <div style={{ fontSize:13, color:"var(--text-label,#475569)", marginBottom:4 }}>Profissional: <strong style={{ color:"var(--text-1,#0f172a)" }}>{dp.nome}</strong></div>
                   )}
+                  {/* Privacidade: o pagamento é combinado direto entre as partes pelo
+                      chat — o app não expõe chave PIX/CPF/telefone do prestador. */}
+                  <div style={{ background:"var(--bg-card,#fff)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 14px", marginTop:10 }}>
+                    <div style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.6 }}>
+                      💬 Combinem a forma de pagamento <strong>direto pelo chat</strong> — <strong>PIX ou dinheiro</strong>, como vocês preferirem. O DiáriaJá não processa nem intermedia esse valor.
+                    </div>
+                  </div>
                 </div>
 
                 {/* Taxa de plataforma — só para delivery */}
@@ -10016,7 +9991,7 @@ export default function App() {
                 )}
 
                 <div style={{ background:"#fef3c7", borderRadius:12, padding:"9px 13px", fontSize:12, color:"#92400e", lineHeight:1.5, marginBottom:16 }}>
-                  ℹ️ Realize o pagamento pelo app do seu banco usando a chave PIX acima. O DiáriaJá não processa pagamentos — somos uma plataforma de anúncios.
+                  ℹ️ O pagamento da diária é combinado e feito direto entre vocês (PIX ou dinheiro). O DiáriaJá não processa pagamentos — somos uma plataforma de anúncios.
                 </div>
 
                 <button

@@ -113,50 +113,13 @@ $$;
 REVOKE ALL ON FUNCTION prestadores_publicos(INT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION prestadores_publicos(INT) TO authenticated;
 
--- ── 3. contato_prestador(diarista) — contato/PIX só com relação legítima ─────
-CREATE OR REPLACE FUNCTION contato_prestador(p_diarista_id UUID)
-RETURNS JSONB
-LANGUAGE plpgsql STABLE SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_uid    UUID := auth.uid();
-  v_existe BOOLEAN;
-BEGIN
-  IF v_uid IS NULL OR p_diarista_id IS NULL THEN
-    RETURN NULL;
-  END IF;
-
-  -- Relação legítima: o chamador (anunciante) selecionou esse prestador numa
-  -- diária, OU enviou um convite que o prestador aceitou.
-  SELECT EXISTS (
-      SELECT 1 FROM diarias
-       WHERE empregador_id = v_uid AND diarista_aceite_id = p_diarista_id
-    ) OR EXISTS (
-      SELECT 1 FROM convites
-       WHERE contratante_id = v_uid AND diarista_id = p_diarista_id
-         AND status = 'aceito'
-    )
-  INTO v_existe;
-
-  IF NOT v_existe THEN
-    RETURN NULL;  -- sem relação → sem contato
-  END IF;
-
-  RETURN (
-    SELECT jsonb_build_object(
-      'id',        up.id,
-      'nome',      up.nome,
-      'telefone',  up.telefone,
-      'cpf',       up.cpf,
-      'pix_chave', up.pix_chave,
-      'pix_tipo',  up.pix_tipo
-    )
-    FROM user_profiles up WHERE up.id = p_diarista_id
-  );
-END $$;
-REVOKE ALL ON FUNCTION contato_prestador(UUID) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION contato_prestador(UUID) TO authenticated;
+-- ── 3. (REMOVIDA) contato_prestador ──────────────────────────────────────────
+-- Decisão de produto/privacidade: o app NÃO revela mais chave PIX/CPF/telefone
+-- do prestador. O pagamento da diária é combinado direto entre as partes pelo
+-- chat (PIX ou dinheiro). Logo esta RPC não é mais necessária. Se ela já foi
+-- criada numa aplicação anterior, remova-a (para não deixar um caminho de
+-- revelação de contato aberto):
+--   DROP FUNCTION IF EXISTS contato_prestador(UUID);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Verificação:
