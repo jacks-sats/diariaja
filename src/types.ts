@@ -54,6 +54,13 @@ export interface Diaria {
   tipo_oferta: TipoOferta;            // default 'diaria' (legado + criação atual)
   tempo_estimado_min?: number | null; // só se tipo_oferta='servico'
   tipo_preco?: TipoPreco | null;      // só se tipo_oferta='servico'
+  // ── Presença / ciclo de vida (Fase A) ────────────────────────────────────
+  checkin_em?: string | null;         // quando o diarista bateu ponto de chegada
+  checkin_metodo?: string | null;     // 'qr' | 'gps' | 'codigo'
+  checkin_lat?: number | null;
+  checkin_lng?: number | null;
+  checkin_distancia_m?: number | null; // distância do endereço no check-in (m)
+  checkout_em?: string | null;        // quando a diária foi encerrada
 }
 
 export interface UserProfile {

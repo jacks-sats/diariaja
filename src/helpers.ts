@@ -600,6 +600,29 @@ export function vagaExpirou(
   return agora.getTime() > fim.getTime();
 }
 
+// ── Janela de check-in: presença só é confirmável perto do horário ──────────
+// A confirmação de presença (QR/GPS/código) vale apenas dentro de
+// [horario_inicio − 30min, horario_fim + 2h]. Fora disso o servidor (RPC
+// `registrar_checkin`) recusa; o client usa este helper para esconder o QR de
+// uma diária que já passou da hora — corrige o "expirada ainda pede QR".
+export function checkinDentroDaJanela(
+  diaria: { data: string; horario_inicio?: string; horario_fim?: string },
+  agora: Date = new Date(),
+): boolean {
+  if (!diaria.data) return false;
+  const ini = (diaria.horario_inicio && diaria.horario_inicio.trim()) || "00:00";
+  const fimRaw = (diaria.horario_fim && diaria.horario_fim.trim()) || ini;
+  const [hi, mi] = ini.split(":").map(Number);
+  const [hf, mf] = fimRaw.split(":").map(Number);
+  if ([hi, mi, hf, mf].some(Number.isNaN)) return false;
+  const inicio = new Date(`${diaria.data}T${String(hi).padStart(2, "0")}:${String(mi).padStart(2, "0")}:00`);
+  const fim = new Date(`${diaria.data}T${String(hf).padStart(2, "0")}:${String(mf).padStart(2, "0")}:00`);
+  const abre = inicio.getTime() - 30 * 60 * 1000;       // 30min antes do início
+  const fecha = fim.getTime() + 2 * 60 * 60 * 1000;     // 2h depois do fim
+  const t = agora.getTime();
+  return t >= abre && t <= fecha;
+}
+
 // ── Vaga PRÓXIMA de vencer: ainda no ar, mas o horário-fim chega em breve ─────
 // Usado pra lembrar o anunciante ("ainda quer manter no ar ou tirar?") ANTES de
 // a vaga expirar sozinha. Só vale pra vaga ainda "aberta" (ninguém confirmado).
