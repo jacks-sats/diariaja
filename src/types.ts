@@ -230,8 +230,10 @@ export interface Convite {
   horario_servico: string;
   observacoes?: string;
   valor?: number;
-  status: string;             // 'pendente' | 'aceito' | 'recusado'
+  status: string;             // 'pendente' | 'aceito' | 'recusado' | 'confirmado'
   created_at: string;
+  pago_em?: string | null;                // anunciante pagou (webhook seta)
+  presenca_confirmada_em?: string | null; // prestador confirmou → libera chat
 }
 
 export interface AnalyticsEvento {

@@ -3216,6 +3216,33 @@ export default function App() {
     setToastSuccess("🗑️ Convite cancelado.");
   };
 
+  // Fluxo novo do convite: depois que o anunciante paga (webhook marca pago_em),
+  // o prestador confirma a presença AQUI — só então o chat libera pros dois.
+  const [confirmandoPresencaConvite, setConfirmandoPresencaConvite] = useState(false);
+  const confirmarPresencaConvite = async (conv: Convite) => {
+    if (!session?.user || confirmandoPresencaConvite) return;
+    setConfirmandoPresencaConvite(true);
+    const agora = new Date().toISOString();
+    const { error } = await supabase.from("convites")
+      .update({ status: "confirmado", presenca_confirmada_em: agora })
+      .eq("id", conv.id)
+      .eq("diarista_id", session.user.id);
+    setConfirmandoPresencaConvite(false);
+    if (error) { setToastError("Não foi possível confirmar. Tente novamente."); return; }
+    setConvitesRecebidos(prev => prev.map(c => c.id === conv.id ? { ...c, status: "confirmado", presenca_confirmada_em: agora } : c));
+    pushNotif("✅ Presença confirmada! O chat foi liberado.", "ok", "home-diarista");
+    hapticConfirm();
+    // Notifica o anunciante que o chat está liberado
+    if (conv.contratante_id) {
+      enviarPush(
+        [conv.contratante_id],
+        "Chat liberado 💬",
+        `${profile?.nome?.split(" ")[0] || "O profissional"} confirmou a presença. Já podem combinar os detalhes no chat.`,
+        { tipo: "confirmacao", url: "/" },
+      );
+    }
+  };
+
   // ── PAINEL ADMIN + TICKETS DE SUPORTE ────────────────────────────────────
 
   // Stats agregadas — só admin executa (RLS no banco também valida)
@@ -11794,28 +11821,42 @@ export default function App() {
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
                   <span style={{ fontSize:24, flexShrink:0 }}>🎯</span>
                   <div style={{ flex:1, minWidth:0, color:"#fff" }}>
-                    <div style={{ fontWeight:900, fontSize:14, lineHeight:1.25 }}>Presença confirmada com {c.contratante_nome || "o anunciante"}!</div>
+                    <div style={{ fontWeight:900, fontSize:14, lineHeight:1.25 }}>{c.presenca_confirmada_em ? "Tudo certo" : "Convite aceito"} com {c.contratante_nome || "o anunciante"}!</div>
                     <div style={{ fontSize:12, opacity:0.95, marginTop:2 }}>{c.funcao || "Serviço"} · {new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR")} · {c.horario_servico}</div>
                   </div>
                 </div>
-                <button
-                  style={{ width:"100%", background:"var(--bg-card,#fff)", color:"#16a34a", border:"none", borderRadius:10, padding:"11px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                  onClick={() => {
-                    // Mapeia o convite pro shape de Diaria (mesmo mapeamento do lado do anunciante)
-                    // pra abrir o chat — o id do convite é a chave das mensagens.
-                    const chatComoDiaria = {
-                      id: c.id, empregador_id: c.contratante_id, diarista_aceite_id: c.diarista_id,
-                      funcao: c.funcao ?? "Serviço", data: c.data_servico, horario_inicio: c.horario_servico ?? "00:00",
-                      horario_fim: "", valor: c.valor ?? 0, nome_negocio: c.contratante_nome || c.local_servico || "Anunciante",
-                      segmento: "", descricao: c.observacoes ?? "", status: "aceita", created_at: c.created_at,
-                      tipo_oferta: "diaria" as const,
-                    };
-                    hapticTick();
-                    setChatDiariaAtiva(chatComoDiaria as any);
-                    setTabDiarista("chat");
-                  }}>
-                  💬 Abrir chat com {(c.contratante_nome || "o anunciante").split(" ")[0]}
-                </button>
+                {/* Fluxo novo: chat abre só depois do anunciante pagar E o prestador
+                    confirmar a presença aqui. 3 estados: aguardando pagamento /
+                    pago-confirme / confirmado-abrir chat. */}
+                {!c.pago_em ? (
+                  <div style={{ width:"100%", background:"rgba(255,255,255,.2)", color:"#fff", borderRadius:10, padding:"11px", fontWeight:700, fontSize:13, textAlign:"center" as const }}>
+                    ⏳ Aguardando o anunciante liberar o contato…
+                  </div>
+                ) : !c.presenca_confirmada_em ? (
+                  <button
+                    style={{ width:"100%", background:"#fff", color:"#16a34a", border:"none", borderRadius:10, padding:"12px", fontWeight:900, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: confirmandoPresencaConvite ? 0.7 : 1 }}
+                    disabled={confirmandoPresencaConvite}
+                    onClick={() => confirmarPresencaConvite(c)}>
+                    {confirmandoPresencaConvite ? "Confirmando…" : "✅ Você foi contratado! Confirmar presença"}
+                  </button>
+                ) : (
+                  <button
+                    style={{ width:"100%", background:"var(--bg-card,#fff)", color:"#16a34a", border:"none", borderRadius:10, padding:"11px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                    onClick={() => {
+                      const chatComoDiaria = {
+                        id: c.id, empregador_id: c.contratante_id, diarista_aceite_id: c.diarista_id,
+                        funcao: c.funcao ?? "Serviço", data: c.data_servico, horario_inicio: c.horario_servico ?? "00:00",
+                        horario_fim: "", valor: c.valor ?? 0, nome_negocio: c.contratante_nome || c.local_servico || "Anunciante",
+                        segmento: "", descricao: c.observacoes ?? "", status: "aceita", created_at: c.created_at,
+                        tipo_oferta: "diaria" as const,
+                      };
+                      hapticTick();
+                      setChatDiariaAtiva(chatComoDiaria as any);
+                      setTabDiarista("chat");
+                    }}>
+                    💬 Abrir chat com {(c.contratante_nome || "o anunciante").split(" ")[0]}
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -15075,8 +15116,11 @@ export default function App() {
           }
 
           if (statusConvite === "aceito") {
-            // ── Estado: aceito — contato liberado apenas após pagamento ──
-            const contatoJaLiberado = conviteAtivo && contatosLiberados.has(conviteAtivo.id);
+            // ── Estado: aceito — chat libera só após PAGAR e o prestador CONFIRMAR ──
+            const convPago = conviteAtivo && (contatosLiberados.has(conviteAtivo.id) || !!conviteAtivo.pago_em);
+            const convConfirmado = conviteAtivo && !!conviteAtivo.presenca_confirmada_em;
+            const contatoJaLiberado = convPago && convConfirmado;
+            const aguardandoConfirmacao = convPago && !convConfirmado; // pagou, falta o prestador confirmar
             return (
               <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
                 <div style={{ background:"#dcfce7", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 }}>
@@ -15130,12 +15174,20 @@ export default function App() {
                     }}>
                     💬 Abrir chat com {d.nome.split(" ")[0]}
                   </button>
+                ) : aguardandoConfirmacao ? (
+                  <div style={{ background:"#eff6ff", borderRadius:14, padding:"14px 16px", textAlign:"center" as const }}>
+                    <div style={{ fontSize:20, marginBottom:6 }}>⏳</div>
+                    <div style={{ fontWeight:800, fontSize:13, color:"#1e40af", marginBottom:4 }}>Pagamento confirmado!</div>
+                    <div style={{ fontSize:12, color:"#1d4ed8", lineHeight:1.5 }}>
+                      Avisamos {d.nome.split(" ")[0]} pra confirmar a presença. Assim que confirmar, o chat libera pros dois. 🔔
+                    </div>
+                  </div>
                 ) : (
                   <div style={{ background:"#fef3c7", borderRadius:14, padding:"14px 16px", textAlign:"center" as const }}>
                     <div style={{ fontSize:20, marginBottom:6 }}>🔒</div>
                     <div style={{ fontWeight:800, fontSize:13, color:"#92400e", marginBottom:4 }}>Chat bloqueado</div>
                     <div style={{ fontSize:12, color:"#a16207", lineHeight:1.5 }}>
-                      Pague <strong>R$ 1,00</strong> pra liberar o chat com {d.nome.split(" ")[0]}.<br />
+                      Pague <strong>R$ 1,00</strong>. Depois {d.nome.split(" ")[0]} confirma a presença e o chat libera.<br />
                       O valor da diária ({conviteAtivo?.valor ? `R$ ${conviteAtivo.valor}` : "combinado"}) você paga direto pra ele via PIX, fora do app.
                     </div>
                   </div>
@@ -15143,8 +15195,9 @@ export default function App() {
 
                 {/* Botão pagamento R$1 — abre modal de termo de compromisso ANTES.
                     Termo cobre o aviso de "pagamento entre as partes" e protege
-                    contra risco trabalhista (LC 150/CLT). Após aceite → MP. */}
-                {!contatoJaLiberado && (
+                    contra risco trabalhista (LC 150/CLT). Após aceite → MP.
+                    Só aparece se ainda NÃO pagou (pago = aguarda confirmação). */}
+                {!convPago && (
                   <button
                     style={{ ...S.btnPrimary, background:cor, opacity: desbloqueandoContato ? 0.7 : 1 }}
                     disabled={desbloqueandoContato}
