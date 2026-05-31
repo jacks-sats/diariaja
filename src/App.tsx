@@ -10794,6 +10794,11 @@ export default function App() {
                   setPromptNotif(false);
                   try { localStorage.setItem("diariaja_push_prompt_dispensado","1"); } catch {}
                   await ativarPush();  // gesto do usuário → dispara o requestPermission do navegador
+                  // Diagnóstico visível (sem console): se a chave VAPID não está
+                  // configurada na Vercel, o push não funciona — avisa na hora.
+                  if (pushEstado.erro === "vapid_ausente") {
+                    setToastError("⚠️ Notificações ainda não configuradas no servidor. Avise o suporte.");
+                  }
                 }}>
                 🔔 Ativar notificações
               </button>
