@@ -885,6 +885,42 @@ export default function App() {
   // Persiste a tela atual para não sair da página ao recarregar
   useEffect(() => { try { localStorage.setItem("diariaja_tela", tela); } catch { /* storage indisponível */ } }, [tela]);
 
+  // Persiste o CHAT aberto (id da diária) — assim ao atualizar a página o usuário
+  // volta pra conversa em vez de cair na tela inicial (reclamação real).
+  useEffect(() => {
+    try {
+      if (chatDiariaAtiva?.id) localStorage.setItem("diariaja_chat_ativo", chatDiariaAtiva.id);
+      else localStorage.removeItem("diariaja_chat_ativo");
+    } catch { /* storage indisponível */ }
+  }, [chatDiariaAtiva?.id]);
+
+  // Restaura o chat aberto após (re)carregar os dados. Procura a conversa pelo id
+  // salvo entre as diárias e os convites confirmados, dos dois lados (anunciante
+  // e prestador). Roda quando as listas chegam; só age uma vez por id salvo.
+  const chatRestauradoRef = useRef<string | null>(null);
+  useEffect(() => {
+    let alvo: string | null = null;
+    try { alvo = localStorage.getItem("diariaja_chat_ativo"); } catch { alvo = null; }
+    if (!alvo || chatDiariaAtiva?.id === alvo || chatRestauradoRef.current === alvo) return;
+    // 1) Diária real (candidatura ou convite já materializado)
+    const todasDiarias = [...diarias, ...minhasDiarias];
+    const d = todasDiarias.find(x => x.id === alvo && x.diarista_aceite_id);
+    if (d) { chatRestauradoRef.current = alvo; setChatDiariaAtiva(d); return; }
+    // 2) Convite confirmado cujo diaria_id bate (monta o shape do chat)
+    const conv = [...convitesRecebidos, ...convitesEnviados].find(c => c.diaria_id === alvo);
+    if (conv) {
+      chatRestauradoRef.current = alvo;
+      setChatDiariaAtiva({
+        id: alvo, empregador_id: conv.contratante_id, diarista_aceite_id: conv.diarista_id,
+        funcao: conv.funcao ?? "Serviço", data: conv.data_servico, horario_inicio: conv.horario_servico ?? "00:00",
+        horario_fim: "", valor: conv.valor ?? 0,
+        nome_negocio: modoAtual === "diarista" ? (conv.contratante_nome || "Anunciante") : (conv.diarista_nome || "Prestador"),
+        segmento: "", descricao: conv.observacoes ?? "", status: "aceita", created_at: conv.created_at,
+        tipo_oferta: "diaria" as const,
+      } as Diaria);
+    }
+  }, [diarias, minhasDiarias, convitesRecebidos, convitesEnviados, chatDiariaAtiva?.id, modoAtual]);
+
   // Carrega lista de cursos do Já Decola sempre que a Comunidade abre,
   // pra que o card destacado mostre a contagem real de selos.
   // Também recarrega ao entrar nas telas academy* (atualiza contadores).
@@ -2897,6 +2933,7 @@ export default function App() {
     const keysToRemove = [
       "diariaja_tela", "diariaja_modo", "diariaja_dark",
       "diariaja_hidden_chats", "diariaja_portfolio", "diariaja_cancels",
+      "diariaja_chat_ativo",
     ];
     keysToRemove.forEach(k => localStorage.removeItem(k));
     // Reset de estado React
