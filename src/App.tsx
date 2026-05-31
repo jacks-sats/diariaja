@@ -3229,7 +3229,11 @@ export default function App() {
       .eq("id", conv.id)
       .eq("diarista_id", session.user.id);
     setConfirmandoPresencaConvite(false);
-    if (error) { setToastError("Não foi possível confirmar. Tente novamente."); return; }
+    if (error) {
+      console.error("[confirmarPresencaConvite] erro:", error);
+      setToastError(`Erro ao confirmar: ${error.message || error.code || "tente novamente"}`);
+      return;
+    }
     setConvitesRecebidos(prev => prev.map(c => c.id === conv.id ? { ...c, status: "confirmado", presenca_confirmada_em: agora } : c));
     pushNotif("✅ Presença confirmada! O chat foi liberado.", "ok", "home-diarista");
     hapticConfirm();

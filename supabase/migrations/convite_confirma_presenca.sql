@@ -23,6 +23,13 @@ ALTER TABLE convites DROP CONSTRAINT IF EXISTS convites_status_check;
 ALTER TABLE convites ADD CONSTRAINT convites_status_check
   CHECK (status IN ('pendente','aceito','recusado','cancelado','expirado','confirmado'));
 
+-- 1c. GRANT de coluna: seguranca_hardening.sql fez REVOKE UPDATE e só liberou
+--     (status, respondido_em) pro authenticated. O diarista precisa escrever
+--     presenca_confirmada_em ao confirmar — sem este GRANT o Postgres recusa o
+--     UPDATE inteiro ("permission denied for column"). Era a causa real do
+--     "Não foi possível confirmar".
+GRANT UPDATE (presenca_confirmada_em) ON convites TO authenticated;
+
 -- 2. RLS: o diarista agora também pode marcar status 'confirmado' (além de
 --    aceito/recusado). Continua restrito ao próprio convite e só ao campo status
 --    via WITH CHECK. `pago_em` é gravado só pelo webhook (service_role bypassa RLS).
