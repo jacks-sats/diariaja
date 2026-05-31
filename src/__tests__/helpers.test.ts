@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  protocoloContato,
   maskData,
   isoParaBR,
   brParaIso,
@@ -1086,5 +1087,24 @@ describe("gerarHorarios", () => {
     const hs = gerarHorarios(60);
     expect(hs.length).toBe(24);
     expect(hs[8]).toBe("08:00");
+  });
+});
+
+describe("protocoloContato", () => {
+  it("mesmo id → mesmo protocolo (determinístico, igual pros 2 lados)", () => {
+    const id = "a1b2c3d4-0000-1111-2222-333344445555";
+    expect(protocoloContato(id)).toBe(protocoloContato(id));
+  });
+  it("formato: 6 dígitos agrupados XXX XXX", () => {
+    const p = protocoloContato("qualquer-id-aqui");
+    expect(p).toMatch(/^\d{3} \d{3}$/);
+  });
+  it("ids diferentes tendem a protocolos diferentes", () => {
+    expect(protocoloContato("id-aaaa")).not.toBe(protocoloContato("id-bbbb"));
+  });
+  it("vazio/nulo → travessão", () => {
+    expect(protocoloContato("")).toBe("—");
+    expect(protocoloContato(null)).toBe("—");
+    expect(protocoloContato(undefined)).toBe("—");
   });
 });
