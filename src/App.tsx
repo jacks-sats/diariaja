@@ -2385,23 +2385,18 @@ export default function App() {
       const podeRestaurar = (t: string) => t && !TELAS_AUTH.has(t);
 
       // Sem localização → manda pro CEP. Mas se o usuário JÁ informou o CEP
-      // (data.cep preenchido), não prende no loop só porque o geocoding não
-      // achou lat/lng — ele já fez a parte dele. O feed só perde precisão de
-      // distância; não vale travar o acesso ao app. Só força quando não há
-      // NEM CEP NEM coordenadas.
-      const temCEP   = !!(data.cep && data.cep.replace(/\D/g, "").length === 8);
-      const semCoord = !data.lat || !data.lng;
-      const semCEP   = semCoord && !temCEP;
-
+      // MUDANÇA (pedido do dono): a tela "informe seu CEP" NÃO é mais um muro no
+      // login. O usuário entra direto na home; o CEP é opcional e pode ser
+      // preenchido/alterado no perfil quando quiser. O feed lida bem com a
+      // ausência de lat/lng (sem ordenar por distância). Isso elimina o loop
+      // E o congelamento do botão dessa tela obrigatória.
       if (data.user_type === "diarista") {
         setModoAtual("diarista");
-        if (semCEP) { setTela("pedir-localizacao"); }
-        else setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
+        setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
       } else if (data.user_type === "ambos" && modoSalvo === "diarista" && data.funcao && data.valor_diaria) {
         // Usuário "ambos" que estava no modo diarista → volta para diarista
         setModoAtual("diarista");
-        if (semCEP) { setTela("pedir-localizacao"); }
-        else setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
+        setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
       } else {
         // "empregador" ou "ambos" → home do empregador se tiver segmento
         setModoAtual("empregador");
@@ -14961,27 +14956,20 @@ export default function App() {
       await buscarCEPPerfil(cep);
     };
 
-    const handleContinuar = async () => {
-      // Salva o CEP SEMPRE que válido (mesmo sem lat/lng) — assim o usuário não
-      // volta pro loop "informe seu CEP" no próximo refresh. Salva lat/lng junto
-      // quando o geocoding deu certo.
+    const handleContinuar = () => {
+      // O CEP é OPCIONAL e a tela NÃO bloqueia: sempre entra no app. Salva o que
+      // tiver em BACKGROUND (best-effort) — assim o botão nunca congela esperando
+      // a rede/geocoding (causa do "botão não funciona mais" no Android). Se o
+      // salvamento falhar, o usuário pode preencher/alterar o CEP no perfil.
       const cepNorm = form.cep.replace(/\D/g, "");
       const updates: Partial<UserProfile> = {};
       if (cepNorm.length === 8) updates.cep = cepNorm;
       if (latPerfilCEP) { updates.lat = latPerfilCEP; updates.lng = lngPerfilCEP; }
       if (Object.keys(updates).length > 0) {
-        // CRÍTICO: só navega se REALMENTE salvou. Antes, ignorava o retorno —
-        // se o salvamento falhava (ex.: permissão), navegava sem gravar e o
-        // usuário voltava pro loop no próximo refresh (caso Guilherme: cep NULL).
-        const ok = await saveProfile(updates);
-        if (!ok) {
-          // saveProfile já mostrou o erro real (permission denied, etc.).
-          if (!authError) setAuthError("Não foi possível salvar o CEP. Tente novamente.");
-          return; // FICA na tela — não finge que salvou.
-        }
+        void saveProfile(updates);  // não await — não trava a navegação
         setLatPerfilCEP(null); setLngPerfilCEP(null);
       }
-      irParaDestino();
+      irParaDestino();  // entra SEMPRE
     };
 
     return (
@@ -15029,19 +15017,19 @@ export default function App() {
 
           {(() => {
             const cepValido = form.cep.replace(/\D/g, "").length === 8;
-            // Pode entrar se: geocodou OK, ou já tem lat no perfil, ou pelo menos
-            // digitou um CEP válido (salvamos o CEP e não prendemos no loop).
-            const podeEntrar = geocodOk || !!profile?.lat || cepValido;
+            const vaiSalvar = geocodOk || !!profile?.lat || cepValido;
+            // Botão SEMPRE clicável e nunca desabilitado — entra no app de
+            // qualquer jeito (CEP é opcional). Texto reflete a ação.
             return (
               <button
-                style={{ ...S.btnPrimary, background: corTela, marginTop:8, width:"100%", opacity: podeEntrar ? 1 : 0.5 }}
+                style={{ ...S.btnPrimary, background: corTela, marginTop:8, width:"100%" }}
                 onClick={handleContinuar}>
-                {(geocodOk || profile?.lat || cepValido) ? "Entrar no app →" : "Pular por agora"}
+                {vaiSalvar ? "Entrar no app →" : "Pular e entrar →"}
               </button>
             );
           })()}
           <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, textAlign:"center", marginTop:8, lineHeight:1.5 }}>
-            Você pode atualizar o CEP a qualquer momento no seu perfil.
+            Você pode informar ou alterar o CEP a qualquer momento no seu perfil.
           </p>
         </div>
       </div>
