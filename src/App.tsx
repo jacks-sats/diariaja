@@ -2040,10 +2040,13 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id]);
 
-  // Carrega perfis dos diaristas que aceitaram as diárias do empregador
+  // Carrega perfis dos diaristas que aceitaram as diárias do empregador.
+  // Inclui também os diaristas dos CONVITES enviados — senão a lista de chat de
+  // convite mostrava "Prestador" genérico + avatar "?" (não tinha o perfil).
   useEffect(() => {
-    if (!diarias.length) return;
-    const ids = [...new Set(diarias.filter(d => d.diarista_aceite_id).map(d => d.diarista_aceite_id!))];
+    const idsDiarias  = diarias.filter(d => d.diarista_aceite_id).map(d => d.diarista_aceite_id!);
+    const idsConvites = convitesEnviados.filter(c => c.diarista_id).map(c => c.diarista_id);
+    const ids = [...new Set([...idsDiarias, ...idsConvites])].filter(id => !diaristasAceites[id]);
     if (!ids.length) return;
     (async () => {
       // C2 passo B: display via perfis_publicos (nome/foto/nível, sem telefone/cpf).
@@ -2063,7 +2066,7 @@ export default function App() {
         if (count !== null) setDiaristasContagemDiarias(prev => ({ ...prev, [id]: count }));
       }
     })();
-  }, [diarias]);
+  }, [diarias, convitesEnviados]);
 
   // C2 passo B: ao abrir o modal PIX, carrega (1) o perfil público do prestador
   // para exibição (se ainda não estiver em cache) e (2) o CONTATO/PIX via
