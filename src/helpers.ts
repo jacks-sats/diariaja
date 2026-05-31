@@ -366,6 +366,56 @@ export const maskTelefone = (v: string): string => {
   return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
 };
 
+// ── Data digitável DD/MM/AAAA (sem calendário nativo) ────────────────────────
+// Usuário leigo se perde no calendário do Android. Estes helpers deixam digitar
+// a data como todo brasileiro escreve, e convertem de/para o ISO (yyyy-mm-dd)
+// que o resto do app/banco usa.
+
+// Máscara progressiva: "25121990" → "25/12/1990".
+export const maskData = (v: string): string => {
+  const d = v.replace(/\D/g, "").slice(0, 8);
+  if (d.length <= 2) return d;
+  if (d.length <= 4) return `${d.slice(0,2)}/${d.slice(2)}`;
+  return `${d.slice(0,2)}/${d.slice(2,4)}/${d.slice(4)}`;
+};
+
+// ISO (yyyy-mm-dd) → BR (dd/mm/aaaa). String vazia se inválida/vazia.
+export const isoParaBR = (iso?: string | null): string => {
+  if (!iso) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return "";
+  return `${m[3]}/${m[2]}/${m[1]}`;
+};
+
+// BR (dd/mm/aaaa) → ISO (yyyy-mm-dd). Retorna "" se a data não for válida
+// (dia/mês fora de faixa, ano implausível, ou data inexistente tipo 31/02).
+export const brParaIso = (br: string): string => {
+  const d = br.replace(/\D/g, "");
+  if (d.length !== 8) return "";
+  const dia = +d.slice(0,2), mes = +d.slice(2,4), ano = +d.slice(4,8);
+  if (mes < 1 || mes > 12) return "";
+  if (dia < 1 || dia > 31) return "";
+  if (ano < 1900 || ano > 2100) return "";
+  // Valida data real (rejeita 31/04, 29/02 em ano não bissexto, etc.).
+  const dt = new Date(ano, mes - 1, dia);
+  if (dt.getFullYear() !== ano || dt.getMonth() !== mes - 1 || dt.getDate() !== dia) return "";
+  const mm = String(mes).padStart(2, "0");
+  const dd = String(dia).padStart(2, "0");
+  return `${ano}-${mm}-${dd}`;
+};
+
+// ── Lista de horários (rolagem) — substitui o relógio circular nativo ────────
+// Gera ["00:00","00:30",...,"23:30"] (ou com o passo dado). HH:MM, formato que
+// o app já usa pros horários de diária.
+export const gerarHorarios = (passoMin = 30): string[] => {
+  const out: string[] = [];
+  for (let m = 0; m < 24 * 60; m += passoMin) {
+    const h = Math.floor(m / 60), min = m % 60;
+    out.push(`${String(h).padStart(2,"0")}:${String(min).padStart(2,"0")}`);
+  }
+  return out;
+};
+
 // ── Validação de e-mail (formato básico, espelha a checagem do Supabase) ─────
 export function validarEmail(email: string): boolean {
   const e = email.trim();

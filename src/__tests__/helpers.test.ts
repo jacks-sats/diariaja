@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
+  maskData,
+  isoParaBR,
+  brParaIso,
+  gerarHorarios,
   validarCPF,
   validarCNPJ,
   validarNome,
@@ -1021,5 +1025,66 @@ describe("calcularNivelAcademy", () => {
   it("valores inválidos (NaN/negativo) → Bronze 0", () => {
     expect(calcularNivelAcademy(NaN).xp).toBe(0);
     expect(calcularNivelAcademy(-10).nome).toBe("Bronze");
+  });
+});
+
+describe("maskData", () => {
+  it("formata progressivamente DD/MM/AAAA", () => {
+    expect(maskData("2")).toBe("2");
+    expect(maskData("25")).toBe("25");
+    expect(maskData("2512")).toBe("25/12");
+    expect(maskData("25121990")).toBe("25/12/1990");
+  });
+  it("ignora não-dígitos e limita a 8", () => {
+    expect(maskData("25/12/1990")).toBe("25/12/1990");
+    expect(maskData("251219901234")).toBe("25/12/1990");
+  });
+});
+
+describe("isoParaBR", () => {
+  it("converte ISO para BR", () => {
+    expect(isoParaBR("1990-12-25")).toBe("25/12/1990");
+    expect(isoParaBR("2026-01-05T12:00:00")).toBe("05/01/2026");
+  });
+  it("vazio/nulo/inválido → string vazia", () => {
+    expect(isoParaBR("")).toBe("");
+    expect(isoParaBR(null)).toBe("");
+    expect(isoParaBR("xpto")).toBe("");
+  });
+});
+
+describe("brParaIso", () => {
+  it("converte BR válido para ISO", () => {
+    expect(brParaIso("25/12/1990")).toBe("1990-12-25");
+    expect(brParaIso("05/01/2026")).toBe("2026-01-05");
+  });
+  it("rejeita datas inexistentes ou fora de faixa", () => {
+    expect(brParaIso("31/02/2020")).toBe(""); // fev não tem 31
+    expect(brParaIso("29/02/2021")).toBe(""); // 2021 não é bissexto
+    expect(brParaIso("00/12/1990")).toBe("");
+    expect(brParaIso("10/13/1990")).toBe("");
+    expect(brParaIso("10/12/1800")).toBe(""); // ano implausível
+    expect(brParaIso("123")).toBe("");        // incompleta
+  });
+  it("aceita 29/02 em ano bissexto", () => {
+    expect(brParaIso("29/02/2020")).toBe("2020-02-29");
+  });
+  it("ida e volta (ISO→BR→ISO) preserva", () => {
+    expect(brParaIso(isoParaBR("1985-07-09"))).toBe("1985-07-09");
+  });
+});
+
+describe("gerarHorarios", () => {
+  it("passo 30min gera 48 horários começando 00:00", () => {
+    const hs = gerarHorarios(30);
+    expect(hs.length).toBe(48);
+    expect(hs[0]).toBe("00:00");
+    expect(hs[1]).toBe("00:30");
+    expect(hs[hs.length - 1]).toBe("23:30");
+  });
+  it("passo 60min gera 24 horários", () => {
+    const hs = gerarHorarios(60);
+    expect(hs.length).toBe(24);
+    expect(hs[8]).toBe("08:00");
   });
 });
