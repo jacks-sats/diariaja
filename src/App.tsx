@@ -4165,17 +4165,22 @@ export default function App() {
   // Envia mensagem no chat real (empregador ↔ diarista)
   const enviarMensagemReal = async () => {
     if (!msgInputReal.trim() || !session?.user || !chatDiariaAtiva) return;
-    // BUG-H4 fix: diarista_aceite_id pode ser null — verificar antes de usar
-    if (tipo === "empregador" && !chatDiariaAtiva.diarista_aceite_id) return;
+    // BUG CRÍTICO (teste real): o destinatário era escolhido pelo flag `tipo`
+    // (modo do app). Pra conta "ambos" / modo trocado, o EMPREGADOR mandava
+    // mensagem com `tipo === "diarista"` → destinatário virava empregador_id =
+    // ELE MESMO. A msg ia pra própria caixa e o outro lado nunca recebia.
+    // Fix: decidir pela IDENTIDADE REAL nesta diária (quem EU sou), não pelo modo.
+    const euSouEmpregador = chatDiariaAtiva.empregador_id === session.user.id;
+    const destinatario = euSouEmpregador
+      ? chatDiariaAtiva.diarista_aceite_id
+      : chatDiariaAtiva.empregador_id;
+    if (!destinatario) return; // sem o outro lado definido, não envia
     // Anti-exit filter: detecta tentativa de sair do app
     if (detectarContatoExterno(msgInputReal)) {
       setAntiExitAviso(true);
       return;
     }
     setEnviandoMsgReal(true);
-    const destinatario = tipo === "empregador"
-      ? chatDiariaAtiva.diarista_aceite_id!
-      : chatDiariaAtiva.empregador_id;
     const textoMsg = msgInputReal.trim();
     const { data: novaMsg, error } = await supabase.from("mensagens").insert({
       diaria_id: chatDiariaAtiva.id,
@@ -4195,7 +4200,7 @@ export default function App() {
       setMsgInputReal("");
       setTimeout(() => mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
       // Push pro destinatário
-      const remNome = profile?.nome?.split(" ")[0] || (tipo === "diarista" ? "Prestador" : "Anunciante");
+      const remNome = profile?.nome?.split(" ")[0] || (euSouEmpregador ? "Anunciante" : "Prestador");
       enviarPush(
         [destinatario],
         `Mensagem de ${remNome}`,
