@@ -2471,7 +2471,13 @@ export default function App() {
   };
 
   const saveProfile = async (updates: Partial<UserProfile>) => {
-    if (!session?.user) return false;
+    // Sessão FRESCA do Supabase (não só do estado React). No cadastro, o perfil
+    // é salvo logo após signUp/signIn — o estado `session` pode ainda não ter
+    // atualizado, e usar um id desatualizado faz o auth.uid() do banco não bater
+    // com o id inserido → "permission denied for table user_profiles" (RLS).
+    const { data: sessFresca } = await supabase.auth.getSession();
+    const userAtivo = sessFresca?.session?.user ?? session?.user;
+    if (!userAtivo) return false;
     const telefoneFinal = updates.telefone ?? profile?.telefone ?? form.telefone;
     // Telefone só é validado se foi preenchido (alguns fluxos salvam sem ele)
     if (telefoneFinal && telefoneFinal.trim() && !validarTelefone(telefoneFinal)) {
@@ -2480,7 +2486,7 @@ export default function App() {
     }
     setSalvandoPerfil(true);
     const full: UserProfile = {
-      id: session.user.id,
+      id: userAtivo.id,
       user_type: updates.user_type ?? tipo ?? profile?.user_type ?? "",
       // Usa dados do profile como fallback para não sobrescrever com campos vazios
       nome: updates.nome ?? profile?.nome ?? form.nome,
@@ -2517,9 +2523,18 @@ export default function App() {
       // "permission denied for table user_profiles" no editar-perfil quando o
       // INSERT está mais restrito que o UPDATE. Perfil NOVO → upsert (cria).
       const jaExiste = !!profile?.id;
-      const { error } = jaExiste
-        ? await supabase.from("user_profiles").update(full).eq("id", session.user.id)
-        : await supabase.from("user_profiles").upsert(full);
+      const gravar = () => jaExiste
+        ? supabase.from("user_profiles").update(full).eq("id", userAtivo.id)
+        : supabase.from("user_profiles").upsert(full);
+      let { error } = await gravar();
+      // Retry pra "permission denied" no cadastro: logo após signUp/signIn, o
+      // token novo pode levar um instante pra propagar no PostgREST → a 1ª
+      // gravação cai na RLS. Faz refresh da sessão e tenta 1 vez mais.
+      if (error && (error.message || "").toLowerCase().includes("permission denied")) {
+        await supabase.auth.refreshSession();
+        await new Promise(r => setTimeout(r, 600));
+        ({ error } = await gravar());
+      }
       if (error) {
         // CPF/CNPJ duplicado (UNIQUE no banco): 1 documento = 1 conta. Mensagem
         // clara em vez do erro cru do Postgres (23505 / "duplicate key").
