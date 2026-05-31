@@ -4,7 +4,7 @@
  * Uso, cópia, modificação ou distribuição sem autorização escrita é proibido.
  * Lei 9.609/98 e Lei 9.610/98. Contato: suporte@diariaja.com.br
  */
-import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import { Session } from "@supabase/supabase-js";
 // ── Ícones (Lucide React — outline moderno, tree-shaken) ─────────────────────
@@ -64,6 +64,7 @@ import {
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
+  maskData, isoParaBR, brParaIso, gerarHorarios,
   validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
@@ -130,6 +131,73 @@ function QRScannerComponent({ onResult, onError, onClose }: {
     return () => { html5QrCode?.stop().catch(() => {}); };
   }, []);
   return <div id="qr-reader" style={{ width:"100%", borderRadius:12, overflow:"hidden" }} />;
+}
+
+// ── CampoData: digita DD/MM/AAAA, sem calendário nativo ──────────────────────
+// Guarda/emite no formato ISO (yyyy-mm-dd) que o app já usa. O usuário leigo se
+// perde no calendário do Android — aqui é só digitar como ele já escreve datas.
+// `inputMode="numeric"` abre o teclado numérico no celular.
+function CampoData({ valorISO, onChangeISO, estilo, placeholder = "DD/MM/AAAA", disabled }: {
+  valorISO: string;
+  onChangeISO: (iso: string) => void;
+  estilo?: React.CSSProperties;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  // Texto digitado (BR). Semeado do ISO; re-sincroniza se o ISO mudar por fora.
+  const [txt, setTxt] = useState<string>(isoParaBR(valorISO));
+  const ultimoISO = useRef(valorISO);
+  useEffect(() => {
+    if (valorISO !== ultimoISO.current) { setTxt(isoParaBR(valorISO)); ultimoISO.current = valorISO; }
+  }, [valorISO]);
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      placeholder={placeholder}
+      value={txt}
+      disabled={disabled}
+      style={estilo}
+      onChange={e => {
+        const masked = maskData(e.target.value);
+        setTxt(masked);
+        // Só emite ISO quando a data está completa E é válida (senão "").
+        const iso = brParaIso(masked);
+        ultimoISO.current = iso;
+        onChangeISO(iso);
+      }}
+    />
+  );
+}
+
+// ── CampoHora: lista rolável de horários, sem relógio circular ───────────────
+// Abre um dropdown com horários de `passoMin` em `passoMin` minutos. Guarda/emite
+// "HH:MM". Se o valor atual não estiver na lista (ex.: legado tipo "08:15"), ele
+// é incluído no topo pra não sumir.
+function CampoHora({ valor, onChange, estilo, passoMin = 30, placeholder = "Selecione", disabled }: {
+  valor: string;
+  onChange: (hhmm: string) => void;
+  estilo?: React.CSSProperties;
+  passoMin?: number;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const horarios = useMemo(() => {
+    const base = gerarHorarios(passoMin);
+    return valor && !base.includes(valor) ? [valor, ...base] : base;
+  }, [passoMin, valor]);
+  return (
+    <select
+      value={valor || ""}
+      disabled={disabled}
+      style={{ ...estilo, appearance: "none" as const, WebkitAppearance: "none" as const, backgroundImage: "none" }}
+      onChange={e => onChange(e.target.value)}
+    >
+      <option value="" disabled>{placeholder}</option>
+      {horarios.map(h => <option key={h} value={h}>{h}</option>)}
+    </select>
+  );
 }
 
 // Verificação por WhatsApp (Edge Function verificar-whatsapp → Twilio Verify).
@@ -8444,11 +8512,9 @@ export default function App() {
             {erroDia("sexo") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-2px 0 10px" }}>⚠ {erroDia("sexo")}</p>}
 
             <label style={S.label}>Data de nascimento *</label>
-            <input style={S.input} type="date"
-              max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split("T")[0]}
-              value={form.dataNasc}
-              onChange={e => { setForm({ ...form, dataNasc: e.target.value }); revalidaDia("dataNasc"); }}
-              onBlur={() => { marcarTocadoDia("dataNasc"); setErrosDia(er => ({ ...er, dataNasc: validarCampoDiarista("dataNasc") })); }} />
+            <CampoData estilo={S.input}
+              valorISO={form.dataNasc}
+              onChangeISO={iso => { setForm({ ...form, dataNasc: iso }); revalidaDia("dataNasc"); marcarTocadoDia("dataNasc"); setErrosDia(er => ({ ...er, dataNasc: validarCampoDiarista("dataNasc") })); }} />
             <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, margin:"-6px 0 6px" }}>
               🔞 Cadastro disponível apenas para maiores de 18 anos (art. 7º, XXXIII, CF/88).
             </p>
@@ -10338,15 +10404,15 @@ export default function App() {
               <div style={{ display:"flex", gap:10, marginBottom:14 }}>
                 <div style={{ flex:1 }}>
                   <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:4 }}>Início</label>
-                  <input type="time" style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" }}
-                    value={formEditarDiaria.horario_inicio}
-                    onChange={e => setFormEditarDiaria(p => ({...p, horario_inicio:e.target.value}))} />
+                  <CampoHora estilo={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
+                    valor={formEditarDiaria.horario_inicio}
+                    onChange={v => setFormEditarDiaria(p => ({...p, horario_inicio:v}))} />
                 </div>
                 <div style={{ flex:1 }}>
                   <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:4 }}>Fim</label>
-                  <input type="time" style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" }}
-                    value={formEditarDiaria.horario_fim}
-                    onChange={e => setFormEditarDiaria(p => ({...p, horario_fim:e.target.value}))} />
+                  <CampoHora estilo={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
+                    valor={formEditarDiaria.horario_fim}
+                    onChange={v => setFormEditarDiaria(p => ({...p, horario_fim:v}))} />
                 </div>
               </div>
               <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:4 }}>Valor (R$)</label>
@@ -14677,10 +14743,9 @@ export default function App() {
           </button>
         </div>
       ) : (
-        <input style={S.input} type="date"
-          max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split("T")[0]}
-          value={form.dataNasc}
-          onChange={e=>setForm({...form,dataNasc:e.target.value})} />
+        <CampoData estilo={S.input}
+          valorISO={form.dataNasc}
+          onChangeISO={iso => setForm({...form, dataNasc: iso})} />
       )}
 
       <label style={S.label}>Suas especialidades</label>
@@ -15521,21 +15586,18 @@ export default function App() {
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                       <div>
                         <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>📅 Data *</label>
-                        <input
-                          type="date"
-                          value={formConvite.data}
-                          min={new Date().toISOString().split("T")[0]}
-                          onChange={e => setFormConvite(p => ({ ...p, data: e.target.value }))}
-                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }}
+                        <CampoData
+                          valorISO={formConvite.data}
+                          onChangeISO={iso => setFormConvite(p => ({ ...p, data: iso }))}
+                          estilo={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }}
                         />
                       </div>
                       <div>
                         <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>🕐 Horário de início *</label>
-                        <input
-                          type="time"
-                          value={formConvite.horario}
-                          onChange={e => setFormConvite(p => ({ ...p, horario: e.target.value }))}
-                          style={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }}
+                        <CampoHora
+                          valor={formConvite.horario}
+                          onChange={v => setFormConvite(p => ({ ...p, horario: v }))}
+                          estilo={{ width:"100%", padding:"10px 8px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
                         />
                       </div>
                     </div>
@@ -15844,11 +15906,9 @@ export default function App() {
         <Secao icone="📅" titulo="Data e carga horária" />
 
         <label style={S.label}>Data *</label>
-        <input
-          style={S.input} type="date"
-          value={formDiaria.data}
-          min={new Date().toISOString().split("T")[0]}
-          onChange={e => setFormDiaria({ ...formDiaria, data: e.target.value })}
+        <CampoData estilo={S.input}
+          valorISO={formDiaria.data}
+          onChangeISO={iso => setFormDiaria({ ...formDiaria, data: iso })}
         />
 
         <label style={S.label}>Repetição</label>
@@ -15895,13 +15955,13 @@ export default function App() {
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
               <div>
                 <label style={S.label}>Início *</label>
-                <input style={S.input} type="time" value={formDiaria.horario_inicio}
-                  onChange={e => setFormDiaria({ ...formDiaria, horario_inicio: e.target.value })} />
+                <CampoHora estilo={S.input} valor={formDiaria.horario_inicio}
+                  onChange={v => setFormDiaria({ ...formDiaria, horario_inicio: v })} />
               </div>
               <div>
                 <label style={S.label}>Término *</label>
-                <input style={S.input} type="time" value={formDiaria.horario_fim}
-                  onChange={e => setFormDiaria({ ...formDiaria, horario_fim: e.target.value })} />
+                <CampoHora estilo={S.input} valor={formDiaria.horario_fim}
+                  onChange={v => setFormDiaria({ ...formDiaria, horario_fim: v })} />
               </div>
             </div>
 
@@ -15922,8 +15982,8 @@ export default function App() {
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
               <div>
                 <label style={S.label}>Horário previsto *</label>
-                <input style={S.input} type="time" value={formDiaria.horario_inicio}
-                  onChange={e => setFormDiaria({ ...formDiaria, horario_inicio: e.target.value })} />
+                <CampoHora estilo={S.input} valor={formDiaria.horario_inicio}
+                  onChange={v => setFormDiaria({ ...formDiaria, horario_inicio: v })} />
               </div>
               <div>
                 <label style={S.label}>Tempo estimado *</label>
