@@ -1798,6 +1798,10 @@ export default function App() {
             }
           } else if (updated.status === "recusado") {
             setToastError(`❌ ${updated.diarista_nome} não pôde ir para ${new Date(updated.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}.`);
+          } else if (updated.status === "confirmado") {
+            // Prestador confirmou a presença → chat liberado pro anunciante.
+            setToastSuccess(`💬 ${updated.diarista_nome?.split(" ")[0] || "O prestador"} confirmou a presença! Chat liberado.`);
+            pushNotif(`💬 ${updated.diarista_nome?.split(" ")[0] || "O prestador"} confirmou a presença. Abra o chat para combinar os detalhes.`, "ok", "home-empregador");
           }
         }
       )
@@ -3234,7 +3238,10 @@ export default function App() {
       setToastError(`Erro ao confirmar: ${error.message || error.code || "tente novamente"}`);
       return;
     }
-    setConvitesRecebidos(prev => prev.map(c => c.id === conv.id ? { ...c, status: "confirmado", presenca_confirmada_em: agora } : c));
+    // Cria (idempotente) a diária real ligada ao convite — chat/agenda passam a
+    // funcionar igual ao fluxo normal (sem mensagens órfãs por FK solta).
+    const { data: diariaId } = await supabase.rpc("criar_diaria_de_convite", { p_convite_id: conv.id });
+    setConvitesRecebidos(prev => prev.map(c => c.id === conv.id ? { ...c, status: "confirmado", presenca_confirmada_em: agora, diaria_id: (diariaId as string) ?? c.diaria_id } : c));
     pushNotif("✅ Presença confirmada! O chat foi liberado.", "ok", "home-diarista");
     hapticConfirm();
     // Notifica o anunciante que o chat está liberado
@@ -3246,6 +3253,33 @@ export default function App() {
         { tipo: "confirmacao", url: "/" },
       );
     }
+  };
+
+  // Abre o chat real de um convite confirmado (cria a diária se ainda não houver).
+  // Usado pelos DOIS lados (anunciante e prestador) — garante o mesmo chat.
+  const abrirChatConvite = async (conv: Convite, comoAba: "empregador" | "diarista") => {
+    let diariaId = conv.diaria_id;
+    if (!diariaId) {
+      const { data, error } = await supabase.rpc("criar_diaria_de_convite", { p_convite_id: conv.id });
+      if (error || !data) {
+        setToastError(`Não foi possível abrir o chat: ${error?.message || "tente novamente"}`);
+        return;
+      }
+      diariaId = data as string;
+    }
+    // Monta a diária pro chat. O realtime e o envio usam só id/empregador_id/
+    // diarista_aceite_id — o resto é cosmético pro cabeçalho do chat.
+    const chatComoDiaria = {
+      id: diariaId, empregador_id: conv.contratante_id, diarista_aceite_id: conv.diarista_id,
+      funcao: conv.funcao ?? "Serviço", data: conv.data_servico, horario_inicio: conv.horario_servico ?? "00:00",
+      horario_fim: "", valor: conv.valor ?? 0,
+      nome_negocio: comoAba === "diarista" ? (conv.contratante_nome || conv.local_servico || "Anunciante") : (conv.diarista_nome || "Prestador"),
+      segmento: "", descricao: conv.observacoes ?? "", status: "aceita", created_at: conv.created_at,
+      tipo_oferta: "diaria" as const,
+    };
+    hapticTick();
+    setChatDiariaAtiva(chatComoDiaria as any);
+    if (comoAba === "empregador") setTabEmpregador("chat"); else setTabDiarista("chat");
   };
 
   // ── PAINEL ADMIN + TICKETS DE SUPORTE ────────────────────────────────────
@@ -9240,7 +9274,7 @@ export default function App() {
               {(() => {
                 const hojeISO = new Date().toISOString().split("T")[0];
                 const convitesAceitosAtivos = convitesEnviados.filter(c =>
-                  c.status === "aceito" &&
+                  (c.status === "aceito" || c.status === "confirmado") &&
                   (!c.data_servico || c.data_servico >= hojeISO),
                 );
                 return convitesAceitosAtivos.length > 0 && (
@@ -9251,13 +9285,22 @@ export default function App() {
                   </div>
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
                     {convitesAceitosAtivos.map(c => {
-                      const jaLiberado = contatosLiberados.has(c.id);
+                      // Pago = liberou o contato (estado local OU coluna do banco).
+                      const pago = contatosLiberados.has(c.id) || !!c.pago_em;
+                      // Confirmado = prestador confirmou a presença → chat liberado.
+                      const confirmado = !!c.presenca_confirmada_em;
                       const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
+                      const primeiroNome = c.diarista_nome?.split(" ")[0] || "prestador";
+                      const verContato = async () => {
+                        const { data: dpArr } = await supabase.rpc("perfis_publicos", { p_ids: [c.diarista_id] });
+                        const dp = (dpArr as unknown as UserProfile[] | null)?.[0];
+                        if (dp) { setDiaristaSelecionadaReal(dp); setTela("perfil-diarista-real"); }
+                      };
                       return (
                         <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:"4px solid #22c55e" }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
                             <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.diarista_nome}</div>
-                            <span style={{ background:"#dcfce7", color:"#16a34a", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800, whiteSpace:"nowrap" as const }}>✅ Aceito</span>
+                            <span style={{ background:"#dcfce7", color:"#16a34a", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800, whiteSpace:"nowrap" as const }}>{confirmado ? "✅ Confirmado" : "✅ Aceito"}</span>
                           </div>
                           {c.funcao && <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:4 }}>🛠 {c.funcao}</div>}
                           <div style={{ fontSize:12, color:"var(--text-label,#475569)", display:"flex", flexWrap:"wrap" as const, gap:8, marginBottom:4 }}>
@@ -9266,18 +9309,24 @@ export default function App() {
                           </div>
                           <div style={{ fontSize:12, color:"var(--text-label,#475569)", marginBottom:12 }}>📍 {c.local_servico}</div>
                           <div style={{ background:"#f0fdf4", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#166534", fontWeight:700, marginBottom:10 }}>
-                            🎉 {c.diarista_nome?.split(" ")[0]} aceitou! Confirme a diária para liberar o chat interno.
+                            {confirmado
+                              ? `✅ ${primeiroNome} confirmou a presença! Chat liberado — combine os detalhes.`
+                              : pago
+                                ? `⏳ Pagamento confirmado. Aguardando ${primeiroNome} confirmar a presença pra liberar o chat.`
+                                : `🎉 ${primeiroNome} aceitou! Confirme a diária para liberar o chat interno.`}
                           </div>
                           <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
-                            {jaLiberado ? (
+                            {confirmado ? (
+                              <button
+                                style={{ width:"100%", padding:"11px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                                onClick={() => abrirChatConvite(c, "empregador")}>
+                                💬 Abrir chat com {primeiroNome}
+                              </button>
+                            ) : pago ? (
                               <button
                                 style={{ width:"100%", padding:"11px", background:"#22c55e", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                                onClick={async () => {
-                                  const { data: dpArr } = await supabase.rpc("perfis_publicos", { p_ids: [c.diarista_id] });
-                                  const dp = (dpArr as unknown as UserProfile[] | null)?.[0];
-                                  if (dp) { setDiaristaSelecionadaReal(dp); setTela("perfil-diarista-real"); }
-                                }}>
-                                📱 Ver contato de {c.diarista_nome?.split(" ")[0]}
+                                onClick={verContato}>
+                                📱 Ver contato de {primeiroNome}
                               </button>
                             ) : (
                               // BUG fix: o botão antigo abria o modal PIX-pro-prestador
@@ -9288,17 +9337,13 @@ export default function App() {
                               <button
                                 style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.7 : 1 }}
                                 disabled={desbloqueandoContato}
-                                onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: c.diarista_nome?.split(" ")[0] || "prestador", conviteId: c.id })}>
+                                onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: primeiroNome, conviteId: c.id })}>
                                 {desbloqueandoContato ? "Aguarde..." : "✅ Confirmar diária por R$ 1"}
                               </button>
                             )}
                             <button
                               style={{ width:"100%", padding:"9px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                              onClick={async () => {
-                                const { data: dpArr } = await supabase.rpc("perfis_publicos", { p_ids: [c.diarista_id] });
-                                const dp = (dpArr as unknown as UserProfile[] | null)?.[0];
-                                if (dp) { setDiaristaSelecionadaReal(dp); setTela("perfil-diarista-real"); }
-                              }}>
+                              onClick={verContato}>
                               👤 Ver perfil completo
                             </button>
                           </div>
@@ -11847,18 +11892,7 @@ export default function App() {
                 ) : (
                   <button
                     style={{ width:"100%", background:"var(--bg-card,#fff)", color:"#16a34a", border:"none", borderRadius:10, padding:"11px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                    onClick={() => {
-                      const chatComoDiaria = {
-                        id: c.id, empregador_id: c.contratante_id, diarista_aceite_id: c.diarista_id,
-                        funcao: c.funcao ?? "Serviço", data: c.data_servico, horario_inicio: c.horario_servico ?? "00:00",
-                        horario_fim: "", valor: c.valor ?? 0, nome_negocio: c.contratante_nome || c.local_servico || "Anunciante",
-                        segmento: "", descricao: c.observacoes ?? "", status: "aceita", created_at: c.created_at,
-                        tipo_oferta: "diaria" as const,
-                      };
-                      hapticTick();
-                      setChatDiariaAtiva(chatComoDiaria as any);
-                      setTabDiarista("chat");
-                    }}>
+                    onClick={() => abrirChatConvite(c, "diarista")}>
                     💬 Abrir chat com {(c.contratante_nome || "o anunciante").split(" ")[0]}
                   </button>
                 )}
