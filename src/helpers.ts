@@ -366,6 +366,26 @@ export const maskTelefone = (v: string): string => {
   return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
 };
 
+// ── Protocolo do contato (número estável, igual pros 2 lados) ────────────────
+// Deriva um protocolo NUMÉRICO determinístico do id da diária/conversa. Como sai
+// do mesmo id, anunciante e prestador veem SEMPRE o mesmo número — sem coluna no
+// banco, sem geração/sincronização. Serve pra suporte/debug: "deu erro no
+// protocolo 73 9021" → vamos direto na conversa certa.
+//
+// Formato: 6 dígitos agrupados "XXX XXX" (fácil de ditar). Hash simples (FNV-1a)
+// do id → número de 6 dígitos, com padding. Colisão é possível em teoria, mas
+// irrelevante pro uso (o id real continua sendo a fonte da verdade).
+export const protocoloContato = (id?: string | null): string => {
+  if (!id) return "—";
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  const n = (h % 1_000_000).toString().padStart(6, "0");
+  return `${n.slice(0, 3)} ${n.slice(3)}`;
+};
+
 // ── Data digitável DD/MM/AAAA (sem calendário nativo) ────────────────────────
 // Usuário leigo se perde no calendário do Android. Estes helpers deixam digitar
 // a data como todo brasileiro escreve, e convertem de/para o ISO (yyyy-mm-dd)

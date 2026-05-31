@@ -64,7 +64,7 @@ import {
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
-  maskData, isoParaBR, brParaIso, gerarHorarios,
+  maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
@@ -11074,6 +11074,14 @@ export default function App() {
                     <div style={{ fontSize:11, color: outroDigitando ? "#16a34a" : "var(--text-2,#64748b)", fontWeight: outroDigitando ? 700 : 400 }}>
                       {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
                     </div>
+                    {/* Protocolo do contato — mesmo número pros 2 lados. Toque copia.
+                        Serve pra suporte/debug: "deu erro no protocolo XXX XXX". */}
+                    <button
+                      style={{ background:"none", border:"none", padding:0, marginTop:2, fontSize:10, color:"var(--text-3,#94a3b8)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                      onClick={() => { try { navigator.clipboard?.writeText(protocoloContato(chatDiariaAtiva.id)); } catch {} setToastSuccess(`📋 Protocolo ${protocoloContato(chatDiariaAtiva.id)} copiado`); }}
+                      title="Protocolo deste contato (toque para copiar)">
+                      🔖 Protocolo {protocoloContato(chatDiariaAtiva.id)}
+                    </button>
                   </div>
                   {/* Denunciar / bloquear diarista deste chat (UGC safety — Play Policy) */}
                   {chatDiariaAtiva.diarista_aceite_id && (
@@ -13116,6 +13124,13 @@ export default function App() {
                     <div style={{ fontSize:11, color: outroDigitando ? "#16a34a" : "var(--text-2,#64748b)", fontWeight: outroDigitando ? 700 : 400 }}>
                       {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
                     </div>
+                    {/* Protocolo do contato — mesmo número pros 2 lados. Toque copia. */}
+                    <button
+                      style={{ background:"none", border:"none", padding:0, marginTop:2, fontSize:10, color:"var(--text-3,#94a3b8)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                      onClick={() => { try { navigator.clipboard?.writeText(protocoloContato(chatDiariaAtiva.id)); } catch {} setToastSuccess(`📋 Protocolo ${protocoloContato(chatDiariaAtiva.id)} copiado`); }}
+                      title="Protocolo deste contato (toque para copiar)">
+                      🔖 Protocolo {protocoloContato(chatDiariaAtiva.id)}
+                    </button>
                   </div>
                   {/* Denunciar / bloquear contratante deste chat (UGC safety — Play Policy) */}
                   <button style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", padding:"4px 6px", color:"var(--text-3,#94a3b8)" }}
