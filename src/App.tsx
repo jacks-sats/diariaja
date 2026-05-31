@@ -1602,6 +1602,16 @@ export default function App() {
           const msg = payload.new;
           const paraMim = msg.destinatario_id === userId;
           if (!paraMim) return;
+          // Se a conversa está ABERTA, injeta a mensagem na tela na hora. Antes,
+          // só o canal por diaria_id (mensagens-${id}) fazia isso — se ele não
+          // disparasse (timing/reconexão), a msg ficava só no banco e o
+          // destinatário não via até reabrir. Este é um caminho redundante e
+          // robusto (filtra por destinatario_id=eu, pega qualquer conversa).
+          if (msg.diaria_id && msg.diaria_id === chatDiariaAtivaRef.current?.id) {
+            setMensagensReais(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+            setTimeout(() => mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+            supabase.from("mensagens").update({ lida_em: new Date().toISOString() }).eq("id", msg.id);
+          }
           setMsgNaoLidas(prev => prev + 1);
           // Não-lidas por conversa — só conta se a conversa NÃO está aberta
           if (msg.diaria_id && msg.diaria_id !== chatDiariaAtivaRef.current?.id) {
