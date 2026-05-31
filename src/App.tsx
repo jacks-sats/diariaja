@@ -12676,9 +12676,21 @@ export default function App() {
 
         {/* ── ABA AGENDA ── */}
         {tabDiarista === "agenda" && (() => {
-          // Separa diárias agendadas (aceitas e em andamento) por data
-          const agendadas = [...minhasDiarias]
-            .filter(d => d.status === "aceita" || d.status === "em_andamento")
+          // Convites confirmados (presença confirmada) também são compromissos
+          // agendados — ficam na agenda até concluir. Mapeia pro shape de Diaria
+          // (mesmo padrão da lista de chat) e mescla com as diárias aceitas.
+          const convitesAgendados = convitesRecebidos
+            .filter(c => c.status === "confirmado" && !!c.presenca_confirmada_em)
+            .filter(c => !minhasDiarias.some(d => d.id === c.id))
+            .map(c => ({
+              id: c.id, empregador_id: c.contratante_id, diarista_aceite_id: c.diarista_id,
+              funcao: c.funcao ?? "Serviço", data: c.data_servico, horario_inicio: c.horario_servico ?? "00:00",
+              horario_fim: "", valor: c.valor ?? 0, nome_negocio: c.contratante_nome || c.local_servico || "Anunciante",
+              segmento: "", descricao: c.observacoes ?? "", status: "aceita", created_at: c.created_at,
+              tipo_oferta: "diaria" as const,
+            } as Diaria));
+          // Separa diárias agendadas (aceitas e em andamento) + convites confirmados, por data
+          const agendadas = [...minhasDiarias.filter(d => d.status === "aceita" || d.status === "em_andamento"), ...convitesAgendados]
             .sort((a, b) => a.data.localeCompare(b.data));
 
           const hoje = new Date(); hoje.setHours(0,0,0,0);
