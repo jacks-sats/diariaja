@@ -1200,6 +1200,7 @@ export default function App() {
         // Filtra vagas: remove as lotadas E as de contratantes que o user bloqueou
         setVagasReais(data.filter((d: any) =>
           !lotadas.has(d.id) && !usuariosBloqueados.has(d.empregador_id)
+          && !vagaExpirou(d)  // esconde vagas cujo horário já passou (feed não mostra vencidas)
         ));
         // Carrega perfis dos empregadores para exibir foto no card
         const empIds = [...new Set(data.map((d: any) => d.empregador_id).filter(Boolean))];
