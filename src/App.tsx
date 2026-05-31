@@ -1731,6 +1731,19 @@ export default function App() {
           }
         }
       )
+      .on("postgres_changes" as any,
+        // UPDATE: o prestador precisa receber pago_em (anunciante pagou) e
+        // diaria_id (criada ao confirmar) em tempo real — senão o card/chat dele
+        // fica desatualizado e abre o chat com o id errado.
+        { event: "UPDATE", schema: "public", table: "convites", filter: `diarista_id=eq.${userId}` },
+        (payload: any) => {
+          const upd: Convite = payload.new;
+          setConvitesRecebidos(prev => prev.map(c => c.id === upd.id ? { ...c, ...upd } : c));
+          if (upd.pago_em && !upd.presenca_confirmada_em) {
+            pushNotif(`🎉 Você foi contratado! Confirme a presença para liberar o chat.`, "ok", "home-diarista");
+          }
+        }
+      )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id, modoAtual]);
@@ -2303,8 +2316,14 @@ export default function App() {
       const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat","admin-painel","painel-suporte","alterar-senha","verificar-telefone"]);
       const podeRestaurar = (t: string) => t && !TELAS_AUTH.has(t);
 
-      // Sem CEP cadastrado → bloqueia até resolver (feed depende de lat/lng)
-      const semCEP = !data.lat || !data.lng;
+      // Sem localização → manda pro CEP. Mas se o usuário JÁ informou o CEP
+      // (data.cep preenchido), não prende no loop só porque o geocoding não
+      // achou lat/lng — ele já fez a parte dele. O feed só perde precisão de
+      // distância; não vale travar o acesso ao app. Só força quando não há
+      // NEM CEP NEM coordenadas.
+      const temCEP   = !!(data.cep && data.cep.replace(/\D/g, "").length === 8);
+      const semCoord = !data.lat || !data.lng;
+      const semCEP   = semCoord && !temCEP;
 
       if (data.user_type === "diarista") {
         setModoAtual("diarista");
@@ -3155,11 +3174,29 @@ export default function App() {
       const { data } = await supabase.from("convites").select("*")
         .eq("diarista_id", userId).order("created_at", { ascending: false });
       setConvitesRecebidos(data || []);
+      void backfillDiariaConvites(data || []);
     }
     if (userType === "empregador" || userType === "ambos") {
       const { data } = await supabase.from("convites").select("*")
         .eq("contratante_id", userId).order("created_at", { ascending: false });
       setConvitesEnviados(data || []);
+      void backfillDiariaConvites(data || []);
+    }
+  };
+
+  // Convites confirmados (pago + presença) que ainda não têm diaria_id — cria a
+  // diária real agora (idempotente). Cobre convites confirmados ANTES da RPC
+  // existir (ex.: Guilherme/Henrique) pra eles aparecerem no chat dos 2 lados.
+  const backfillDiariaConvites = async (lista: Convite[]) => {
+    const pendentes = lista.filter(c => c.pago_em && c.presenca_confirmada_em && !c.diaria_id);
+    if (!pendentes.length) return;
+    for (const c of pendentes) {
+      const { data, error } = await supabase.rpc("criar_diaria_de_convite", { p_convite_id: c.id });
+      if (!error && data) {
+        const did = data as string;
+        setConvitesRecebidos(prev => prev.map(x => x.id === c.id ? { ...x, diaria_id: did } : x));
+        setConvitesEnviados(prev => prev.map(x => x.id === c.id ? { ...x, diaria_id: did } : x));
+      }
     }
   };
 
@@ -4719,6 +4756,28 @@ export default function App() {
         return { lat, lng };
       }
     } catch { /* sem internet ou erro — segue sem coordenadas */ }
+
+    // 4. Último fallback: geocodifica só a CIDADE (centróide). Evita prender o
+    //    usuário no loop "informe seu CEP" quando o CEP não tem coordenada
+    //    precisa na base. Aproximado, mas o feed por distância continua útil.
+    if (cidade && uf) {
+      try {
+        const q = encodeURIComponent(`${cidade}, ${uf}, Brasil`);
+        const r = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`,
+          { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
+        );
+        const d = await r.json();
+        if (d?.length > 0) {
+          const lat = parseFloat(d[0].lat);
+          const lng = parseFloat(d[0].lon);
+          if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+            escreverGeoCache(cepNorm, lat, lng);
+            return { lat, lng };
+          }
+        }
+      } catch { /* desiste */ }
+    }
     return null;
   };
 
@@ -10997,7 +11056,21 @@ export default function App() {
             );
           }
           // Lista de conversas (diárias aceitas/em andamento)
-          const conversas = diarias.filter(d => d.diarista_aceite_id && contatoLiberado(d.status) && !hiddenChats.has(d.id));
+          const conversasDiariasEmp = diarias.filter(d => d.diarista_aceite_id && contatoLiberado(d.status) && !hiddenChats.has(d.id));
+          // + Convites confirmados (viraram diária real). Usa c.diaria_id como id —
+          // mesmo id que o prestador usa, pra as mensagens baterem. Evita duplicar
+          // se a diária já veio em `diarias`.
+          const conversasConvitesEmp = convitesEnviados
+            .filter(c => c.status === "confirmado" && !!c.diaria_id && !hiddenChats.has(c.diaria_id!))
+            .filter(c => !conversasDiariasEmp.some(d => d.id === c.diaria_id))
+            .map(c => ({
+              id: c.diaria_id!, empregador_id: c.contratante_id, diarista_aceite_id: c.diarista_id,
+              funcao: c.funcao ?? "Serviço", data: c.data_servico, horario_inicio: c.horario_servico ?? "00:00",
+              horario_fim: "", valor: c.valor ?? 0, nome_negocio: c.diarista_nome || "Prestador",
+              segmento: "", descricao: c.observacoes ?? "", status: "aceita", created_at: c.created_at,
+              tipo_oferta: "diaria" as const,
+            } as Diaria));
+          const conversas = [...conversasConvitesEmp, ...conversasDiariasEmp];
           return (
             <div style={{ padding:"16px" }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
@@ -13026,11 +13099,16 @@ export default function App() {
           // convites aceitos pro shape de Diaria (igual ao lado do anunciante) e
           // mesclamos — o chat usa convite.id como diaria_id, então as msgs batem.
           const conversasDiarias = minhasDiarias.filter(d => contatoLiberado(d.status) && !hiddenChats.has(d.id));
+          // Convites com chat liberado: 'confirmado' (presença confirmada → chat
+          // dos 2 lados) e também 'aceito' já pago (compatibilidade). USA c.diaria_id
+          // como id — TEM que bater com o que o anunciante usa, senão as mensagens
+          // vão pra "caixas" diferentes e não chegam.
           const conversasConvites = convitesRecebidos
-            .filter(c => c.status === "aceito" && !hiddenChats.has(c.id))
-            .filter(c => !conversasDiarias.some(d => d.id === c.id))
+            .filter(c => (c.status === "confirmado" || c.status === "aceito") && !!c.diaria_id)
+            .filter(c => !hiddenChats.has(c.diaria_id!))
+            .filter(c => !conversasDiarias.some(d => d.id === c.diaria_id))
             .map(c => ({
-              id:                 c.id,
+              id:                 c.diaria_id!,
               empregador_id:      c.contratante_id,
               diarista_aceite_id: c.diarista_id,
               funcao:             c.funcao ?? "Serviço",
@@ -14819,8 +14897,15 @@ export default function App() {
     };
 
     const handleContinuar = async () => {
-      if (latPerfilCEP) {
-        await saveProfile({ lat: latPerfilCEP, lng: lngPerfilCEP });
+      // Salva o CEP SEMPRE que válido (mesmo sem lat/lng) — assim o usuário não
+      // volta pro loop "informe seu CEP" no próximo refresh. Salva lat/lng junto
+      // quando o geocoding deu certo.
+      const cepNorm = form.cep.replace(/\D/g, "");
+      const updates: Record<string, unknown> = {};
+      if (cepNorm.length === 8) updates.cep = cepNorm;
+      if (latPerfilCEP) { updates.lat = latPerfilCEP; updates.lng = lngPerfilCEP; }
+      if (Object.keys(updates).length > 0) {
+        await saveProfile(updates);
         setLatPerfilCEP(null); setLngPerfilCEP(null);
       }
       irParaDestino();
@@ -14869,11 +14954,19 @@ export default function App() {
             </div>
           )}
 
-          <button
-            style={{ ...S.btnPrimary, background: corTela, marginTop:8, width:"100%", opacity: (!geocodOk && !profile?.lat) ? 0.5 : 1 }}
-            onClick={handleContinuar}>
-            {geocodOk || profile?.lat ? "Entrar no app →" : "Pular por agora"}
-          </button>
+          {(() => {
+            const cepValido = form.cep.replace(/\D/g, "").length === 8;
+            // Pode entrar se: geocodou OK, ou já tem lat no perfil, ou pelo menos
+            // digitou um CEP válido (salvamos o CEP e não prendemos no loop).
+            const podeEntrar = geocodOk || !!profile?.lat || cepValido;
+            return (
+              <button
+                style={{ ...S.btnPrimary, background: corTela, marginTop:8, width:"100%", opacity: podeEntrar ? 1 : 0.5 }}
+                onClick={handleContinuar}>
+                {(geocodOk || profile?.lat || cepValido) ? "Entrar no app →" : "Pular por agora"}
+              </button>
+            );
+          })()}
           <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, textAlign:"center", marginTop:8, lineHeight:1.5 }}>
             Você pode atualizar o CEP a qualquer momento no seu perfil.
           </p>
