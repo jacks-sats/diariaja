@@ -12142,11 +12142,14 @@ export default function App() {
           );
         })()}
 
-        {/* ── Banner: selecionado aguardando confirmação ── */}
+        {/* ── Banner: selecionado aguardando confirmação ──
+            Toca → abre DIRETO o modal de confirmar presença da 1ª diária
+            pendente (antes só trocava de aba e o "Confirmar →" não confirmava
+            nada — usuário reclamava que "não funciona"). */}
         {minhasDiarias.filter(d => d.status === "pendente").length > 0 && (
           <div
             style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", margin:"12px 16px 0", borderRadius:18, padding:"16px 18px", display:"flex", alignItems:"center", gap:14, cursor:"pointer", boxShadow:"0 4px 20px rgba(255,107,53,.4)" }}
-            onClick={() => setTabDiarista("vagas")}>
+            onClick={() => { const pend = minhasDiarias.find(d => d.status === "pendente"); if (pend) confirmarPresenca(pend); else setTabDiarista("vagas"); }}>
             <div style={{ fontSize:32 }}>🎯</div>
             <div style={{ flex:1 }}>
               <div style={{ fontWeight:900, fontSize:16, color:"#fff", lineHeight:1.2 }}>
