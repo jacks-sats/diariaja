@@ -2303,8 +2303,14 @@ export default function App() {
       const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat","admin-painel","painel-suporte","alterar-senha","verificar-telefone"]);
       const podeRestaurar = (t: string) => t && !TELAS_AUTH.has(t);
 
-      // Sem CEP cadastrado → bloqueia até resolver (feed depende de lat/lng)
-      const semCEP = !data.lat || !data.lng;
+      // Sem localização → manda pro CEP. Mas se o usuário JÁ informou o CEP
+      // (data.cep preenchido), não prende no loop só porque o geocoding não
+      // achou lat/lng — ele já fez a parte dele. O feed só perde precisão de
+      // distância; não vale travar o acesso ao app. Só força quando não há
+      // NEM CEP NEM coordenadas.
+      const temCEP   = !!(data.cep && data.cep.replace(/\D/g, "").length === 8);
+      const semCoord = !data.lat || !data.lng;
+      const semCEP   = semCoord && !temCEP;
 
       if (data.user_type === "diarista") {
         setModoAtual("diarista");
@@ -4706,6 +4712,28 @@ export default function App() {
         return { lat, lng };
       }
     } catch { /* sem internet ou erro — segue sem coordenadas */ }
+
+    // 4. Último fallback: geocodifica só a CIDADE (centróide). Evita prender o
+    //    usuário no loop "informe seu CEP" quando o CEP não tem coordenada
+    //    precisa na base. Aproximado, mas o feed por distância continua útil.
+    if (cidade && uf) {
+      try {
+        const q = encodeURIComponent(`${cidade}, ${uf}, Brasil`);
+        const r = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`,
+          { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
+        );
+        const d = await r.json();
+        if (d?.length > 0) {
+          const lat = parseFloat(d[0].lat);
+          const lng = parseFloat(d[0].lon);
+          if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+            escreverGeoCache(cepNorm, lat, lng);
+            return { lat, lng };
+          }
+        }
+      } catch { /* desiste */ }
+    }
     return null;
   };
 
@@ -14778,8 +14806,15 @@ export default function App() {
     };
 
     const handleContinuar = async () => {
-      if (latPerfilCEP) {
-        await saveProfile({ lat: latPerfilCEP, lng: lngPerfilCEP });
+      // Salva o CEP SEMPRE que válido (mesmo sem lat/lng) — assim o usuário não
+      // volta pro loop "informe seu CEP" no próximo refresh. Salva lat/lng junto
+      // quando o geocoding deu certo.
+      const cepNorm = form.cep.replace(/\D/g, "");
+      const updates: Record<string, unknown> = {};
+      if (cepNorm.length === 8) updates.cep = cepNorm;
+      if (latPerfilCEP) { updates.lat = latPerfilCEP; updates.lng = lngPerfilCEP; }
+      if (Object.keys(updates).length > 0) {
+        await saveProfile(updates);
         setLatPerfilCEP(null); setLngPerfilCEP(null);
       }
       irParaDestino();
@@ -14828,11 +14863,19 @@ export default function App() {
             </div>
           )}
 
-          <button
-            style={{ ...S.btnPrimary, background: corTela, marginTop:8, width:"100%", opacity: (!geocodOk && !profile?.lat) ? 0.5 : 1 }}
-            onClick={handleContinuar}>
-            {geocodOk || profile?.lat ? "Entrar no app →" : "Pular por agora"}
-          </button>
+          {(() => {
+            const cepValido = form.cep.replace(/\D/g, "").length === 8;
+            // Pode entrar se: geocodou OK, ou já tem lat no perfil, ou pelo menos
+            // digitou um CEP válido (salvamos o CEP e não prendemos no loop).
+            const podeEntrar = geocodOk || !!profile?.lat || cepValido;
+            return (
+              <button
+                style={{ ...S.btnPrimary, background: corTela, marginTop:8, width:"100%", opacity: podeEntrar ? 1 : 0.5 }}
+                onClick={handleContinuar}>
+                {(geocodOk || profile?.lat || cepValido) ? "Entrar no app →" : "Pular por agora"}
+              </button>
+            );
+          })()}
           <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, textAlign:"center", marginTop:8, lineHeight:1.5 }}>
             Você pode atualizar o CEP a qualquer momento no seu perfil.
           </p>
