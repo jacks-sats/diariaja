@@ -27,6 +27,7 @@ export interface PushState {
   permissao: NotificationPermission | "default";
   inscrito: boolean;
   solicitando: boolean;
+  erro?: "vapid_ausente";  // setado quando a chave VAPID não está configurada
 }
 
 export function usePushNotifications(userId: string | undefined) {
@@ -77,7 +78,9 @@ export function usePushNotifications(userId: string | undefined) {
   const solicitarPermissao = useCallback(async (): Promise<boolean> => {
     if (!estado.suportado || !userId) return false;
     if (!VAPID_PUBLIC_KEY) {
-      console.warn("[Push] VITE_VAPID_PUBLIC_KEY não configurada no .env.local");
+      console.warn("[Push] VITE_VAPID_PUBLIC_KEY não configurada");
+      // Expõe o erro no estado pra UI avisar (sem depender do console).
+      setEstado(e => ({ ...e, erro: "vapid_ausente" }));
       return false;
     }
 
