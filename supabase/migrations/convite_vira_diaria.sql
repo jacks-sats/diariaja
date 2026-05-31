@@ -33,6 +33,7 @@ DECLARE
   v_uid    UUID := auth.uid();
   v_conv   convites%ROWTYPE;
   v_diaria UUID;
+  v_hora   TIME;
 BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'Não autenticado.';
@@ -58,6 +59,14 @@ BEGIN
     RETURN v_conv.diaria_id;
   END IF;
 
+  -- horario_inicio/fim são TIME NOT NULL. O convite guarda horario_servico como
+  -- texto (ex.: "06:00"); extraímos o padrão HH:MM e damos cast pra time, com
+  -- fallback '00:00' se vier vazio/inválido (não dá pra inserir '' num time).
+  v_hora := COALESCE(
+    (SELECT (regexp_match(v_conv.horario_servico, '(\d{1,2}:\d{2})'))[1]),
+    '00:00'
+  )::time;
+
   INSERT INTO diarias (
     empregador_id, diarista_aceite_id, nome_negocio, segmento, funcao,
     descricao, data, horario_inicio, horario_fim, valor, status, endereco
@@ -69,8 +78,8 @@ BEGIN
     COALESCE(v_conv.funcao, 'Serviço'),
     COALESCE(NULLIF(v_conv.observacoes, ''), 'Contratação via convite direto.'),
     v_conv.data_servico,
-    COALESCE(v_conv.horario_servico, ''),
-    '',
+    v_hora,
+    v_hora,
     COALESCE(v_conv.valor, 0),
     'aceita',
     v_conv.local_servico
