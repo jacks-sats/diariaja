@@ -10704,10 +10704,10 @@ export default function App() {
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:28, padding:"32px 24px", maxWidth:370, width:"100%", textAlign:"center" }}>
               <div style={{ fontSize:48, marginBottom:10 }}>👥</div>
               <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:6 }}>
-                Limite de seleções gratuitas
+                Liberar contato
               </div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.7, marginBottom:20 }}>
-                Você usou as <strong>3 seleções gratuitas</strong> deste mês.<br />
+                Para falar com este interessado, libere o contato.<br />
                 Escolha como continuar:
               </div>
 

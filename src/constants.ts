@@ -176,13 +176,12 @@ export const PLANOS_EMPREGADOR = [
   {
     id: "gratis", nome: "Grátis", valor: 0, cor: "#64748b",
     vagas_mes: Infinity,
-    matches_gratis_mes: 3,                 // até 3 seleções/mês; após R$1 por extra
+    matches_gratis_mes: 0,                 // sem cota grátis: R$1 por contato liberado
     descricao: "Pra começar a publicar anúncios sem custo",
     recursos: [
       "Anúncios ilimitados",
       "Até 5 interessados por anúncio",
-      "3 conexões grátis por mês",
-      "Depois disso, R$ 1 por contato extra",
+      "R$ 1 por contato liberado",
       "Chat liberado só após conexão confirmada",
     ],
     destaque: false, badge: false,
