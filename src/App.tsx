@@ -14901,11 +14901,19 @@ export default function App() {
       // volta pro loop "informe seu CEP" no próximo refresh. Salva lat/lng junto
       // quando o geocoding deu certo.
       const cepNorm = form.cep.replace(/\D/g, "");
-      const updates: Record<string, unknown> = {};
+      const updates: Partial<UserProfile> = {};
       if (cepNorm.length === 8) updates.cep = cepNorm;
       if (latPerfilCEP) { updates.lat = latPerfilCEP; updates.lng = lngPerfilCEP; }
       if (Object.keys(updates).length > 0) {
-        await saveProfile(updates);
+        // CRÍTICO: só navega se REALMENTE salvou. Antes, ignorava o retorno —
+        // se o salvamento falhava (ex.: permissão), navegava sem gravar e o
+        // usuário voltava pro loop no próximo refresh (caso Guilherme: cep NULL).
+        const ok = await saveProfile(updates);
+        if (!ok) {
+          // saveProfile já mostrou o erro real (permission denied, etc.).
+          if (!authError) setAuthError("Não foi possível salvar o CEP. Tente novamente.");
+          return; // FICA na tela — não finge que salvou.
+        }
         setLatPerfilCEP(null); setLngPerfilCEP(null);
       }
       irParaDestino();
