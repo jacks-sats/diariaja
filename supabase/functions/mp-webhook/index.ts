@@ -287,6 +287,7 @@ Deno.serve(async (req) => {
       // garante idempotência mesmo com retries do webhook do MP.
       if (String(payment.external_reference).startsWith("contact_unlock::")) {
         const userId = String(payment.external_reference).split("::")[1] ?? "";
+        const ehRefund = payment.status === "refunded" || payment.status === "charged_back";
         if (payment.status === "approved" && userId) {
           const { error: insErr } = await supabase
             .from("contatos_desbloqueios")
@@ -301,6 +302,15 @@ Deno.serve(async (req) => {
           if (insErr && !String(insErr.message ?? "").toLowerCase().includes("duplicate")) {
             console.error(`[mp-webhook] insert contato_desbloqueio falhou:`, insErr);
           }
+        } else if (ehRefund) {
+          // Estorno/chargeback do R$1 → REVOGA o desbloqueio (devolve a cota).
+          // Localiza pelo mp_payment_id (idempotente: se já foi removido, no-op).
+          const { error: delErr } = await supabase
+            .from("contatos_desbloqueios")
+            .delete()
+            .eq("mp_payment_id", String(paymentId));
+          if (delErr) console.error(`[mp-webhook] revogar contato (refund) falhou:`, delErr);
+          else console.log(`[mp-webhook] contact_unlock REVOGADO por ${payment.status}: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))}`);
         } else {
           console.log(`[mp-webhook] contact_unlock ignored: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
         }
@@ -315,6 +325,7 @@ Deno.serve(async (req) => {
         const parts = String(payment.external_reference).split("::");
         const userId = parts[1] ?? "";
         const planoId = parts[2] ?? "";
+        const ehRefund = payment.status === "refunded" || payment.status === "charged_back";
         if (payment.status === "approved" && userId && planoId) {
           const expira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
           const { error: upErr } = await supabase
@@ -322,6 +333,17 @@ Deno.serve(async (req) => {
             .update({ plano_ativo: planoId, plano_expira_em: expira })
             .eq("id", userId);
           if (upErr) console.error(`[mp-webhook] plano grant falhou:`, upErr);
+        } else if (ehRefund && userId) {
+          // Estorno/chargeback do plano avulso → reverte pra grátis.
+          // Só rebaixa se o plano atual for o que foi estornado (não derruba um
+          // upgrade posterior que o user tenha pago por outro caminho).
+          const { error: revErr } = await supabase
+            .from("user_profiles")
+            .update({ plano_ativo: "gratis", plano_expira_em: null })
+            .eq("id", userId)
+            .eq("plano_ativo", planoId);
+          if (revErr) console.error(`[mp-webhook] reverter plano (refund) falhou:`, revErr);
+          else console.log(`[mp-webhook] plano REVOGADO por ${payment.status}: user=${await pseudo(userId)} plano=${planoId}`);
         } else {
           console.log(`[mp-webhook] plano ignored: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
         }

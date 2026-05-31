@@ -1148,7 +1148,10 @@ export default function App() {
     // subsequente (candidaturas, profiles, reputacao) multiplica linearmente.
     const { data } = await supabase
       .from("diarias")
-      .select("*")
+      // Não trafega `endereco` no feed de vagas abertas: o card só usa bairro/lat/lng,
+      // e o endereço completo só deve aparecer após o contato ser liberado (status
+      // aceita+). Defesa em profundidade contra vazamento do endereço pré-pagamento.
+      .select("id,oculto,empregador_id,nome_negocio,segmento,funcao,descricao,data,horario_inicio,horario_fim,valor,status,diarista_aceite_id,created_at,lat,lng,valor_encostada,valor_por_entrega,ganho_estimado_dia,bairro,tipo_oferta,tempo_estimado_min,tipo_preco")
       .eq("status", "aberta")
       .neq("empregador_id", session.user.id) // BUG-M8 fix: usuário "ambos" não vê suas próprias vagas
       .order("created_at", { ascending: false })
@@ -4421,8 +4424,8 @@ export default function App() {
 
   // Função `iniciarPagamentoMP` removida — DiáriaJá não intermedia o
   // valor da diária. Pagamento entre contratante e diarista é direto.
-  // A Edge Function `create-payment` permanece deployada caso o modelo
-  // mude no futuro, mas o frontend não a chama mais.
+  // A Edge Function `create-payment` (intermediação antiga) foi removida do
+  // repositório — não é mais usada. A receita vem do R$1 de contato + assinaturas.
 
   const salvarDiaria = async () => {
     if (!session?.user) return;
