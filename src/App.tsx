@@ -150,24 +150,36 @@ function CampoData({ valorISO, onChangeISO, estilo, placeholder = "DD/MM/AAAA", 
   useEffect(() => {
     if (valorISO !== ultimoISO.current) { setTxt(isoParaBR(valorISO)); ultimoISO.current = valorISO; }
   }, [valorISO]);
+  // Data com 8 dígitos digitados mas que NÃO converte pra ISO = inválida (ex.:
+  // ano 2926, 31/02, etc.). Mostra aviso inline — antes ficava vazia em silêncio
+  // e o botão de enviar não fazia nada sem explicar.
+  const digitada = txt.replace(/\D/g, "").length === 8;
+  const invalida = digitada && !brParaIso(txt);
   return (
-    <input
-      type="text"
-      inputMode="numeric"
-      autoComplete="off"
-      placeholder={placeholder}
-      value={txt}
-      disabled={disabled}
-      style={estilo}
-      onChange={e => {
-        const masked = maskData(e.target.value);
-        setTxt(masked);
-        // Só emite ISO quando a data está completa E é válida (senão "").
-        const iso = brParaIso(masked);
-        ultimoISO.current = iso;
-        onChangeISO(iso);
-      }}
-    />
+    <>
+      <input
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        placeholder={placeholder}
+        value={txt}
+        disabled={disabled}
+        style={{ ...estilo, ...(invalida ? { borderColor: "#ef4444" } : {}) }}
+        onChange={e => {
+          const masked = maskData(e.target.value);
+          setTxt(masked);
+          // Só emite ISO quando a data está completa E é válida (senão "").
+          const iso = brParaIso(masked);
+          ultimoISO.current = iso;
+          onChangeISO(iso);
+        }}
+      />
+      {invalida && (
+        <p style={{ fontSize: 11, color: "#ef4444", fontWeight: 700, margin: "2px 0 0" }}>
+          ⚠ Data inválida. Use DD/MM/AAAA (ex.: 15/06/2026).
+        </p>
+      )}
+    </>
   );
 }
 
@@ -3316,8 +3328,14 @@ export default function App() {
     const enderecoFinal = formConvite.rua.trim()
       ? `${formConvite.rua}, ${formConvite.numero}${formConvite.complemento.trim() ? ` — ${formConvite.complemento.trim()}` : ""}, ${formConvite.bairro}, ${formConvite.cidade}/${formConvite.estado}${formConvite.cep ? ` — CEP ${formConvite.cep}` : ""}`
       : formConvite.endereco.trim();
-    if (!enderecoFinal || !formConvite.data || !formConvite.horario || !formConvite.cargaHoraria) {
-      setToastError("Preencha CEP/endereço, data, horário e carga horária.");
+    if (!formConvite.data) {
+      // formConvite.data fica vazio quando a data digitada é inválida (ex.: ano
+      // 2926). Mensagem específica pra não parecer que "não acontece nada".
+      setToastError("Confira a DATA do serviço — use DD/MM/AAAA (ex.: 15/06/2026).");
+      return;
+    }
+    if (!enderecoFinal || !formConvite.horario || !formConvite.cargaHoraria) {
+      setToastError("Preencha CEP/endereço, horário e carga horária.");
       return;
     }
     setEnviandoConvite(true);
