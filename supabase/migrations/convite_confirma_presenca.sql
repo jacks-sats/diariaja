@@ -17,6 +17,12 @@ ALTER TABLE convites
   ADD COLUMN IF NOT EXISTS pago_em                TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS presenca_confirmada_em TIMESTAMPTZ;
 
+-- 1b. CHECK constraint precisa aceitar 'confirmado' (senão o UPDATE é rejeitado
+--     pelo banco e a confirmação de presença falha — bug "Não foi possível confirmar").
+ALTER TABLE convites DROP CONSTRAINT IF EXISTS convites_status_check;
+ALTER TABLE convites ADD CONSTRAINT convites_status_check
+  CHECK (status IN ('pendente','aceito','recusado','cancelado','expirado','confirmado'));
+
 -- 2. RLS: o diarista agora também pode marcar status 'confirmado' (além de
 --    aceito/recusado). Continua restrito ao próprio convite e só ao campo status
 --    via WITH CHECK. `pago_em` é gravado só pelo webhook (service_role bypassa RLS).
