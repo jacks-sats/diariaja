@@ -5774,12 +5774,17 @@ export default function App() {
 
         {/* Headline emocional */}
         <h1 style={{ fontSize:26, color:"#fff", textAlign:"center" as const, lineHeight:1.2, margin:"0 0 10px", fontWeight:900, letterSpacing:-0.5, animation:"spl-fadein 1s ease-out .2s both" }}>
-          Serviço perto.<br />Confiança do seu lado.
+          Precisa de um serviço?<br />Quer trabalhar? <span style={{ color:"#FF6B35" }}>Já.</span>
         </h1>
 
         {/* Sub funcional */}
-        <p style={{ fontSize:15, color:"#cbd5e1", textAlign:"center" as const, lineHeight:1.6, margin:"0 0 18px", maxWidth:340, animation:"spl-fadein 1s ease-out .4s both" }}>
-          Anuncie uma vaga ou encontre serviço pertinho de você. Faxina, reparos, beleza, cuidados e muito mais.
+        <p style={{ fontSize:15, color:"#cbd5e1", textAlign:"center" as const, lineHeight:1.6, margin:"0 0 12px", maxWidth:340, animation:"spl-fadein 1s ease-out .4s both" }}>
+          Conectamos quem contrata e quem presta serviço por diária em Campo Grande. Faxina, reparos, beleza, cuidados, entregas e mais — perto de você e direto entre as partes.
+        </p>
+
+        {/* Diferencial vs grupos de WhatsApp/Facebook */}
+        <p style={{ fontSize:13, color:"#94a3b8", textAlign:"center" as const, lineHeight:1.55, margin:"0 0 18px", maxWidth:340, animation:"spl-fadein 1s ease-out .5s both" }}>
+          Diferente de grupo de WhatsApp ou Facebook: aqui cada pessoa tem <strong style={{ color:"#e2e8f0" }}>CPF verificado</strong>, <strong style={{ color:"#e2e8f0" }}>avaliações reais</strong> e histórico. Você sabe com quem está falando.
         </p>
 
         {/* Carrossel marquee de categorias (auto-scroll horizontal) */}
@@ -5803,12 +5808,14 @@ export default function App() {
           </div>
         </div>
 
-        {/* Selos de confiança */}
+        {/* Selos de confiança — prova social qualitativa + diferenciais.
+            (Não citamos pagamento: a diária é combinada direto entre as partes.) */}
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const, justifyContent:"center" as const, animation:"spl-fadein 1s ease-out .8s both" }}>
           {[
-            { ic:"💳", lab:"Mercado Pago" },
             { ic:"🪪", lab:"CPF/CNPJ verificado" },
             { ic:"⭐", lab:"Avaliações reais" },
+            { ic:"📍", lab:"Profissionais de CG" },
+            { ic:"🆓", lab:"Grátis pra começar" },
           ].map(s => (
             <div key={s.lab} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"6px 12px", display:"flex", alignItems:"center", gap:5 }}>
               <span style={{ fontSize:13 }}>{s.ic}</span>
@@ -6131,13 +6138,13 @@ export default function App() {
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-0.5 }}>
           <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"#cbd5e1", fontSize:15, marginTop:8 }}>O que você precisa hoje?</p>
+        <p style={{ color:"#cbd5e1", fontSize:15, marginTop:8 }}>Você quer contratar ou trabalhar?</p>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:12 }}>
         {[
-          { key:"empregador", icone:"🏢", label:"Quero anunciar", desc:"Publique uma vaga e encontre quem faz o serviço" },
-          { key:"diarista",   icone:"👷", label:"Quero trabalhar", desc:"Veja vagas perto de você e ganhe uma renda" },
+          { key:"empregador", icone:"🏢", label:"Quero contratar", desc:"Publique e receba interessados verificados em minutos" },
+          { key:"diarista",   icone:"👷", label:"Quero trabalhar", desc:"Apareça pra quem contrata e receba propostas hoje" },
         ].map(t => {
           const ativo = tipo === t.key;
           return (
@@ -6166,7 +6173,7 @@ export default function App() {
             )}
             <span style={{ fontSize:30 }}>🏢</span>
             <span style={{ fontWeight:800, fontSize:14, color: ativo ? "#fff" : "#e2e8f0" }}>Sou empresa (CNPJ)</span>
-            <span style={{ fontSize:12, color: ativo ? "rgba(255,255,255,.9)" : "#cbd5e1", textAlign:"center" as const, lineHeight:1.4 }}>Anuncie em nome da sua empresa — com nota fiscal</span>
+            <span style={{ fontSize:12, color: ativo ? "rgba(255,255,255,.9)" : "#cbd5e1", textAlign:"center" as const, lineHeight:1.4 }}>Contrate em nome da empresa e fortaleça sua marca local</span>
           </div>
         );
       })()}
