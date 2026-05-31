@@ -91,8 +91,13 @@ serve(async (req) => {
     await safeDelete("denuncias",         supabaseAdmin.from("denuncias").delete().or(`denunciante_id.eq.${userId},alvo_id.eq.${userId}`));
     await safeDelete("nao_interesse",     supabaseAdmin.from("nao_interesse").delete().eq("diarista_id", userId));
     await safeDelete("push_subscriptions", supabaseAdmin.from("push_subscriptions").delete().eq("user_id", userId));
-    await safeDelete("comentarios_comunidade", supabaseAdmin.from("comentarios_comunidade").delete().eq("autor_id", userId));
-    await safeDelete("topicos",           supabaseAdmin.from("topicos").delete().eq("autor_id", userId));
+    // Comunidade (topicos/comentarios): NÃO apaga o conteúdo — ANONIMIZA o autor.
+    // O conteúdo é público e coletivo (some pra todo mundo se apagado, inclusive
+    // os tópicos oficiais criados por um admin). Espelha o ON DELETE SET NULL do
+    // schema: zera autor_id e troca o nome por "Usuário removido". Atende LGPD
+    // (remove o vínculo com a pessoa) sem destruir a comunidade.
+    await safeDelete("comentarios_comunidade (anon)", supabaseAdmin.from("comentarios_comunidade").update({ autor_id: null, autor_nome: "Usuário removido" }).eq("autor_id", userId));
+    await safeDelete("topicos (anon)",                supabaseAdmin.from("topicos").update({ autor_id: null, autor_nome: "Usuário removido" }).eq("autor_id", userId));
     await safeDelete("analytics_eventos", supabaseAdmin.from("analytics_eventos").delete().eq("user_id", userId));
     await safeDelete("assinaturas",       supabaseAdmin.from("assinaturas").delete().eq("user_id", userId));
     await safeDelete("suporte_respostas", supabaseAdmin.from("suporte_respostas").delete().eq("sender_id", userId));
