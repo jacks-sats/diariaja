@@ -1338,20 +1338,20 @@ export default function App() {
           !lotadas.has(d.id) && !usuariosBloqueados.has(d.empregador_id)
           && !vagaExpirou(d)  // esconde vagas cujo horário já passou (feed não mostra vencidas)
         ));
-        // Carrega perfis dos empregadores para exibir foto no card
+        // Carrega perfis dos empregadores + reputação para os cards. As duas
+        // queries são INDEPENDENTES — rodam em paralelo (antes eram sequenciais,
+        // cada uma esperando a outra, ~2x o tempo no feed).
         const empIds = [...new Set(data.map((d: any) => d.empregador_id).filter(Boolean))];
         if (empIds.length > 0) {
-          const { data: emps } = await supabase.from("user_profiles").select("id, nome, foto_url, segmento").in("id", empIds);
+          const [{ data: emps }, { data: reps }] = await Promise.all([
+            supabase.from("user_profiles").select("id, nome, foto_url, segmento").in("id", empIds),
+            supabase.from("reputacao_empregadores").select("*").in("empregador_id", empIds),
+          ]);
           if (emps && emps.length > 0) {
             const m: Record<string, any> = {};
             emps.forEach((p: any) => { m[p.id] = p; });
             setEmpregadoresProfiles(prev => ({ ...prev, ...m }));
           }
-          // Reputação pública dos empregadores (média + % pagou/cumpriu)
-          const { data: reps } = await supabase
-            .from("reputacao_empregadores")
-            .select("*")
-            .in("empregador_id", empIds);
           if (reps) {
             const rm: Record<string, ReputacaoEmpregador> = {};
             reps.forEach((r: any) => { rm[r.empregador_id] = r; });
@@ -2099,13 +2099,20 @@ export default function App() {
         (data as unknown as UserProfile[]).forEach((p) => { map[p.id] = p; });
         setDiaristasAceites(prev => ({ ...prev, ...map }));
       }
-      // Conta diárias concluídas de cada diarista
-      for (const id of ids) {
-        const { count } = await supabase.from("diarias")
-          .select("id", { count: "exact", head: true })
-          .eq("diarista_aceite_id", id)
-          .eq("status", "concluida");
-        if (count !== null) setDiaristasContagemDiarias(prev => ({ ...prev, [id]: count }));
+      // Conta diárias concluídas de cada diarista — UMA query agregada (antes era
+      // um for-loop com 1 query por diarista = N+1 sequencial, principal causa de
+      // lentidão nas listas). Mesma RLS/filtro; a contagem é feita no client.
+      const { data: concl } = await supabase.from("diarias")
+        .select("diarista_aceite_id")
+        .in("diarista_aceite_id", ids)
+        .eq("status", "concluida");
+      if (concl) {
+        const cont: Record<string, number> = {};
+        for (const id of ids) cont[id] = 0; // garante 0 pros sem concluídas
+        (concl as { diarista_aceite_id: string }[]).forEach(r => {
+          if (r.diarista_aceite_id) cont[r.diarista_aceite_id] = (cont[r.diarista_aceite_id] || 0) + 1;
+        });
+        setDiaristasContagemDiarias(prev => ({ ...prev, ...cont }));
       }
     })();
   }, [diarias, convitesEnviados]);
@@ -3476,6 +3483,20 @@ export default function App() {
         { tipo: "confirmacao", url: "/" },
       );
     }
+  };
+
+  // Abre o chat de uma DIÁRIA (candidatura) já enriquecendo com nome/foto do
+  // prestador a partir do que JÁ está em memória (diaristasAceites / candidatos).
+  // Evita o "Prestador" piscando no header enquanto o cache assíncrono não chega.
+  const abrirChatDiaria = (dia: Diaria, aba?: "chat") => {
+    const did = dia.diarista_aceite_id;
+    const dp = did ? (diaristasAceites[did] || candidatosProfiles[did]) : null;
+    const enriquecida = dp
+      ? ({ ...dia, _nomeChat: dp.nome, _fotoChat: dp.foto_url } as Diaria)
+      : dia;
+    hapticTick();
+    setChatDiariaAtiva(enriquecida);
+    if (aba === "chat") setTabEmpregador("chat");
   };
 
   // Abre o chat real de um convite confirmado (cria a diária se ainda não houver).
@@ -9833,7 +9854,7 @@ export default function App() {
                             {((dia.status === "aceita" && dia.pagamento_status === "pago") || dia.status === "em_andamento") && dia.diarista_aceite_id && (
                               <button
                                 style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#eff6ff", color:"#3A86FF", border:"1.5px solid #bfdbfe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
-                                onClick={() => { setChatDiariaAtiva(dia); setTabEmpregador("chat"); setMsgNaoLidas(0); }}>
+                                onClick={() => { abrirChatDiaria(dia, "chat"); setMsgNaoLidas(0); }}>
                                 💬 Chat
                               </button>
                             )}
@@ -9954,7 +9975,7 @@ export default function App() {
                                 </div>
                                 <button
                                   style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"9px 14px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
-                                  onClick={e => { e.stopPropagation(); setChatDiariaAtiva(dia); setTabEmpregador("chat"); setMsgNaoLidas(0); }}>
+                                  onClick={e => { e.stopPropagation(); abrirChatDiaria(dia, "chat"); setMsgNaoLidas(0); }}>
                                   💬 Chat
                                 </button>
                               </div>
@@ -11166,18 +11187,23 @@ export default function App() {
           // Se há chat ativo, mostra conversa
           if (chatDiariaAtiva) {
             const dp = chatDiariaAtiva.diarista_aceite_id ? diaristasAceites[chatDiariaAtiva.diarista_aceite_id] : null;
-            const iniciais = dp?.nome?.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() || "?";
+            // Nome do prestador SEM "Prestador" piscando: usa o cache (dp) e, como
+            // fallback imediato, o nome denormalizado no próprio objeto do chat
+            // (gravado ao abrir, a partir do que já estava em memória).
+            const nomePrestador = dp?.nome || chatDiariaAtiva._nomeChat || "Prestador";
+            const fotoPrestador = dp?.foto_url || chatDiariaAtiva._fotoChat || "";
+            const iniciais = nomePrestador !== "Prestador" ? nomePrestador.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() : "?";
             return (
               <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 130px)", position:"relative" }}>
                 {/* Header do chat */}
                 <div style={{ background:"var(--bg-card,#fff)", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
                   <button style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", padding:"0 4px" }} onClick={() => { setChatDiariaAtiva(null); setConfirmExcluirChat(false); }}>←</button>
-                  {dp?.foto_url
-                    ? <img loading="lazy" src={dp.foto_url} style={{ width:40, height:40, borderRadius:20, objectFit:"cover" }} alt="" />
+                  {fotoPrestador
+                    ? <img loading="lazy" src={fotoPrestador} style={{ width:40, height:40, borderRadius:20, objectFit:"cover" }} alt="" />
                     : <div style={{ width:40, height:40, borderRadius:20, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, flexShrink:0 }}>{iniciais}</div>
                   }
                   <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{dp?.nome || "Prestador"}</div>
+                    <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{nomePrestador}</div>
                     <div style={{ fontSize:11, color: outroDigitando ? "#16a34a" : "var(--text-2,#64748b)", fontWeight: outroDigitando ? 700 : 400 }}>
                       {outroDigitando ? "digitando…" : `${chatDiariaAtiva.funcao} · ${new Date(chatDiariaAtiva.data+"T12:00:00").toLocaleDateString("pt-BR")}`}
                     </div>
@@ -11320,7 +11346,7 @@ export default function App() {
                     return (
                       <div key={dia.id}
                         style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" }}
-                        onClick={() => { hapticTick(); setChatDiariaAtiva(dia); }}>
+                        onClick={() => { abrirChatDiaria(dia); }}>
                         {dp?.foto_url
                           ? <img loading="lazy" src={dp.foto_url} style={{ width:50, height:50, borderRadius:25, objectFit:"cover", flexShrink:0 }} alt="" />
                           : <div style={{ width:50, height:50, borderRadius:25, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>{iniciais}</div>

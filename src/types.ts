@@ -61,6 +61,10 @@ export interface Diaria {
   checkin_lng?: number | null;
   checkin_distancia_m?: number | null; // distância do endereço no check-in (m)
   checkout_em?: string | null;        // quando a diária foi encerrada
+  // Campos auxiliares de UI (não vêm do banco) — denormalizam nome/foto do
+  // interlocutor ao abrir o chat, pra não piscar "Prestador" no header.
+  _nomeChat?: string;
+  _fotoChat?: string;
 }
 
 export interface UserProfile {
