@@ -525,6 +525,9 @@ export default function App() {
   // Permite mostrar "Aguarde..." só no botão clicado, não nos 2.
   const [criandoAssinatura, setCriandoAssinatura] = useState<false | string>(false);
   const [modalLimiteContato, setModalLimiteContato] = useState(false);
+  // Prompt de notificações — aparece 1x após o login (não pede sozinho hoje, só
+  // num item escondido em Configurações; usuários reclamam que "não pede").
+  const [promptNotif, setPromptNotif] = useState(false);
   // Termo de compromisso (LC 150 / CLT compliance): aparece ANTES de cobrar o
   // R$1 e protege contra presunção de vínculo empregatício. Exibe pra TODOS os
   // usuários (empregador e diarista) quando estão formando o compromisso.
@@ -896,6 +899,23 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("diariaja_modo", modoAtual); } catch { /* storage indisponível */ } }, [modoAtual]);
   // Persiste a tela atual para não sair da página ao recarregar
   useEffect(() => { try { localStorage.setItem("diariaja_tela", tela); } catch { /* storage indisponível */ } }, [tela]);
+
+  // Prompt de notificações: aparece 1x quando o usuário chega numa home logado,
+  // se o push é suportado, ainda não está inscrito e a permissão não foi negada.
+  // (Antes só existia um item escondido em Configurações — daí "não pede".)
+  // Dispara o requestPermission só após o usuário tocar "Ativar" no nosso banner
+  // (gesto do usuário) — pedir direto no load é bloqueado/ignorado pelo Chrome.
+  useEffect(() => {
+    if (!session?.user || !profile) return;
+    if (tela !== "home-diarista" && tela !== "home-empregador") return;
+    if (!pushEstado.suportado || pushEstado.inscrito || pushEstado.permissao === "denied") return;
+    let dispensado = false;
+    try { dispensado = localStorage.getItem("diariaja_push_prompt_dispensado") === "1"; } catch { /* ignore */ }
+    if (dispensado) return;
+    // Pequeno atraso pra não competir com o render inicial da home.
+    const t = setTimeout(() => setPromptNotif(true), 1200);
+    return () => clearTimeout(t);
+  }, [tela, session?.user?.id, profile?.id, pushEstado.suportado, pushEstado.inscrito, pushEstado.permissao]);
 
   // Persiste o CHAT aberto (id da diária) — assim ao atualizar a página o usuário
   // volta pra conversa em vez de cair na tela inicial (reclamação real).
@@ -10725,6 +10745,42 @@ export default function App() {
                   {desbloqueandoContato ? "Aguarde..." : "Aceitar e pagar R$ 1"}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Prompt de notificações (Web Push) — pede a permissão com contexto */}
+        {promptNotif && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
+               onClick={() => { setPromptNotif(false); try { localStorage.setItem("diariaja_push_prompt_dispensado","1"); } catch {} }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 32px", maxWidth:480, width:"100%", textAlign:"center" as const }}
+                 onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize:52, marginBottom:10 }}>🔔</div>
+              <div style={{ fontWeight:900, fontSize:20, color:"var(--text-1,#0f172a)", marginBottom:8 }}>
+                Ative as notificações
+              </div>
+              <p style={{ fontSize:14, color:"var(--text-2,#64748b)", lineHeight:1.6, marginBottom:22 }}>
+                {modoAtual === "diarista"
+                  ? "Receba um aviso na hora que um anunciante te selecionar ou mandar mensagem — mesmo com o app fechado. Não perca nenhuma oportunidade."
+                  : "Receba um aviso na hora que um interessado se candidatar ou responder no chat — mesmo com o app fechado. Feche os contratos mais rápido."}
+              </p>
+              <button
+                style={{ width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
+                onClick={async () => {
+                  setPromptNotif(false);
+                  try { localStorage.setItem("diariaja_push_prompt_dispensado","1"); } catch {}
+                  await ativarPush();  // gesto do usuário → dispara o requestPermission do navegador
+                }}>
+                🔔 Ativar notificações
+              </button>
+              <button
+                style={{ width:"100%", padding:"12px", background:"transparent", color:"var(--text-3,#94a3b8)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => { setPromptNotif(false); try { localStorage.setItem("diariaja_push_prompt_dispensado","1"); } catch {} }}>
+                Agora não
+              </button>
+              <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:10, lineHeight:1.5 }}>
+                Você pode ativar/desativar quando quiser em Configurações.
+              </p>
             </div>
           </div>
         )}
