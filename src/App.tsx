@@ -2389,7 +2389,20 @@ export default function App() {
     // não rodava e o app inteiro ficava travado em loading até reload.
     try {
       const { error } = await supabase.from("user_profiles").upsert(full);
-      if (error) { setAuthError("Erro ao salvar perfil: " + error.message); return false; }
+      if (error) {
+        // CPF/CNPJ duplicado (UNIQUE no banco): 1 documento = 1 conta. Mensagem
+        // clara em vez do erro cru do Postgres (23505 / "duplicate key").
+        const m = (error.message || "").toLowerCase();
+        const code = String((error as { code?: string }).code || "");
+        if (code === "23505" || m.includes("duplicate") || m.includes("unique")) {
+          if (m.includes("cpf")) setAuthError("⚠️ Este CPF já possui cadastro. Cada CPF só pode ter uma conta — faça login na conta existente.");
+          else if (m.includes("cnpj")) setAuthError("⚠️ Este CNPJ já possui cadastro. Faça login na conta existente.");
+          else setAuthError("⚠️ Esses dados já estão cadastrados em outra conta.");
+          return false;
+        }
+        setAuthError("Erro ao salvar perfil: " + error.message);
+        return false;
+      }
       setProfile(full);
       return true;
     } finally {
@@ -14785,33 +14798,50 @@ export default function App() {
       {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
       <button style={{ ...S.btnPrimary, marginTop:16, opacity: salvandoPerfil ? 0.6 : 1 }} onClick={async () => {
         setAuthError("");
-        const erroNome = validarNome(form.nome);
-        if (erroNome) { setAuthError(erroNome); return; }
-        const bioProibida = verificarConteudoProibido(form.bio);
-        if (bioProibida) { setAuthError(bioProibida); return; }
-        if (!fotoUrl) { setAuthError("⚠️ Adicione uma foto de perfil para continuar."); return; }
-        if (!form.cpf || !validarCPF(form.cpf)) { setAuthError("⚠️ CPF obrigatório e deve ser válido (dígitos verificadores conferidos)."); return; }
+        // SALVAMENTO INCREMENTAL: o usuário pode salvar por partes (nome agora,
+        // CPF depois, etc.) sem precisar preencher tudo de uma vez. Só validamos
+        // o que FOI preenchido — não bloqueamos por campo vazio. Os "obrigatórios"
+        // viram pendências de completude (barra de % + XP), não muros.
+        if (form.nome.trim()) {
+          const erroNome = validarNome(form.nome);
+          if (erroNome) { setAuthError(erroNome); return; }
+        }
+        if (form.bio.trim()) {
+          const bioProibida = verificarConteudoProibido(form.bio);
+          if (bioProibida) { setAuthError(bioProibida); return; }
+        }
+        // CPF: só valida se foi digitado e ainda não está salvo. Vazio = ok (salva
+        // o resto); inválido = bloqueia (não dá pra salvar CPF errado, é permanente).
+        const cpfNovo = !profile?.cpf && form.cpf.trim();
+        if (cpfNovo && !validarCPF(form.cpf)) {
+          setAuthError("⚠️ O CPF digitado é inválido. Confira os dígitos (ou deixe em branco pra preencher depois).");
+          return;
+        }
+        // % de completude ANTES de salvar (pra avisar o ganho).
+        const pctAntes = calcCompletude({
+          foto_url: profile?.foto_url, cpf: profile?.cpf, cnpj: profile?.cnpj,
+          telefone: profile?.telefone, telefone_verificado: profile?.telefone_verificado,
+          bio: profile?.bio, endereco_empregador: profile?.endereco_empregador,
+          lat: profile?.lat, pix_chave: profile?.pix_chave, mp_user_id: profile?.mp_user_id,
+        }, 0, null).pct;
         // Se o telefone foi destravado e mudou, invalida verificação anterior
         const telDigitos = form.telefone.replace(/\D/g, "");
         const telAntigo = (profile?.telefone || "").replace(/\D/g, "");
         const telefoneAlterado = camposDestravadosEdit.has("telefone") && telDigitos !== telAntigo;
-        const ok = await saveProfile({
-          nome: form.nome,
-          telefone: telDigitos,
-          funcao: categoriasSelecionadas[0] || form.funcao,
-          valor_diaria: Number(form.valor),
-          bio: form.bio,
-          categorias: categoriasSelecionadas,
-          cpf: form.cpf,
-          sexo: form.sexo,
-          data_nascimento: form.dataNasc,
-          cep: form.cep,   // persiste o CEP digitado (antes só lat/lng eram salvos)
-          // Telefone trocado → re-verificação acontece via redirect pra verificar-telefone
-          // (saveProfile descarta telefone_verificado; o flag continua refletindo o
-          // estado antigo até o usuário confirmar o novo OTP, momento em que a RPC
-          // confirmar_telefone_verificado faz o set server-side).
-          ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
-        });
+        // Monta updates só com o que tem valor — não sobrescreve com vazio.
+        const upd: Partial<UserProfile> = {};
+        if (form.nome.trim()) upd.nome = form.nome;
+        if (telDigitos) upd.telefone = telDigitos;
+        if (categoriasSelecionadas[0] || form.funcao) upd.funcao = categoriasSelecionadas[0] || form.funcao;
+        if (form.valor) upd.valor_diaria = Number(form.valor);
+        if (form.bio.trim()) upd.bio = form.bio;
+        if (categoriasSelecionadas.length) upd.categorias = categoriasSelecionadas;
+        if (cpfNovo) upd.cpf = form.cpf;  // CPF só na 1ª vez (permanente)
+        if (form.sexo) upd.sexo = form.sexo;
+        if (form.dataNasc) upd.data_nascimento = form.dataNasc;
+        if (form.cep) upd.cep = form.cep;
+        if (latPerfilCEP !== null) { upd.lat = latPerfilCEP; upd.lng = lngPerfilCEP; }
+        const ok = await saveProfile(upd);
         if (ok) {
           setLatPerfilCEP(null); setLngPerfilCEP(null);
           setCamposDestravadosEdit(new Set()); // re-trava campos verificados
@@ -14820,7 +14850,18 @@ export default function App() {
             setAuthError("✅ Salvo! Verifique o novo telefone por SMS.");
             setTela("verificar-telefone");
           } else {
-            setToastSuccess("✅ Perfil atualizado com sucesso!");
+            // Feedback de progresso: quanto a completude subiu (gamificação).
+            const pctDepois = calcCompletude({
+              foto_url: fotoUrl || profile?.foto_url, cpf: upd.cpf || profile?.cpf, cnpj: profile?.cnpj,
+              telefone: telDigitos || profile?.telefone, telefone_verificado: profile?.telefone_verificado,
+              bio: upd.bio || profile?.bio, endereco_empregador: profile?.endereco_empregador,
+              lat: (upd.lat ?? profile?.lat), pix_chave: profile?.pix_chave, mp_user_id: profile?.mp_user_id,
+            }, 0, null).pct;
+            if (pctDepois > pctAntes) {
+              setToastSuccess(`✅ Salvo! Perfil ${pctDepois}% completo (+${pctDepois - pctAntes}%). ${pctDepois < 100 ? "Continue pra ganhar destaque!" : "🎉 Perfil completo!"}`);
+            } else {
+              setToastSuccess("✅ Alterações salvas!");
+            }
             setTela("home-diarista");
           }
         }
@@ -16368,10 +16409,20 @@ export default function App() {
       {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
       <button style={{ ...S.btnPrimary, marginTop:16, opacity: salvandoPerfil ? 0.6 : 1 }} onClick={async () => {
         setAuthError("");
-        const erroNomeEmp = validarNome(form.nome);
-        if (erroNomeEmp) { setAuthError(erroNomeEmp); return; }
-        const negProibido = verificarConteudoProibido(form.nomeNegocio);
-        if (negProibido) { setAuthError(negProibido); return; }
+        // SALVAMENTO INCREMENTAL (empregador): salva por partes, valida só o
+        // preenchido. CPF/CNPJ só na 1ª vez (permanente, UNIQUE no banco).
+        if (form.nome.trim()) {
+          const erroNomeEmp = validarNome(form.nome);
+          if (erroNomeEmp) { setAuthError(erroNomeEmp); return; }
+        }
+        if (form.nomeNegocio.trim()) {
+          const negProibido = verificarConteudoProibido(form.nomeNegocio);
+          if (negProibido) { setAuthError(negProibido); return; }
+        }
+        const cpfNovoEmp  = form.pessoaTipo === "fisica"   && !profile?.cpf  && form.cpf.trim();
+        const cnpjNovoEmp = form.pessoaTipo === "juridica" && !profile?.cnpj && form.cnpj.trim();
+        if (cpfNovoEmp && !validarCPF(form.cpf)) { setAuthError("⚠️ O CPF digitado é inválido. Confira os dígitos (ou deixe em branco)."); return; }
+        if (cnpjNovoEmp && !validarCNPJ(form.cnpj)) { setAuthError("⚠️ O CNPJ digitado é inválido. Confira os dígitos (ou deixe em branco)."); return; }
         const enderecoAtualizado = form.ruaEmp
           ? `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp ? `, ${form.complementoEmp}` : ""} - ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} - CEP: ${form.cepEmp}`
           : undefined;
@@ -16379,17 +16430,16 @@ export default function App() {
         const telDigitos = form.telefone.replace(/\D/g, "");
         const telAntigo = (profile?.telefone || "").replace(/\D/g, "");
         const telefoneAlterado = camposDestravadosEdit.has("telefone") && telDigitos !== telAntigo;
-        const ok = await saveProfile({
-          nome: form.nome,
-          telefone: telDigitos,
-          nome_negocio: form.nomeNegocio,
-          cpf: form.pessoaTipo === "fisica" ? form.cpf : "",
-          cnpj: form.pessoaTipo === "juridica" ? form.cnpj : "",
-          pessoa_tipo: form.pessoaTipo,
-          ...(telefoneAlterado ? { telefone_verificado: false } : {}),
-          ...(enderecoAtualizado ? { endereco_empregador: enderecoAtualizado } : {}),
-          ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
-        });
+        const upd: Partial<UserProfile> = { pessoa_tipo: form.pessoaTipo };
+        if (form.nome.trim()) upd.nome = form.nome;
+        if (telDigitos) upd.telefone = telDigitos;
+        if (form.nomeNegocio.trim()) upd.nome_negocio = form.nomeNegocio;
+        if (cpfNovoEmp) upd.cpf = form.cpf;
+        if (cnpjNovoEmp) upd.cnpj = form.cnpj;
+        if (telefoneAlterado) upd.telefone_verificado = false;
+        if (enderecoAtualizado) upd.endereco_empregador = enderecoAtualizado;
+        if (latPerfilCEP !== null) { upd.lat = latPerfilCEP; upd.lng = lngPerfilCEP; }
+        const ok = await saveProfile(upd);
         if (ok) {
           setLatPerfilCEP(null); setLngPerfilCEP(null);
           setCamposDestravadosEdit(new Set());
@@ -16397,7 +16447,7 @@ export default function App() {
             setAuthError("✅ Salvo! Verifique o novo telefone por SMS.");
             setTela("verificar-telefone");
           } else {
-            setToastSuccess("✅ Perfil atualizado com sucesso!");
+            setToastSuccess("✅ Alterações salvas!");
             setTela("configuracoes");
           }
         }
