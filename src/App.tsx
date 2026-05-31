@@ -3267,6 +3267,13 @@ export default function App() {
       }
       diariaId = data as string;
     }
+    // Garante o perfil do prestador carregado pro header do chat do anunciante
+    // (que mostra diaristasAceites[...].nome — senão cairia no fallback "Prestador").
+    if (comoAba === "empregador" && conv.diarista_id && !diaristasAceites[conv.diarista_id]) {
+      const { data: dpArr } = await supabase.rpc("perfis_publicos", { p_ids: [conv.diarista_id] });
+      const dp = (dpArr as unknown as UserProfile[] | null)?.[0];
+      if (dp) setDiaristasAceites(prev => ({ ...prev, [conv.diarista_id]: dp }));
+    }
     // Monta a diária pro chat. O realtime e o envio usam só id/empregador_id/
     // diarista_aceite_id — o resto é cosmético pro cabeçalho do chat.
     const chatComoDiaria = {
@@ -12720,9 +12727,12 @@ export default function App() {
           // (mesmo padrão da lista de chat) e mescla com as diárias aceitas.
           const convitesAgendados = convitesRecebidos
             .filter(c => c.status === "confirmado" && !!c.presenca_confirmada_em)
-            .filter(c => !minhasDiarias.some(d => d.id === c.id))
+            // Usa a diária REAL criada pelo convite (c.diaria_id) como id — assim o
+            // chat dos 2 lados aponta pro mesmo diaria_id (mensagens não se perdem).
+            // Se ainda não tiver diaria_id (convite antigo), cai pro id do convite.
+            .filter(c => !minhasDiarias.some(d => d.id === (c.diaria_id || c.id)))
             .map(c => ({
-              id: c.id, empregador_id: c.contratante_id, diarista_aceite_id: c.diarista_id,
+              id: c.diaria_id || c.id, empregador_id: c.contratante_id, diarista_aceite_id: c.diarista_id,
               funcao: c.funcao ?? "Serviço", data: c.data_servico, horario_inicio: c.horario_servico ?? "00:00",
               horario_fim: "", valor: c.valor ?? 0, nome_negocio: c.contratante_nome || c.local_servico || "Anunciante",
               segmento: "", descricao: c.observacoes ?? "", status: "aceita", created_at: c.created_at,
@@ -12864,13 +12874,20 @@ export default function App() {
                                   📝 {dia.descricao}
                                 </div>
                               )}
-                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
+                              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10, gap:8 }}>
                                 <span style={{ fontWeight:900, fontSize:15, color:"#FF6B35" }}>R$ {dia.valor}<span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:400 }}>/dia</span></span>
-                                <button
-                                  style={{ background:"#0f172a", color:"#fff", border:"none", borderRadius:10, padding:"6px 12px", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                                  onClick={() => setQrDiaria(dia)}>
-                                  📲 QR Code
-                                </button>
+                                <div style={{ display:"flex", gap:8 }}>
+                                  <button
+                                    style={{ background:"#16a34a", color:"#fff", border:"none", borderRadius:10, padding:"6px 12px", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                                    onClick={() => { hapticTick(); setChatDiariaAtiva(dia); setTabDiarista("chat"); }}>
+                                    💬 Chat
+                                  </button>
+                                  <button
+                                    style={{ background:"#0f172a", color:"#fff", border:"none", borderRadius:10, padding:"6px 12px", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                                    onClick={() => setQrDiaria(dia)}>
+                                    📲 QR Code
+                                  </button>
+                                </div>
                               </div>
                               {/* Botão Desistir — só para diárias ainda não iniciadas */}
                               {dia.status === "aceita" && (
