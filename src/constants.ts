@@ -181,8 +181,7 @@ export const PLANOS_EMPREGADOR = [
     recursos: [
       "Anúncios ilimitados",
       "Até 5 interessados por anúncio",
-      "3 conexões grátis por mês",
-      "Depois disso, R$ 1 por contato extra",
+      "R$ 1 por contato liberado",
       "Chat liberado só após conexão confirmada",
     ],
     destaque: false, badge: false,
