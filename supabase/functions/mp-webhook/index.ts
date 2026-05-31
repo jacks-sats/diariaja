@@ -19,6 +19,29 @@ const MP_TOKEN         = Deno.env.get("MP_ACCESS_TOKEN")!;
 // IMPORTANTE: trim() pra remover whitespace/newline acidental que vem do paste
 // no dashboard. Foi causa real de 401s persistentes em 2026-05-28.
 const WEBHOOK_SECRET   = (Deno.env.get("MP_WEBHOOK_SECRET") ?? "").trim();
+const INTERNAL_SECRET  = (Deno.env.get("INTERNAL_PUSH_SECRET") ?? "").trim();
+
+// Notifica um usuário via send-push em modo interno (reusa toda a cripto Web Push
+// num lugar só). Best-effort: nunca quebra o webhook se o push falhar.
+async function notificarUsuario(
+  _supabase: unknown, userId: string, title: string, body: string, tipo = "default",
+): Promise<void> {
+  if (!INTERNAL_SECRET || !userId) return;
+  try {
+    await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-secret": INTERNAL_SECRET,
+        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "apikey": SUPABASE_KEY,
+      },
+      body: JSON.stringify({ user_ids: [userId], title, body, url: "/", tipo }),
+    });
+  } catch (e) {
+    console.error("[mp-webhook] notificarUsuario falhou:", e instanceof Error ? e.message : String(e));
+  }
+}
 
 // Comparação byte-a-byte em tempo constante — evita timing oracle
 function timingSafeEqualHex(a: string, b: string): boolean {
@@ -286,7 +309,9 @@ Deno.serve(async (req) => {
       // quantos extras foram comprados no mês. UNIQUE em mp_payment_id
       // garante idempotência mesmo com retries do webhook do MP.
       if (String(payment.external_reference).startsWith("contact_unlock::")) {
-        const userId = String(payment.external_reference).split("::")[1] ?? "";
+        const refParts = String(payment.external_reference).split("::");
+        const userId = refParts[1] ?? "";
+        const conviteId = refParts[2] ?? "";  // presente só no fluxo de convite
         const ehRefund = payment.status === "refunded" || payment.status === "charged_back";
         if (payment.status === "approved" && userId) {
           const { error: insErr } = await supabase
@@ -301,6 +326,28 @@ Deno.serve(async (req) => {
           // (200 OK pra MP não ficar retentando indefinidamente).
           if (insErr && !String(insErr.message ?? "").toLowerCase().includes("duplicate")) {
             console.error(`[mp-webhook] insert contato_desbloqueio falhou:`, insErr);
+          }
+          // Fluxo de convite: marca o convite como pago e avisa o prestador pra
+          // confirmar a presença. O chat só libera DEPOIS dessa confirmação.
+          if (conviteId) {
+            const { error: cvErr } = await supabase
+              .from("convites")
+              .update({ pago_em: new Date().toISOString() })
+              .eq("id", conviteId)
+              .is("pago_em", null);  // idempotente: não re-notifica em retry
+            if (cvErr) {
+              console.error(`[mp-webhook] marcar convite pago falhou:`, cvErr);
+            } else {
+              // Busca o diarista do convite pra notificar (best-effort).
+              const { data: conv } = await supabase
+                .from("convites").select("diarista_id, funcao").eq("id", conviteId).single();
+              if (conv?.diarista_id) {
+                await notificarUsuario(supabase, conv.diarista_id,
+                  "Você foi contratado! 🎉",
+                  `Confirme sua presença para liberar o chat e combinar "${conv.funcao ?? "a diária"}".`,
+                  "confirmacao");
+              }
+            }
           }
         } else if (ehRefund) {
           // Estorno/chargeback do R$1 → REVOGA o desbloqueio (devolve a cota).
