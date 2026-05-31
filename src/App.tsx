@@ -27,6 +27,8 @@ const hapticConfirm = () => { try { navigator.vibrate?.([100, 50, 200]); } catch
 
 // ── Wrapper pra disparar push notification via Edge Function send-push ──────
 type PushTipo = "mensagem" | "vaga_proxima" | "candidatura" | "selecionado" | "confirmacao" | "convite_resposta" | "default";
+// Notificação persistida no histórico (sininho). `destino` = tela ao tocar.
+type NotifItem = { tipo: "ok" | "erro"; msg: string; ts: number; lida?: boolean; destino?: string };
 async function enviarPush(
   userIds: string[],
   title: string,
@@ -285,7 +287,15 @@ export default function App() {
   const [toastError, setToastError]                   = useState("");  // toast vermelho auto-dismiss 4s
 
   // Notificações in-app (painel do sino)
-  const [listaNotif, setListaNotif] = useState<{tipo:"ok"|"erro", msg:string, ts:number}[]>([]);
+  // Notificações persistidas (localStorage diariaja_notifs) — sobrevivem ao
+  // recarregar. `destino` (opcional) define a tela ao tocar; `lida` marca lida.
+  const [listaNotif, setListaNotif] = useState<NotifItem[]>(() => {
+    try {
+      const raw = localStorage.getItem("diariaja_notifs");
+      if (raw) return (JSON.parse(raw) as NotifItem[]).slice(0, 30);
+    } catch { /* storage indisponível */ }
+    return [];
+  });
   const [modalNotif, setModalNotif] = useState(false);
   const [notifNaoLidas, setNotifNaoLidas] = useState(0);
   const [suporteNaoLidos, setSuporteNaoLidos] = useState(0); // badge admin para tópicos de suporte (Comunidade)
@@ -751,6 +761,18 @@ export default function App() {
   // Ref pra closures lerem o chat ativo atual sem causar re-subscribe
   const chatDiariaAtivaRef = useRef<Diaria | null>(null);
   useEffect(() => { chatDiariaAtivaRef.current = chatDiariaAtiva; }, [chatDiariaAtiva]);
+
+  // Persiste o histórico de notificações no localStorage sempre que mudar —
+  // assim o sininho não "esquece" ao recarregar o app.
+  useEffect(() => {
+    try { localStorage.setItem("diariaja_notifs", JSON.stringify(listaNotif.slice(0, 30))); } catch { /* storage indisponível */ }
+  }, [listaNotif]);
+
+  // Adiciona uma notificação ao histórico (com destino opcional pra navegar ao tocar).
+  const pushNotif = (msg: string, tipo: "ok" | "erro" = "ok", destino?: string) => {
+    setListaNotif(prev => [{ tipo, msg, ts: Date.now(), lida: false, destino }, ...prev].slice(0, 30));
+    setNotifNaoLidas(prev => prev + 1);
+  };
 
   // Auto-dismiss dos toasts
   useEffect(() => {
@@ -1698,9 +1720,8 @@ export default function App() {
           const novoConvite: Convite = payload.new;
           setConvitesRecebidos(prev => [novoConvite, ...prev]);
           setToastSuccess(`📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para uma diária!`);
-          // Registra no sino de Notificações (antes só dava toast, que some sozinho).
-          setListaNotif(prev => [{ tipo: "ok", msg: `📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para ${novoConvite.funcao || "uma diária"} — aceite e combine no chat.`, ts: Date.now() }, ...prev]);
-          setNotifNaoLidas(prev => prev + 1);
+          // Registra no sino de Notificações (persistido; toque leva à Agenda).
+          pushNotif(`📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para ${novoConvite.funcao || "uma diária"} — aceite e combine no chat.`, "ok", "home-diarista");
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             mostrarNotificacaoLocal("📨 Novo convite de diária!", {
               body: `${novoConvite.contratante_nome} quer entrar em contato com você para ${novoConvite.funcao} em ${new Date(novoConvite.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}`,
@@ -11328,15 +11349,29 @@ export default function App() {
                 </div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                  {listaNotif.map((n, i) => (
-                    <div key={i} style={{ background: n.tipo==="ok" ? "#f0fdf4" : "#fef2f2", borderRadius:12, padding:"10px 14px", display:"flex", gap:10, alignItems:"flex-start", border:`1px solid ${n.tipo==="ok"?"#bbf7d0":"#fecaca"}` }}>
-                      <span style={{ fontSize:18 }}>{n.tipo==="ok" ? "✅" : "⚠️"}</span>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.4 }}>{n.msg.replace(/^[✅❌⚠️🎉🔔]+\s*/,"")}</div>
-                        <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:3 }}>{new Date(n.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>
+                  {listaNotif.map((n, i) => {
+                    const destino = n.destino || (modoAtual === "empregador" ? "home-empregador" : "home-diarista");
+                    const irParaDestino = () => {
+                      setModalNotif(false);
+                      setListaNotif(prev => prev.map((x, j) => j === i ? { ...x, lida: true } : x));
+                      if (modoAtual === "empregador") setTabEmpregador("diarias");
+                      else setTabDiarista("agenda");
+                      setTela(destino);
+                    };
+                    return (
+                      <div key={n.ts + "-" + i} style={{ background: n.lida ? "var(--bg-surface,#f8fafc)" : (n.tipo==="ok" ? "#f0fdf4" : "#fef2f2"), borderRadius:12, padding:"10px 14px", display:"flex", gap:10, alignItems:"flex-start", border:`1px solid ${n.lida ? "var(--border,#e2e8f0)" : (n.tipo==="ok"?"#bbf7d0":"#fecaca")}`, opacity: n.lida ? 0.7 : 1 }}>
+                        <span style={{ fontSize:18 }}>{n.tipo==="ok" ? "✅" : "⚠️"}</span>
+                        <div style={{ flex:1, cursor:"pointer" }} role="button" tabIndex={0} onClick={irParaDestino}>
+                          <div style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.4 }}>{n.msg.replace(/^[✅❌⚠️🎉🔔]+\s*/,"")}</div>
+                          <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:3 }}>{new Date(n.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})} · toque para abrir →</div>
+                        </div>
+                        <button aria-label="Excluir notificação" style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:16, cursor:"pointer", padding:"2px 4px", flexShrink:0 }}
+                          onClick={() => setListaNotif(prev => prev.filter((_, j) => j !== i))}>
+                          ✕
+                        </button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {listaNotif.length > 0 && (
@@ -14118,15 +14153,29 @@ export default function App() {
                 </div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                  {listaNotif.map((n, i) => (
-                    <div key={i} style={{ background: n.tipo==="ok" ? "#f0fdf4" : "#fef2f2", borderRadius:12, padding:"10px 14px", display:"flex", gap:10, alignItems:"flex-start", border:`1px solid ${n.tipo==="ok"?"#bbf7d0":"#fecaca"}` }}>
-                      <span style={{ fontSize:18 }}>{n.tipo==="ok" ? "✅" : "⚠️"}</span>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.4 }}>{n.msg.replace(/^[✅❌⚠️🎉🔔]+\s*/,"")}</div>
-                        <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:3 }}>{new Date(n.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>
+                  {listaNotif.map((n, i) => {
+                    const destino = n.destino || (modoAtual === "empregador" ? "home-empregador" : "home-diarista");
+                    const irParaDestino = () => {
+                      setModalNotif(false);
+                      setListaNotif(prev => prev.map((x, j) => j === i ? { ...x, lida: true } : x));
+                      if (modoAtual === "empregador") setTabEmpregador("diarias");
+                      else setTabDiarista("agenda");
+                      setTela(destino);
+                    };
+                    return (
+                      <div key={n.ts + "-" + i} style={{ background: n.lida ? "var(--bg-surface,#f8fafc)" : (n.tipo==="ok" ? "#f0fdf4" : "#fef2f2"), borderRadius:12, padding:"10px 14px", display:"flex", gap:10, alignItems:"flex-start", border:`1px solid ${n.lida ? "var(--border,#e2e8f0)" : (n.tipo==="ok"?"#bbf7d0":"#fecaca")}`, opacity: n.lida ? 0.7 : 1 }}>
+                        <span style={{ fontSize:18 }}>{n.tipo==="ok" ? "✅" : "⚠️"}</span>
+                        <div style={{ flex:1, cursor:"pointer" }} role="button" tabIndex={0} onClick={irParaDestino}>
+                          <div style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.4 }}>{n.msg.replace(/^[✅❌⚠️🎉🔔]+\s*/,"")}</div>
+                          <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:3 }}>{new Date(n.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})} · toque para abrir →</div>
+                        </div>
+                        <button aria-label="Excluir notificação" style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:16, cursor:"pointer", padding:"2px 4px", flexShrink:0 }}
+                          onClick={() => setListaNotif(prev => prev.filter((_, j) => j !== i))}>
+                          ✕
+                        </button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {listaNotif.length > 0 && (
