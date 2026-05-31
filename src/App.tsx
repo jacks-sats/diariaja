@@ -11736,6 +11736,34 @@ export default function App() {
                     <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
                   </button>
                 )}
+                {/* Usuário com UM perfil só → cria o segundo (vira "ambos"). Antes a
+                    opção só existia pra quem JÁ era ambos — paradoxo: o anunciante
+                    puro nunca via como virar prestador (pedido do dono).
+                    Empresa (PJ) não pode virar diarista — regra preservada. */}
+                {tipo === "empregador" && profile?.pessoa_tipo !== "juridica" && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"#8338EC10", border:"1.5px solid #8338EC40", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setAuthError(""); setForm(f => ({ ...f, funcao: profile?.funcao || "", valor: String(profile?.valor_diaria || "") })); setTela("setup-diarista"); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"#8338EC18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👷</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Quero prestar serviços também</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Crie seu perfil de prestador e apareça pra quem contrata</div>
+                    </div>
+                    <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                  </button>
+                )}
+                {tipo === "diarista" && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"#3A86FF10", border:"1.5px solid #3A86FF40", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setAuthError(""); setForm(f => ({ ...f, nomeNegocio: profile?.nome_negocio || "" })); setNegocio(null); setTela("setup-empregador"); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"#3A86FF18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🏢</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Quero contratar também</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Crie seu perfil de anunciante e publique vagas</div>
+                    </div>
+                    <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                  </button>
+                )}
                 <button
                   style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
                   onClick={() => { setMenuOpcoes(false); setTela("configuracoes"); }}>
@@ -14380,6 +14408,34 @@ export default function App() {
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Trocar perfil</div>
                       <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Alternar entre {modoAtual === "diarista" ? "prestador e anunciante" : "anunciante e prestador"}</div>
+                    </div>
+                    <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                  </button>
+                )}
+                {/* Usuário com UM perfil só → cria o segundo (vira "ambos"). Antes a
+                    opção só existia pra quem JÁ era ambos — paradoxo: o anunciante
+                    puro nunca via como virar prestador (pedido do dono).
+                    Empresa (PJ) não pode virar diarista — regra preservada. */}
+                {tipo === "empregador" && profile?.pessoa_tipo !== "juridica" && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"#8338EC10", border:"1.5px solid #8338EC40", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setAuthError(""); setForm(f => ({ ...f, funcao: profile?.funcao || "", valor: String(profile?.valor_diaria || "") })); setTela("setup-diarista"); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"#8338EC18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👷</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Quero prestar serviços também</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Crie seu perfil de prestador e apareça pra quem contrata</div>
+                    </div>
+                    <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
+                  </button>
+                )}
+                {tipo === "diarista" && (
+                  <button
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"#3A86FF10", border:"1.5px solid #3A86FF40", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                    onClick={() => { setMenuOpcoes(false); setAuthError(""); setForm(f => ({ ...f, nomeNegocio: profile?.nome_negocio || "" })); setNegocio(null); setTela("setup-empregador"); }}>
+                    <div style={{ width:40, height:40, borderRadius:20, background:"#3A86FF18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🏢</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Quero contratar também</div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>Crie seu perfil de anunciante e publique vagas</div>
                     </div>
                     <span style={{ fontSize:20, color:"var(--text-3,#94a3b8)" }}>›</span>
                   </button>
