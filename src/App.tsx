@@ -2451,7 +2451,14 @@ export default function App() {
     // reseta — antes, se o upsert REJEITASSE (rede/timeout), o setSalvandoPerfil(false)
     // não rodava e o app inteiro ficava travado em loading até reload.
     try {
-      const { error } = await supabase.from("user_profiles").upsert(full);
+      // Perfil JÁ existe → UPDATE (exige só privilégio de UPDATE, mais leve que o
+      // upsert que pede INSERT+UPDATE em todas as colunas). Evita o
+      // "permission denied for table user_profiles" no editar-perfil quando o
+      // INSERT está mais restrito que o UPDATE. Perfil NOVO → upsert (cria).
+      const jaExiste = !!profile?.id;
+      const { error } = jaExiste
+        ? await supabase.from("user_profiles").update(full).eq("id", session.user.id)
+        : await supabase.from("user_profiles").upsert(full);
       if (error) {
         // CPF/CNPJ duplicado (UNIQUE no banco): 1 documento = 1 conta. Mensagem
         // clara em vez do erro cru do Postgres (23505 / "duplicate key").
