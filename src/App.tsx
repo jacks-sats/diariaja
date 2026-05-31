@@ -15449,35 +15449,16 @@ export default function App() {
                   <button
                     style={{ ...S.btnPrimary, background:"#22c55e", textAlign:"center" as const }}
                     onClick={() => {
-                      // FIX 2026-05-28: chat header espera shape Diaria
-                      // (empregador_id, diarista_aceite_id, funcao, data) mas
-                      // conviteAtivo tem shape Convite (contratante_id,
-                      // diarista_id, funcao, data_servico). Sem este mapeamento,
-                      // nome da diarista vinha "Prestador" e msgs sumiam.
-                      // Cria objeto compatível pra esticar o chat existente.
+                      // BUG (msg não chegava): este caminho montava o chat com
+                      // id = convite.id, enquanto o PRESTADOR abre com
+                      // diaria_id (diária real). Os dois lados gravavam em
+                      // diaria_id diferentes → mensagens não chegavam. Agora usa
+                      // abrirChatConvite, que garante o MESMO diaria_id dos 2
+                      // lados (cria a diária se faltar) e carrega o perfil dela.
                       const c = conviteAtivo!;
-                      const chatComoDiaria = {
-                        id:                  c.id,
-                        empregador_id:       c.contratante_id,
-                        diarista_aceite_id:  c.diarista_id,
-                        funcao:              c.funcao ?? "Serviço",
-                        data:                c.data_servico,
-                        horario_inicio:      c.horario_servico ?? "00:00",
-                        horario_fim:         "",
-                        valor:               c.valor ?? 0,
-                        nome_negocio:        c.local_servico ?? "",
-                        segmento:            "",
-                        descricao:           c.observacoes ?? "",
-                        status:              "aceita",
-                        created_at:          c.created_at,
-                        tipo_oferta:         "diaria" as const,
-                      };
-                      // Pre-popula o profile dela no map pra header mostrar
-                      // foto + nome em vez de placeholder "Prestador".
                       setDiaristasAceites(prev => ({ ...prev, [c.diarista_id]: d }));
-                      setChatDiariaAtiva(chatComoDiaria as any);
-                      setTabEmpregador("chat");
                       setTela("home-empregador");
+                      void abrirChatConvite(c, "empregador");
                     }}>
                     💬 Abrir chat com {d.nome.split(" ")[0]}
                   </button>
