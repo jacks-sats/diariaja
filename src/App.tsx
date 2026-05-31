@@ -5777,14 +5777,11 @@ export default function App() {
           Precisa de um serviço?<br />Quer trabalhar? <span style={{ color:"#FF6B35" }}>Já.</span>
         </h1>
 
-        {/* Sub funcional */}
-        <p style={{ fontSize:15, color:"#cbd5e1", textAlign:"center" as const, lineHeight:1.6, margin:"0 0 12px", maxWidth:340, animation:"spl-fadein 1s ease-out .4s both" }}>
-          Conectamos quem contrata e quem presta serviço por diária em Campo Grande. Faxina, reparos, beleza, cuidados, entregas e mais — perto de você e direto entre as partes.
-        </p>
-
-        {/* Diferencial vs grupos de WhatsApp/Facebook */}
-        <p style={{ fontSize:13, color:"#94a3b8", textAlign:"center" as const, lineHeight:1.55, margin:"0 0 18px", maxWidth:340, animation:"spl-fadein 1s ease-out .5s both" }}>
-          Diferente de grupo de WhatsApp ou Facebook: aqui cada pessoa tem <strong style={{ color:"#e2e8f0" }}>CPF verificado</strong>, <strong style={{ color:"#e2e8f0" }}>avaliações reais</strong> e histórico. Você sabe com quem está falando.
+        {/* Sub funcional — curta, com o diferencial local (Campo Grande-MS) em
+            destaque (SEO + confiança local). "Verificados" comunica o diferencial
+            vs grupos de WhatsApp/Facebook sem precisar citá-los. */}
+        <p style={{ fontSize:15, color:"#cbd5e1", textAlign:"center" as const, lineHeight:1.6, margin:"0 0 18px", maxWidth:340, animation:"spl-fadein 1s ease-out .4s both" }}>
+          Encontre profissionais verificados na sua região. Serviços por diária em <strong style={{ color:"#fff" }}>Campo Grande-MS</strong>.
         </p>
 
         {/* Carrossel marquee de categorias (auto-scroll horizontal) */}
@@ -5812,10 +5809,9 @@ export default function App() {
             (Não citamos pagamento: a diária é combinada direto entre as partes.) */}
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const, justifyContent:"center" as const, animation:"spl-fadein 1s ease-out .8s both" }}>
           {[
-            { ic:"🪪", lab:"CPF/CNPJ verificado" },
+            { ic:"✅", lab:"CPF verificado" },
             { ic:"⭐", lab:"Avaliações reais" },
-            { ic:"📍", lab:"Profissionais de CG" },
-            { ic:"🆓", lab:"Grátis pra começar" },
+            { ic:"🆓", lab:"Gratuito pra começar" },
           ].map(s => (
             <div key={s.lab} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"6px 12px", display:"flex", alignItems:"center", gap:5 }}>
               <span style={{ fontSize:13 }}>{s.ic}</span>
