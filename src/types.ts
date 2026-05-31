@@ -234,6 +234,7 @@ export interface Convite {
   created_at: string;
   pago_em?: string | null;                // anunciante pagou (webhook seta)
   presenca_confirmada_em?: string | null; // prestador confirmou → libera chat
+  diaria_id?: string | null;              // diária real criada ao confirmar (chat/agenda)
 }
 
 export interface AnalyticsEvento {
