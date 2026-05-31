@@ -200,6 +200,7 @@ export default function App() {
   const [vagasReais, setVagasReais]               = useState<Diaria[]>([]);
   const [vagaConfirm, setVagaConfirm]             = useState<Diaria | null>(null);
   const [vagaConfirmada, setVagaConfirmada]       = useState(false);
+  const [enviandoInteresse, setEnviandoInteresse] = useState(false); // guard anti duplo-clique na candidatura
   const [diaristasReais, setDiaristasReais]       = useState<UserProfile[]>([]);
   const [diaristaSelecionadaReal, setDiaristaSelecionadaReal] = useState<UserProfile | null>(null);
   const [convitesRecebidos, setConvitesRecebidos] = useState<Convite[]>([]);
@@ -787,10 +788,12 @@ export default function App() {
       if (tipo === "diarista" || tipo === "empregador") localStorage.setItem("diariaja_tipo_pendente", tipo);
     } catch { /* ignore */ }
   }, [tipo]);
-  // Persiste o modo atual para sobreviver ao reload da página
-  useEffect(() => { localStorage.setItem("diariaja_modo", modoAtual); }, [modoAtual]);
+  // Persiste o modo atual para sobreviver ao reload da página.
+  // try/catch: em WebView/modo privado restrito, setItem lança e derrubaria o
+  // render (esses effects rodam a CADA navegação/troca de modo).
+  useEffect(() => { try { localStorage.setItem("diariaja_modo", modoAtual); } catch { /* storage indisponível */ } }, [modoAtual]);
   // Persiste a tela atual para não sair da página ao recarregar
-  useEffect(() => { localStorage.setItem("diariaja_tela", tela); }, [tela]);
+  useEffect(() => { try { localStorage.setItem("diariaja_tela", tela); } catch { /* storage indisponível */ } }, [tela]);
 
   // Carrega lista de cursos do Já Decola sempre que a Comunidade abre,
   // pra que o card destacado mostre a contagem real de selos.
@@ -845,7 +848,7 @@ export default function App() {
   }, [tela, docPreview]);
   // Persiste e aplica dark mode via CSS custom properties + atributo no body
   useEffect(() => {
-    localStorage.setItem("diariaja_dark", darkMode ? "1" : "0");
+    try { localStorage.setItem("diariaja_dark", darkMode ? "1" : "0"); } catch { /* storage indisponível */ }
     const r = document.documentElement;
     r.style.setProperty("--bg-app",      darkMode ? "#0f172a" : "#f0f2f5");
     r.style.setProperty("--bg-card",     darkMode ? "#1e293b" : "#ffffff");
@@ -3943,6 +3946,7 @@ export default function App() {
   // Diarista registra interesse numa vaga (novo fluxo)
   const demonstrarInteresse = async (diaria: Diaria) => {
     if (!session?.user) return;
+    if (enviandoInteresse) return; // guard: evita duplo-clique criar 2 candidaturas
 
     // Verifica conflito com diárias já aceitas no mesmo dia
     const diariasNoDia = minhasDiarias.filter(d =>
@@ -3966,6 +3970,7 @@ export default function App() {
       }
     }
 
+    setEnviandoInteresse(true);
     const { error } = await supabase.from("candidaturas").insert({
       diaria_id: diaria.id,
       diarista_id: session.user.id,
@@ -3979,6 +3984,7 @@ export default function App() {
         categorias: profile?.categorias || [],
       }
     });
+    setEnviandoInteresse(false);
     if (error) { setAuthError("Erro ao registrar interesse: " + error.message); return; }
     trackEvento("candidatura_enviada", session?.user?.id, "diarista", { diaria_id: diaria.id, funcao: diaria.funcao });
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "pendente" }));
@@ -4209,7 +4215,10 @@ export default function App() {
     setConfirmando(true);
     const { error } = await supabase.from("diarias").update({ status: "aceita" }).eq("id", diaria.id);
     if (error) { setAuthError(error.message); setConfirmando(false); return; }
-    await supabase.from("candidaturas").update({ status: "confirmado" }).eq("diaria_id", diaria.id).eq("diarista_id", session.user.id);
+    // Verifica o erro do 2º update: se a candidatura não sincroniza, o empregador
+    // não vê o diarista como "confirmado" e o fluxo de contato/chat trava.
+    const { error: errCand } = await supabase.from("candidaturas").update({ status: "confirmado" }).eq("diaria_id", diaria.id).eq("diarista_id", session.user.id);
+    if (errCand) { setAuthError("Não foi possível confirmar a presença. Tente novamente."); setConfirmando(false); return; }
     setMinhasDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "aceita" } : d));
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "confirmado" }));
     setConfirmando(false);
@@ -13603,8 +13612,8 @@ export default function App() {
                         💡 O endereço completo só será revelado após o anunciante demonstrar interesse e você confirmar a presença.
                       </div>
                       {authError && <p style={S.errorText}>{authError}</p>}
-                      <button style={{ ...S.btnPrimary, background:"#FF6B35", marginTop:16 }} onClick={() => demonstrarInteresse(vagaConfirm)}>
-                        ✋ Confirmar interesse
+                      <button style={{ ...S.btnPrimary, background:"#FF6B35", marginTop:16, opacity: enviandoInteresse ? 0.7 : 1 }} disabled={enviandoInteresse} onClick={() => demonstrarInteresse(vagaConfirm)}>
+                        {enviandoInteresse ? "Enviando..." : "✋ Confirmar interesse"}
                       </button>
                       <button style={{ ...S.btnSecondary, marginTop:8, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setVagaConfirm(null)}>
                         Cancelar

@@ -170,6 +170,11 @@ describe("calcScore", () => {
     expect(calcScore({ foto_url: "url", cpf: "123" }, 0, null)).toBe(50);
   });
 
+  it("bio com exatamente 20 chars pontua (>= 20, consistente com breakdown)", () => {
+    const bio20 = "x".repeat(20);
+    expect(calcScore({ bio: bio20 }, 0, null)).toBe(10);
+  });
+
   it("retorna 100 para perfil completo com boa avaliação e 15+ diárias", () => {
     const p = { foto_url: "url", cpf: "123", telefone: "67999", bio: "Boa bio com mais de 20 chars" };
     expect(calcScore(p, 15, 4.5)).toBe(100);
@@ -406,6 +411,11 @@ describe("vagaExpirou", () => {
 
   it("não expirou: mesmo dia, horário_fim depois de agora", () => {
     expect(vagaExpirou({ data: "2026-05-25", horario_fim: "18:00", status: "aberta" }, agora)).toBe(false);
+  });
+
+  it("horário malformado ('14' sem minutos) → não quebra, retorna false", () => {
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "14", status: "aberta" }, agora)).toBe(false);
+    expect(vagaExpirou({ data: "2026-05-24", horario_fim: "abc", status: "aberta" }, agora)).toBe(false);
   });
 
   it("não expirou: data futura", () => {

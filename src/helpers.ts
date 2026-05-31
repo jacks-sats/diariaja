@@ -39,7 +39,7 @@ export function calcScore(
   if (p.foto_url)  score += 25;
   if (p.cpf)       score += 25;
   if (p.telefone)  score += 10;
-  if (p.bio && p.bio.length > 20) score += 10;
+  if (p.bio && p.bio.length >= 20) score += 10;  // padronizado com calcScoreBreakdown/calcCompletude
   if (diariasFeitas >= 1)  score += 10;
   if (diariasFeitas >= 5)  score += 10;
   if (diariasFeitas >= 15) score += 5;
@@ -656,7 +656,9 @@ export function vagaExpirou(
   if (!["aberta", "pendente"].includes(diaria.status)) return false;
   // horario_fim pode vir como "HH:MM" ou "HH:MM:SS"
   const [h, m] = diaria.horario_fim.split(":").map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return false;
+  // Number.isNaN(undefined) é false — checa undefined explicitamente, senão
+  // "14" (sem minutos) geraria data inválida e a vaga nunca expiraria.
+  if (h == null || m == null || Number.isNaN(h) || Number.isNaN(m)) return false;
   // Trata como horário local (sem timezone) — vagas são locais ao usuário
   const fim = new Date(`${diaria.data}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
   return agora.getTime() > fim.getTime();
@@ -677,7 +679,7 @@ export function diariaNoShow(
   const ini = (diaria.horario_inicio && diaria.horario_inicio.trim()) || "00:00";
   const fimRaw = (diaria.horario_fim && diaria.horario_fim.trim()) || ini;
   const [hf, mf] = fimRaw.split(":").map(Number);
-  if (Number.isNaN(hf) || Number.isNaN(mf)) return false;
+  if (hf == null || mf == null || Number.isNaN(hf) || Number.isNaN(mf)) return false;
   const fim = new Date(`${diaria.data}T${String(hf).padStart(2, "0")}:${String(mf).padStart(2, "0")}:00`);
   return agora.getTime() > fim.getTime() + 2 * 60 * 60 * 1000;
 }
@@ -696,7 +698,8 @@ export function checkinDentroDaJanela(
   const fimRaw = (diaria.horario_fim && diaria.horario_fim.trim()) || ini;
   const [hi, mi] = ini.split(":").map(Number);
   const [hf, mf] = fimRaw.split(":").map(Number);
-  if ([hi, mi, hf, mf].some(Number.isNaN)) return false;
+  // checa undefined (hora sem minutos, ex. "14") além de NaN
+  if ([hi, mi, hf, mf].some(v => v == null || Number.isNaN(v))) return false;
   const inicio = new Date(`${diaria.data}T${String(hi).padStart(2, "0")}:${String(mi).padStart(2, "0")}:00`);
   const fim = new Date(`${diaria.data}T${String(hf).padStart(2, "0")}:${String(mf).padStart(2, "0")}:00`);
   const abre = inicio.getTime() - 30 * 60 * 1000;       // 30min antes do início
