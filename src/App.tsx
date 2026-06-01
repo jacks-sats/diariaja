@@ -5466,6 +5466,31 @@ export default function App() {
     );
   };
 
+  // Selo por plano pago — recurso vendido nos planos ("Selo Profissional",
+  // "Selo de Alta Confiabilidade", "Selo Contratante Verificado").
+  // IMPORTANTE: recebe o `plano` do PERFIL EXIBIDO (não as permissions do
+  // usuário logado). Mapeia nomes legados ('destaque'/'pro' → plus).
+  const SeloPlano = ({ plano, papel = "diarista" }: { plano?: string; papel?: "diarista" | "empregador" }) => {
+    const tier = (plano === "plus" || plano === "destaque" || plano === "pro") ? "plus"
+               : plano === "essencial" ? "essencial" : "gratis";
+    if (tier === "gratis") return null;
+    const isPlus = tier === "plus";
+    // Empregador só ganha selo no Plus ("Contratante Verificado").
+    if (papel === "empregador" && !isPlus) return null;
+    const label = papel === "empregador" ? "Contratante Verificado"
+                : isPlus ? "Alta Confiança" : "Profissional";
+    return (
+      <span title={`Plano ${isPlus ? "Plus" : "Essencial"} ativo`} style={{
+        display: "inline-flex", alignItems: "center", gap: 3,
+        background: isPlus ? "linear-gradient(135deg,#b45309,#f59e0b)" : "linear-gradient(135deg,#7c3aed,#a855f7)",
+        color: "#fff", padding: "2px 8px", borderRadius: 20, fontSize: 9, fontWeight: 800,
+        boxShadow: "0 1px 3px rgba(0,0,0,.12)",
+      }}>
+        {isPlus ? "🛡️" : "⭐"} {label}
+      </span>
+    );
+  };
+
   // Banner rotativo do Já Decola — inserido entre cards de vaga (home-diarista)
   // e entre cards de profissionais (home-empregador). A cada 6 cards aparece 1
   // banner; mensagem varia por índice pra não ficar repetitivo.
@@ -9409,6 +9434,7 @@ export default function App() {
                                   <span style={{ background:funcCor+"18", color:funcCor, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, border:`1px solid ${funcCor}30` }}>
                                     {d.funcao}
                                   </span>
+                                  <SeloPlano plano={(d as UserProfile & { plano_ativo?: string }).plano_ativo} />
                                   {d.categorias?.slice(0,1).map(f => (
                                     <span key={f} style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>· {f}</span>
                                   ))}
@@ -9982,6 +10008,7 @@ export default function App() {
                                       }).nivel;
                                       return <BadgeVerificado nivel={nivelDp} tamanho="sm" />;
                                     })()}
+                                    {dp && <SeloPlano plano={(dp as UserProfile & { plano_ativo?: string }).plano_ativo} />}
                                   </div>
                                   <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2, display:"flex", alignItems:"center", gap:6 }}>
                                     {dp?.funcao && <span style={{ color:"#FF6B35", fontWeight:700 }}>{dp.funcao}</span>}
@@ -15512,6 +15539,7 @@ export default function App() {
           <h2 style={S.perfilNome}>{d.nome}</h2>
           <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" as const, justifyContent:"center", marginTop:4 }}>
             <div style={S.perfilRamo}>{d.funcao}</div>
+            <SeloPlano plano={(d as UserProfile & { plano_ativo?: string }).plano_ativo} />
             {(d.tem_documento ?? !!(d.cpf || d.cnpj)) && (
               <span style={{ background:"#dcfce7", color:"#16a34a", fontSize:11, fontWeight:800, padding:"2px 9px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:3 }}>
                 ✅ Verificado
