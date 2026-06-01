@@ -4793,6 +4793,8 @@ export default function App() {
     if (erroTitulo) { setAuthError(erroTitulo); return; }
     if (!formDiaria.descricao.trim()) { setAuthError("Descreva o que precisa ser feito."); return; }
     if (!formDiaria.data) { setAuthError("Selecione a data."); return; }
+    { const _hojeZero = new Date(); _hojeZero.setHours(0, 0, 0, 0);
+      if (new Date(formDiaria.data + "T12:00:00") < _hojeZero) { setAuthError("A data não pode ser no passado."); return; } }
     const ehServico = formDiaria.tipo_oferta === "servico";
     if (!ehServico) {
       // DIÁRIA: precisa início + término
@@ -9075,7 +9077,7 @@ export default function App() {
               ["Serviço", d.funcao || d.descricao],
               ["Local", d.nome_negocio || d.segmento],
               ["Data", new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")],
-              ["Horário", `${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}${horasR ? ` (${horasR})` : ""}`],
+              ["Horário", d.horario_fim ? `${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}${horasR ? ` (${horasR})` : ""}` : d.horario_inicio.slice(0,5)],
             ] as [string, string][]).map(([k, v]) => (
               <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <span style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>{k}</span>
