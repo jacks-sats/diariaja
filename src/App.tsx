@@ -4230,7 +4230,12 @@ export default function App() {
     const destinatario = euSouEmpregador
       ? chatDiariaAtiva.diarista_aceite_id
       : chatDiariaAtiva.empregador_id;
-    if (!destinatario) return; // sem o outro lado definido, não envia
+    if (!destinatario) {
+      // Sem o outro lado definido (ex.: diária 'aceita' mas sem diarista_aceite_id).
+      // Antes saía em silêncio: usuário digitava, clicava e achava que mandou.
+      setToastError("Chat ainda não disponível — aguardando a confirmação da outra parte.");
+      return;
+    }
     // Anti-exit filter: detecta tentativa de sair do app
     if (detectarContatoExterno(msgInputReal)) {
       setAntiExitAviso(true);
@@ -4302,6 +4307,9 @@ export default function App() {
     }
     // Verifica conflito de horário (precisa de pelo menos 1h de intervalo)
     for (const d of diariasNoDia) {
+      // Serviço não tem horário de término (horario_fim = ""): não dá pra
+      // calcular janela de conflito. O limite de 2/dia (acima) já protege.
+      if (!diaria.horario_fim || !d.horario_fim || !diaria.horario_inicio || !d.horario_inicio) continue;
       const niMin = parseInt(diaria.horario_inicio.split(":")[0])*60 + parseInt(diaria.horario_inicio.split(":")[1]);
       const nfMin = parseInt(diaria.horario_fim.split(":")[0])*60 + parseInt(diaria.horario_fim.split(":")[1]);
       const iMin = parseInt(d.horario_inicio.split(":")[0])*60 + parseInt(d.horario_inicio.split(":")[1]);
