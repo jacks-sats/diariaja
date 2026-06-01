@@ -4291,6 +4291,17 @@ export default function App() {
     if (!session?.user) return;
     if (enviandoInteresse) return; // guard: evita duplo-clique criar 2 candidaturas
 
+    // Trava de maioridade: só se candidata quem tem documento (RG/CNH) APROVADO.
+    // A data de nascimento é auto-declarada e não prova idade; o documento aprovado
+    // pela equipe é o que confirma que o prestador é maior de 18 (CLT/LC 150).
+    if (profile?.documento_status !== "aprovado") {
+      setVagaConfirm(null);
+      setVagaConfirmada(false);
+      setToastError("🪪 Envie seu documento (RG ou CNH) e aguarde a aprovação para se candidatar às vagas.");
+      setTela("verificar-documento");
+      return;
+    }
+
     // Verifica conflito com diárias já aceitas no mesmo dia
     const diariasNoDia = minhasDiarias.filter(d =>
       d.data === diaria.data && (d.status === "aceita" || d.status === "em_andamento" || d.status === "pendente")
@@ -14139,9 +14150,32 @@ export default function App() {
                         💡 O endereço completo só será revelado após o anunciante demonstrar interesse e você confirmar a presença.
                       </div>
                       {authError && <p style={S.errorText}>{authError}</p>}
-                      <button style={{ ...S.btnPrimary, background:"#FF6B35", marginTop:16, opacity: enviandoInteresse ? 0.7 : 1 }} disabled={enviandoInteresse} onClick={() => demonstrarInteresse(vagaConfirm)}>
-                        {enviandoInteresse ? "Enviando..." : "✋ Confirmar interesse"}
-                      </button>
+                      {/* Trava de maioridade: só libera candidatura com documento (RG/CNH) APROVADO */}
+                      {profile?.documento_status === "aprovado" ? (
+                        <button style={{ ...S.btnPrimary, background:"#FF6B35", marginTop:16, opacity: enviandoInteresse ? 0.7 : 1 }} disabled={enviandoInteresse} onClick={() => demonstrarInteresse(vagaConfirm)}>
+                          {enviandoInteresse ? "Enviando..." : "✋ Confirmar interesse"}
+                        </button>
+                      ) : (() => {
+                        const st = profile?.documento_status;
+                        const emAnalise = st === "enviado";
+                        return (
+                          <div style={{ marginTop:16 }}>
+                            <div style={{ background: emAnalise ? "#eff6ff" : "#fef3c7", border:`1.5px solid ${emAnalise ? "#bfdbfe" : "#fde68a"}`, borderRadius:12, padding:"12px 14px", fontSize:12.5, lineHeight:1.5, color: emAnalise ? "#1e40af" : "#92400e", fontWeight:600 }}>
+                              {emAnalise
+                                ? "🔍 Seu documento está em análise. Assim que a equipe aprovar, você poderá se candidatar às vagas."
+                                : st === "rejeitado"
+                                  ? "❌ Seu documento foi rejeitado. Reenvie um RG ou CNH válido e legível para liberar as candidaturas."
+                                  : "🪪 Para se candidatar, primeiro envie seu documento (RG ou CNH). É assim que confirmamos que você é maior de 18 anos."}
+                            </div>
+                            {!emAnalise && (
+                              <button style={{ ...S.btnPrimary, background:"#FF6B35", marginTop:12 }}
+                                onClick={() => { setVagaConfirm(null); setVagaConfirmada(false); setAuthError(""); setTela("verificar-documento"); }}>
+                                {st === "rejeitado" ? "🪪 Reenviar documento" : "🪪 Enviar documento"}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                       <button style={{ ...S.btnSecondary, marginTop:8, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setVagaConfirm(null)}>
                         Cancelar
                       </button>
