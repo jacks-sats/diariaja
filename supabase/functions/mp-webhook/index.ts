@@ -397,6 +397,31 @@ Deno.serve(async (req) => {
         return new Response("ok", { status: 200 });
       }
 
+      // ── Vaga de emprego (empresa paga pra publicar no mural) ───
+      // external_reference = "vaga_emprego::VAGA_ID". approved → publica
+      // (status='aberta' + pago_em). refund/chargeback → fecha a vaga.
+      if (String(payment.external_reference).startsWith("vaga_emprego::")) {
+        const vagaId = String(payment.external_reference).split("::")[1] ?? "";
+        const ehRefund = payment.status === "refunded" || payment.status === "charged_back";
+        if (payment.status === "approved" && vagaId) {
+          const { error: upErr } = await supabase
+            .from("vagas_emprego")
+            .update({ status: "aberta", pago_em: new Date().toISOString(), mp_payment_id: String(paymentId) })
+            .eq("id", vagaId);
+          if (upErr) console.error(`[mp-webhook] publicar vaga_emprego falhou:`, upErr);
+        } else if (ehRefund && vagaId) {
+          const { error: revErr } = await supabase
+            .from("vagas_emprego")
+            .update({ status: "fechada" })
+            .eq("id", vagaId);
+          if (revErr) console.error(`[mp-webhook] fechar vaga_emprego (refund) falhou:`, revErr);
+          else console.log(`[mp-webhook] vaga_emprego FECHADA por ${payment.status}: vaga=${await pseudo(vagaId)}`);
+        } else {
+          console.log(`[mp-webhook] vaga_emprego ignored: vaga=${await pseudo(vagaId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
+        }
+        return new Response("ok", { status: 200 });
+      }
+
       const diariaId = payment.external_reference;
 
       const statusMap: Record<string, string> = {

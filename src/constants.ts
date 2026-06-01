@@ -4,6 +4,21 @@
 // ── Funções que usam formulário especial de Delivery ─────────────────────────
 export const FUNCOES_DELIVERY = ["Motoboy", "Entregador de Bicicleta", "Entregador de Carro"];
 
+// ── Tipos de contrato para Vagas de Emprego (mural de classificados) ─────────
+// Usado na tela "Anunciar vaga de emprego" (só pessoa jurídica / CNPJ).
+export const TIPOS_CONTRATO_EMPREGO: { id: string; label: string }[] = [
+  { id: "clt",        label: "CLT (carteira assinada)" },
+  { id: "pj",         label: "PJ (pessoa jurídica)" },
+  { id: "temporario", label: "Temporário" },
+  { id: "estagio",    label: "Estágio" },
+  { id: "aprendiz",   label: "Jovem Aprendiz" },
+];
+
+// Preço (servidor) para publicar uma vaga de emprego — 30 dias no ar.
+// ⚠️ CONFIRMAR com o dono. Placeholder do MVP. Espelhado no Edge Function
+// create-vaga-emprego-payment (o servidor é a fonte da verdade do preço).
+export const PRECO_VAGA_EMPREGO = 19.90;
+
 // ── Categorias organizadas por demanda em Campo Grande / MS ─────────────────
 export const CATEGORIAS_NEGOCIO = {
   "Delivery": {

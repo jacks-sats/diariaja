@@ -67,6 +67,50 @@ export interface Diaria {
   _fotoChat?: string;
 }
 
+// ── Vagas de Emprego — mural de classificados (empresa CNPJ anuncia) ─────────
+// Funcionalidade separada das diárias: emprego formal (CLT/PJ/estágio…) com
+// salário, carga horária e benefícios. DiáriaJá apenas DIVULGA (não é
+// empregador nem agência). Spec/migração: supabase/migrations/vagas_emprego.sql
+export type TipoContratoEmprego = 'clt' | 'pj' | 'temporario' | 'estagio' | 'aprendiz';
+
+export interface VagaEmprego {
+  id: string;
+  empresa_id: string;
+  nome_empresa: string;
+  segmento: string;
+  funcao: string;            // cargo
+  descricao: string;
+  tipo_contrato: TipoContratoEmprego | string;
+  salario: number | null;            // salário mensal; null se a combinar
+  salario_a_combinar: boolean;
+  carga_horaria: string;             // texto livre no MVP
+  beneficios: string;                // texto livre (VT, VR, plano…)
+  cidade: string | null;
+  bairro: string | null;
+  lat: number | null;
+  lng: number | null;
+  status: 'rascunho' | 'aberta' | 'fechada' | 'expirada' | string;
+  pago_em?: string | null;           // preenchido só pelo webhook do pagamento
+  mp_payment_id?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface CandidaturaEmprego {
+  id: string;
+  vaga_id: string;
+  candidato_id: string;
+  status: 'interessado' | 'visto' | 'descartado' | string;
+  candidato_info?: {
+    nome?: string;
+    funcao?: string;
+    foto_url?: string;
+    telefone?: string;
+    bio?: string;
+  };
+  created_at: string;
+}
+
 export interface UserProfile {
   id: string;
   // Auto-moderação: perfil ocultado após acúmulo de denúncias (trigger no banco).
