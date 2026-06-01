@@ -12217,6 +12217,32 @@ export default function App() {
             o prestador vê as oportunidades/anúncios ANTES da cobrança de cadastro.
             Renderizado no fim da aba "início" (ver bannerCompletudeDiarista). */}
 
+        {/* ── Banner upgrade: prestador grátis perto/acima da cota vitalícia ──
+            Recurso vendido "diárias ilimitadas". Versão SOFT (incentivo, não
+            bloqueia trabalho). limits.diarista.restantesAteCTA = -1 quando pago. */}
+        {(() => {
+          const { passouCotaGratis, restantesAteCTA, diariasConcluidasTotal } = limits.diarista;
+          const perto = restantesAteCTA >= 0 && restantesAteCTA <= 1;
+          if (!passouCotaGratis && !perto) return null;
+          return (
+            <div style={{ margin:"12px 16px 0", background:"linear-gradient(135deg,#7c3aed,#a855f7)", borderRadius:16, padding:"14px 16px", color:"#fff", boxShadow:"0 4px 14px rgba(124,58,237,.3)" }}>
+              <div style={{ fontSize:14, fontWeight:900 }}>
+                {passouCotaGratis ? "🚀 Continue trabalhando sem limites" : "🚀 Você está chegando no limite grátis"}
+              </div>
+              <div style={{ fontSize:12.5, opacity:0.95, marginTop:4, lineHeight:1.5 }}>
+                {passouCotaGratis
+                  ? `Você já concluiu ${diariasConcluidasTotal} diárias — o teto do plano grátis. Vire Essencial e tenha diárias ilimitadas, prioridade nas buscas e selo de profissional.`
+                  : `Falta${restantesAteCTA === 1 ? "" : "m"} ${restantesAteCTA} diária${restantesAteCTA === 1 ? "" : "s"} pra você atingir o limite do plano grátis. Garanta diárias ilimitadas antes.`}
+              </div>
+              <button
+                style={{ marginTop:10, background:"#fff", color:"#7c3aed", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:900, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => setTela("planos")}>
+                Ver planos →
+              </button>
+            </div>
+          );
+        })()}
+
         {/* ── Banner "🔥 Anúncio novo perto de você (últimas 24h)" — urgência social ── */}
         {(() => {
           if (loading || !profile) return null;
