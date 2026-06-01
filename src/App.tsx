@@ -76,7 +76,7 @@ import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
 import { usePlan } from "./hooks/usePlan";
 import { useLimits } from "./hooks/useLimits";
-import { usePermissions } from "./hooks/usePermissions";
+import { usePermissions, pesoPlano } from "./hooks/usePermissions";
 
 // ── Analytics: registra eventos de uso no Supabase ──────────────────────────
 async function trackEvento(
@@ -9172,9 +9172,15 @@ export default function App() {
         return true;
       })
       .sort((a, b) => {
-        const aD = (a as UserProfile & { plano_ativo?: string }).plano_ativo === "destaque" ? 1 : 0;
-        const bD = (b as UserProfile & { plano_ativo?: string }).plano_ativo === "destaque" ? 1 : 0;
-        return bD - aD;
+        // Ranking por plano (recurso pago "prioridade/topo nas buscas"):
+        // Plus > Essencial > Grátis. Mapeia nomes legados ('destaque'/'pro' →
+        // plus). Entre prestadores do MESMO plano, mantém a ordem objetiva
+        // anterior (sort estável: distância/avaliação já vêm aplicadas).
+        const tier = (p?: string): "gratis" | "essencial" | "plus" =>
+          (p === "plus" || p === "destaque" || p === "pro") ? "plus"
+          : p === "essencial" ? "essencial" : "gratis";
+        return pesoPlano(tier((b as UserProfile & { plano_ativo?: string }).plano_ativo))
+             - pesoPlano(tier((a as UserProfile & { plano_ativo?: string }).plano_ativo));
       });
 
     return (
