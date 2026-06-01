@@ -1351,7 +1351,9 @@ export default function App() {
         const empIds = [...new Set(data.map((d: any) => d.empregador_id).filter(Boolean))];
         if (empIds.length > 0) {
           const [{ data: emps }, { data: reps }] = await Promise.all([
-            supabase.from("user_profiles").select("id, nome, foto_url, segmento").in("id", empIds),
+            // NÃO selecionar cnpj aqui: é dado sensível e não deve trafegar pro
+            // feed dos diaristas. pessoa_tipo basta pra marcar "empresa".
+            supabase.from("user_profiles").select("id, nome, foto_url, segmento, plano_ativo, pessoa_tipo").in("id", empIds),
             supabase.from("reputacao_empregadores").select("*").in("empregador_id", empIds),
           ]);
           if (emps && emps.length > 0) {
@@ -12685,10 +12687,21 @@ export default function App() {
                   // (não aparece se for o último card da lista).
                   const mostrarBannerAposCard = (idx + 1) % 6 === 0 && idx < vagasFiltradas.length - 1;
 
+                  // Destaque de anunciante PAGO (recurso "destaque/prioridade nos
+                  // anúncios"). O perfil do anunciante (plano/pessoa_tipo) já vem
+                  // carregado pros cards. Empresa (CNPJ) ganha ícone 🏢.
+                  const empProf = empregadoresProfiles[dia.empregador_id] as { plano_ativo?: string; pessoa_tipo?: string } | undefined;
+                  const empTier = (() => {
+                    const p = empProf?.plano_ativo;
+                    return (p === "plus" || p === "destaque" || p === "pro") ? "plus" : p === "essencial" ? "essencial" : "gratis";
+                  })();
+                  const empDestaque = empTier !== "gratis";
+                  const empEmpresa = empProf?.pessoa_tipo === "juridica";
+
                   return (
                     <React.Fragment key={dia.id}>
                     <div
-                      style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer", position:"relative" as const }}
+                      style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow: empDestaque ? "0 4px 16px rgba(245,158,11,.22)" : "0 2px 12px rgba(0,0,0,.07)", cursor:"pointer", position:"relative" as const, border: empDestaque ? "1.5px solid #f59e0b" : "1.5px solid transparent" }}
                       onClick={() => { setVagaConfirm(dia); setVagaConfirmada(false); }}>
                       {/* Selos de urgência — no canto superior esquerdo pra não
                           colidir com o valor da diária que mora no canto direito */}
@@ -12726,8 +12739,15 @@ export default function App() {
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                             <div style={{ flex:1, minWidth:0 }}>
-                              <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>
-                                {dia.nome_negocio || dia.segmento}
+                              <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
+                                <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>
+                                  {dia.nome_negocio || dia.segmento}
+                                </span>
+                                {empDestaque && (
+                                  <span style={{ display:"inline-flex", alignItems:"center", gap:3, background: empTier === "plus" ? "linear-gradient(135deg,#b45309,#f59e0b)" : "linear-gradient(135deg,#7c3aed,#a855f7)", color:"#fff", fontSize:9, fontWeight:800, padding:"2px 7px", borderRadius:20, flexShrink:0 }}>
+                                    {empEmpresa ? "🏢" : "⭐"} Destaque
+                                  </span>
+                                )}
                               </div>
                               {/* Bairro + tempo desde publicação */}
                               <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>
