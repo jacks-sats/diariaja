@@ -4230,7 +4230,12 @@ export default function App() {
     const destinatario = euSouEmpregador
       ? chatDiariaAtiva.diarista_aceite_id
       : chatDiariaAtiva.empregador_id;
-    if (!destinatario) return; // sem o outro lado definido, não envia
+    if (!destinatario) {
+      // Sem o outro lado definido (ex.: diária 'aceita' mas sem diarista_aceite_id).
+      // Antes saía em silêncio: usuário digitava, clicava e achava que mandou.
+      setToastError("Chat ainda não disponível — aguardando a confirmação da outra parte.");
+      return;
+    }
     // Anti-exit filter: detecta tentativa de sair do app
     if (detectarContatoExterno(msgInputReal)) {
       setAntiExitAviso(true);
@@ -4302,6 +4307,9 @@ export default function App() {
     }
     // Verifica conflito de horário (precisa de pelo menos 1h de intervalo)
     for (const d of diariasNoDia) {
+      // Serviço não tem horário de término (horario_fim = ""): não dá pra
+      // calcular janela de conflito. O limite de 2/dia (acima) já protege.
+      if (!diaria.horario_fim || !d.horario_fim || !diaria.horario_inicio || !d.horario_inicio) continue;
       const niMin = parseInt(diaria.horario_inicio.split(":")[0])*60 + parseInt(diaria.horario_inicio.split(":")[1]);
       const nfMin = parseInt(diaria.horario_fim.split(":")[0])*60 + parseInt(diaria.horario_fim.split(":")[1]);
       const iMin = parseInt(d.horario_inicio.split(":")[0])*60 + parseInt(d.horario_inicio.split(":")[1]);
@@ -4793,6 +4801,8 @@ export default function App() {
     if (erroTitulo) { setAuthError(erroTitulo); return; }
     if (!formDiaria.descricao.trim()) { setAuthError("Descreva o que precisa ser feito."); return; }
     if (!formDiaria.data) { setAuthError("Selecione a data."); return; }
+    { const _hojeZero = new Date(); _hojeZero.setHours(0, 0, 0, 0);
+      if (new Date(formDiaria.data + "T12:00:00") < _hojeZero) { setAuthError("A data não pode ser no passado."); return; } }
     const ehServico = formDiaria.tipo_oferta === "servico";
     if (!ehServico) {
       // DIÁRIA: precisa início + término
@@ -9075,7 +9085,7 @@ export default function App() {
               ["Serviço", d.funcao || d.descricao],
               ["Local", d.nome_negocio || d.segmento],
               ["Data", new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")],
-              ["Horário", `${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}${horasR ? ` (${horasR})` : ""}`],
+              ["Horário", d.horario_fim ? `${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}${horasR ? ` (${horasR})` : ""}` : d.horario_inicio.slice(0,5)],
             ] as [string, string][]).map(([k, v]) => (
               <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <span style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>{k}</span>
