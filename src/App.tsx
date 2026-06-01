@@ -365,6 +365,7 @@ export default function App() {
   const [loadingPerfil, setLoadingPerfil]             = useState(false);
   const [toastSuccess, setToastSuccess]               = useState("");  // toast verde auto-dismiss 3s
   const [toastError, setToastError]                   = useState("");  // toast vermelho auto-dismiss 4s
+  const [iaGerando, setIaGerando]                     = useState<null | "anuncio" | "bio">(null);  // recurso pago: IA redigindo
 
   // Notificações in-app (painel do sino)
   // Notificações persistidas (localStorage diariaja_notifs) — sobrevivem ao
@@ -5446,6 +5447,41 @@ export default function App() {
       container.appendChild(p);
     }
     setTimeout(() => { container.remove(); }, 3500);
+  };
+
+  // Recurso pago: "IA Jájá" redige um texto (anúncio ou bio) via Edge Function
+  // ai-gerar. O gate de plano é reforçado no servidor; aqui é só UX.
+  // Retorna o texto gerado ou null em falha (já mostra toast de erro).
+  const gerarTextoIA = async (
+    tipo: "anuncio" | "bio",
+    payload: { funcao?: string; local?: string; categorias?: string; dica?: string },
+  ): Promise<string | null> => {
+    if (iaGerando) return null;
+    setIaGerando(tipo);
+    try {
+      const { data: { session: sess } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-gerar`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${sess?.access_token ?? SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ tipo, ...payload }),
+      });
+      const json = await res.json() as { texto?: string; error?: string };
+      if (!res.ok || !json.texto) {
+        setToastError(json.error || "A IA não conseguiu gerar agora. Tente de novo.");
+        return null;
+      }
+      trackEvento("ia_gerar_texto", session?.user?.id, undefined, { tipo });
+      return json.texto;
+    } catch {
+      setToastError("Sem conexão com a IA. Tente novamente.");
+      return null;
+    } finally {
+      setIaGerando(null);
+    }
   };
 
   // Badge "✓ Verificado" — destaca diaristas/empregadores com nível ≥ 3
@@ -13796,6 +13832,22 @@ export default function App() {
                     style={{ width:"100%", border:"1.5px solid #FF6B35", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, minHeight:80, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
                     value={bioDraft} onChange={e => setBioDraft(e.target.value)}
                     placeholder="Ex: Sou prestador com 5 anos de experiência, pontual e dedicado..." autoFocus />
+                  {permissions.diarista.iaAssistente && (
+                    <button
+                      type="button"
+                      disabled={iaGerando !== null}
+                      style={{ display:"inline-flex", alignItems:"center", gap:6, background:"linear-gradient(135deg,#7c3aed,#a855f7)", color:"#fff", border:"none", borderRadius:10, padding:"7px 12px", fontSize:12, fontWeight:800, cursor: iaGerando ? "default" : "pointer", marginTop:8, opacity: iaGerando && iaGerando !== "bio" ? 0.6 : 1, fontFamily:"Inter, system-ui, sans-serif" }}
+                      onClick={async () => {
+                        const texto = await gerarTextoIA("bio", {
+                          funcao: profile?.funcao,
+                          categorias: (profile?.categorias || []).join(", "),
+                          dica: bioDraft,
+                        });
+                        if (texto) { setBioDraft(texto); setToastSuccess("✨ Bio gerada pela IA! Revise antes de salvar."); }
+                      }}>
+                      {iaGerando === "bio" ? "✨ Gerando…" : "✨ IA Jájá escreve minha bio"}
+                    </button>
+                  )}
                   <div style={{ display:"flex", gap:8, marginTop:8 }}>
                     <button style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                       onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); } }}>Salvar</button>
@@ -16089,6 +16141,22 @@ export default function App() {
           value={formDiaria.descricao}
           onChange={e => setFormDiaria({ ...formDiaria, descricao: e.target.value })}
         />
+        {permissions.empregador.iaJajaParaCriarVagas && (
+          <button
+            type="button"
+            disabled={iaGerando !== null}
+            style={{ display:"inline-flex", alignItems:"center", gap:6, background:"linear-gradient(135deg,#7c3aed,#a855f7)", color:"#fff", border:"none", borderRadius:10, padding:"7px 12px", fontSize:12, fontWeight:800, cursor: iaGerando ? "default" : "pointer", marginBottom:8, opacity: iaGerando && iaGerando !== "anuncio" ? 0.6 : 1, fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={async () => {
+              const texto = await gerarTextoIA("anuncio", {
+                funcao: formDiaria.funcao,
+                local: formDiaria.local,
+                dica: formDiaria.descricao,
+              });
+              if (texto) { setFormDiaria(prev => ({ ...prev, descricao: texto })); setToastSuccess("✨ Texto gerado pela IA! Revise e ajuste se quiser."); }
+            }}>
+            {iaGerando === "anuncio" ? "✨ Gerando…" : "✨ IA Jájá monta meu anúncio"}
+          </button>
+        )}
 
         <label style={S.label}>Habilidade necessária</label>
         <select style={S.input} value={formDiaria.funcao} onChange={e => {
