@@ -488,6 +488,12 @@ export default function App() {
   const [filtroDataVaga, setFiltroDataVaga] = useState<"todas"|"hoje"|"amanha">("todas");
   const [filtroRaioKm, setFiltroRaioKm] = useState<number>(50); // raio máximo de distância
   const [filtroValorMin, setFiltroValorMin] = useState<number>(0); // R$ mínimo (chip 0/100/150/200)
+  // Filtros avançados do anunciante (recurso pago Essencial+). Defaults = no-op,
+  // então mesmo aplicados não filtram nada até o usuário pago ajustar.
+  const [avancadoAberto, setAvancadoAberto] = useState(false);
+  const [filtroNivelMinEmp, setFiltroNivelMinEmp] = useState<number>(1);   // 1=todos, 2=verificado+, 3=confiável
+  const [filtroValorMaxEmp, setFiltroValorMaxEmp] = useState<number>(0);   // 0 = sem limite
+  const [filtroRaioMaxEmp, setFiltroRaioMaxEmp]   = useState<number>(0);   // 0 = sem limite (km)
   // Pull-to-refresh — tracking de gesto e estado de loading
   const [puxando, setPuxando] = useState(0);      // px puxados (0–100)
   const [recarregandoFeed, setRecarregandoFeed] = useState(false);
@@ -9240,6 +9246,19 @@ export default function App() {
           const funcoesDiarista = (d.categorias?.length ? d.categorias : [d.funcao]).filter(Boolean);
           if (!funcoesDiarista.some(f => f === filtroFuncao || (catDoFiltro && (catDoFiltro.funcoes as readonly string[]).includes(f)))) return false;
         }
+        // Filtros avançados (recurso pago Essencial+). Só aplicam se o anunciante
+        // tem o recurso E ajustou algum valor (defaults são no-op).
+        if (permissions.empregador.filtrosAvancados) {
+          const dd = d as UserProfile & { nivel?: number };
+          if (filtroNivelMinEmp > 1 && (dd.nivel ?? 1) < filtroNivelMinEmp) return false;
+          if (filtroValorMaxEmp > 0 && Number(d.valor_diaria || 0) > filtroValorMaxEmp) return false;
+          if (filtroRaioMaxEmp > 0) {
+            const dist = (profile?.lat && profile?.lng && d.lat && d.lng)
+              ? haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!)
+              : null;
+            if (dist !== null && dist > filtroRaioMaxEmp) return false;
+          }
+        }
         return true;
       })
       .sort((a, b) => {
@@ -9401,6 +9420,63 @@ export default function App() {
                 );
               })()}
             </div>
+
+            {/* ── Filtros avançados (recurso pago Essencial+) ── */}
+            {permissions.empregador.filtrosAvancados ? (
+              <div style={{ background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)", padding:"0 16px 10px" }}>
+                <button onClick={() => setAvancadoAberto(o => !o)}
+                  style={{ background:"none", border:"none", color:"#7c3aed", fontWeight:800, fontSize:12.5, cursor:"pointer", padding:"6px 0", fontFamily:"Inter, system-ui, sans-serif" }}>
+                  ⚙️ Filtros avançados {avancadoAberto ? "▲" : "▼"}
+                  {(filtroNivelMinEmp > 1 || filtroValorMaxEmp > 0 || filtroRaioMaxEmp > 0) && (
+                    <span style={{ marginLeft:6, background:"#7c3aed", color:"#fff", borderRadius:10, padding:"1px 7px", fontSize:10 }}>ativos</span>
+                  )}
+                </button>
+                {avancadoAberto && (
+                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginTop:6 }}>
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, color:"var(--text-2,#64748b)", marginBottom:5 }}>Nível mínimo de confiança</div>
+                      <div style={{ display:"flex", gap:6 }}>
+                        {[{v:1,l:"Todos"},{v:2,l:"Verificado+"},{v:3,l:"Confiável"}].map(o => (
+                          <button key={o.v} onClick={() => setFiltroNivelMinEmp(o.v)}
+                            style={{ ...S.filtroBtn, ...(filtroNivelMinEmp===o.v?{ background:"#7c3aed", color:"#fff", borderColor:"#7c3aed" }:{}) }}>
+                            {o.l}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display:"flex", gap:10 }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:11, fontWeight:700, color:"var(--text-2,#64748b)", marginBottom:5 }}>Valor máx. (R$/dia)</div>
+                        <input type="number" inputMode="numeric" min={0} placeholder="sem limite"
+                          value={filtroValorMaxEmp || ""}
+                          onChange={e => setFiltroValorMaxEmp(Math.max(0, Number(e.target.value) || 0))}
+                          style={{ ...S.input, marginBottom:0, padding:"8px 10px", fontSize:13 }} />
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:11, fontWeight:700, color:"var(--text-2,#64748b)", marginBottom:5 }}>Distância máx. (km)</div>
+                        <input type="number" inputMode="numeric" min={0} placeholder="sem limite"
+                          value={filtroRaioMaxEmp || ""}
+                          onChange={e => setFiltroRaioMaxEmp(Math.max(0, Number(e.target.value) || 0))}
+                          style={{ ...S.input, marginBottom:0, padding:"8px 10px", fontSize:13 }} />
+                      </div>
+                    </div>
+                    {(filtroNivelMinEmp > 1 || filtroValorMaxEmp > 0 || filtroRaioMaxEmp > 0) && (
+                      <button onClick={() => { setFiltroNivelMinEmp(1); setFiltroValorMaxEmp(0); setFiltroRaioMaxEmp(0); }}
+                        style={{ alignSelf:"flex-start", background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:700, cursor:"pointer", textDecoration:"underline" }}>
+                        Limpar filtros avançados
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)", padding:"6px 16px 10px" }}>
+                <button onClick={() => setTela("planos")}
+                  style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontWeight:700, fontSize:12.5, cursor:"pointer", padding:"4px 0", textAlign:"left" as const, fontFamily:"Inter, system-ui, sans-serif" }}>
+                  🔒 Filtros avançados (nível, valor, distância) — recurso do Essencial. <span style={{ color:"#7c3aed" }}>Ver planos →</span>
+                </button>
+              </div>
+            )}
 
             {/* Lista de profissionais */}
             <div style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
