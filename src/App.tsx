@@ -6956,6 +6956,16 @@ export default function App() {
                   ? `Plano ${profile.plano_ativo} ativo`
                   : "Conheça os planos premium e desbloqueie recursos",
                 action:() => setTela("planos") },
+              // Recursos pagos do empregador (gated por plano). Históricos/relatórios
+              // são só-leitura — montados a partir do state já carregado.
+              ...(modoAtual === "empregador" && permissions.empregador.historicoContratacoes ? [{
+                icon:"📇", label:"Histórico de contratações",
+                sub:"Todas as suas contratações em um só lugar",
+                action:() => setTela("historico-contatos") }] : []),
+              ...(modoAtual === "empregador" && permissions.empregador.relatorios ? [{
+                icon:"📊", label:"Relatórios",
+                sub:"Métricas das suas diárias, contatos e conversão",
+                action:() => setTela("relatorios") }] : []),
               { icon:"🏘️", label:"Comunidade",
                 sub:"Tópicos, dicas e conversas com outros usuários",
                 action:() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); } },
@@ -16077,6 +16087,102 @@ export default function App() {
   }
 
   // CRIAR DIÁRIA
+  // ── Tela: Relatórios (recurso pago "Relatórios" — empregador Plus) ─────────
+  // Só-leitura: tudo calculado a partir do state já carregado (diarias + limits).
+  if (tela === "relatorios") {
+    const cor = "#7c3aed";
+    const lista = diarias;
+    const total        = lista.length;
+    const ativas       = lista.filter(d => d.status === "aberta" || d.status === "pendente" || d.status === "aceita" || d.status === "em_andamento").length;
+    const concluidas   = lista.filter(d => d.status === "concluida").length;
+    const expiradas    = lista.filter(d => d.status === "expirada").length;
+    const contratacoes = lista.filter(d => d.diarista_aceite_id).length;
+    const conversao    = total > 0 ? Math.round((contratacoes / total) * 100) : 0;
+    const valorCombinado = lista.filter(d => d.status === "concluida").reduce((s, d) => s + (Number(d.valor) || 0), 0);
+    const metricas: { ic: string; label: string; valor: string; sub?: string }[] = [
+      { ic:"📋", label:"Diárias publicadas",          valor:String(total) },
+      { ic:"🤝", label:"Contratações",                valor:String(contratacoes), sub:`${conversao}% de conversão` },
+      { ic:"🟢", label:"Ativas agora",                valor:String(ativas) },
+      { ic:"✅", label:"Concluídas",                  valor:String(concluidas) },
+      { ic:"⏰", label:"Expiradas",                   valor:String(expiradas) },
+      { ic:"💸", label:"Valor combinado (concluídas)", valor:`R$ ${valorCombinado}`, sub:"estimativa — pago direto entre as partes" },
+      { ic:"🔓", label:"Contatos extras (R$1) no mês", valor:String(limits.empregador.contatosDesbloqueadosMes) },
+      { ic:"📅", label:"Seleções no mês",             valor:String(limits.empregador.matchesMesUsados) },
+    ];
+    return (
+      <div style={S.page}>
+        <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+        <div style={{ background:`linear-gradient(135deg,${cor},#a855f7)`, borderRadius:20, padding:"20px", marginBottom:14, color:"#fff" }}>
+          <div style={{ fontSize:22, fontWeight:900 }}>📊 Relatórios</div>
+          <div style={{ fontSize:13, opacity:0.9, marginTop:4 }}>Resumo da sua atividade no DiáriaJá.</div>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+          {metricas.map(m => (
+            <div key={m.label} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              <div style={{ fontSize:20 }}>{m.ic}</div>
+              <div style={{ fontSize:24, fontWeight:900, color:"var(--text-1,#0f172a)", marginTop:4, lineHeight:1.1 }}>{m.valor}</div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{m.label}</div>
+              {m.sub && <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", marginTop:2 }}>{m.sub}</div>}
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center" as const, margin:"16px 0 8px" }}>
+          Calculado a partir das suas diárias. A DiáriaJá não intermedia pagamentos.
+        </div>
+      </div>
+    );
+  }
+
+  // ── Tela: Histórico de contratações (recurso "Histórico" — empregador Essencial) ──
+  if (tela === "historico-contatos") {
+    const cor = "#FF6B35";
+    const contratadas = diarias
+      .filter(d => d.diarista_aceite_id)
+      .slice()
+      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+    return (
+      <div style={S.page}>
+        <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
+        <div style={{ background:`linear-gradient(135deg,${cor},#e85d2e)`, borderRadius:20, padding:"20px", marginBottom:14, color:"#fff" }}>
+          <div style={{ fontSize:22, fontWeight:900 }}>📇 Histórico de contratações</div>
+          <div style={{ fontSize:13, opacity:0.9, marginTop:4 }}>Todos os profissionais que você já selecionou.</div>
+        </div>
+        {contratadas.length === 0 ? (
+          <div style={{ textAlign:"center" as const, color:"var(--text-3,#94a3b8)", padding:"40px 20px", fontSize:14 }}>
+            Você ainda não contratou ninguém. Quando selecionar um profissional, ele aparece aqui.
+          </div>
+        ) : contratadas.map(d => {
+          const dp = d.diarista_aceite_id ? diaristasAceites[d.diarista_aceite_id] : undefined;
+          const nome = dp?.nome || "Profissional contratado";
+          const iniciais = nome.split(" ").map(n => n[0]).join("").slice(0,2).toUpperCase();
+          const dataTxt = d.data
+            ? new Date(d.data + "T12:00:00").toLocaleDateString("pt-BR")
+            : (d.created_at ? new Date(d.created_at).toLocaleDateString("pt-BR") : "—");
+          const statusInfo = d.status === "concluida" ? { l:"Concluída", c:"#22c55e" }
+                           : d.status === "expirada"  ? { l:"Expirada",  c:"#f59e0b" }
+                           : { l:"Em andamento", c:"#3A86FF" };
+          return (
+            <div key={d.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"12px 14px", marginBottom:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:46, height:46, borderRadius:23, background:cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:15, flexShrink:0, overflow:"hidden" }}>
+                {dp?.foto_url ? <img loading="lazy" src={dp.foto_url} style={{ width:"100%", height:"100%", objectFit:"cover" }} alt="" /> : iniciais}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{nome}</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                  {d.funcao || d.descricao || "Serviço"} · {dataTxt}
+                </div>
+              </div>
+              <div style={{ textAlign:"right" as const, flexShrink:0 }}>
+                <div style={{ fontWeight:900, fontSize:15, color:cor }}>R$ {d.valor ?? "—"}</div>
+                <span style={{ fontSize:10, fontWeight:800, color:statusInfo.c }}>{statusInfo.l}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   if (tela === "criar-diaria") {
     const cor = negocio?.cor || "#FF6B35";
     // Sempre mostra TODAS as habilidades do app, organizadas por categoria
