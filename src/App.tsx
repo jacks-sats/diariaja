@@ -310,6 +310,9 @@ export default function App() {
   const [filtroDiarias, setFiltroDiarias] = useState<"ativas"|"concluidas"|"expiradas">("ativas");
   const [authError, setAuthError]         = useState("");
   const [authLoading, setAuthLoading]     = useState(false);
+  // Após cadastro com confirmação de e-mail obrigatória: guarda o e-mail pra
+  // mostrar o banner verde "conta criada, confirme e faça login" na tela login.
+  const [cadastroConcluido, setCadastroConcluido] = useState<string>("");
   const [minhasDiarias, setMinhasDiarias] = useState<Diaria[]>([]);
   // Lembrete "vaga pra vencer": ids dispensados pelo anunciante ("manter no ar") nesta sessão
   const [lembreteVencDispensados, setLembreteVencDispensados] = useState<Set<string>>(new Set());
@@ -2891,9 +2894,13 @@ export default function App() {
     }
 
     if (!activeSession) {
-      // Confirm email ligado e não conseguimos pre-logar. Mostra mensagem clara.
-      setAuthError("✅ Conta criada! Confirme seu e-mail para entrar (verifique também o spam).");
+      // Confirm email ligado: conta criada mas ainda sem login. Em vez de deixar
+      // o usuário parado na tela de cadastro com uma mensagem vermelha, leva pro
+      // login com um banner verde de sucesso (o e-mail já vai preenchido).
+      setAuthError("");
+      setCadastroConcluido(form.email.trim());
       setAuthLoading(false);
+      setTela("login");
       return;
     }
 
@@ -5264,9 +5271,13 @@ export default function App() {
       });
       if (signInError) {
         // Confirma e-mail obrigatório no Supabase. Conta criada mas sem login.
+        // Leva pro login com banner de sucesso e e-mail já preenchido.
         setSubmittingEmp(false);
         try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
-        setAuthError("✅ Conta criada! Confirme seu e-mail para entrar (verifique também o spam).");
+        setAuthError("");
+        setForm(f => ({ ...f, email: formEmp.email.trim() }));
+        setCadastroConcluido(formEmp.email.trim());
+        setTela("login");
         return;
       }
       session = signInData.session;
@@ -6037,7 +6048,7 @@ export default function App() {
 
       <button style={{ background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", color:"#cbd5e1", fontSize:13, fontWeight:700, cursor:"pointer", padding:"8px 14px", marginTop:48, alignSelf:"flex-start", borderRadius:20, fontFamily:"Inter, system-ui, sans-serif", backdropFilter:"blur(8px)" as const }}
         aria-label="Voltar para a tela inicial"
-        onClick={() => { setAuthError(""); setTela("splash"); }}>
+        onClick={() => { setAuthError(""); setCadastroConcluido(""); setTela("splash"); }}>
         ← Voltar
       </button>
 
@@ -6053,6 +6064,15 @@ export default function App() {
 
       {/* Card de login — fundo branco com sombra, contraste alto */}
       <div style={{ background:"#fff", borderRadius:24, padding:"24px 22px", boxShadow:"0 20px 60px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.05)", position:"relative", zIndex:1 }}>
+        {/* Banner de cadastro concluído — confirmação de e-mail pendente */}
+        {cadastroConcluido && (
+          <div role="status" style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:12, padding:"12px 14px", marginBottom:18 }}>
+            <div style={{ color:"#16a34a", fontSize:14, fontWeight:800 }}>✅ Conta criada com sucesso!</div>
+            <div style={{ color:"#166534", fontSize:12.5, marginTop:3, lineHeight:1.5 }}>
+              Enviamos um link de confirmação para <strong>{cadastroConcluido}</strong>. Confirme seu e-mail (veja também o spam) e faça login abaixo.
+            </div>
+          </div>
+        )}
         {/* Entrar com Google — atalho rápido pra quem já tem conta */}
         <button
           type="button"
@@ -6177,7 +6197,7 @@ export default function App() {
 
         <button
           style={{ width:"100%", padding:"15px", background: authLoading ? "#fb923c" : "#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor: authLoading ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:16, opacity:authLoading?0.85:1, boxShadow:"0 8px 24px rgba(255,107,53,.45)", transition:"all .15s", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
-          disabled={authLoading} onClick={modoLogin === "email" ? handleEmailLogin : handleCPFLogin}>
+          disabled={authLoading} onClick={() => { setCadastroConcluido(""); (modoLogin === "email" ? handleEmailLogin : handleCPFLogin)(); }}>
           {authLoading ? <><span aria-hidden style={{ display:"inline-block", width:14, height:14, border:"2px solid #fff", borderTopColor:"transparent", borderRadius:"50%", animation:"spin .8s linear infinite" }} /> Entrando...</> : <>Entrar <span aria-hidden>→</span></>}
         </button>
 
