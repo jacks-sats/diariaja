@@ -5303,6 +5303,18 @@ export default function App() {
         },
       });
       if (signUpError) {
+        const mSign = (signUpError.message || "").toLowerCase();
+        // Conta JÁ existe (tentativa anterior com esse e-mail/CNPJ). Em vez de
+        // travar o user no "Criar conta" — que nunca vai dar certo — leva direto
+        // pro login com o e-mail preenchido. Ao entrar, se faltarem dados da
+        // empresa, ele cai na tela "finalizar-empresa". Mantém o rascunho.
+        if (mSign.includes("already registered") || mSign.includes("user already")) {
+          setForm(prev => ({ ...prev, email: formEmp.email.trim() }));
+          setModoLogin("email");
+          setTela("login");
+          setAuthError("Você já tem conta com esse e-mail/CNPJ. Entre com sua senha pra continuar — seus dados já estão guardados. Esqueceu a senha? Use 'Esqueci minha senha'.");
+          return;
+        }
         setAuthError(traduzirErroAuth(signUpError.message));
         return;
       }
