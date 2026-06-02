@@ -1,0 +1,59 @@
+name: CI
+
+# Roda em TODO Pull Request (e em push na main) ANTES do merge:
+# garante que tsc + testes + build passam. Bloqueia código quebrado de chegar
+# na main quando a branch estiver protegida (Settings → Branches → require checks).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: tsc + testes + build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Verificar (tsc --noEmit + vitest + vite build)
+        run: npm run verify
+
+  edge-functions-check:
+    name: deno check (Edge Functions)
+    runs-on: ubuntu-latest
+    # Informativo por enquanto: sinaliza erro de tipo nas functions Deno sem
+    # bloquear o merge. Quando confirmarmos que todas passam limpo, é só remover
+    # o continue-on-error pra virar gate obrigatório.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: deno check em cada função
+        run: |
+          status=0
+          for f in supabase/functions/*/index.ts; do
+            echo "▶ deno check $f"
+            deno check "$f" || status=1
+          done
+          exit $status

@@ -1173,16 +1173,13 @@ export default function App() {
   useEffect(() => {
     if (tela !== "home-empregador" || !session?.user) return;
     (async () => {
-      // Cap em 200: o egress de carregar TODOS os prestadores cadastrados a cada
-      // entry da home cresce linear com a base. Ordena por created_at DESC pra
-      // priorizar quem entrou recentemente. Filtro de relevância (distância,
-      // disponibilidade) é aplicado client-side em diaristasReaisVisiveis.
-      // P0 fix: sem isso o feed puxava o cadastro inteiro a cada navegação.
-      // HOTFIX 2026-05-28: user_profiles em produção não tem coluna created_at.
-      // O .order("created_at") fazia a query falhar silenciosamente → data=null
-      // → anunciante via "Nenhum profissional ainda" mesmo com prestadores
-      // cadastrados. Removi a ordenação até adicionarmos created_at na tabela
-      // ou identificarmos coluna alternativa estável.
+      // Cap em 200 (server-side): o egress de carregar TODOS os prestadores a cada
+      // entrada da home cresce linear com a base. A ordenação/relevância
+      // (impulsionado → disponível → nível → distância) é aplicada client-side em
+      // diaristasReaisVisiveis, com desempate ESTÁVEL por id (a ordem nunca
+      // "embaralha" entre navegações). Pra que o corte de 200 seja determinístico
+      // quando a base passar disso, a RPC ganhou ORDER BY no servidor — ver
+      // migration supabase/migrations/prestadores_publicos_ordenado.sql.
       // C2 passo B: feed via RPC prestadores_publicos — retorna só dados públicos
       // + derivados (tem_documento, nivel), sem telefone/cpf/cnpj/PIX/token. Filtra
       // por papel (diarista/ambos) e exclui o próprio usuário no servidor.
@@ -9473,10 +9470,25 @@ export default function App() {
         }
         return true;
       })
+      // Ordenação determinística + por relevância. Critérios, em ordem:
+      // 1) impulsionado (plano)  2) disponível  3) nível de confiança
+      // 4) mais perto (se geo conhecida)  5) id (desempate ESTÁVEL — evita o
+      // "embaralha" entre navegações que existia quando só ordenava por destaque
+      // e o resto vinha em ordem arbitrária do banco).
       .sort((a, b) => {
-        const aD = (a as UserProfile & { plano_ativo?: string }).plano_ativo === "destaque" ? 1 : 0;
-        const bD = (b as UserProfile & { plano_ativo?: string }).plano_ativo === "destaque" ? 1 : 0;
-        return bD - aD;
+        const A = a as UserProfile & { plano_ativo?: string; nivel?: number };
+        const B = b as UserProfile & { plano_ativo?: string; nivel?: number };
+        const boost = Number(B.plano_ativo === "destaque") - Number(A.plano_ativo === "destaque");
+        if (boost) return boost;
+        const disp = Number(!!B.disponivel) - Number(!!A.disponivel);
+        if (disp) return disp;
+        const nivel = Number(B.nivel ?? 0) - Number(A.nivel ?? 0);
+        if (nivel) return nivel;
+        const temGeo = !!(profile?.lat && profile?.lng);
+        const distA = temGeo && A.lat && A.lng ? haversineKm(profile!.lat!, profile!.lng!, A.lat!, A.lng!) : Infinity;
+        const distB = temGeo && B.lat && B.lng ? haversineKm(profile!.lat!, profile!.lng!, B.lat!, B.lng!) : Infinity;
+        if (distA !== distB) return distA - distB;
+        return String(A.id).localeCompare(String(B.id));
       });
 
     return (
