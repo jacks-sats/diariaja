@@ -4652,7 +4652,7 @@ export default function App() {
   const confirmarChegadaGPS = async (diaria: Diaria) => {
     if (!session?.user) return;
     if (!("geolocation" in navigator)) {
-      setToastError("📍 Seu aparelho não permite localização. Use o QR Code com o empregador.");
+      setToastError("📍 Seu aparelho não permite localização. Use o QR Code com o anunciante.");
       return;
     }
     setCheckinGpsId(diaria.id);
