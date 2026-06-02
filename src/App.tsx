@@ -1078,6 +1078,20 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tela, profile?.id]);
 
+  // Pré-preenche a tela "finalizar-empresa" com o rascunho do cadastro (caso o
+  // formEmp tenha sido recriado vazio). Senha/termos nunca são restaurados.
+  useEffect(() => {
+    if (tela !== "finalizar-empresa") return;
+    try {
+      const raw = localStorage.getItem("diariaja_cad_empresa_draft");
+      if (raw) {
+        const d = JSON.parse(raw) as Partial<FormEmpresa>;
+        setFormEmp(prev => ({ ...prev, ...d, senha: "", confirmaSenha: "", aceitaTermos: false }));
+      }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tela]);
+
   // Detecta retorno do OAuth do Mercado Pago e parâmetros de pagamento na URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -2437,40 +2451,6 @@ export default function App() {
         data.plano_ativo = "gratis";
         void supabase.from("user_profiles").update({ plano_ativo: "gratis" }).eq("id", userId);
       }
-      // ── Recuperação do cadastro PJ perdido na confirmação de e-mail ──────────
-      // O cadastro de empresa cria a conta (signUp) ANTES de gravar o perfil e,
-      // quando a confirmação de e-mail é obrigatória, o passo de gravação era
-      // pulado — CNPJ/telefone/endereço se perdiam e o user caía num perfil
-      // vazio pedindo tudo de novo. Aqui, no 1º acesso autenticado, aplicamos o
-      // rascunho que ficou guardado em localStorage. Best-effort: se algo falhar
-      // (ex.: CNPJ já em outra conta), só não recupera — não quebra o login.
-      if (data.user_type === "empregador" && data.pessoa_tipo === "juridica" && !data.cnpj) {
-        try {
-          const rawDraft = localStorage.getItem("diariaja_cad_empresa_draft");
-          if (rawDraft) {
-            const d = JSON.parse(rawDraft) as Record<string, string>;
-            const cnpjDig = (d.cnpj || "").replace(/\D/g, "");
-            if (cnpjDig.length === 14 && validarCNPJ(cnpjDig)) {
-              const endereco = `${d.rua}, ${d.numero}${d.complemento?.trim() ? ` — ${d.complemento}` : ""}, ${d.bairro}, ${d.cidade}/${d.estado} — CEP ${d.cep}`;
-              // Só colunas garantidas (escritas pelo saveProfile normal). Razão
-              // social / responsável vêm de migration ainda pendente — incluí-las
-              // aqui arriscaria derrubar TODO o UPDATE se a coluna não existir.
-              const patch = {
-                cnpj: d.cnpj,
-                nome_negocio: d.nomeFantasia || data.nome_negocio || "",
-                nome: d.responsavelNome || data.nome || "",
-                telefone: (d.telefone || "").replace(/\D/g, ""),
-                endereco_empregador: endereco,
-              };
-              const { error: recErr } = await supabase.from("user_profiles").update(patch).eq("id", userId);
-              if (!recErr) {
-                Object.assign(data, patch);
-                try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
-              }
-            }
-          }
-        } catch { /* recuperação é best-effort — nunca derruba o login */ }
-      }
       setProfile(data);
       setTipo(data.user_type);
       setNegocio(data.segmento || null);
@@ -2528,7 +2508,12 @@ export default function App() {
       } else {
         // "empregador" ou "ambos" → home do empregador se tiver segmento
         setModoAtual("empregador");
-        if (data.segmento) setTela(podeRestaurar(telaSalva) ? telaSalva : "home-empregador");
+        // Empresa (PJ) que não chegou a gravar o CNPJ no perfil — típico de
+        // cadastro interrompido pela confirmação de e-mail. Manda pra tela
+        // dedicada de "finalize seu cadastro" (pré-preenchida pelo rascunho)
+        // ANTES de liberar o app, em vez de cair num perfil vazio.
+        if (data.pessoa_tipo === "juridica" && !data.cnpj) setTela("finalizar-empresa");
+        else if (data.segmento) setTela(podeRestaurar(telaSalva) ? telaSalva : "home-empregador");
         else setTela("escolha-negocio");
       }
     } else {
@@ -5369,6 +5354,56 @@ export default function App() {
     } catch (e) {
       console.error("[cadastro-empresa] erro inesperado:", e);
       setAuthError("Não foi possível concluir o cadastro agora. Verifique sua conexão e tente de novo. Se continuar, fale com suporte@diariaja.com.br.");
+    } finally {
+      setSubmittingEmp(false);
+    }
+  };
+
+  // Grava os dados da empresa que faltaram no cadastro (tela "finalizar-empresa").
+  // Usado quando a conta foi criada mas o perfil ficou sem CNPJ/telefone/endereço
+  // (cadastro interrompido pela confirmação de e-mail). O user JÁ está logado, então
+  // é um UPDATE direto no próprio perfil — sem signUp/signIn de novo. Só grava
+  // colunas garantidas (as mesmas que o saveProfile normal escreve).
+  const finalizarCadastroEmpresa = async () => {
+    setAuthError("");
+    const cnpjDig = formEmp.cnpj.replace(/\D/g, "");
+    if (cnpjDig.length !== 14 || !validarCNPJ(cnpjDig)) { setAuthError("CNPJ inválido. Confira os dígitos."); return; }
+    if (!formEmp.nomeFantasia.trim())                    { setAuthError("Informe o nome do negócio / fantasia."); return; }
+    if (!validarTelefone(formEmp.telefone))              { setAuthError("Telefone inválido. Use (XX) 9XXXX-XXXX."); return; }
+    if (!formEmp.rua.trim() || !formEmp.cidade.trim() || formEmp.estado.trim().length !== 2) {
+      setAuthError("Complete o endereço (logradouro, cidade e UF)."); return;
+    }
+    // Sessão fresca (não só o estado React) — id correto pro UPDATE/RLS.
+    const { data: sess } = await supabase.auth.getSession();
+    const uid = sess?.session?.user?.id ?? session?.user?.id;
+    if (!uid) { setAuthError("Sua sessão expirou. Entre novamente."); return; }
+    setSubmittingEmp(true);
+    try {
+      const endereco = `${formEmp.rua}, ${formEmp.numero}${formEmp.complemento.trim() ? ` — ${formEmp.complemento}` : ""}, ${formEmp.bairro}, ${formEmp.cidade}/${formEmp.estado} — CEP ${formEmp.cep}`;
+      const patch = {
+        cnpj: formEmp.cnpj,
+        nome_negocio: formEmp.nomeFantasia,
+        nome: formEmp.responsavelNome.trim() || profile?.nome || "",
+        telefone: formEmp.telefone.replace(/\D/g, ""),
+        endereco_empregador: endereco,
+        pessoa_tipo: "juridica",
+      };
+      const { error } = await supabase.from("user_profiles").update(patch).eq("id", uid);
+      if (error) {
+        const m = (error.message || "").toLowerCase();
+        const code = String((error as { code?: string }).code || "");
+        if (code === "23505" || m.includes("duplicate") || m.includes("unique")) {
+          setAuthError("⚠️ Este CNPJ já está vinculado a outra conta. Se for seu, fale com suporte@diariaja.com.br.");
+        } else {
+          setAuthError("Não foi possível salvar agora. Verifique sua conexão e tente de novo.");
+        }
+        return;
+      }
+      setProfile(prev => (prev ? ({ ...prev, ...patch } as UserProfile) : prev));
+      try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
+      trackEvento("cadastro_pj_finalizado", uid, "empregador");
+      // Já tem ramo? vai pra home. Senão segue o onboarding normal (escolher ramo).
+      setTela(profile?.segmento ? "home-empregador" : "escolha-negocio");
     } finally {
       setSubmittingEmp(false);
     }
@@ -8546,6 +8581,85 @@ export default function App() {
           onClick={() => { setAuthError(""); setTela("login"); }}>
           Já tem conta? <span style={{ color:"#FF6B35", fontWeight:700 }}>Entrar</span>
         </p>
+      </div>
+    );
+  }
+
+  // FINALIZAR CADASTRO DE EMPRESA (PJ)
+  // Tela dedicada pra quem criou a conta mas não chegou a gravar CNPJ/telefone/
+  // endereço (cadastro interrompido pela confirmação de e-mail). Pré-preenchida
+  // pelo rascunho. É etapa OBRIGATÓRIA — sem "pular": ou completa, ou sai.
+  if (tela === "finalizar-empresa") {
+    const setEmp = <K extends keyof FormEmpresa>(campo: K, valor: FormEmpresa[K]) =>
+      setFormEmp(prev => ({ ...prev, [campo]: valor }));
+    return (
+      <div style={S.page}>
+        {modalConfirmLogout}
+        <button style={S.back} onClick={() => setConfirmLogout(true)}>← Sair da conta</button>
+        <h2 style={S.pageTitle}>Quase lá! Confirme sua empresa</h2>
+        <p style={S.subTexto}>
+          Sua conta foi criada, mas faltou salvar os dados da empresa. Confirme abaixo
+          pra liberar o app — você não precisa cadastrar de novo.
+        </p>
+
+        <div style={{ background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:12, padding:"12px 14px", margin:"4px 0 18px", fontSize:12, color:"#1e40af", lineHeight:1.6 }}>
+          🔒 CNPJ e telefone são privados — nunca aparecem no perfil público.
+        </div>
+
+        <label style={S.label}>CNPJ</label>
+        <input style={{ ...S.input, letterSpacing:1 }} inputMode="numeric" maxLength={18}
+          placeholder="00.000.000/0000-00"
+          value={formEmp.cnpj}
+          onChange={e => setEmp("cnpj", maskCNPJ(e.target.value))} />
+
+        <label style={S.label}>Nome do negócio / fantasia</label>
+        <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Nome do estabelecimento — não coloque seu nome pessoal aqui.</p>
+        <input style={S.input} placeholder="Ex: Restaurante Sabor Brasileiro"
+          value={formEmp.nomeFantasia}
+          onChange={e => setEmp("nomeFantasia", e.target.value)} />
+
+        <label style={S.label}>Telefone (WhatsApp)</label>
+        <input style={S.input} inputMode="numeric" maxLength={15} placeholder="(67) 99999-9999"
+          value={formEmp.telefone}
+          onChange={e => setEmp("telefone", maskTelefone(e.target.value))} />
+
+        <label style={S.label}>Nome do responsável (opcional)</label>
+        <input style={S.input} autoComplete="name" placeholder="Quem responde pela conta"
+          value={formEmp.responsavelNome}
+          onChange={e => setEmp("responsavelNome", e.target.value)} />
+
+        <label style={S.label}>Endereço — CEP</label>
+        <div style={{ position:"relative" as const, marginBottom:8 }}>
+          <input style={{ ...S.input, letterSpacing:0.5, marginBottom:0, paddingRight: buscandoCEPEmpresa ? 110 : 14 }}
+            inputMode="numeric" maxLength={9} placeholder="00000-000"
+            value={formEmp.cep}
+            onChange={e => {
+              let v = e.target.value.replace(/\D/g, "").slice(0, 8);
+              if (v.length > 5) v = v.slice(0, 5) + "-" + v.slice(5);
+              setEmp("cep", v);
+              if (v.replace(/\D/g, "").length === 8) buscarCEPEmpresa(v);
+            }} />
+          {buscandoCEPEmpresa && <span style={{ position:"absolute" as const, right:14, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#64748b", fontWeight:600 }}>Buscando...</span>}
+        </div>
+        <input style={S.input} placeholder="Rua / Av." value={formEmp.rua} onChange={e => setEmp("rua", e.target.value)} />
+        <div style={{ display:"flex", gap:8 }}>
+          <input style={{ ...S.input, flex:"0 0 100px" }} placeholder="Número" value={formEmp.numero} onChange={e => setEmp("numero", e.target.value)} />
+          <input style={{ ...S.input, flex:1 }} placeholder="Complemento (opcional)" value={formEmp.complemento} onChange={e => setEmp("complemento", e.target.value)} />
+        </div>
+        <input style={S.input} placeholder="Bairro" value={formEmp.bairro} onChange={e => setEmp("bairro", e.target.value)} />
+        <div style={{ display:"flex", gap:8 }}>
+          <input style={{ ...S.input, flex:1 }} placeholder="Cidade" value={formEmp.cidade} onChange={e => setEmp("cidade", e.target.value)} />
+          <input style={{ ...S.input, flex:"0 0 70px", textTransform:"uppercase" as const }} placeholder="UF" maxLength={2}
+            value={formEmp.estado} onChange={e => setEmp("estado", e.target.value.toUpperCase().slice(0, 2))} />
+        </div>
+
+        {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
+
+        <button style={{ ...S.btnPrimary, marginTop:16, opacity: submittingEmp ? 0.6 : 1 }}
+          disabled={submittingEmp}
+          onClick={finalizarCadastroEmpresa}>
+          {submittingEmp ? "Salvando..." : "✓ Confirmar e continuar"}
+        </button>
       </div>
     );
   }
