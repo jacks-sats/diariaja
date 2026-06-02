@@ -7,6 +7,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { rateLimitOrReject } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,6 +52,13 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
+
+    // Anti-abuso: no máximo 3 exclusões por hora por usuário (operação cara).
+    const limited = await rateLimitOrReject(
+      { key: `delete-user:user:${userId}`, max: 3, windowSeconds: 3600, corsHeaders },
+      supabaseAdmin,
+    );
+    if (limited) return limited;
 
     // 1. Apaga dados do usuário em TODAS as tabelas do app (ordem importa para FK)
     // — anteriormente esquecia: convites, denuncias, nao_interesse, push_subscriptions,
