@@ -1,10 +1,12 @@
 -- ============================================================================
 -- Modo Beta — lançamento controlado
 -- ============================================================================
--- Enquanto LIGADO: quem NÃO é tester (acesso_total) nem admin pode cadastrar,
--- completar perfil/KYC e navegar, mas NÃO pode criar vaga nem se candidatar/
--- convidar. Os usuários de HOJE viram testers (backfill). Quem entrar depois
--- nasce gated (default false).
+-- Enquanto LIGADO, quem NÃO é tester (acesso_total) nem admin:
+--   • PODE: cadastrar, completar perfil/KYC, navegar, CRIAR VAGA, CANDIDATAR-SE
+--           e VER os candidatos/interessados.
+--   • NÃO PODE (abre no lançamento): SELECIONAR candidato e ENVIAR CONVITE
+--           (a "conexão" real). O chat depende disso, então fica travado sozinho.
+-- Os usuários de HOJE viram testers (backfill). Quem entrar depois nasce gated.
 --
 -- LANÇAR (abrir pra todo mundo), quando chegar a hora:
 --   UPDATE app_config SET valor = 'false' WHERE chave = 'modo_beta';
@@ -54,7 +56,12 @@ AS $$
     );
 $$;
 
--- 5) Trava no servidor: bloqueia INSERT em diarias e candidaturas no beta
+-- 5) Trava no servidor. CRIAR VAGA e CANDIDATAR-SE ficam LIBERADOS.
+--    Travado até o lançamento: ENVIAR CONVITE (INSERT em convites) e SELECIONAR
+--    candidato (UPDATE de diarias setando diarista_aceite_id).
+--    Service_role/sistema (auth.uid() nulo) sempre passam.
+
+-- 5a) Bloqueio de INSERT — aplicado em CONVITES
 CREATE OR REPLACE FUNCTION trg_bloqueio_beta()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
@@ -67,15 +74,36 @@ BEGIN
   RETURN NEW;
 END $$;
 
-DROP TRIGGER IF EXISTS bloqueio_beta_diarias ON diarias;
-CREATE TRIGGER bloqueio_beta_diarias
-  BEFORE INSERT ON diarias
+DROP TRIGGER IF EXISTS bloqueio_beta_convites ON convites;
+CREATE TRIGGER bloqueio_beta_convites
+  BEFORE INSERT ON convites
   FOR EACH ROW EXECUTE FUNCTION trg_bloqueio_beta();
 
+-- Remove triggers antigos de INSERT (caso a versão anterior tenha sido aplicada):
+-- criar vaga e candidatar agora são LIBERADOS.
+DROP TRIGGER IF EXISTS bloqueio_beta_diarias ON diarias;
 DROP TRIGGER IF EXISTS bloqueio_beta_candidaturas ON candidaturas;
-CREATE TRIGGER bloqueio_beta_candidaturas
-  BEFORE INSERT ON candidaturas
-  FOR EACH ROW EXECUTE FUNCTION trg_bloqueio_beta();
+
+-- 5b) Bloqueio da SELEÇÃO — UPDATE de diarias que define o diarista_aceite_id
+CREATE OR REPLACE FUNCTION trg_bloqueio_beta_selecao()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+  IF NEW.diarista_aceite_id IS NOT NULL
+     AND NEW.diarista_aceite_id IS DISTINCT FROM OLD.diarista_aceite_id
+     AND NOT acesso_liberado_beta()
+  THEN
+    RAISE EXCEPTION 'MODO_BETA: selecionar candidato abre no lançamento'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS bloqueio_beta_selecao ON diarias;
+CREATE TRIGGER bloqueio_beta_selecao
+  BEFORE UPDATE OF diarista_aceite_id ON diarias
+  FOR EACH ROW EXECUTE FUNCTION trg_bloqueio_beta_selecao();
 
 -- 6) Anti-escalada: usuário comum não pode se auto-conceder acesso_total
 CREATE OR REPLACE FUNCTION trg_protege_acesso_total()

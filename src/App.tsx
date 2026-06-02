@@ -3419,9 +3419,9 @@ export default function App() {
 
   const enviarConvite = async () => {
     if (!session?.user || !diaristaSelecionadaReal) return;
-    // Modo Beta: não-testers não convidam ainda (servidor também bloqueia).
+    // Modo Beta: convidar ("chamar pra trabalhar") abre no lançamento (servidor também bloqueia).
     if (modoBeta && !profile?.acesso_total && !profile?.is_admin) {
-      setToastSuccess("🚀 Estamos em beta! Convites abrem no lançamento. 😉");
+      setToastSuccess("🚀 Convidar prestadores abre em 1º de julho. 😉");
       return;
     }
     // Valida campos obrigatórios — aceita CEP ou endereço livre
@@ -4343,11 +4343,8 @@ export default function App() {
   const demonstrarInteresse = async (diaria: Diaria) => {
     if (!session?.user) return;
     if (enviandoInteresse) return; // guard: evita duplo-clique criar 2 candidaturas
-    // Modo Beta: não-testers não se candidatam ainda (servidor também bloqueia).
-    if (modoBeta && !profile?.acesso_total && !profile?.is_admin) {
-      setToastSuccess("🚀 Estamos em beta! Candidaturas abrem no lançamento. Complete seu perfil pra largar na frente. 😉");
-      return;
-    }
+    // Modo Beta: CANDIDATAR-SE é liberado — o anunciante precisa ver os interessados.
+    // (Quem trava é SELECIONAR candidato + CONVITE, mais abaixo.)
 
     // Trava de maioridade: só se candidata quem tem documento (RG/CNH) APROVADO.
     // A data de nascimento é auto-declarada e não prova idade; o documento aprovado
@@ -4583,6 +4580,12 @@ export default function App() {
   // Source of truth: RPC `pode_selecionar_candidato` (banco). O client confia
   // no resultado. Fallback pra heurística local SOMENTE em erro de rede (raro).
   const selecionarCandidato = async (diaria: Diaria, diaristaId: string) => {
+    // Modo Beta: VER candidatos é liberado; SELECIONAR (conectar/contratar) abre no
+    // lançamento. O servidor também bloqueia (trigger em diarias.diarista_aceite_id).
+    if (modoBeta && !profile?.acesso_total && !profile?.is_admin) {
+      setToastSuccess("🚀 Selecionar candidatos abre em 1º de julho! Os interessados já ficam salvos aqui pra você. 😉");
+      return;
+    }
     try {
       const { data, error } = await supabase.rpc("pode_selecionar_candidato", {
         p_diaria_id: diaria.id,
@@ -4853,11 +4856,7 @@ export default function App() {
 
   const salvarDiaria = async () => {
     if (!session?.user) return;
-    // Modo Beta: não-testers não publicam vaga ainda (servidor também bloqueia).
-    if (modoBeta && !profile?.acesso_total && !profile?.is_admin) {
-      setToastSuccess("🚀 Estamos em beta! Publicar vagas abre no lançamento. Por enquanto, deixe seu perfil completo. 😉");
-      return;
-    }
+    // Modo Beta: CRIAR VAGA é liberado (popula o feed e o anunciante testa o fluxo).
 
     // ── Limite de vagas: removido (vagas são ilimitadas em todos os planos) ──
     // O limite passou a ser em seleções de candidato (R$ 1/contato extra no grátis)
@@ -5764,7 +5763,7 @@ export default function App() {
   const betaBloqueado = modoBeta && !profile?.acesso_total && !profile?.is_admin;
   const bannerBeta = betaBloqueado ? (
     <div style={{ background:"linear-gradient(135deg,#FF6B35,#fb923c)", color:"#fff", padding:"11px 16px", fontSize:13, fontWeight:600, lineHeight:1.5, textAlign:"center" as const }}>
-      🚀 <strong>Versão beta</strong> — lançamento em breve. Aproveite pra deixar seu perfil completo e largar na frente! Publicar vagas e candidaturas abrem no lançamento.
+      🚀 <strong>Versão beta</strong> — as conexões (selecionar candidato e convites) abrem em <strong>1º de julho</strong>. Crie vagas, candidate-se e complete seu perfil pra largar na frente!
     </div>
   ) : null;
 
