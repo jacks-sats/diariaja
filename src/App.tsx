@@ -714,6 +714,12 @@ export default function App() {
   const [passoEmpresa, setPassoEmpresa] = useState<1 | 2 | 3 | 4>(() => {
     try {
       const v = Number(localStorage.getItem("diariaja_cad_empresa_passo"));
+      // A senha NUNCA é restaurada do rascunho (segurança — ver FORM_EMPRESA_VAZIO
+      // acima). Se o passo salvo for o 4 (revisão), o user voltaria pra tela final
+      // com a senha apagada e o botão "morto" mostrando "Aceite os termos" — sem
+      // ver o motivo, já que o campo senha mora no passo 3. Recua pro passo 3 pra
+      // ele recriar a senha antes de finalizar.
+      if (v === 4) return 3;
       if (v >= 1 && v <= 4) return v as 1 | 2 | 3 | 4;
     } catch { /* ignore */ }
     return 1;
@@ -5247,6 +5253,23 @@ export default function App() {
       // Marca todos como tocados pra mostrar todos os erros de uma vez
       setTocadosEmp(Object.fromEntries((Object.keys(formEmp) as Array<keyof FormEmpresa>).map(k => [k, true])));
       if (Object.keys(erros).length > 0) {
+        // Um campo inválido FORA do passo 4 (ex.: senha apagada no passo 3) deixava
+        // o botão "morto" sem o user ver o motivo — o campo nem está renderizado na
+        // revisão. Leva ele direto ao passo do primeiro erro e foca o campo.
+        const ordem = ([1, 2, 3, 4] as const).flatMap(p => CAMPOS_POR_PASSO_EMP[p]);
+        const primeiro = ordem.find(c => erros[c]);
+        if (primeiro) {
+          const passoDoCampo = ([1, 2, 3, 4] as const).find(p => CAMPOS_POR_PASSO_EMP[p].includes(primeiro));
+          if (passoDoCampo && passoDoCampo !== passoEmpresa) {
+            setPassoEmpresa(passoDoCampo);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+          // setTimeout: deixa o React re-renderizar o passo certo antes de focar
+          setTimeout(() => {
+            const el = document.getElementById(`empresa-${primeiro}`);
+            if (el && "scrollIntoView" in el) { (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" }); (el as HTMLElement).focus?.(); }
+          }, 80);
+        }
         setAuthError("Corrija os campos destacados antes de continuar.");
         return;
       }
@@ -7712,9 +7735,6 @@ export default function App() {
   if (tela === "cadastro-empresa") {
     const erros = errosEmp;
     const tocados = tocadosEmp;
-    // Validação contínua: erros calculados do form atual (sem mostrar até tocar)
-    const errosAtuais = validarTodoFormEmpresa(formEmp);
-    const todoValido = Object.keys(errosAtuais).length === 0;
 
     // Helper visual: estilo do input baseado em erro tocado
     const estiloInput = (campo: keyof FormEmpresa, extra: React.CSSProperties = {}): React.CSSProperties => {
@@ -8137,19 +8157,23 @@ export default function App() {
           </button>
         ) : (
           <button
+            // Mantido SEMPRE clicável (exceto durante o envio): se algo estiver
+            // inválido, o submit leva o user ao passo do erro em vez de "morrer"
+            // calado. Antes, um campo apagado fora do passo 4 (ex.: senha) travava
+            // o botão sem o user descobrir o motivo.
             style={{
               width:"100%", padding:"16px", marginTop:18, marginBottom:24,
-              background: todoValido && !submittingEmp ? "#3A86FF" : "#cbd5e1",
-              color: todoValido && !submittingEmp ? "#fff" : "#94a3b8",
+              background: submittingEmp ? "#cbd5e1" : "#3A86FF",
+              color: submittingEmp ? "#94a3b8" : "#fff",
               border:"none", borderRadius:14, fontSize:16, fontWeight:800,
-              cursor: todoValido && !submittingEmp ? "pointer" : "default", minHeight:48,
+              cursor: submittingEmp ? "default" : "pointer", minHeight:48,
               fontFamily:"Inter, system-ui, sans-serif",
-              boxShadow: todoValido && !submittingEmp ? "0 4px 16px rgba(58,134,255,.35)" : "none",
+              boxShadow: submittingEmp ? "none" : "0 4px 16px rgba(58,134,255,.35)",
               transition:"all .2s",
             }}
-            disabled={!todoValido || submittingEmp}
+            disabled={submittingEmp}
             onClick={submitCadastroEmpresa}>
-            {submittingEmp ? "Criando conta..." : todoValido ? "✓ Criar conta empresarial" : "Aceite os termos pra continuar"}
+            {submittingEmp ? "Criando conta..." : "✓ Criar conta empresarial"}
           </button>
         )}
 
