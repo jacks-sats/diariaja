@@ -116,7 +116,7 @@ Deno.serve(async (req) => {
 
     // ── CONFERIR código ────────────────────────────────────────────────────
     if (acao === "conferir") {
-      if (!codigo || !/^\d{4,8}$/.test(codigo))
+      if (!codigo || !/^\d{6}$/.test(codigo))  // Twilio envia exatamente 6 dígitos
         return json({ error: "Código inválido.", trace_id: traceId }, 400);
 
       const blocked = await rateLimitOrReject(

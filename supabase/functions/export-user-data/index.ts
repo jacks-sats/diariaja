@@ -27,6 +27,7 @@
 // Deploy: npx supabase functions deploy export-user-data
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { rateLimitOrReject } from "../_shared/rate-limit.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -64,6 +65,13 @@ Deno.serve(async (req) => {
     // (já validamos quem é o user pelo JWT acima).
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
     const uid = user.id;
+
+    // Anti-abuso: export é pesado (lê todas as tabelas) — máx. 5 por hora/usuário.
+    const limited = await rateLimitOrReject(
+      { key: `export-user-data:user:${uid}`, max: 5, windowSeconds: 3600, corsHeaders: CORS },
+      supabase,
+    );
+    if (limited) return limited;
 
     // Coleta paralela das tabelas. Cada uma é pequena pra um user comum.
     const [
