@@ -1,0 +1,50 @@
+name: E2E
+
+# Smoke tests end-to-end (Playwright) em cada PR. NÃO-bloqueante por enquanto
+# (não exija este check na proteção da main até a suíte amadurecer).
+
+on:
+  pull_request:
+  workflow_dispatch: {}
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar deps do app
+        run: npm ci
+
+      - name: Build do app (gera dist/)
+        run: npm run build
+
+      - name: Instalar Playwright (em e2e/)
+        working-directory: e2e
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Rodar smoke E2E
+        working-directory: e2e
+        run: npm test
+
+      - name: Upload do relatório
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7

@@ -714,6 +714,12 @@ export default function App() {
   const [passoEmpresa, setPassoEmpresa] = useState<1 | 2 | 3 | 4>(() => {
     try {
       const v = Number(localStorage.getItem("diariaja_cad_empresa_passo"));
+      // A senha NUNCA é restaurada do rascunho (segurança — ver FORM_EMPRESA_VAZIO
+      // acima). Se o passo salvo for o 4 (revisão), o user voltaria pra tela final
+      // com a senha apagada e o botão "morto" mostrando "Aceite os termos" — sem
+      // ver o motivo, já que o campo senha mora no passo 3. Recua pro passo 3 pra
+      // ele recriar a senha antes de finalizar.
+      if (v === 4) return 3;
       if (v >= 1 && v <= 4) return v as 1 | 2 | 3 | 4;
     } catch { /* ignore */ }
     return 1;
@@ -1072,6 +1078,20 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tela, profile?.id]);
 
+  // Pré-preenche a tela "finalizar-empresa" com o rascunho do cadastro (caso o
+  // formEmp tenha sido recriado vazio). Senha/termos nunca são restaurados.
+  useEffect(() => {
+    if (tela !== "finalizar-empresa") return;
+    try {
+      const raw = localStorage.getItem("diariaja_cad_empresa_draft");
+      if (raw) {
+        const d = JSON.parse(raw) as Partial<FormEmpresa>;
+        setFormEmp(prev => ({ ...prev, ...d, senha: "", confirmaSenha: "", aceitaTermos: false }));
+      }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tela]);
+
   // Detecta retorno do OAuth do Mercado Pago e parâmetros de pagamento na URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1153,16 +1173,13 @@ export default function App() {
   useEffect(() => {
     if (tela !== "home-empregador" || !session?.user) return;
     (async () => {
-      // Cap em 200: o egress de carregar TODOS os prestadores cadastrados a cada
-      // entry da home cresce linear com a base. Ordena por created_at DESC pra
-      // priorizar quem entrou recentemente. Filtro de relevância (distância,
-      // disponibilidade) é aplicado client-side em diaristasReaisVisiveis.
-      // P0 fix: sem isso o feed puxava o cadastro inteiro a cada navegação.
-      // HOTFIX 2026-05-28: user_profiles em produção não tem coluna created_at.
-      // O .order("created_at") fazia a query falhar silenciosamente → data=null
-      // → anunciante via "Nenhum profissional ainda" mesmo com prestadores
-      // cadastrados. Removi a ordenação até adicionarmos created_at na tabela
-      // ou identificarmos coluna alternativa estável.
+      // Cap em 200 (server-side): o egress de carregar TODOS os prestadores a cada
+      // entrada da home cresce linear com a base. A ordenação/relevância
+      // (impulsionado → disponível → nível → distância) é aplicada client-side em
+      // diaristasReaisVisiveis, com desempate ESTÁVEL por id (a ordem nunca
+      // "embaralha" entre navegações). Pra que o corte de 200 seja determinístico
+      // quando a base passar disso, a RPC ganhou ORDER BY no servidor — ver
+      // migration supabase/migrations/prestadores_publicos_ordenado.sql.
       // C2 passo B: feed via RPC prestadores_publicos — retorna só dados públicos
       // + derivados (tem_documento, nivel), sem telefone/cpf/cnpj/PIX/token. Filtra
       // por papel (diarista/ambos) e exclui o próprio usuário no servidor.
@@ -2488,7 +2505,12 @@ export default function App() {
       } else {
         // "empregador" ou "ambos" → home do empregador se tiver segmento
         setModoAtual("empregador");
-        if (data.segmento) setTela(podeRestaurar(telaSalva) ? telaSalva : "home-empregador");
+        // Empresa (PJ) que não chegou a gravar o CNPJ no perfil — típico de
+        // cadastro interrompido pela confirmação de e-mail. Manda pra tela
+        // dedicada de "finalize seu cadastro" (pré-preenchida pelo rascunho)
+        // ANTES de liberar o app, em vez de cair num perfil vazio.
+        if (data.pessoa_tipo === "juridica" && !data.cnpj) setTela("finalizar-empresa");
+        else if (data.segmento) setTela(podeRestaurar(telaSalva) ? telaSalva : "home-empregador");
         else setTela("escolha-negocio");
       }
     } else {
@@ -5247,11 +5269,94 @@ export default function App() {
       // Marca todos como tocados pra mostrar todos os erros de uma vez
       setTocadosEmp(Object.fromEntries((Object.keys(formEmp) as Array<keyof FormEmpresa>).map(k => [k, true])));
       if (Object.keys(erros).length > 0) {
+        // Um campo inválido FORA do passo 4 (ex.: senha apagada no passo 3) deixava
+        // o botão "morto" sem o user ver o motivo — o campo nem está renderizado na
+        // revisão. Leva ele direto ao passo do primeiro erro e foca o campo.
+        const ordem = ([1, 2, 3, 4] as const).flatMap(p => CAMPOS_POR_PASSO_EMP[p]);
+        const primeiro = ordem.find(c => erros[c]);
+        if (primeiro) {
+          const passoDoCampo = ([1, 2, 3, 4] as const).find(p => CAMPOS_POR_PASSO_EMP[p].includes(primeiro));
+          if (passoDoCampo && passoDoCampo !== passoEmpresa) {
+            setPassoEmpresa(passoDoCampo);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+          // setTimeout: deixa o React re-renderizar o passo certo antes de focar
+          setTimeout(() => {
+            const el = document.getElementById(`empresa-${primeiro}`);
+            if (el && "scrollIntoView" in el) { (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" }); (el as HTMLElement).focus?.(); }
+          }, 80);
+        }
         setAuthError("Corrija os campos destacados antes de continuar.");
         return;
       }
 
-      // Cria a conta no Supabase Auth
+      // ── Caminho NOVO: cadastro via servidor ──────────────────────────────
+      // Cria a conta JÁ confirmada e grava o CNPJ na hora (Edge Function
+      // signup-empresa, service-role). Resultado: a empresa entra por CNPJ na
+      // mesma hora, sem depender da confirmação de e-mail. Se a função ainda
+      // não estiver deployada (404) ou a rede falhar, cai no fluxo antigo
+      // (signUp client) logo abaixo — nada quebra antes do deploy.
+      try {
+        const respSrv = await fetch(`${SUPABASE_URL}/functions/v1/signup-empresa`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            cnpj: formEmp.cnpj, nomeFantasia: formEmp.nomeFantasia, razaoSocial: formEmp.razaoSocial,
+            email: formEmp.email.trim(), telefone: formEmp.telefone, senha: formEmp.senha,
+            cep: formEmp.cep, rua: formEmp.rua, numero: formEmp.numero, complemento: formEmp.complemento,
+            bairro: formEmp.bairro, cidade: formEmp.cidade, estado: formEmp.estado,
+            responsavelNome: formEmp.responsavelNome, responsavelCpf: formEmp.responsavelCpf,
+          }),
+        });
+        if (respSrv.status !== 404) {
+          const jsonSrv = await respSrv.json().catch(() => ({} as { ok?: boolean; error?: string }));
+          if (!respSrv.ok || !jsonSrv.ok) {
+            if (jsonSrv.error === "cnpj_existe") {
+              setPassoEmpresa(1);
+              setTocadosEmp(t => ({ ...t, cnpj: true }));
+              setErrosEmp(e => ({ ...e, cnpj: "Este CNPJ já está cadastrado. Faça login com a conta existente." }));
+              setAuthError("⚠️ Este CNPJ já possui cadastro. Entre na conta existente (login por CNPJ + senha).");
+            } else if (jsonSrv.error === "email_existe") {
+              setForm(prev => ({ ...prev, email: formEmp.email.trim() }));
+              setModoLogin("email");
+              setTela("login");
+              setAuthError("Você já tem conta com esse e-mail. Entre com sua senha pra continuar. Esqueceu a senha? Use 'Esqueci minha senha'.");
+            } else if (respSrv.status === 429) {
+              setAuthError("Muitas tentativas. Aguarde um minuto e tente de novo.");
+            } else {
+              setAuthError("Confira os dados (CNPJ, e-mail, telefone, senha e endereço) e tente de novo.");
+            }
+            return;
+          }
+          // Sucesso: conta criada + perfil com CNPJ salvos no servidor. Loga
+          // direto (sem e-mail) — agora o login por CNPJ também funciona.
+          const { error: signInErr } = await supabase.auth.signInWithPassword({
+            email: formEmp.email.trim(), password: formEmp.senha,
+          });
+          if (signInErr) {
+            setForm(prev => ({ ...prev, email: formEmp.email.trim() }));
+            setModoLogin("email");
+            setTela("login");
+            setAuthError("✅ Conta criada! Entre com seu CNPJ ou e-mail e a senha que você criou.");
+            return;
+          }
+          try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
+          trackEvento("cadastro_pj_concluido", undefined, "empregador", { via: "servidor" });
+          setTela("escolha-negocio");
+          return;
+        }
+        // 404 → função não deployada ainda: segue pro fluxo antigo abaixo.
+      } catch {
+        // Rede falhou na chamada da função: tenta o fluxo antigo (signUp client).
+      }
+
+      // ── Fallback: fluxo antigo (signUp client-side) ──────────────────────
+      // Usado só se a função signup-empresa não estiver deployada. Mantém o app
+      // funcionando (com a etapa de confirmação de e-mail) até o deploy.
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: formEmp.email.trim(),
         password: formEmp.senha,
@@ -5261,6 +5366,18 @@ export default function App() {
         },
       });
       if (signUpError) {
+        const mSign = (signUpError.message || "").toLowerCase();
+        // Conta JÁ existe (tentativa anterior com esse e-mail/CNPJ). Em vez de
+        // travar o user no "Criar conta" — que nunca vai dar certo — leva direto
+        // pro login com o e-mail preenchido. Ao entrar, se faltarem dados da
+        // empresa, ele cai na tela "finalizar-empresa". Mantém o rascunho.
+        if (mSign.includes("already registered") || mSign.includes("user already")) {
+          setForm(prev => ({ ...prev, email: formEmp.email.trim() }));
+          setModoLogin("email");
+          setTela("login");
+          setAuthError("Você já tem conta com esse e-mail/CNPJ. Entre com sua senha pra continuar — seus dados já estão guardados. Esqueceu a senha? Use 'Esqueci minha senha'.");
+          return;
+        }
         setAuthError(traduzirErroAuth(signUpError.message));
         return;
       }
@@ -5277,8 +5394,11 @@ export default function App() {
         });
         if (signInError) {
           // Confirma e-mail obrigatório no Supabase. Conta criada mas sem login.
-          try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
-          setAuthError("✅ Conta criada! Confirme seu e-mail para entrar (verifique também o spam).");
+          // NÃO apaga o rascunho: como a gravação do perfil (CNPJ/telefone/
+          // endereço) só roda DEPOIS de logar, ela é pulada aqui. Mantemos o
+          // rascunho pra o checkProfile recuperar os dados no 1º acesso após a
+          // confirmação — senão o user volta pra um perfil vazio (bug relatado).
+          setAuthError("✅ Conta criada! Confirme seu e-mail pra entrar (veja também o spam). Seus dados ficam salvos — é só confirmar e entrar.");
           return;
         }
         session = signInData.session;
@@ -5309,6 +5429,56 @@ export default function App() {
     } catch (e) {
       console.error("[cadastro-empresa] erro inesperado:", e);
       setAuthError("Não foi possível concluir o cadastro agora. Verifique sua conexão e tente de novo. Se continuar, fale com suporte@diariaja.com.br.");
+    } finally {
+      setSubmittingEmp(false);
+    }
+  };
+
+  // Grava os dados da empresa que faltaram no cadastro (tela "finalizar-empresa").
+  // Usado quando a conta foi criada mas o perfil ficou sem CNPJ/telefone/endereço
+  // (cadastro interrompido pela confirmação de e-mail). O user JÁ está logado, então
+  // é um UPDATE direto no próprio perfil — sem signUp/signIn de novo. Só grava
+  // colunas garantidas (as mesmas que o saveProfile normal escreve).
+  const finalizarCadastroEmpresa = async () => {
+    setAuthError("");
+    const cnpjDig = formEmp.cnpj.replace(/\D/g, "");
+    if (cnpjDig.length !== 14 || !validarCNPJ(cnpjDig)) { setAuthError("CNPJ inválido. Confira os dígitos."); return; }
+    if (!formEmp.nomeFantasia.trim())                    { setAuthError("Informe o nome do negócio / fantasia."); return; }
+    if (!validarTelefone(formEmp.telefone))              { setAuthError("Telefone inválido. Use (XX) 9XXXX-XXXX."); return; }
+    if (!formEmp.rua.trim() || !formEmp.cidade.trim() || formEmp.estado.trim().length !== 2) {
+      setAuthError("Complete o endereço (logradouro, cidade e UF)."); return;
+    }
+    // Sessão fresca (não só o estado React) — id correto pro UPDATE/RLS.
+    const { data: sess } = await supabase.auth.getSession();
+    const uid = sess?.session?.user?.id ?? session?.user?.id;
+    if (!uid) { setAuthError("Sua sessão expirou. Entre novamente."); return; }
+    setSubmittingEmp(true);
+    try {
+      const endereco = `${formEmp.rua}, ${formEmp.numero}${formEmp.complemento.trim() ? ` — ${formEmp.complemento}` : ""}, ${formEmp.bairro}, ${formEmp.cidade}/${formEmp.estado} — CEP ${formEmp.cep}`;
+      const patch = {
+        cnpj: formEmp.cnpj,
+        nome_negocio: formEmp.nomeFantasia,
+        nome: formEmp.responsavelNome.trim() || profile?.nome || "",
+        telefone: formEmp.telefone.replace(/\D/g, ""),
+        endereco_empregador: endereco,
+        pessoa_tipo: "juridica",
+      };
+      const { error } = await supabase.from("user_profiles").update(patch).eq("id", uid);
+      if (error) {
+        const m = (error.message || "").toLowerCase();
+        const code = String((error as { code?: string }).code || "");
+        if (code === "23505" || m.includes("duplicate") || m.includes("unique")) {
+          setAuthError("⚠️ Este CNPJ já está vinculado a outra conta. Se for seu, fale com suporte@diariaja.com.br.");
+        } else {
+          setAuthError("Não foi possível salvar agora. Verifique sua conexão e tente de novo.");
+        }
+        return;
+      }
+      setProfile(prev => (prev ? ({ ...prev, ...patch } as UserProfile) : prev));
+      try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
+      trackEvento("cadastro_pj_finalizado", uid, "empregador");
+      // Já tem ramo? vai pra home. Senão segue o onboarding normal (escolher ramo).
+      setTela(profile?.segmento ? "home-empregador" : "escolha-negocio");
     } finally {
       setSubmittingEmp(false);
     }
@@ -7712,9 +7882,6 @@ export default function App() {
   if (tela === "cadastro-empresa") {
     const erros = errosEmp;
     const tocados = tocadosEmp;
-    // Validação contínua: erros calculados do form atual (sem mostrar até tocar)
-    const errosAtuais = validarTodoFormEmpresa(formEmp);
-    const todoValido = Object.keys(errosAtuais).length === 0;
 
     // Helper visual: estilo do input baseado em erro tocado
     const estiloInput = (campo: keyof FormEmpresa, extra: React.CSSProperties = {}): React.CSSProperties => {
@@ -8137,19 +8304,23 @@ export default function App() {
           </button>
         ) : (
           <button
+            // Mantido SEMPRE clicável (exceto durante o envio): se algo estiver
+            // inválido, o submit leva o user ao passo do erro em vez de "morrer"
+            // calado. Antes, um campo apagado fora do passo 4 (ex.: senha) travava
+            // o botão sem o user descobrir o motivo.
             style={{
               width:"100%", padding:"16px", marginTop:18, marginBottom:24,
-              background: todoValido && !submittingEmp ? "#3A86FF" : "#cbd5e1",
-              color: todoValido && !submittingEmp ? "#fff" : "#94a3b8",
+              background: submittingEmp ? "#cbd5e1" : "#3A86FF",
+              color: submittingEmp ? "#94a3b8" : "#fff",
               border:"none", borderRadius:14, fontSize:16, fontWeight:800,
-              cursor: todoValido && !submittingEmp ? "pointer" : "default", minHeight:48,
+              cursor: submittingEmp ? "default" : "pointer", minHeight:48,
               fontFamily:"Inter, system-ui, sans-serif",
-              boxShadow: todoValido && !submittingEmp ? "0 4px 16px rgba(58,134,255,.35)" : "none",
+              boxShadow: submittingEmp ? "none" : "0 4px 16px rgba(58,134,255,.35)",
               transition:"all .2s",
             }}
-            disabled={!todoValido || submittingEmp}
+            disabled={submittingEmp}
             onClick={submitCadastroEmpresa}>
-            {submittingEmp ? "Criando conta..." : todoValido ? "✓ Criar conta empresarial" : "Aceite os termos pra continuar"}
+            {submittingEmp ? "Criando conta..." : "✓ Criar conta empresarial"}
           </button>
         )}
 
@@ -8489,11 +8660,103 @@ export default function App() {
     );
   }
 
+  // FINALIZAR CADASTRO DE EMPRESA (PJ)
+  // Tela dedicada pra quem criou a conta mas não chegou a gravar CNPJ/telefone/
+  // endereço (cadastro interrompido pela confirmação de e-mail). Pré-preenchida
+  // pelo rascunho. É etapa OBRIGATÓRIA — sem "pular": ou completa, ou sai.
+  if (tela === "finalizar-empresa") {
+    const setEmp = <K extends keyof FormEmpresa>(campo: K, valor: FormEmpresa[K]) =>
+      setFormEmp(prev => ({ ...prev, [campo]: valor }));
+    return (
+      <div style={S.page}>
+        {modalConfirmLogout}
+        <button style={S.back} onClick={() => setConfirmLogout(true)}>← Sair da conta</button>
+        <h2 style={S.pageTitle}>Quase lá! Confirme sua empresa</h2>
+        <p style={S.subTexto}>
+          Sua conta foi criada, mas faltou salvar os dados da empresa. Confirme abaixo
+          pra liberar o app — você não precisa cadastrar de novo.
+        </p>
+
+        <div style={{ background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:12, padding:"12px 14px", margin:"4px 0 18px", fontSize:12, color:"#1e40af", lineHeight:1.6 }}>
+          🔒 CNPJ e telefone são privados — nunca aparecem no perfil público.
+        </div>
+
+        <label style={S.label}>CNPJ</label>
+        <input style={{ ...S.input, letterSpacing:1 }} inputMode="numeric" maxLength={18}
+          placeholder="00.000.000/0000-00"
+          value={formEmp.cnpj}
+          onChange={e => setEmp("cnpj", maskCNPJ(e.target.value))} />
+
+        <label style={S.label}>Nome do negócio / fantasia</label>
+        <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"-6px 0 8px" }}>Nome do estabelecimento — não coloque seu nome pessoal aqui.</p>
+        <input style={S.input} placeholder="Ex: Restaurante Sabor Brasileiro"
+          value={formEmp.nomeFantasia}
+          onChange={e => setEmp("nomeFantasia", e.target.value)} />
+
+        <label style={S.label}>Telefone (WhatsApp)</label>
+        <input style={S.input} inputMode="numeric" maxLength={15} placeholder="(67) 99999-9999"
+          value={formEmp.telefone}
+          onChange={e => setEmp("telefone", maskTelefone(e.target.value))} />
+
+        <label style={S.label}>Nome do responsável (opcional)</label>
+        <input style={S.input} autoComplete="name" placeholder="Quem responde pela conta"
+          value={formEmp.responsavelNome}
+          onChange={e => setEmp("responsavelNome", e.target.value)} />
+
+        <label style={S.label}>Endereço — CEP</label>
+        <div style={{ position:"relative" as const, marginBottom:8 }}>
+          <input style={{ ...S.input, letterSpacing:0.5, marginBottom:0, paddingRight: buscandoCEPEmpresa ? 110 : 14 }}
+            inputMode="numeric" maxLength={9} placeholder="00000-000"
+            value={formEmp.cep}
+            onChange={e => {
+              let v = e.target.value.replace(/\D/g, "").slice(0, 8);
+              if (v.length > 5) v = v.slice(0, 5) + "-" + v.slice(5);
+              setEmp("cep", v);
+              if (v.replace(/\D/g, "").length === 8) buscarCEPEmpresa(v);
+            }} />
+          {buscandoCEPEmpresa && <span style={{ position:"absolute" as const, right:14, top:"50%", transform:"translateY(-50%)", fontSize:12, color:"#64748b", fontWeight:600 }}>Buscando...</span>}
+        </div>
+        <input style={S.input} placeholder="Rua / Av." value={formEmp.rua} onChange={e => setEmp("rua", e.target.value)} />
+        <div style={{ display:"flex", gap:8 }}>
+          <input style={{ ...S.input, flex:"0 0 100px" }} placeholder="Número" value={formEmp.numero} onChange={e => setEmp("numero", e.target.value)} />
+          <input style={{ ...S.input, flex:1 }} placeholder="Complemento (opcional)" value={formEmp.complemento} onChange={e => setEmp("complemento", e.target.value)} />
+        </div>
+        <input style={S.input} placeholder="Bairro" value={formEmp.bairro} onChange={e => setEmp("bairro", e.target.value)} />
+        <div style={{ display:"flex", gap:8 }}>
+          <input style={{ ...S.input, flex:1 }} placeholder="Cidade" value={formEmp.cidade} onChange={e => setEmp("cidade", e.target.value)} />
+          <input style={{ ...S.input, flex:"0 0 70px", textTransform:"uppercase" as const }} placeholder="UF" maxLength={2}
+            value={formEmp.estado} onChange={e => setEmp("estado", e.target.value.toUpperCase().slice(0, 2))} />
+        </div>
+
+        {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
+
+        <button style={{ ...S.btnPrimary, marginTop:16, opacity: submittingEmp ? 0.6 : 1 }}
+          disabled={submittingEmp}
+          onClick={finalizarCadastroEmpresa}>
+          {submittingEmp ? "Salvando..." : "✓ Confirmar e continuar"}
+        </button>
+      </div>
+    );
+  }
+
   // ESCOLHA DE NEGÓCIO
   if (tela === "escolha-negocio") return (
     <div style={S.page}>
-      {/* Se já tem perfil salvo, volta para home; senão volta para o cadastro */}
-      <button style={S.back} onClick={() => setTela(profile ? "home-empregador" : "cadastro-empregador")}>← Voltar</button>
+      {/* Modal de logout: o "Voltar" daqui pode oferecer sair da conta quando
+          o empregador ainda não escolheu segmento (evita loop com a home). */}
+      {modalConfirmLogout}
+      {/* "Voltar" sem loop: a home do empregador EXIGE um segmento — sem ele,
+          ela rebate de volta pra cá. Então:
+          - com segmento salvo → home (seguro, o user só veio trocar de ramo);
+          - logado SEM segmento → escolha-negocio é etapa obrigatória e não há
+            tela anterior válida; oferece SAIR da conta em vez de prender num
+            loop de "Voltar" (era o bug: home → escolha → home → …);
+          - sem perfil → volta pro cadastro. */}
+      <button style={S.back} onClick={() => {
+        if (profile?.segmento) setTela("home-empregador");
+        else if (profile) setConfirmLogout(true);
+        else setTela("cadastro-empregador");
+      }}>← Voltar</button>
       <h2 style={S.pageTitle}>Qual é o seu negócio?</h2>
       <p style={S.subTexto}>Você verá apenas profissionais do seu setor.</p>
       <div style={S.negocioGrid}>
@@ -9207,10 +9470,25 @@ export default function App() {
         }
         return true;
       })
+      // Ordenação determinística + por relevância. Critérios, em ordem:
+      // 1) impulsionado (plano)  2) disponível  3) nível de confiança
+      // 4) mais perto (se geo conhecida)  5) id (desempate ESTÁVEL — evita o
+      // "embaralha" entre navegações que existia quando só ordenava por destaque
+      // e o resto vinha em ordem arbitrária do banco).
       .sort((a, b) => {
-        const aD = (a as UserProfile & { plano_ativo?: string }).plano_ativo === "destaque" ? 1 : 0;
-        const bD = (b as UserProfile & { plano_ativo?: string }).plano_ativo === "destaque" ? 1 : 0;
-        return bD - aD;
+        const A = a as UserProfile & { plano_ativo?: string; nivel?: number };
+        const B = b as UserProfile & { plano_ativo?: string; nivel?: number };
+        const boost = Number(B.plano_ativo === "destaque") - Number(A.plano_ativo === "destaque");
+        if (boost) return boost;
+        const disp = Number(!!B.disponivel) - Number(!!A.disponivel);
+        if (disp) return disp;
+        const nivel = Number(B.nivel ?? 0) - Number(A.nivel ?? 0);
+        if (nivel) return nivel;
+        const temGeo = !!(profile?.lat && profile?.lng);
+        const distA = temGeo && A.lat && A.lng ? haversineKm(profile!.lat!, profile!.lng!, A.lat!, A.lng!) : Infinity;
+        const distB = temGeo && B.lat && B.lng ? haversineKm(profile!.lat!, profile!.lng!, B.lat!, B.lng!) : Infinity;
+        if (distA !== distB) return distA - distB;
+        return String(A.id).localeCompare(String(B.id));
       });
 
     return (

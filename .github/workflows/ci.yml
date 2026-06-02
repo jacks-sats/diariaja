@@ -1,0 +1,40 @@
+name: CI
+
+# Roda em TODO Pull Request (e em push na main) ANTES do merge:
+# garante que tsc + testes + build passam. Bloqueia código quebrado de chegar
+# na main quando a branch estiver protegida (Settings → Branches → require checks).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: tsc + testes + build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Verificar (tsc --noEmit + vitest + vite build)
+        run: npm run verify
+
+# NOTA: tínhamos um job "deno check" nas Edge Functions, mas a lib estrita do
+# Deno v2 gera falsos positivos contra o runtime real do Supabase (ex.: WebCrypto
+# com Uint8Array<ArrayBufferLike> vs BufferSource em send-push, que funciona em
+# produção). Removido pra não sujar o PR de vermelho. Um type-check de functions
+# casado com a versão de lib do Supabase fica como follow-up.

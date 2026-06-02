@@ -1,0 +1,14 @@
+{
+  "name": "diariaja-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Testes end-to-end (Playwright) do DiáriaJá. Isolado do app pra não afetar o npm ci do CI principal.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
