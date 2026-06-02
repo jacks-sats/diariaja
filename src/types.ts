@@ -103,6 +103,7 @@ export interface UserProfile {
   plano_ativo?: string;       // 'gratis' | 'destaque'
   plano_expira_em?: string;   // vencimento do plano pago (plano de 30 dias via Pix/cartão)
   is_admin?: boolean;
+  acesso_total?: boolean;     // beta: liberado a criar vaga / se candidatar (testers + admin)
   is_suporte?: boolean;       // agente de suporte — promovido pelo admin via RPC promover_suporte()
   portfolio_urls?: string[];  // até 3 fotos do trabalho (diarista)
   // ── Níveis de confiabilidade ─────────────────────────────────────────

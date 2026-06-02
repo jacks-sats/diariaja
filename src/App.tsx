@@ -366,6 +366,18 @@ export default function App() {
   const [toastSuccess, setToastSuccess]               = useState("");  // toast verde auto-dismiss 3s
   const [toastError, setToastError]                   = useState("");  // toast vermelho auto-dismiss 4s
 
+  // ── Modo Beta (lançamento controlado) ───────────────────────────────────────
+  // Enquanto `modoBeta` ligado no servidor, quem NÃO é tester (acesso_total) nem
+  // admin não pode criar vaga nem se candidatar — só completa perfil e navega.
+  // Lançar = UPDATE app_config SET valor='false' WHERE chave='modo_beta'.
+  const [modoBeta, setModoBeta] = useState(false);
+  useEffect(() => {
+    supabase.rpc("modo_beta_ativo").then(
+      ({ data }) => setModoBeta(data === true),
+      () => { /* RPC ainda não aplicada → trata como desligado */ },
+    );
+  }, []);
+
   // Notificações in-app (painel do sino)
   // Notificações persistidas (localStorage diariaja_notifs) — sobrevivem ao
   // recarregar. `destino` (opcional) define a tela ao tocar; `lida` marca lida.
@@ -3407,6 +3419,11 @@ export default function App() {
 
   const enviarConvite = async () => {
     if (!session?.user || !diaristaSelecionadaReal) return;
+    // Modo Beta: não-testers não convidam ainda (servidor também bloqueia).
+    if (modoBeta && !profile?.acesso_total && !profile?.is_admin) {
+      setToastSuccess("🚀 Estamos em beta! Convites abrem no lançamento. 😉");
+      return;
+    }
     // Valida campos obrigatórios — aceita CEP ou endereço livre
     const enderecoFinal = formConvite.rua.trim()
       ? `${formConvite.rua}, ${formConvite.numero}${formConvite.complemento.trim() ? ` — ${formConvite.complemento.trim()}` : ""}, ${formConvite.bairro}, ${formConvite.cidade}/${formConvite.estado}${formConvite.cep ? ` — CEP ${formConvite.cep}` : ""}`
@@ -4326,6 +4343,11 @@ export default function App() {
   const demonstrarInteresse = async (diaria: Diaria) => {
     if (!session?.user) return;
     if (enviandoInteresse) return; // guard: evita duplo-clique criar 2 candidaturas
+    // Modo Beta: não-testers não se candidatam ainda (servidor também bloqueia).
+    if (modoBeta && !profile?.acesso_total && !profile?.is_admin) {
+      setToastSuccess("🚀 Estamos em beta! Candidaturas abrem no lançamento. Complete seu perfil pra largar na frente. 😉");
+      return;
+    }
 
     // Trava de maioridade: só se candidata quem tem documento (RG/CNH) APROVADO.
     // A data de nascimento é auto-declarada e não prova idade; o documento aprovado
@@ -4831,6 +4853,11 @@ export default function App() {
 
   const salvarDiaria = async () => {
     if (!session?.user) return;
+    // Modo Beta: não-testers não publicam vaga ainda (servidor também bloqueia).
+    if (modoBeta && !profile?.acesso_total && !profile?.is_admin) {
+      setToastSuccess("🚀 Estamos em beta! Publicar vagas abre no lançamento. Por enquanto, deixe seu perfil completo. 😉");
+      return;
+    }
 
     // ── Limite de vagas: removido (vagas são ilimitadas em todos os planos) ──
     // O limite passou a ser em seleções de candidato (R$ 1/contato extra no grátis)
@@ -5733,6 +5760,14 @@ export default function App() {
   // telas que têm botão "Sair da conta" (home-diarista, home-empregador,
   // configuracoes). Era antes preso DENTRO da tela configuracoes, então
   // clicar em "Sair" nas homes mudava state mas modal nunca aparecia.
+  // Banner do Modo Beta — mostrado no topo das homes pra quem está gated.
+  const betaBloqueado = modoBeta && !profile?.acesso_total && !profile?.is_admin;
+  const bannerBeta = betaBloqueado ? (
+    <div style={{ background:"linear-gradient(135deg,#FF6B35,#fb923c)", color:"#fff", padding:"11px 16px", fontSize:13, fontWeight:600, lineHeight:1.5, textAlign:"center" as const }}>
+      🚀 <strong>Versão beta</strong> — lançamento em breve. Aproveite pra deixar seu perfil completo e largar na frente! Publicar vagas e candidaturas abrem no lançamento.
+    </div>
+  ) : null;
+
   const modalConfirmLogout = confirmLogout ? (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:9000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmLogout(false)}>
       <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
@@ -9498,6 +9533,7 @@ export default function App() {
             dessa home — antes ficava preso em configuracoes e não aparecia
             quando user clicava "Sair" em outras telas). */}
         {modalConfirmLogout}
+        {bannerBeta}
 
         {/* ── Header ── */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
@@ -12369,6 +12405,7 @@ export default function App() {
         {/* Modal global de logout (mesmo motivo do home-empregador) */}
         {modalConfirmLogout}
         {modalDenunciarJSX}
+        {bannerBeta}
 
         {/* ── Header novo estilo ── */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
