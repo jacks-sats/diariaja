@@ -5293,7 +5293,73 @@ export default function App() {
         return;
       }
 
-      // Cria a conta no Supabase Auth
+      // ── Caminho NOVO: cadastro via servidor ──────────────────────────────
+      // Cria a conta JÁ confirmada e grava o CNPJ na hora (Edge Function
+      // signup-empresa, service-role). Resultado: a empresa entra por CNPJ na
+      // mesma hora, sem depender da confirmação de e-mail. Se a função ainda
+      // não estiver deployada (404) ou a rede falhar, cai no fluxo antigo
+      // (signUp client) logo abaixo — nada quebra antes do deploy.
+      try {
+        const respSrv = await fetch(`${SUPABASE_URL}/functions/v1/signup-empresa`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            cnpj: formEmp.cnpj, nomeFantasia: formEmp.nomeFantasia, razaoSocial: formEmp.razaoSocial,
+            email: formEmp.email.trim(), telefone: formEmp.telefone, senha: formEmp.senha,
+            cep: formEmp.cep, rua: formEmp.rua, numero: formEmp.numero, complemento: formEmp.complemento,
+            bairro: formEmp.bairro, cidade: formEmp.cidade, estado: formEmp.estado,
+            responsavelNome: formEmp.responsavelNome, responsavelCpf: formEmp.responsavelCpf,
+          }),
+        });
+        if (respSrv.status !== 404) {
+          const jsonSrv = await respSrv.json().catch(() => ({} as { ok?: boolean; error?: string }));
+          if (!respSrv.ok || !jsonSrv.ok) {
+            if (jsonSrv.error === "cnpj_existe") {
+              setPassoEmpresa(1);
+              setTocadosEmp(t => ({ ...t, cnpj: true }));
+              setErrosEmp(e => ({ ...e, cnpj: "Este CNPJ já está cadastrado. Faça login com a conta existente." }));
+              setAuthError("⚠️ Este CNPJ já possui cadastro. Entre na conta existente (login por CNPJ + senha).");
+            } else if (jsonSrv.error === "email_existe") {
+              setForm(prev => ({ ...prev, email: formEmp.email.trim() }));
+              setModoLogin("email");
+              setTela("login");
+              setAuthError("Você já tem conta com esse e-mail. Entre com sua senha pra continuar. Esqueceu a senha? Use 'Esqueci minha senha'.");
+            } else if (respSrv.status === 429) {
+              setAuthError("Muitas tentativas. Aguarde um minuto e tente de novo.");
+            } else {
+              setAuthError("Confira os dados (CNPJ, e-mail, telefone, senha e endereço) e tente de novo.");
+            }
+            return;
+          }
+          // Sucesso: conta criada + perfil com CNPJ salvos no servidor. Loga
+          // direto (sem e-mail) — agora o login por CNPJ também funciona.
+          const { error: signInErr } = await supabase.auth.signInWithPassword({
+            email: formEmp.email.trim(), password: formEmp.senha,
+          });
+          if (signInErr) {
+            setForm(prev => ({ ...prev, email: formEmp.email.trim() }));
+            setModoLogin("email");
+            setTela("login");
+            setAuthError("✅ Conta criada! Entre com seu CNPJ ou e-mail e a senha que você criou.");
+            return;
+          }
+          try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
+          trackEvento("cadastro_pj_concluido", undefined, "empregador", { via: "servidor" });
+          setTela("escolha-negocio");
+          return;
+        }
+        // 404 → função não deployada ainda: segue pro fluxo antigo abaixo.
+      } catch {
+        // Rede falhou na chamada da função: tenta o fluxo antigo (signUp client).
+      }
+
+      // ── Fallback: fluxo antigo (signUp client-side) ──────────────────────
+      // Usado só se a função signup-empresa não estiver deployada. Mantém o app
+      // funcionando (com a etapa de confirmação de e-mail) até o deploy.
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: formEmp.email.trim(),
         password: formEmp.senha,
