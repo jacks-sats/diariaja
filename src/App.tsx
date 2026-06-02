@@ -8516,8 +8516,21 @@ export default function App() {
   // ESCOLHA DE NEGÓCIO
   if (tela === "escolha-negocio") return (
     <div style={S.page}>
-      {/* Se já tem perfil salvo, volta para home; senão volta para o cadastro */}
-      <button style={S.back} onClick={() => setTela(profile ? "home-empregador" : "cadastro-empregador")}>← Voltar</button>
+      {/* Modal de logout: o "Voltar" daqui pode oferecer sair da conta quando
+          o empregador ainda não escolheu segmento (evita loop com a home). */}
+      {modalConfirmLogout}
+      {/* "Voltar" sem loop: a home do empregador EXIGE um segmento — sem ele,
+          ela rebate de volta pra cá. Então:
+          - com segmento salvo → home (seguro, o user só veio trocar de ramo);
+          - logado SEM segmento → escolha-negocio é etapa obrigatória e não há
+            tela anterior válida; oferece SAIR da conta em vez de prender num
+            loop de "Voltar" (era o bug: home → escolha → home → …);
+          - sem perfil → volta pro cadastro. */}
+      <button style={S.back} onClick={() => {
+        if (profile?.segmento) setTela("home-empregador");
+        else if (profile) setConfirmLogout(true);
+        else setTela("cadastro-empregador");
+      }}>← Voltar</button>
       <h2 style={S.pageTitle}>Qual é o seu negócio?</h2>
       <p style={S.subTexto}>Você verá apenas profissionais do seu setor.</p>
       <div style={S.negocioGrid}>
