@@ -2437,6 +2437,40 @@ export default function App() {
         data.plano_ativo = "gratis";
         void supabase.from("user_profiles").update({ plano_ativo: "gratis" }).eq("id", userId);
       }
+      // ── Recuperação do cadastro PJ perdido na confirmação de e-mail ──────────
+      // O cadastro de empresa cria a conta (signUp) ANTES de gravar o perfil e,
+      // quando a confirmação de e-mail é obrigatória, o passo de gravação era
+      // pulado — CNPJ/telefone/endereço se perdiam e o user caía num perfil
+      // vazio pedindo tudo de novo. Aqui, no 1º acesso autenticado, aplicamos o
+      // rascunho que ficou guardado em localStorage. Best-effort: se algo falhar
+      // (ex.: CNPJ já em outra conta), só não recupera — não quebra o login.
+      if (data.user_type === "empregador" && data.pessoa_tipo === "juridica" && !data.cnpj) {
+        try {
+          const rawDraft = localStorage.getItem("diariaja_cad_empresa_draft");
+          if (rawDraft) {
+            const d = JSON.parse(rawDraft) as Record<string, string>;
+            const cnpjDig = (d.cnpj || "").replace(/\D/g, "");
+            if (cnpjDig.length === 14 && validarCNPJ(cnpjDig)) {
+              const endereco = `${d.rua}, ${d.numero}${d.complemento?.trim() ? ` — ${d.complemento}` : ""}, ${d.bairro}, ${d.cidade}/${d.estado} — CEP ${d.cep}`;
+              // Só colunas garantidas (escritas pelo saveProfile normal). Razão
+              // social / responsável vêm de migration ainda pendente — incluí-las
+              // aqui arriscaria derrubar TODO o UPDATE se a coluna não existir.
+              const patch = {
+                cnpj: d.cnpj,
+                nome_negocio: d.nomeFantasia || data.nome_negocio || "",
+                nome: d.responsavelNome || data.nome || "",
+                telefone: (d.telefone || "").replace(/\D/g, ""),
+                endereco_empregador: endereco,
+              };
+              const { error: recErr } = await supabase.from("user_profiles").update(patch).eq("id", userId);
+              if (!recErr) {
+                Object.assign(data, patch);
+                try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
+              }
+            }
+          }
+        } catch { /* recuperação é best-effort — nunca derruba o login */ }
+      }
       setProfile(data);
       setTipo(data.user_type);
       setNegocio(data.segmento || null);
@@ -5300,8 +5334,11 @@ export default function App() {
         });
         if (signInError) {
           // Confirma e-mail obrigatório no Supabase. Conta criada mas sem login.
-          try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
-          setAuthError("✅ Conta criada! Confirme seu e-mail para entrar (verifique também o spam).");
+          // NÃO apaga o rascunho: como a gravação do perfil (CNPJ/telefone/
+          // endereço) só roda DEPOIS de logar, ela é pulada aqui. Mantemos o
+          // rascunho pra o checkProfile recuperar os dados no 1º acesso após a
+          // confirmação — senão o user volta pra um perfil vazio (bug relatado).
+          setAuthError("✅ Conta criada! Confirme seu e-mail pra entrar (veja também o spam). Seus dados ficam salvos — é só confirmar e entrar.");
           return;
         }
         session = signInData.session;
