@@ -2841,6 +2841,9 @@ export default function App() {
     } catch { /* ignore */ }
 
     setAuthError(""); setAuthLoading(true);
+    // try/finally: garante que o botão nunca fica preso em "Criando conta..."
+    // e que sempre há feedback, mesmo em erro inesperado de rede/timeout.
+    try {
     const { data: signupData, error } = await supabase.auth.signUp({
       email: form.email.trim(),
       password: form.senha,
@@ -2909,6 +2912,12 @@ export default function App() {
     if (tipo === "diarista") setTela("home-diarista");
     else if (tipo === "empregador") setTela("home-empregador");
     else setTela("cadastro-tipo");  // fallback defensivo
+    } catch (e) {
+      console.error("[cadastro-diarista] erro inesperado:", e);
+      setAuthError("Não foi possível concluir o cadastro agora. Verifique sua conexão e tente de novo.");
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleResetSenha = async () => {
@@ -5218,71 +5227,79 @@ export default function App() {
   const submitCadastroEmpresa = async () => {
     setSubmittingEmp(true);
     setAuthError("");
-    const erros = validarTodoFormEmpresa(formEmp);
-    setErrosEmp(erros);
-    // Marca todos como tocados pra mostrar todos os erros de uma vez
-    setTocadosEmp(Object.fromEntries((Object.keys(formEmp) as Array<keyof FormEmpresa>).map(k => [k, true])));
-    if (Object.keys(erros).length > 0) {
-      setSubmittingEmp(false);
-      setAuthError("Corrija os campos destacados antes de continuar.");
-      return;
-    }
-
-    // Cria a conta no Supabase Auth
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email: formEmp.email.trim(),
-      password: formEmp.senha,
-      options: {
-        data: { user_type: "empregador", pessoa_tipo: "juridica" },
-        emailRedirectTo: window.location.origin,
-      },
-    });
-    if (signUpError) {
-      setSubmittingEmp(false);
-      setAuthError(traduzirErroAuth(signUpError.message));
-      return;
-    }
-
-    // Monta endereço formatado e dispara saveProfile depois que tiver sessão.
-    // Se Supabase está com "Confirm email" ligado, signUpData.session é null —
-    // pre-loga via signInWithPassword (a conta já existe). Pode falhar se a
-    // confirmação for obrigatória — nesse caso, mostra mensagem clara.
-    let session = signUpData.session;
-    if (!session) {
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: formEmp.email.trim(),
-        password: formEmp.senha,
-      });
-      if (signInError) {
-        // Confirma e-mail obrigatório no Supabase. Conta criada mas sem login.
-        setSubmittingEmp(false);
-        try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
-        setAuthError("✅ Conta criada! Confirme seu e-mail para entrar (verifique também o spam).");
+    // try/finally garante que o botão NUNCA fica travado em "Criando conta..."
+    // (antes, qualquer exceção de rede/timeout parava a função no meio e o
+    // cadastro "congelava" sem feedback — origem das contas pela metade).
+    try {
+      const erros = validarTodoFormEmpresa(formEmp);
+      setErrosEmp(erros);
+      // Marca todos como tocados pra mostrar todos os erros de uma vez
+      setTocadosEmp(Object.fromEntries((Object.keys(formEmp) as Array<keyof FormEmpresa>).map(k => [k, true])));
+      if (Object.keys(erros).length > 0) {
+        setAuthError("Corrija os campos destacados antes de continuar.");
         return;
       }
-      session = signInData.session;
-    }
 
-    const endereco = `${formEmp.rua}, ${formEmp.numero}${formEmp.complemento.trim() ? ` — ${formEmp.complemento}` : ""}, ${formEmp.bairro}, ${formEmp.cidade}/${formEmp.estado} — CEP ${formEmp.cep}`;
-    const ok = await saveProfile({
-      user_type: "empregador",
-      pessoa_tipo: "juridica",
-      cnpj: formEmp.cnpj,
-      nome_negocio: formEmp.nomeFantasia,   // legacy/compat
-      nome_fantasia: formEmp.nomeFantasia,
-      razao_social: formEmp.razaoSocial,
-      nome: formEmp.responsavelNome,        // legacy: nome da conta = responsável
-      responsavel_nome: formEmp.responsavelNome,
-      responsavel_cpf: formEmp.responsavelCpf.replace(/\D/g, ""),
-      telefone: formEmp.telefone.replace(/\D/g, ""),
-      endereco_empregador: endereco,
-    });
-    setSubmittingEmp(false);
-    if (ok) {
-      try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
-      setTela("escolha-negocio");
-    } else {
-      setAuthError("Conta criada, mas houve um erro ao salvar os dados da empresa. Tente novamente.");
+      // Cria a conta no Supabase Auth
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: formEmp.email.trim(),
+        password: formEmp.senha,
+        options: {
+          data: { user_type: "empregador", pessoa_tipo: "juridica" },
+          emailRedirectTo: window.location.origin,
+        },
+      });
+      if (signUpError) {
+        setAuthError(traduzirErroAuth(signUpError.message));
+        return;
+      }
+
+      // Monta endereço formatado e dispara saveProfile depois que tiver sessão.
+      // Se Supabase está com "Confirm email" ligado, signUpData.session é null —
+      // pre-loga via signInWithPassword (a conta já existe). Pode falhar se a
+      // confirmação for obrigatória — nesse caso, mostra mensagem clara.
+      let session = signUpData.session;
+      if (!session) {
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email: formEmp.email.trim(),
+          password: formEmp.senha,
+        });
+        if (signInError) {
+          // Confirma e-mail obrigatório no Supabase. Conta criada mas sem login.
+          try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
+          setAuthError("✅ Conta criada! Confirme seu e-mail para entrar (verifique também o spam).");
+          return;
+        }
+        session = signInData.session;
+      }
+
+      const endereco = `${formEmp.rua}, ${formEmp.numero}${formEmp.complemento.trim() ? ` — ${formEmp.complemento}` : ""}, ${formEmp.bairro}, ${formEmp.cidade}/${formEmp.estado} — CEP ${formEmp.cep}`;
+      const ok = await saveProfile({
+        user_type: "empregador",
+        pessoa_tipo: "juridica",
+        cpf: "",                              // PJ não tem CPF próprio — evita o CPF da PF "vazar" e bater no CPF único
+        cnpj: formEmp.cnpj,
+        nome_negocio: formEmp.nomeFantasia,   // legacy/compat
+        nome_fantasia: formEmp.nomeFantasia,
+        razao_social: formEmp.razaoSocial,
+        nome: formEmp.responsavelNome,        // legacy: nome da conta = responsável
+        responsavel_nome: formEmp.responsavelNome,
+        responsavel_cpf: formEmp.responsavelCpf.replace(/\D/g, ""),
+        telefone: formEmp.telefone.replace(/\D/g, ""),
+        endereco_empregador: endereco,
+      });
+      if (ok) {
+        try { localStorage.removeItem("diariaja_cad_empresa_draft"); } catch { /* ignore */ }
+        setTela("escolha-negocio");
+      }
+      // Se !ok, o saveProfile JÁ mostrou a mensagem ESPECÍFICA (ex.: "Este CNPJ
+      // já possui cadastro"). NÃO sobrescrevemos com texto genérico — a pessoa
+      // precisa saber exatamente o que houve pra corrigir.
+    } catch (e) {
+      console.error("[cadastro-empresa] erro inesperado:", e);
+      setAuthError("Não foi possível concluir o cadastro agora. Verifique sua conexão e tente de novo. Se continuar, fale com suporte@diariaja.com.br.");
+    } finally {
+      setSubmittingEmp(false);
     }
   };
 
@@ -8178,35 +8195,43 @@ export default function App() {
     const submitEmpPF = async () => {
       setSubmittingEmpPF(true);
       setAuthError("");
-      const errosF = validarTodoFormEmpPF();
-      setErrosEmpPF(errosF);
-      setTocadosEmpPF(Object.fromEntries((Object.keys(errosF) as CampoEmpPF[]).map(k => [k, true])));
-      if (Object.keys(errosF).length > 0) {
+      // try/finally: o botão nunca trava em "Criando conta..." mesmo se der
+      // erro inesperado (rede/timeout). E o saveProfile já mostra a mensagem
+      // específica quando falha — não engolimos o feedback.
+      try {
+        const errosF = validarTodoFormEmpPF();
+        setErrosEmpPF(errosF);
+        setTocadosEmpPF(Object.fromEntries((Object.keys(errosF) as CampoEmpPF[]).map(k => [k, true])));
+        if (Object.keys(errosF).length > 0) {
+          setAuthError("Corrija os campos destacados antes de continuar.");
+          return;
+        }
+        const endEmp = `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp.trim() ? ` — ${form.complementoEmp}` : ""}, ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} — CEP ${form.cepEmp}`;
+        const segmentoEscolhido = negocioSelecionado || profile?.segmento || "";
+        const ok = await saveProfile({
+          nome_negocio: form.nomeNegocio.trim() || form.nome,
+          telefone: form.telefone.replace(/\D/g, ""),
+          cpf: form.cpf,
+          pessoa_tipo: "fisica",
+          segmento: segmentoEscolhido,
+          endereco_empregador: endEmp,
+          ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
+        });
+        if (ok) {
+          setTabEmpregador("inicio");
+          trackEvento("cadastro_concluido", session?.user?.id, "empregador");
+          try { localStorage.removeItem("diariaja_cad_emppf_passo"); } catch { /* ignore */ }
+          setPassoEmpregadorPF(1);
+          setErrosEmpPF({});
+          setTocadosEmpPF({});
+          setAceitaTermosEmpPF(false);
+          setTela(profile?.lat ? "home-empregador" : "pedir-localizacao");
+        }
+      } catch (e) {
+        console.error("[cadastro-emppf] erro inesperado:", e);
+        setAuthError("Não foi possível concluir o cadastro agora. Verifique sua conexão e tente de novo.");
+      } finally {
         setSubmittingEmpPF(false);
-        setAuthError("Corrija os campos destacados antes de continuar.");
-        return;
-      }
-      const endEmp = `${form.ruaEmp}, ${form.numeroEmp}${form.complementoEmp.trim() ? ` — ${form.complementoEmp}` : ""}, ${form.bairroEmp}, ${form.cidadeEmp}/${form.estadoEmp} — CEP ${form.cepEmp}`;
-      const segmentoEscolhido = negocioSelecionado || profile?.segmento || "";
-      const ok = await saveProfile({
-        nome_negocio: form.nomeNegocio.trim() || form.nome,
-        telefone: form.telefone.replace(/\D/g, ""),
-        cpf: form.cpf,
-        pessoa_tipo: "fisica",
-        segmento: segmentoEscolhido,
-        endereco_empregador: endEmp,
-        ...(latPerfilCEP !== null ? { lat: latPerfilCEP, lng: lngPerfilCEP } : {}),
-      });
-      setSubmittingEmpPF(false);
-      if (ok) {
-        setTabEmpregador("inicio");
-        trackEvento("cadastro_concluido", session?.user?.id, "empregador");
-        try { localStorage.removeItem("diariaja_cad_emppf_passo"); } catch { /* ignore */ }
-        setPassoEmpregadorPF(1);
-        setErrosEmpPF({});
-        setTocadosEmpPF({});
-        setAceitaTermosEmpPF(false);
-        setTela(profile?.lat ? "home-empregador" : "pedir-localizacao");
       }
     };
 
