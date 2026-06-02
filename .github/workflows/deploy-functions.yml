@@ -1,0 +1,42 @@
+name: Deploy Edge Functions
+
+# Publica as Edge Functions do Supabase automaticamente.
+#
+# Dispara quando algo em supabase/functions/** muda na main (após o merge do PR)
+# e também na branch de trabalho atual — assim dá pra publicar ANTES do merge,
+# direto do celular (é só re-rodar o job na aba Actions depois de cadastrar os
+# segredos). Também pode ser disparado manualmente em "Run workflow".
+#
+# Pré-requisito (1x): cadastrar 2 segredos no GitHub
+#   Settings → Secrets and variables → Actions → New repository secret
+#     - SUPABASE_ACCESS_TOKEN  (Supabase → Account → Access Tokens → Generate new)
+#     - SUPABASE_PROJECT_REF   (o "ref" do projeto, está na URL do dashboard)
+
+on:
+  push:
+    branches:
+      - main
+      - claude/bora-ubKf5
+    paths:
+      - "supabase/functions/**"
+      - ".github/workflows/deploy-functions.yml"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy signup-empresa
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy signup-empresa \
+            --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
