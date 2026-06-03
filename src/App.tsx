@@ -819,7 +819,7 @@ export default function App() {
   const CAMPOS_POR_PASSO_DIA: Record<1 | 2 | 3 | 4, CampoDia[]> = {
     1: ["foto", "nome", "sexo", "dataNasc"],
     2: ["telefone", "cpf"],
-    3: ["categorias", "valor", "pixChave"],
+    3: ["categorias", "valor"],
     4: ["agenda", "aceitaTermos"],
   };
 
@@ -5316,7 +5316,6 @@ export default function App() {
         if (!form.valor || isNaN(n) || n <= 0) return "Informe um valor por diária.";
         return undefined;
       }
-      case "pixChave":  return validarPix(form.pixChave, form.pixTipo) || undefined;
       case "agenda":    return (agendaSelecionada.length > 0 || disponivelAgora) ? undefined : 'Selecione ao menos um dia ou marque "Disponível agora".';
       case "aceitaTermos": return aceitaTermosDia ? undefined : "Você precisa aceitar os Termos.";
       default:          return undefined;
@@ -5324,7 +5323,7 @@ export default function App() {
   };
   const validarTodoFormDiarista = (): Partial<Record<CampoDia, string>> => {
     const erros: Partial<Record<CampoDia, string>> = {};
-    (["foto","nome","sexo","dataNasc","telefone","cpf","categorias","valor","pixChave","agenda","aceitaTermos"] as CampoDia[])
+    (["foto","nome","sexo","dataNasc","telefone","cpf","categorias","valor","agenda","aceitaTermos"] as CampoDia[])
       .forEach(c => { const e = validarCampoDiarista(c); if (e) erros[c] = e; });
     return erros;
   };
@@ -6675,7 +6674,7 @@ export default function App() {
               const secoesDiarista = isDiarista ? [
                 { titulo:"8. Atuação Autônoma (prestador)", body:`Você se cadastra como PRESTADOR AUTÔNOMO. Não há vínculo empregatício com a DiáriaJá nem com os anunciantes que você atender via plataforma. A relação entre anunciante e prestador é independente e autônoma.\n\nA DiáriaJá não recolhe INSS, FGTS, IR ou demais encargos trabalhistas. Você é responsável por suas próprias obrigações fiscais e previdenciárias. Recomendamos formalização como MEI (Microempreendedor Individual) para garantir cobertura previdenciária.` },
                 { titulo:"9. Riscos e Responsabilidade do Profissional", body:`Você reconhece que prestar serviços autônomos envolve riscos próprios da atividade (deslocamento, acidentes, conflitos, inadimplemento do anunciante). A DiáriaJá não fornece seguro nem cobertura para esses riscos e não participa da execução do serviço.\n\nAvalie o ambiente do serviço ANTES de aceitar um anúncio. Se sentir-se inseguro, recuse. Em caso de denúncia ou acidente, registre boletim de ocorrência e acione o suporte.` },
-                { titulo:"10. Pagamento ao Prestador", body:`A DiáriaJá NÃO intermedia o pagamento entre você e o anunciante. A combinação e o repasse do valor da diária acontecem DIRETAMENTE entre as partes (PIX, dinheiro, etc.).\n\nA plataforma cobra apenas uma taxa de uso via Mercado Pago do anunciante. O valor da diária em si é negociado e pago fora da plataforma.\n\nA chave PIX cadastrada no seu perfil serve para o anunciante te identificar facilmente, mas a DiáriaJá NÃO é responsável por valores combinados nem por inadimplência.` },
+                { titulo:"10. Pagamento ao Prestador", body:`A DiáriaJá NÃO intermedia o pagamento entre você e o anunciante. A combinação e o repasse do valor da diária acontecem DIRETAMENTE entre as partes (PIX, dinheiro, etc.).\n\nA plataforma cobra apenas uma taxa de uso via Mercado Pago do anunciante. O valor da diária em si é negociado e pago fora da plataforma.\n\nA forma de pagamento (PIX, dinheiro, etc.) é combinada diretamente entre as partes pelo chat. A DiáriaJá NÃO é responsável por valores combinados nem por inadimplência.` },
               ] : [];
               const secoesContratante = isContratante ? [
                 { titulo:"8. Responsabilidade do Anunciante", body:`Ao publicar um anúncio e entrar em contato com um prestador, você assume responsabilidade pelo AMBIENTE em que o serviço será realizado: segurança, condições de higiene, equipamentos e EPIs (quando aplicável). A plataforma não participa da execução do serviço.\n\nÉ proibido anunciar serviços ilegais, perigosos sem proteção, ou contrários à dignidade da pessoa. Atividades insalubres ou perigosas exigem precauções específicas — informe ao prestador antecipadamente.` },
@@ -8952,20 +8951,12 @@ export default function App() {
       }
       // Normaliza valores antes de gravar — banco fica com formato canônico.
       const telDigitos = form.telefone.replace(/\D/g, "");
-      const pixNorm =
-        form.pixTipo === "cpf" || form.pixTipo === "cnpj"
-          ? form.pixChave.replace(/\D/g, "")
-          : form.pixTipo === "telefone"
-            ? "+55" + form.pixChave.replace(/\D/g, "")
-            : form.pixChave.trim();
       const ok = await saveProfile({
         telefone: telDigitos,
         funcao: categoriasSelecionadas[0] || "",
         cpf: form.cpf,
         sexo: form.sexo,
         data_nascimento: form.dataNasc,
-        pix_chave: pixNorm,
-        pix_tipo: form.pixTipo as "cpf" | "cnpj" | "email" | "telefone" | "aleatoria",
       });
       setSubmittingDia(false);
       if (ok) {
@@ -9155,39 +9146,6 @@ export default function App() {
                 </>
               );
             })()}
-
-            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, marginTop:18, textTransform:"uppercase" as const, letterSpacing:0.5 }}>💰 Chave PIX *</div>
-            <p style={{ color:"var(--text-3,#94a3b8)", fontSize:12, margin:"0 0 8px", lineHeight:1.5 }}>
-              Aparece para o anunciante facilitar o pagamento direto. A DiáriaJá não intermedia.
-            </p>
-            <label style={S.label}>Tipo de chave</label>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:6, marginBottom:8 }}>
-              {([["cpf","CPF"],["cnpj","CNPJ"],["email","E-mail"],["telefone","Celular"],["aleatoria","Aleatória"]] as const).map(([val, label]) => {
-                const ativo = form.pixTipo === val;
-                return (
-                  <button key={val} type="button"
-                    style={{ padding:"11px 6px", border: ativo ? "2px solid #FF6B35" : "1.5px solid #e2e8f0", borderRadius:10, background: ativo ? "#fff7f3" : "#f8fafc", color: ativo ? "#FF6B35" : "#475569", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                    onClick={() => { setForm({ ...form, pixTipo: val, pixChave: "" }); setErrosDia(er => ({ ...er, pixChave: undefined })); }}>
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            <label style={S.label}>Chave PIX</label>
-            <input style={S.input}
-              placeholder={form.pixTipo === "cpf" ? "Mesmo CPF acima" : form.pixTipo === "cnpj" ? "CNPJ" : form.pixTipo === "email" ? "seu@email.com" : form.pixTipo === "telefone" ? "(67) 99999-9999" : "Cole aqui a chave aleatória do seu banco"}
-              inputMode={form.pixTipo === "email" ? "email" : "text"}
-              value={form.pixChave}
-              onChange={e => {
-                let v = e.target.value;
-                if (form.pixTipo === "cpf") v = maskCPF(v);
-                else if (form.pixTipo === "cnpj") v = maskCNPJ(v);
-                else if (form.pixTipo === "telefone") v = maskTelefone(v);
-                setForm({ ...form, pixChave: v });
-                revalidaDia("pixChave");
-              }}
-              onBlur={() => { marcarTocadoDia("pixChave"); setErrosDia(er => ({ ...er, pixChave: validarCampoDiarista("pixChave") })); }} />
-            {erroDia("pixChave") && <p style={{ fontSize:12, color:"#ef4444", fontWeight:600, margin:"-6px 0 10px" }}>⚠ {erroDia("pixChave")}</p>}
           </>
         )}
 
@@ -10818,6 +10776,22 @@ export default function App() {
                           </div>
                         );
                       })()}
+
+                      {/* Confiabilidade — selo de nível + documento verificado.
+                          Dados públicos vindos de perfis_publicos (dp.nivel /
+                          dp.tem_documento); o anunciante decide com mais segurança. */}
+                      <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"14px 16px" }}>
+                        <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>🛡️ Confiabilidade</div>
+                        <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, alignItems:"center" }}>
+                          {(dp.nivel ?? 0) >= 3 && <BadgeVerificado nivel={dp.nivel ?? 0} tamanho="md" />}
+                          <span style={{ display:"inline-flex", alignItems:"center", gap:6, background: dp.tem_documento ? "#dcfce7" : "#f1f5f9", color: dp.tem_documento ? "#15803d" : "var(--text-2,#64748b)", padding:"5px 12px", borderRadius:20, fontSize:12, fontWeight:700 }}>
+                            {dp.tem_documento ? "🪪 Documento verificado" : "🪪 Documento ainda não verificado"}
+                          </span>
+                          {(dp.nivel ?? 0) < 3 && !dp.tem_documento && (
+                            <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>Perfil novo na plataforma</span>
+                          )}
+                        </div>
+                      </div>
 
                       {/* Bio */}
                       {dp.bio && (
