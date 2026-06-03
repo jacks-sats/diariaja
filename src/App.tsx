@@ -878,7 +878,7 @@ export default function App() {
   // Auto-dismiss dos toasts
   useEffect(() => {
     if (!toastSuccess) return;
-    const t = setTimeout(() => setToastSuccess(""), 3000);
+    const t = setTimeout(() => setToastSuccess(""), 4500); // 4.5s — tempo de ler (UX)
     setListaNotif(prev => [{ tipo:"ok" as const, msg:toastSuccess, ts:Date.now() }, ...prev].slice(0,30));
     setNotifNaoLidas(prev => prev + 1);
     return () => clearTimeout(t);
@@ -9660,8 +9660,8 @@ export default function App() {
         {/* ── ABA INÍCIO ── */}
         {tabEmpregador === "inicio" && (
           <>
-            {/* Filtro de habilidades */}
-            <div style={{ background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+            {/* Filtro de habilidades — sticky pra não sumir ao rolar (degrada sem quebrar) */}
+            <div style={{ background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)", position:"sticky" as const, top:0, zIndex:5 }}>
               {/* Linha 1: disponíveis hoje + por categoria */}
               <div style={{ display:"flex", gap:8, padding:"10px 16px 6px", overflowX:"auto" }}>
                 <button style={{ ...S.filtroBtn, ...(filtroDisp?{ background:negocio.cor, color:"#fff", borderColor:negocio.cor }:{}) }} onClick={()=>setFiltroDisp(!filtroDisp)}>
