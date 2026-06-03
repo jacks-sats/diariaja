@@ -875,6 +875,10 @@ export default function App() {
   });
   // Alterar senha — exige senha atual (proteção contra device roubado)
   const [senhaAtual, setSenhaAtual] = useState("");
+  // Recovery: marcamos num state porque os marcadores (?recovery=1 / #type=recovery)
+  // são limpos da URL logo no load (e pelo Supabase), então reler window.location
+  // na hora de renderizar a tela falharia (pediria a senha atual indevidamente).
+  const [modoRecovery, setModoRecovery] = useState(false);
   // Favoritos (empregador salva diaristas favoritos)
   const [favoritos, setFavoritos] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("diariaja_favoritos") || "[]")); } catch { return new Set<string>(); }
@@ -2340,6 +2344,7 @@ export default function App() {
     // Se chegou com qualquer marcador → força tela de definir senha em ~1.5s.
     const hashHasRecovery = window.location.hash.includes("type=recovery");
     if (urlParams.get("recovery") === "1" || hashHasRecovery) {
+      setModoRecovery(true);
       // Limpa só o query string — mantém o hash que o Supabase precisa processar
       window.history.replaceState({}, "", window.location.pathname + window.location.hash);
       setTimeout(() => {
@@ -2398,6 +2403,7 @@ export default function App() {
       // Recuperação de senha: o usuário abriu o link do e-mail. Vai direto pra
       // tela de definir nova senha (em vez de cair na splash sem aviso).
       if (event === "PASSWORD_RECOVERY") {
+        setModoRecovery(true);
         setSession(session);
         setLoading(false);
         setTela("alterar-senha");
@@ -7406,10 +7412,13 @@ export default function App() {
     // Detecta se o usuário chegou aqui via link de recuperação de email.
     // Nesse caso NÃO pede senha atual (usuário esqueceu) — Supabase Auth já
     // autenticou a sessão pelo link.
+    // Usa o state modoRecovery (setado quando o link foi detectado) — não dá pra
+    // confiar em reler a URL aqui, pois os marcadores já foram limpos no load.
     const veioDeRecovery =
-      typeof window !== "undefined" &&
-      (window.location.hash.includes("type=recovery") ||
-       window.location.search.includes("recovery=1"));
+      modoRecovery ||
+      (typeof window !== "undefined" &&
+       (window.location.hash.includes("type=recovery") ||
+        window.location.search.includes("recovery=1")));
     return (
       <div style={S.page}>
         {!veioDeRecovery && (
@@ -7476,8 +7485,9 @@ export default function App() {
               setToastSuccess("✅ Senha alterada com sucesso!");
               setSenhaAtual(""); setNovaSenha(""); setConfirmSenha("");
               if (veioDeRecovery) {
-                // Limpa marcadores da URL pra próxima visita ser normal
+                // Limpa marcadores da URL + reseta o flag pra próxima visita ser normal
                 try { window.history.replaceState({}, "", window.location.pathname); } catch {}
+                setModoRecovery(false);
                 setTela(voltarHome);
               } else {
                 setTela("configuracoes");
