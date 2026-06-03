@@ -7466,6 +7466,18 @@ export default function App() {
             if (novaSenha !== confirmSenha) { setAuthError("As senhas não coincidem."); return; }
             if (!veioDeRecovery && senhaAtual === novaSenha) { setAuthError("A nova senha precisa ser diferente da atual."); return; }
             setAlterandoSenha(true);
+            // Recovery: o link do e-mail é de USO ÚNICO e expira. Se a sessão
+            // não está ativa (link reaberto/expirado), o updateUser falharia com
+            // o genérico "sessão expirou". Checamos antes e damos uma mensagem
+            // clara + caminho pra pedir um link novo.
+            if (veioDeRecovery) {
+              const { data: { session: sRec } } = await supabase.auth.getSession();
+              if (!sRec) {
+                setAlterandoSenha(false);
+                setAuthError("⚠️ Este link de recuperação expirou ou já foi usado. Toque em “Ir para o login” e peça um novo e-mail de recuperação.");
+                return;
+              }
+            }
             // Reauth com senha atual antes de mudar (proteção contra device roubado)
             if (!veioDeRecovery && session?.user?.email) {
               const { error: reauthErr } = await supabase.auth.signInWithPassword({
@@ -7496,6 +7508,13 @@ export default function App() {
           }}>
           {alterandoSenha ? "Alterando..." : "Salvar nova senha"}
         </button>
+        {veioDeRecovery && (
+          <button
+            style={{ width:"100%", marginTop:12, padding:"12px", background:"transparent", color:"var(--text-2,#64748b)", border:"none", fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textDecoration:"underline" }}
+            onClick={() => { setModoRecovery(false); setAuthError(""); setSenhaAtual(""); setNovaSenha(""); setConfirmSenha(""); try { window.history.replaceState({}, "", window.location.pathname); } catch {} setTela("login"); }}>
+            ← Ir para o login
+          </button>
+        )}
       </div>
     );
   }
