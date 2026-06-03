@@ -5252,7 +5252,7 @@ export default function App() {
   // ── Validadores do wizard PF (diarista) — opera sobre estado global do form ─
   const validarCampoDiarista = (campo: CampoDia): string | undefined => {
     switch (campo) {
-      case "foto":      return fotoUrl ? undefined : "Adicione uma foto de perfil.";
+      case "foto":      return undefined; // opcional — não bloqueia o cadastro (pode adicionar depois)
       case "nome":      return validarNome(form.nome) || undefined;
       case "sexo":      return form.sexo ? undefined : "Selecione seu sexo.";
       case "dataNasc": {
@@ -8967,7 +8967,7 @@ export default function App() {
         {/* ───────── PASSO 1 — Identidade ───────────────────────────────────── */}
         {passoDiarista === 1 && (
           <>
-            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto pessoal *</div>
+            <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginTop:20, marginBottom:8, textTransform:"uppercase" as const, letterSpacing:0.5 }}>📷 Foto pessoal (recomendada)</div>
             <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:8, padding:"14px 16px", background:"var(--bg-surface,#f8fafc)", borderRadius:16, border: erroDia("foto") ? "1.5px solid #ef4444" : fotoUrl ? "1.5px solid #16a34a" : "1.5px solid var(--border,#e2e8f0)" }}>
               {fotoUrl
                 ? <img loading="lazy" src={fotoUrl} style={{ width:72, height:72, borderRadius:36, objectFit:"cover" as const, flexShrink:0, border:"3px solid #FF6B35" }} alt="foto" />
@@ -16697,7 +16697,11 @@ export default function App() {
         {formDiaria.tipo_oferta !== "emprego" && (
         <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px", display:"flex", alignItems:"center", gap:4 }}>
           📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>
-            {formDiaria.tipo_oferta === "servico" ? "varia por escopo" : "R$ 120 – R$ 250 por diária"}
+            {(() => {
+              const med = MEDIAS_CAMPO_GRANDE[formDiaria.funcao];
+              if (med) return `R$ ${med.min} – R$ ${med.max} (média R$ ${med.media})`;
+              return formDiaria.tipo_oferta === "servico" ? "varia por escopo" : "R$ 120 – R$ 250 por diária";
+            })()}
           </strong>
         </p>
         )}
