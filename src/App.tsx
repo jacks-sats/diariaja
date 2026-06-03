@@ -7572,7 +7572,8 @@ export default function App() {
                   📲 Um código foi enviado pelo <strong>WhatsApp</strong> para <strong>{form.telefone}</strong>. Pode levar até 1 minuto pra chegar.
                 </div>
                 <label style={S.label}>Código de verificação</label>
-                <input style={{ ...S.input, letterSpacing:8, fontSize:20, textAlign:"center" as const }}
+                <input style={{ ...S.input, letterSpacing:4, fontSize:22, fontWeight:800, textAlign:"center" as const }}
+                  inputMode="numeric" aria-label="Código de verificação de 6 dígitos"
                   placeholder="000000" maxLength={6} value={codigoVerifInput}
                   onChange={e => setCodigoVerifInput(e.target.value.replace(/\D/g,"").slice(0,6))} />
                 {authError && <p style={{ color:"#ef4444", fontSize:13, marginBottom:12 }}>{authError}</p>}
@@ -9160,12 +9161,12 @@ export default function App() {
               Aparece para o anunciante facilitar o pagamento direto. A DiáriaJá não intermedia.
             </p>
             <label style={S.label}>Tipo de chave</label>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:6, marginBottom:8 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:6, marginBottom:8 }}>
               {([["cpf","CPF"],["cnpj","CNPJ"],["email","E-mail"],["telefone","Celular"],["aleatoria","Aleatória"]] as const).map(([val, label]) => {
                 const ativo = form.pixTipo === val;
                 return (
                   <button key={val} type="button"
-                    style={{ padding:"8px 4px", border: ativo ? "2px solid #FF6B35" : "1.5px solid #e2e8f0", borderRadius:10, background: ativo ? "#fff7f3" : "#f8fafc", color: ativo ? "#FF6B35" : "#475569", fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                    style={{ padding:"11px 6px", border: ativo ? "2px solid #FF6B35" : "1.5px solid #e2e8f0", borderRadius:10, background: ativo ? "#fff7f3" : "#f8fafc", color: ativo ? "#FF6B35" : "#475569", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                     onClick={() => { setForm({ ...form, pixTipo: val, pixChave: "" }); setErrosDia(er => ({ ...er, pixChave: undefined })); }}>
                     {label}
                   </button>
@@ -9174,7 +9175,7 @@ export default function App() {
             </div>
             <label style={S.label}>Chave PIX</label>
             <input style={S.input}
-              placeholder={form.pixTipo === "cpf" ? "Mesmo CPF acima" : form.pixTipo === "cnpj" ? "CNPJ" : form.pixTipo === "email" ? "seu@email.com" : form.pixTipo === "telefone" ? "(67) 99999-9999" : "550e8400-e29b-41d4-a716-446655440000"}
+              placeholder={form.pixTipo === "cpf" ? "Mesmo CPF acima" : form.pixTipo === "cnpj" ? "CNPJ" : form.pixTipo === "email" ? "seu@email.com" : form.pixTipo === "telefone" ? "(67) 99999-9999" : "Cole aqui a chave aleatória do seu banco"}
               inputMode={form.pixTipo === "email" ? "email" : "text"}
               value={form.pixChave}
               onChange={e => {
@@ -9655,12 +9656,12 @@ export default function App() {
 
         {/* Toasts auto-dismiss */}
         {toastSuccess && (
-          <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, boxShadow:"0 4px 20px rgba(0,0,0,.25)", whiteSpace:"nowrap" }}>
+          <div role="status" aria-live="polite" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, boxShadow:"0 4px 20px rgba(0,0,0,.25)", maxWidth:"90vw", textAlign:"center" as const }}>
             {toastSuccess}
           </div>
         )}
         {toastError && (
-          <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, boxShadow:"0 4px 20px rgba(220,38,38,.4)", whiteSpace:"nowrap", maxWidth:"90vw", textAlign:"center" as const }}>
+          <div role="alert" aria-live="assertive" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, boxShadow:"0 4px 20px rgba(220,38,38,.4)", maxWidth:"90vw", textAlign:"center" as const }}>
             {toastError}
           </div>
         )}
@@ -10707,10 +10708,11 @@ export default function App() {
                           }
                         </div>
                         <button
-                          style={{ background:"#22c55e", color:"#fff", border:"none", borderRadius:12, padding:"10px 16px", fontSize:13, fontWeight:800, cursor: selecionando ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0, opacity:selecionando?0.6:1 }}
+                          style={{ background: betaBloqueado ? "#cbd5e1" : "#22c55e", color:"#fff", border:"none", borderRadius:12, padding:"10px 16px", fontSize:13, fontWeight:800, cursor: selecionando ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0, opacity:selecionando?0.6:1 }}
                           disabled={selecionando}
+                          title={betaBloqueado ? "Disponível em 1º de julho" : undefined}
                           onClick={e => { e.stopPropagation(); selecionarCandidato(modalCandidatos, c.diarista_id); }}>
-                          {selecionando ? "…" : "Selecionar"}
+                          {selecionando ? "…" : betaBloqueado ? "🔒 1º jul" : "Selecionar"}
                         </button>
                       </div>
                     );
@@ -10897,10 +10899,11 @@ export default function App() {
                       {/* Botão selecionar */}
                       {candDesta && (
                         <button
-                          style={{ width:"100%", padding:"15px", background:"#22c55e", color:"#fff", border:"none", borderRadius:16, fontSize:15, fontWeight:800, cursor: selecionando ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 14px rgba(34,197,94,.4)", opacity:selecionando?0.6:1 }}
+                          style={{ width:"100%", padding:"15px", background: betaBloqueado ? "#94a3b8" : "#22c55e", color:"#fff", border:"none", borderRadius:16, fontSize:15, fontWeight:800, cursor: selecionando ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow: betaBloqueado ? "none" : "0 4px 14px rgba(34,197,94,.4)", opacity:selecionando?0.6:1 }}
                           disabled={selecionando}
+                          title={betaBloqueado ? "As conexões abrem em 1º de julho" : undefined}
                           onClick={() => { selecionarCandidato(modalCandidatos!, dp.id); setPerfilCandidato(null); }}>
-                          {selecionando ? "Selecionando…" : `✅ Selecionar ${dp.nome.split(" ")[0]}`}
+                          {selecionando ? "Selecionando…" : betaBloqueado ? `🔒 Selecionar abre em 1º de julho` : `✅ Selecionar ${dp.nome.split(" ")[0]}`}
                         </button>
                       )}
                       <button
@@ -12547,12 +12550,12 @@ export default function App() {
 
         {/* Toasts auto-dismiss */}
         {toastSuccess && (
-          <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, boxShadow:"0 4px 20px rgba(0,0,0,.25)", whiteSpace:"nowrap" }}>
+          <div role="status" aria-live="polite" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, boxShadow:"0 4px 20px rgba(0,0,0,.25)", maxWidth:"90vw", textAlign:"center" as const }}>
             {toastSuccess}
           </div>
         )}
         {toastError && (
-          <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, boxShadow:"0 4px 20px rgba(220,38,38,.4)", whiteSpace:"nowrap", maxWidth:"90vw", textAlign:"center" as const }}>
+          <div role="alert" aria-live="assertive" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, boxShadow:"0 4px 20px rgba(220,38,38,.4)", maxWidth:"90vw", textAlign:"center" as const }}>
             {toastError}
           </div>
         )}
@@ -16344,11 +16347,12 @@ export default function App() {
                   </div>
 
                   <button
-                    style={{ ...S.btnPrimary, background:cor, marginTop:18, opacity: enviandoConvite ? 0.7 : 1 }}
+                    style={{ ...S.btnPrimary, background: betaBloqueado ? "#94a3b8" : cor, marginTop:18, opacity: enviandoConvite ? 0.7 : 1 }}
                     onClick={enviarConvite}
                     disabled={enviandoConvite}
+                    title={betaBloqueado ? "Os convites abrem em 1º de julho" : undefined}
                   >
-                    {enviandoConvite ? "Enviando..." : "📨 Enviar convite"}
+                    {enviandoConvite ? "Enviando..." : betaBloqueado ? "🔒 Convites abrem em 1º de julho" : "📨 Enviar convite"}
                   </button>
                   <button style={{ ...S.btnSecondary, marginTop:8, color:cor, borderColor:cor }} onClick={() => setModalConvite(false)}>Cancelar</button>
                 </>
@@ -17347,8 +17351,8 @@ export default function App() {
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
         {/* Toasts globais — admin tela não tinha, motivo do bug "click Aprovar sem feedback" */}
-        {toastSuccess && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, whiteSpace:"nowrap" }}>{toastSuccess}</div>}
-        {toastError   && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999 }}>{toastError}</div>}
+        {toastSuccess && <div role="status" aria-live="polite" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastSuccess}</div>}
+        {toastError   && <div role="alert" aria-live="assertive" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastError}</div>}
         {/* Header */}
         <div style={{ background:"linear-gradient(135deg,#0f172a,#FF6B35)", padding:"48px 20px 24px" }}>
           <button style={{ background:"none", border:"none", color:"#fff", opacity:.85, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
@@ -18525,8 +18529,8 @@ export default function App() {
         </div>
 
         {/* Toasts */}
-        {toastSuccess && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, whiteSpace:"nowrap" }}>{toastSuccess}</div>}
-        {toastError   && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999 }}>{toastError}</div>}
+        {toastSuccess && <div role="status" aria-live="polite" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, maxWidth:"90vw", textAlign:"center" as const }}>{toastSuccess}</div>}
+        {toastError   && <div role="alert" aria-live="assertive" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:999, maxWidth:"90vw", textAlign:"center" as const }}>{toastError}</div>}
 
         {/* MEI — em cima do Já Decola: incentivo a virar MEI/CNPJ (abre a tela mei-info).
             Versão fixa da Comunidade (não some se o usuário fechou o banner na home). */}
