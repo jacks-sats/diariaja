@@ -4541,8 +4541,17 @@ export default function App() {
   // de forma que o webhook saiba qual convite foi liberado e o reload do
   // app consiga reconstruir contatosLiberados pelo external_reference.
   const desbloquearContato = async (conviteId?: string) => {
-    if (!session?.user || !session.access_token) {
+    if (!session?.user) {
       setToastError("Sessão expirada. Entre novamente e tente outra vez.");
+      return;
+    }
+    // Pega um token FRESCO via getSession() (renova se o do state estiver
+    // vencido). Antes mandávamos session.access_token direto do state — quando o
+    // app ficava em segundo plano e o token expirava, a Edge Function rejeitava
+    // com "Token inválido ou expirado". Mesmo padrão das outras Edge Functions.
+    const { data: { session: sess } } = await supabase.auth.getSession();
+    if (!sess?.access_token) {
+      setToastError("Sua sessão expirou. Entre novamente e tente outra vez.");
       return;
     }
     setDesbloqueandoContato(true);
@@ -4560,10 +4569,10 @@ export default function App() {
           method: "POST",
           headers: {
             "Content-Type":  "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
+            "Authorization": `Bearer ${sess.access_token}`,
             "apikey":        SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ empregador_id: session.user.id, ...(conviteId ? { convite_id: conviteId } : {}) }),
+          body: JSON.stringify({ empregador_id: sess.user.id, ...(conviteId ? { convite_id: conviteId } : {}) }),
         }
       );
       const data = await resp.json().catch(() => ({} as { checkout_url?: string; error?: string }));
