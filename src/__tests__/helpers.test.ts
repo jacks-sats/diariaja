@@ -31,6 +31,7 @@ import {
   parseEnderecoEmpregador,
   verificarConteudoProibido,
   verificarDiscriminacao,
+  traduzirErroBanco,
   vagaProximaDeVencer,
   checkinDentroDaJanela,
   diariaNoShow,
@@ -955,6 +956,31 @@ describe("verificarDiscriminacao (Lei 9.029/95)", () => {
   it("é insensível a acentos e caixa", () => {
     expect(verificarDiscriminacao("BOA APARÊNCIA")).not.toBeNull();
     expect(verificarDiscriminacao("Faixa Etária")).not.toBeNull();
+  });
+});
+
+describe("traduzirErroBanco", () => {
+  it("traduz o erro de time/timestamp (nunca mostra jargão)", () => {
+    const msg = traduzirErroBanco("invalid input syntax for type time: \"\"");
+    expect(msg).not.toMatch(/syntax|type time/i);
+    expect(msg.toLowerCase()).toContain("horário");
+  });
+  it("traduz erro de rede", () => {
+    expect(traduzirErroBanco("Failed to fetch").toLowerCase()).toContain("conexão");
+    expect(traduzirErroBanco({ message: "TypeError: NetworkError" }).toLowerCase()).toContain("conexão");
+  });
+  it("traduz duplicado / permissão / sessão", () => {
+    expect(traduzirErroBanco({ code: "23505", message: "duplicate key" }).toLowerCase()).toContain("já está cadastrado");
+    expect(traduzirErroBanco("permission denied for table").toLowerCase()).toContain("permissão");
+    expect(traduzirErroBanco("JWT expired").toLowerCase()).toContain("sessão");
+  });
+  it("traduz o gate do modo beta", () => {
+    expect(traduzirErroBanco("MODO_BETA: ação indisponível")).toContain("lançamento");
+  });
+  it("fallback gentil pra erro desconhecido / vazio", () => {
+    expect(traduzirErroBanco("")).toMatch(/tente de novo/i);
+    expect(traduzirErroBanco("algum erro bizarro xyz")).toMatch(/tente de novo/i);
+    expect(traduzirErroBanco(null)).toMatch(/tente de novo/i);
   });
 });
 
