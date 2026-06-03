@@ -1341,10 +1341,9 @@ export default function App() {
       // Não trafega `endereco` no feed de vagas abertas: o card só usa bairro/lat/lng,
       // e o endereço completo só deve aparecer após o contato ser liberado (status
       // aceita+). Defesa em profundidade contra vazamento do endereço pré-pagamento.
-      .select("id,oculto,empregador_id,nome_negocio,segmento,funcao,descricao,data,horario_inicio,horario_fim,valor,status,diarista_aceite_id,created_at,lat,lng,valor_encostada,valor_por_entrega,ganho_estimado_dia,bairro,tipo_oferta,tempo_estimado_min,tipo_preco")
+      .select("id,oculto,empregador_id,nome_negocio,segmento,funcao,descricao,data,horario_inicio,horario_fim,valor,status,diarista_aceite_id,created_at,lat,lng,valor_encostada,valor_por_entrega,ganho_estimado_dia,bairro,tipo_oferta,tempo_estimado_min,tipo_preco,tipo_contrato,regime,salario_texto")
       .eq("status", "aberta")
       .neq("empregador_id", session.user.id) // BUG-M8 fix: usuário "ambos" não vê suas próprias vagas
-      .neq("tipo_oferta", "emprego")          // Passo 1: vaga de emprego ainda não tem render próprio no feed (vem no Passo 2)
       .order("created_at", { ascending: false })
       .limit(100);
       if (data) {
@@ -12982,16 +12981,32 @@ export default function App() {
                                 <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>· {dia.segmento}</span>
                               </div>
                             </div>
-                            <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4, flexShrink:0 }}>
-                              <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>R$ {dia.valor}</div>
-                              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/dia</div>
+                            <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4, flexShrink:0, maxWidth:130 }}>
+                              {dia.tipo_oferta === "emprego" ? (
+                                <>
+                                  <div style={{ fontWeight:900, fontSize:15, color:"#FF6B35", lineHeight:1.15, textAlign:"right" as const }}>{dia.salario_texto || "A combinar"}</div>
+                                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>💼 emprego</div>
+                                </>
+                              ) : (
+                                <>
+                                  <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>R$ {dia.valor}</div>
+                                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{dia.tipo_oferta === "servico" ? "/serviço" : "/dia"}</div>
+                                </>
+                              )}
                             </div>
                           </div>
 
-                          <div style={{ color:"var(--text-2,#64748b)", fontSize:12, marginTop:8, display:"flex", alignItems:"center", gap:4 }}>
-                            <span>📅</span>
-                            <span>{dataFmt} · {dia.horario_inicio.slice(0,5)} às {dia.horario_fim.slice(0,5)}{duracao}</span>
-                          </div>
+                          {dia.tipo_oferta === "emprego" ? (
+                            <div style={{ marginTop:8, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
+                              {dia.tipo_contrato && <span style={{ background:"#eef2ff", color:"#4338ca", padding:"3px 9px", borderRadius:10, fontSize:11, fontWeight:700 }}>📄 {dia.tipo_contrato}</span>}
+                              {dia.regime && <span style={{ background:"#ecfeff", color:"#0e7490", padding:"3px 9px", borderRadius:10, fontSize:11, fontWeight:700 }}>🏢 {dia.regime}</span>}
+                            </div>
+                          ) : (
+                            <div style={{ color:"var(--text-2,#64748b)", fontSize:12, marginTop:8, display:"flex", alignItems:"center", gap:4 }}>
+                              <span>📅</span>
+                              <span>{dataFmt} · {dia.horario_inicio.slice(0,5)} às {dia.horario_fim.slice(0,5)}{duracao}</span>
+                            </div>
+                          )}
 
                           <div style={{ color:"var(--text-3,#94a3b8)", fontSize:12, marginTop:4, display:"flex", alignItems:"center", gap:4 }}>
                             <span>📍</span>
@@ -14503,8 +14518,17 @@ export default function App() {
                       </p>
                       <div style={S.modalRow}><span>Local</span><strong>{vagaConfirm.nome_negocio || vagaConfirm.segmento}</strong></div>
                       <div style={S.modalRow}><span>Função</span><strong>{vagaConfirm.funcao || "—"}</strong></div>
-                      <div style={S.modalRow}><span>Data</span><strong>{new Date(vagaConfirm.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong></div>
-                      <div style={S.modalRow}><span>Horário</span><strong>{vagaConfirm.horario_inicio.slice(0,5)} – {vagaConfirm.horario_fim.slice(0,5)}</strong></div>
+                      {vagaConfirm.tipo_oferta === "emprego" ? (
+                        <>
+                          {vagaConfirm.tipo_contrato && <div style={S.modalRow}><span>Contrato</span><strong>{vagaConfirm.tipo_contrato}</strong></div>}
+                          {vagaConfirm.regime && <div style={S.modalRow}><span>Regime</span><strong>{vagaConfirm.regime}</strong></div>}
+                        </>
+                      ) : (
+                        <>
+                          <div style={S.modalRow}><span>Data</span><strong>{new Date(vagaConfirm.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong></div>
+                          <div style={S.modalRow}><span>Horário</span><strong>{vagaConfirm.horario_inicio.slice(0,5)} – {vagaConfirm.horario_fim.slice(0,5)}</strong></div>
+                        </>
+                      )}
                       {/* Distância até o anúncio */}
                       {profile?.lat && profile?.lng && vagaConfirm.lat && vagaConfirm.lng && (() => {
                         const km = haversineKm(profile.lat!, profile.lng!, vagaConfirm.lat!, vagaConfirm.lng!);
@@ -14514,8 +14538,8 @@ export default function App() {
                         );
                       })()}
                       <div style={{ ...S.modalRow, borderTop:"2px solid #0f172a", paddingTop:8 }}>
-                        <strong>Valor oferecido</strong>
-                        <strong style={{ color:"#FF6B35", fontSize:17 }}>R$ {vagaConfirm.valor}/dia</strong>
+                        <strong>{vagaConfirm.tipo_oferta === "emprego" ? "Salário" : "Valor oferecido"}</strong>
+                        <strong style={{ color:"#FF6B35", fontSize:17 }}>{vagaConfirm.tipo_oferta === "emprego" ? (vagaConfirm.salario_texto || "A combinar") : `R$ ${vagaConfirm.valor}/dia`}</strong>
                       </div>
                       <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", marginTop:12 }}>
                         💡 O endereço completo só será revelado após o anunciante demonstrar interesse e você confirmar a presença.
