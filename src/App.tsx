@@ -1815,7 +1815,7 @@ export default function App() {
             setToastSuccess(`🔄 Sua chegada foi confirmada em ${local}. Bom serviço!`);
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
               mostrarNotificacaoLocal("🔄 Chegada confirmada!", {
-                body: `Sua presença em ${local} foi confirmada. Bom serviço!`,
+                body: `Sua chegada em ${local} foi confirmada. Bom serviço!`,
                 icon: "/vite.svg",
               });
             }
@@ -3274,7 +3274,7 @@ export default function App() {
       enviarPush(
         [diaria.diarista_aceite_id],
         "Chegada confirmada ✅",
-        `${profile?.nome_negocio || "O anunciante"} confirmou sua presença. Bom serviço!`,
+        `${profile?.nome_negocio || "O anunciante"} confirmou sua chegada. Bom serviço!`,
         { tipo: "confirmacao", url: "/" },
       );
     }
@@ -4718,7 +4718,7 @@ export default function App() {
           const msgs: Record<string, string> = {
             fora_da_janela:  "⏰ Fora do horário da diária. O check-in vale de 30min antes até 2h após o fim.",
             status_invalido: "Esta diária não está mais aguardando check-in.",
-            muito_longe:     `📍 Você está longe do local${data.distancia_m ? ` (~${data.distancia_m}m)` : ""}. Aproxime-se para bater o ponto.`,
+            muito_longe:     `📍 Você está longe do local${data.distancia_m ? ` (~${data.distancia_m}m)` : ""}. Aproxime-se para registrar a chegada.`,
             sem_permissao:   "Você não faz parte desta diária.",
           };
           setToastError(msgs[data.erro] || ("Não foi possível registrar: " + data.erro));
@@ -7948,7 +7948,7 @@ export default function App() {
               { titulo:"3. Cadastro e Conta", body:`Exigimos dados verdadeiros e completos. O usuário declara ter mais de 18 anos e plena capacidade civil. É proibido: perfis falsos, CPF de terceiros, simular avaliações ou duplicar contas.` },
               { titulo:"4. Perfil e Verificação", body:`CPF/CNPJ são coletados para verificação interna e nunca exibidos publicamente. O badge "✅ Verificado" indica identidade verificada. O prestador pode publicar portfólio com até 3 fotos.` },
               { titulo:"5. Publicação de Anúncios", body:`O anunciante publica anúncios com: data, função, valor, horário, local e observações. Anúncios recorrentes (semanal/quinzenal) são suportados. O cancelamento notifica interessados automaticamente.` },
-              { titulo:"6. Demonstrações de interesse, Convites e Aceite", body:`O prestador demonstra interesse em anúncios. O anunciante também pode enviar convites diretos. Após o aceite, demais interessados são recusados. A confirmação de presença é feita via QR Code no app.` },
+              { titulo:"6. Demonstrações de interesse, Convites e Aceite", body:`O prestador demonstra interesse em anúncios. O anunciante também pode enviar convites diretos. Após o aceite, demais interessados são recusados. A confirmação de chegada é feita via código (QR) no app.` },
               { titulo:"7. Chat e Comunicação", body:`O chat é exclusivo para fins do anúncio. É proibido assédio, ameaças, spam e conteúdo ilegal. Mensagens são armazenadas para segurança e resolução de conflitos.` },
               { titulo:"8. Pagamentos e Taxa", body:`A DiáriaJá não intermedia o valor da diária — o pagamento entre anunciante e prestador é combinado e realizado diretamente entre as partes. A taxa de uso é devida pelo anunciante.\n\nPlanos de assinatura para anunciantes oferecem funcionalidades diferenciadas.` },
               { titulo:"9. Avaliações e Reputação", body:`Avaliações devem refletir experiências reais. São proibidas avaliações falsas, compradas ou manipuladas. A DiáriaJá pode remover avaliações que violem este Termo.` },
@@ -9935,8 +9935,8 @@ export default function App() {
         {tabEmpregador === "diarias" && (() => {
           const statusLabel: Record<string,{bg:string,color:string,txt:string}> = {
             aberta:       { bg:"#f1f5f9", color:"var(--text-label,#475569)",  txt:"Aberta" },
-            pendente:     { bg:"#fef3c7", color:"#d97706",  txt:"⏳ Aguardando confirmação" },
-            aceita:       { bg:"#ede9fe", color:"#7c3aed",  txt:"✅ Confirmado — escaneie o QR" },
+            pendente:     { bg:"#fef3c7", color:"#d97706",  txt:"⏳ Aguardando aceite" },
+            aceita:       { bg:"#ede9fe", color:"#7c3aed",  txt:"✅ Aceito — confirme a chegada" },
             em_andamento: { bg:"#fef3c7", color:"#d97706",  txt:"🔄 Em andamento" },
             concluida:    { bg:"#dcfce7", color:"#16a34a",  txt:"✅ Concluída" },
             // P1 fix: faltava entrada `expirada` — diárias auto-expiradas caíam no
@@ -10415,7 +10415,7 @@ export default function App() {
                                 </button>
                               </div>
                               <div style={{ background:"#ede9fe", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#7c3aed", fontWeight:700 }}>
-                                🟣 Diarista confirmou presença! <strong>Escaneie o QR Code</strong> dele acima quando ele chegar.
+                                🟣 Prestador aceitou o serviço! Quando ele chegar, <strong>escaneie o código de chegada</strong> dele acima.
                               </div>
                               <button
                                 style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
@@ -13353,7 +13353,7 @@ export default function App() {
                     <button
                       style={{ width:"100%", padding:"11px", background:"#0f172a", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
                       onClick={e => { e.stopPropagation(); setQrDiaria(dia); }}>
-                      📲 Mostrar QR Code para o empregador
+                      📲 Mostrar código de chegada ao anunciante
                     </button>
                     {dia.status === "aceita" && (
                       <button
@@ -14827,7 +14827,7 @@ export default function App() {
               onClick={e => e.stopPropagation()}>
               {/* Título */}
               <div style={{ fontSize:18, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:6 }}>
-                📲 QR Code de presença
+                📲 Código de chegada
               </div>
               {/* Instrução */}
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16, lineHeight:1.5 }}>
