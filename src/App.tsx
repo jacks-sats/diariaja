@@ -1700,8 +1700,8 @@ export default function App() {
           }
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             if (updated.status === "aceita" && oldStatus === "pendente") {
-              mostrarNotificacaoLocal("✅ Prestador confirmou presença!", {
-                body: `O profissional confirmou presença no anúncio de ${vaga}. Escaneie o QR Code dele!`,
+              mostrarNotificacaoLocal("✅ Prestador aceitou o serviço!", {
+                body: `O profissional aceitou o serviço no anúncio de ${vaga}. Combine os detalhes pelo chat!`,
                 icon: "/vite.svg",
               });
             } else if (updated.status === "aceita" && oldStatus === "aberta") {
@@ -1755,10 +1755,10 @@ export default function App() {
             setMinhasDiarias(prev => prev.some(d => d.id === updated.id) ? prev.map(d => d.id === updated.id ? updated : d) : [...prev, updated]);
             setMeuInteresse(prev => ({ ...prev, [updated.id]: "pendente" }));
             // BUG-3 fix: toast in-app garantido independente de permissão de push
-            setToastSuccess(`🎯 ${local} demonstrou interesse em você! Vá em "Anúncios" e confirme sua presença.`);
+            setToastSuccess(`🎯 ${local} demonstrou interesse em você! Vá em "Anúncios" e aceite o serviço.`);
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
               mostrarNotificacaoLocal("🎯 Anunciante demonstrou interesse!", {
-                body: `${local} demonstrou interesse no seu perfil! Abra o app e confirme sua presença.`,
+                body: `${local} demonstrou interesse no seu perfil! Abra o app e aceite o serviço.`,
                 icon: "/vite.svg",
               });
             }
@@ -1915,7 +1915,7 @@ export default function App() {
           const upd: Convite = payload.new;
           setConvitesRecebidos(prev => prev.map(c => c.id === upd.id ? { ...c, ...upd } : c));
           if (upd.pago_em && !upd.presenca_confirmada_em) {
-            pushNotif(`🎉 Você foi contratado! Confirme a presença para liberar o chat.`, "ok", "home-diarista");
+            pushNotif(`🎉 Você foi escolhido! Aceite o serviço para liberar o chat.`, "ok", "home-diarista");
           }
         }
       )
@@ -1980,16 +1980,16 @@ export default function App() {
             setToastSuccess(`✅ ${updated.diarista_nome} aceitou seu convite para ${new Date(updated.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}!`);
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
               mostrarNotificacaoLocal("✅ Convite aceito!", {
-                body: `${updated.diarista_nome} confirmou presença para ${new Date(updated.data_servico + "T00:00:00").toLocaleDateString("pt-BR")} às ${updated.horario_servico}`,
+                body: `${updated.diarista_nome} aceitou o serviço para ${new Date(updated.data_servico + "T00:00:00").toLocaleDateString("pt-BR")} às ${updated.horario_servico}`,
                 icon: "/vite.svg",
               });
             }
           } else if (updated.status === "recusado") {
             setToastError(`❌ ${updated.diarista_nome} não pôde ir para ${new Date(updated.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}.`);
           } else if (updated.status === "confirmado") {
-            // Prestador confirmou a presença → chat liberado pro anunciante.
-            setToastSuccess(`💬 ${updated.diarista_nome?.split(" ")[0] || "O prestador"} confirmou a presença! Chat liberado.`);
-            pushNotif(`💬 ${updated.diarista_nome?.split(" ")[0] || "O prestador"} confirmou a presença. Abra o chat para combinar os detalhes.`, "ok", "home-empregador");
+            // Prestador aceitou o serviço → chat liberado pro anunciante.
+            setToastSuccess(`💬 ${updated.diarista_nome?.split(" ")[0] || "O prestador"} aceitou o serviço! Chat liberado.`);
+            pushNotif(`💬 ${updated.diarista_nome?.split(" ")[0] || "O prestador"} aceitou o serviço. Abra o chat para combinar os detalhes.`, "ok", "home-empregador");
           }
         }
       )
@@ -3502,7 +3502,7 @@ export default function App() {
   };
 
   // Fluxo novo do convite: depois que o anunciante paga (webhook marca pago_em),
-  // o prestador confirma a presença AQUI — só então o chat libera pros dois.
+  // o prestador aceita o serviço AQUI — só então o chat libera pros dois.
   const [confirmandoPresencaConvite, setConfirmandoPresencaConvite] = useState(false);
   const confirmarPresencaConvite = async (conv: Convite) => {
     if (!session?.user || confirmandoPresencaConvite) return;
@@ -3522,14 +3522,14 @@ export default function App() {
     // funcionar igual ao fluxo normal (sem mensagens órfãs por FK solta).
     const { data: diariaId } = await supabase.rpc("criar_diaria_de_convite", { p_convite_id: conv.id });
     setConvitesRecebidos(prev => prev.map(c => c.id === conv.id ? { ...c, status: "confirmado", presenca_confirmada_em: agora, diaria_id: (diariaId as string) ?? c.diaria_id } : c));
-    pushNotif("✅ Presença confirmada! O chat foi liberado.", "ok", "home-diarista");
+    pushNotif("✅ Serviço aceito! O chat foi liberado.", "ok", "home-diarista");
     hapticConfirm();
     // Notifica o anunciante que o chat está liberado
     if (conv.contratante_id) {
       enviarPush(
         [conv.contratante_id],
         "Chat liberado 💬",
-        `${profile?.nome?.split(" ")[0] || "O profissional"} confirmou a presença. Já podem combinar os detalhes no chat.`,
+        `${profile?.nome?.split(" ")[0] || "O profissional"} aceitou o serviço. Já podem combinar os detalhes no chat.`,
         { tipo: "confirmacao", url: "/" },
       );
     }
@@ -4623,7 +4623,7 @@ export default function App() {
     }
   };
 
-  // Wrapper: abre o modal de termo antes de confirmar presença
+  // Wrapper: abre o modal de termo antes de aceitar o serviço
   const confirmarPresenca = (diaria: Diaria) => {
     setModalTermoDiarista(diaria);
     setTermoDiaristaCheck(false);
@@ -4638,14 +4638,14 @@ export default function App() {
     // Verifica o erro do 2º update: se a candidatura não sincroniza, o empregador
     // não vê o diarista como "confirmado" e o fluxo de contato/chat trava.
     const { error: errCand } = await supabase.from("candidaturas").update({ status: "confirmado" }).eq("diaria_id", diaria.id).eq("diarista_id", session.user.id);
-    if (errCand) { setAuthError("Não foi possível confirmar a presença. Tente novamente."); setConfirmando(false); return; }
+    if (errCand) { setAuthError("Não foi possível aceitar o serviço. Tente novamente."); setConfirmando(false); return; }
     setMinhasDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "aceita" } : d));
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "confirmado" }));
     setConfirmando(false);
     setModalTermoDiarista(null);
     setTermoDiaristaCheck(false);
-    // BUG-4 fix: feedback de sucesso para o diarista após confirmação
-    setToastSuccess("✅ Presença confirmada! O anunciante foi notificado. Gere o QR Code no dia da diária.");
+    // BUG-4 fix: feedback de sucesso para o diarista após aceitar o serviço
+    setToastSuccess("✅ Serviço aceito! O anunciante foi notificado. No dia, confirme sua chegada pelo app.");
   };
 
   // Check-in por GPS (Fase B): o próprio diarista bate ponto ao chegar, sem
@@ -9372,14 +9372,14 @@ export default function App() {
     );
   }
 
-  // ── MODAL: Termo do Diarista (Diarista confirma presença) ─────────────────
+  // ── MODAL: Termo do Diarista (Diarista aceita o serviço) ──────────────────
   if (modalTermoDiarista) {
     const d = modalTermoDiarista;
     return (
       <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" }}>
         <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
           <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
-          <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>🤝 Confirmar presença</h3>
+          <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>🤝 Aceitar o serviço</h3>
           <div style={{ background:"#f8fafc", borderRadius:14, padding:"14px 16px", marginBottom:16 }}>
             <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>{d.nome_negocio || d.segmento}</div>
             <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:4 }}>👷 {d.funcao}</div>
@@ -9391,7 +9391,7 @@ export default function App() {
               { icon:"📍", txt:"Você se compromete a comparecer no local e horário combinados" },
               { icon:"⏰", txt:"Em caso de imprevisto, avise o anunciante com antecedência" },
               { icon:"💼", txt:"Cumpra o serviço acordado com profissionalismo" },
-              { icon:"💬", txt:"O anunciante será notificado da sua confirmação" },
+              { icon:"💬", txt:"O anunciante será notificado de que você aceitou" },
             ].map(it => (
               <div key={it.icon} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
                 <span style={{ fontSize:18, flexShrink:0 }}>{it.icon}</span>
@@ -9401,13 +9401,13 @@ export default function App() {
           </div>
           <label style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoDiaristaCheck?"#22c55e":"#e2e8f0"}`, marginBottom:16 }}>
             <input type="checkbox" checked={termoDiaristaCheck} onChange={e => setTermoDiaristaCheck(e.target.checked)} style={{ width:18, height:18, accentColor:"#22c55e", flexShrink:0, marginTop:1 }} />
-            <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Entendi e confirmo que compareço nessa diária</span>
+            <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", lineHeight:1.5 }}>Entendi e aceito fazer este serviço</span>
           </label>
           <button
             style={{ width:"100%", padding:"15px", background:termoDiaristaCheck?"#22c55e":"#e2e8f0", color:termoDiaristaCheck?"#fff":"#94a3b8", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:termoDiaristaCheck?"pointer":"default", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
             disabled={!termoDiaristaCheck || confirmando}
             onClick={() => { if (termoDiaristaCheck) executarConfirmarPresenca(d); }}>
-            {confirmando ? "Confirmando..." : "✅ Confirmar minha presença"}
+            {confirmando ? "Enviando..." : "✅ Sim, vou fazer"}
           </button>
           <button
             style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -9946,7 +9946,7 @@ export default function App() {
                     {convitesAceitosAtivos.map(c => {
                       // Pago = liberou o contato (estado local OU coluna do banco).
                       const pago = contatosLiberados.has(c.id) || !!c.pago_em;
-                      // Confirmado = prestador confirmou a presença → chat liberado.
+                      // Confirmado = prestador aceitou o serviço → chat liberado.
                       const confirmado = !!c.presenca_confirmada_em;
                       const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
                       const primeiroNome = c.diarista_nome?.split(" ")[0] || "prestador";
@@ -9969,9 +9969,9 @@ export default function App() {
                           <div style={{ fontSize:12, color:"var(--text-label,#475569)", marginBottom:12 }}>📍 {c.local_servico}</div>
                           <div style={{ background:"#f0fdf4", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#166534", fontWeight:700, marginBottom:10 }}>
                             {confirmado
-                              ? `✅ ${primeiroNome} confirmou a presença! Chat liberado — combine os detalhes.`
+                              ? `✅ ${primeiroNome} aceitou o serviço! Chat liberado — combine os detalhes.`
                               : pago
-                                ? `⏳ Pagamento confirmado. Aguardando ${primeiroNome} confirmar a presença pra liberar o chat.`
+                                ? `⏳ Pagamento confirmado. Aguardando ${primeiroNome} aceitar o serviço pra liberar o chat.`
                                 : `🎉 ${primeiroNome} aceitou! Confirme a diária para liberar o chat interno.`}
                           </div>
                           <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
@@ -12558,7 +12558,7 @@ export default function App() {
         })()}
 
         {/* ── Banner: selecionado aguardando confirmação ──
-            Toca → abre DIRETO o modal de confirmar presença da 1ª diária
+            Toca → abre DIRETO o modal de aceitar o serviço da 1ª diária
             pendente (antes só trocava de aba e o "Confirmar →" não confirmava
             nada — usuário reclamava que "não funciona"). */}
         {minhasDiarias.filter(d => d.status === "pendente").length > 0 && (
@@ -12568,14 +12568,14 @@ export default function App() {
             <div style={{ fontSize:32 }}>🎯</div>
             <div style={{ flex:1 }}>
               <div style={{ fontWeight:900, fontSize:16, color:"#fff", lineHeight:1.2 }}>
-                Você foi selecionado!
+                Você foi escolhido!
               </div>
               <div style={{ fontSize:12, color:"rgba(255,255,255,.9)", marginTop:3 }}>
-                {minhasDiarias.find(d => d.status === "pendente")?.nome_negocio || "Um anunciante"} demonstrou interesse em você — confirme sua presença agora.
+                {minhasDiarias.find(d => d.status === "pendente")?.nome_negocio || "Um anunciante"} demonstrou interesse em você — aceite o serviço agora.
               </div>
             </div>
             <div style={{ background:"var(--bg-card,#fff)", color:"#FF6B35", fontWeight:900, fontSize:13, borderRadius:12, padding:"8px 14px", whiteSpace:"nowrap" as const, flexShrink:0 }}>
-              Confirmar →
+              Aceitar →
             </div>
           </div>
         )}
@@ -12635,7 +12635,7 @@ export default function App() {
                   </div>
                 </div>
                 {/* Fluxo novo: chat abre só depois do anunciante pagar E o prestador
-                    confirmar a presença aqui. 3 estados: aguardando pagamento /
+                    aceitar o serviço aqui. 3 estados: aguardando pagamento /
                     pago-confirme / confirmado-abrir chat. */}
                 {!c.pago_em ? (
                   <div style={{ width:"100%", background:"rgba(255,255,255,.2)", color:"#fff", borderRadius:10, padding:"11px", fontWeight:700, fontSize:13, textAlign:"center" as const }}>
@@ -12646,7 +12646,7 @@ export default function App() {
                     style={{ width:"100%", background:"#fff", color:"#16a34a", border:"none", borderRadius:10, padding:"12px", fontWeight:900, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: confirmandoPresencaConvite ? 0.7 : 1 }}
                     disabled={confirmandoPresencaConvite}
                     onClick={() => confirmarPresencaConvite(c)}>
-                    {confirmandoPresencaConvite ? "Confirmando…" : "✅ Você foi contratado! Confirmar presença"}
+                    {confirmandoPresencaConvite ? "Enviando…" : "✅ Você foi escolhido! Aceitar o serviço"}
                   </button>
                 ) : (
                   <button
@@ -13067,7 +13067,7 @@ export default function App() {
                                 <button
                                   style={{ width:"100%", background:"linear-gradient(135deg,#FF6B35,#f59e0b)", color:"#fff", border:"none", borderRadius:12, padding:"12px 18px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
                                   onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); }}>
-                                  🎯 Confirmar presença!
+                                  🎯 Aceitar o serviço!
                                 </button>
                               );
                               if (st === "rejeitado") return (
@@ -13217,8 +13217,8 @@ export default function App() {
           };
 
           const stMap: Record<string,{bg:string,color:string,txt:string,borda:string}> = {
-            pendente:     { bg:"#fef3c7", color:"#d97706", txt:"🎯 Confirme sua presença",       borda:"#f59e0b" },
-            aceita:       { bg:"#ede9fe", color:"#7c3aed", txt:"✅ Confirmado — aguardando QR",   borda:"#8b5cf6" },
+            pendente:     { bg:"#fef3c7", color:"#d97706", txt:"🎯 Aceite o serviço",             borda:"#f59e0b" },
+            aceita:       { bg:"#ede9fe", color:"#7c3aed", txt:"✅ Aceito — aguardando chegada",  borda:"#8b5cf6" },
             em_andamento: { bg:"#fef3c7", color:"#d97706", txt:"🔄 Em andamento",                borda:"#f59e0b" },
             concluida:    { bg:"#dcfce7", color:"#16a34a", txt:"✅ Concluída",                    borda:"#22c55e" },
             cancelada:    { bg:"#fee2e2", color:"#dc2626", txt:"✗ Cancelada",                    borda:"#ef4444" },
@@ -13402,8 +13402,8 @@ export default function App() {
                   <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:16, padding:"14px 16px", marginBottom:16, display:"flex", alignItems:"center", gap:12 }}>
                     <span style={{ fontSize:28 }}>🎯</span>
                     <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Você foi selecionado!</div>
-                      <div style={{ fontSize:12, color:"rgba(255,255,255,.85)", marginTop:2 }}>Confirme sua presença para garantir o anúncio</div>
+                      <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Você foi escolhido!</div>
+                      <div style={{ fontSize:12, color:"rgba(255,255,255,.85)", marginTop:2 }}>Aceite o serviço para garantir a vaga</div>
                     </div>
                     <span style={{ background:"var(--bg-card,#fff)", color:"#FF6B35", fontWeight:900, fontSize:14, borderRadius:20, padding:"2px 10px" }}>{paraConfirmar.length}</span>
                   </div>
@@ -13426,7 +13426,7 @@ export default function App() {
                           style={{ width:"100%", padding:"13px", background:"#22c55e", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(34,197,94,.4)", opacity:confirmando?0.6:1 }}
                           disabled={confirmando}
                           onClick={() => confirmarPresenca(d)}>
-                          {confirmando ? "Confirmando..." : "✅ Confirmar minha presença"}
+                          {confirmando ? "Enviando..." : "✅ Sim, vou fazer"}
                         </button>
                       </div>
                       );
@@ -14392,13 +14392,13 @@ export default function App() {
             <div style={S.modal}>
               {!vagaConfirmada ? (
                 <>
-                  {/* Confirmação de presença (selecionado pelo empregador) */}
+                  {/* Aceite do serviço (selecionado pelo anunciante) */}
                   {meuInteresse[vagaConfirm.id] === "selecionado" ? (
                     <>
                       <div style={{ fontSize:52, textAlign:"center", marginBottom:8 }}>🎯</div>
-                      <h3 style={{ ...S.modalTitle, textAlign:"center" }}>Você foi selecionado!</h3>
+                      <h3 style={{ ...S.modalTitle, textAlign:"center" }}>Você foi escolhido!</h3>
                       <p style={{ ...S.modalText, textAlign:"center" }}>
-                        O anunciante <strong>{vagaConfirm.nome_negocio || vagaConfirm.segmento}</strong> demonstrou interesse em você. Confirme sua presença para garantir o anúncio.
+                        O anunciante <strong>{vagaConfirm.nome_negocio || vagaConfirm.segmento}</strong> demonstrou interesse em você. Aceite o serviço para garantir a vaga.
                       </p>
                       <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"12px 14px", marginBottom:14 }}>
                         {[
@@ -14418,7 +14418,7 @@ export default function App() {
                       <button style={{ ...S.btnPrimary, background:"#22c55e", marginTop:8, opacity:confirmando?0.6:1 }}
                         disabled={confirmando}
                         onClick={() => { setVagaConfirm(null); confirmarPresenca(vagaConfirm); }}>
-                        {confirmando ? "Confirmando..." : "✅ Confirmar minha presença"}
+                        {confirmando ? "Enviando..." : "✅ Sim, vou fazer"}
                       </button>
                       <button style={{ ...S.btnSecondary, marginTop:8, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setVagaConfirm(null)}>
                         Ainda não
@@ -14542,7 +14542,7 @@ export default function App() {
                         <strong style={{ color:"#FF6B35", fontSize:17 }}>{vagaConfirm.tipo_oferta === "emprego" ? (vagaConfirm.salario_texto || "A combinar") : `R$ ${vagaConfirm.valor}/dia`}</strong>
                       </div>
                       <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", marginTop:12 }}>
-                        💡 O endereço completo só será revelado após o anunciante demonstrar interesse e você confirmar a presença.
+                        💡 O endereço completo só será revelado após o anunciante demonstrar interesse e você aceitar o serviço.
                       </div>
                       {authError && <p style={S.errorText}>{authError}</p>}
                       {/* Trava de maioridade: só libera candidatura com documento (RG/CNH) APROVADO */}
@@ -14592,7 +14592,7 @@ export default function App() {
                 <div style={{ ...S.sucesso, textAlign:"center" }}>
                   <div style={{ fontSize:52 }}>🙌</div>
                   <h3 style={S.modalTitle}>Interesse registrado!</h3>
-                  <p style={S.modalText}>O anunciante receberá seu perfil. Se ele demonstrar interesse em você, você será notificado para confirmar a presença.</p>
+                  <p style={S.modalText}>O anunciante receberá seu perfil. Se ele demonstrar interesse em você, você será notificado para aceitar o serviço.</p>
                   <button style={{ ...S.btnPrimary, background:"#FF6B35" }}
                     onClick={() => { setVagaConfirm(null); setVagaConfirmada(false); setAuthError(""); }}>
                     Entendido 👍
@@ -16079,7 +16079,7 @@ export default function App() {
                   <div>
                     <div style={{ fontWeight:800, fontSize:14, color:"#166534" }}>Convite aceito!</div>
                     <div style={{ fontSize:12, color:"#15803d", marginTop:2 }}>
-                      {d.nome.split(" ")[0]} confirmou presença. Libere o chat com R$ 1 pra combinar os detalhes.
+                      {d.nome.split(" ")[0]} aceitou o serviço. Libere o chat com R$ 1 pra combinar os detalhes.
                     </div>
                   </div>
                 </div>
@@ -16111,7 +16111,7 @@ export default function App() {
                     <div style={{ fontSize:20, marginBottom:6 }}>⏳</div>
                     <div style={{ fontWeight:800, fontSize:13, color:"#1e40af", marginBottom:4 }}>Pagamento confirmado!</div>
                     <div style={{ fontSize:12, color:"#1d4ed8", lineHeight:1.5 }}>
-                      Avisamos {d.nome.split(" ")[0]} pra confirmar a presença. Assim que confirmar, o chat libera pros dois. 🔔
+                      Avisamos {d.nome.split(" ")[0]} pra aceitar o serviço. Assim que aceitar, o chat libera pros dois. 🔔
                     </div>
                   </div>
                 ) : (
@@ -16119,7 +16119,7 @@ export default function App() {
                     <div style={{ fontSize:20, marginBottom:6 }}>🔒</div>
                     <div style={{ fontWeight:800, fontSize:13, color:"#92400e", marginBottom:4 }}>Chat bloqueado</div>
                     <div style={{ fontSize:12, color:"#a16207", lineHeight:1.5 }}>
-                      Pague <strong>R$ 1,00</strong>. Depois {d.nome.split(" ")[0]} confirma a presença e o chat libera.<br />
+                      Pague <strong>R$ 1,00</strong>. Depois {d.nome.split(" ")[0]} aceita o serviço e o chat libera.<br />
                       O valor da diária ({conviteAtivo?.valor ? `R$ ${conviteAtivo.valor}` : "combinado"}) você paga direto pra ele via PIX, fora do app.
                     </div>
                   </div>
