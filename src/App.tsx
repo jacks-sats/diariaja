@@ -70,7 +70,7 @@ import {
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
-  calcularNivelAcademy, contatoLiberado,
+  calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -243,6 +243,54 @@ const mostrarNotificacaoLocal = (titulo: string, options?: NotificationOptions):
     try { new Notification(titulo, options); } catch { /* ignore */ }
   }
 };
+
+// ── Stepper do ciclo de vida (Conexão → No dia → Concluído) ──────────────────
+// Faixa de 4 fases mostrada no card da diária/serviço, em ambos os lados.
+// Sempre escreve "de quem é a vez" embaixo — some na auditoria de UX a queixa de
+// "não sei se estou esperando ou se a bola está comigo". Usa faseCiclo/vezDoCiclo
+// (helpers puros + testados). Status fora do trilho (cancelada/expirada) → nada.
+function StepperCiclo({ status, perspectiva }: {
+  status: string;
+  perspectiva: "prestador" | "anunciante";
+}) {
+  const fase = faseCiclo(status);
+  if (fase === null) return null;
+  const passos = ["Selecionado", "Combinando", "No dia", "Concluído"];
+  const vez = vezDoCiclo(status, perspectiva);
+  const corOk = "#22c55e";
+  const corAtual = "#FF6B35";
+  return (
+    <div style={{ marginTop: 12, marginBottom: 2 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        {passos.map((p, i) => {
+          const n = i + 1;
+          const feito = n < fase;
+          const atual = n === fase;
+          const cor = feito ? corOk : atual ? corAtual : "#e2e8f0";
+          const corTxt = feito ? corOk : atual ? corAtual : "#94a3b8";
+          return (
+            <React.Fragment key={p}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                <div style={{ width: 22, height: 22, borderRadius: "50%", background: feito || atual ? cor : "transparent", border: `2px solid ${cor}`, color: feito || atual ? "#fff" : "#94a3b8", fontSize: 11, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+                  {feito ? "✓" : n}
+                </div>
+                <span style={{ fontSize: 9, fontWeight: atual ? 800 : 600, color: corTxt, whiteSpace: "nowrap" as const }}>{p}</span>
+              </div>
+              {i < passos.length - 1 && (
+                <div style={{ flex: 1, height: 2, background: n < fase ? corOk : "#e2e8f0", borderRadius: 2, marginBottom: 14 }} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+      {vez && (
+        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: status === "concluida" ? corOk : "var(--text-2,#64748b)", textAlign: "center" as const }}>
+          {status === "pendente" && perspectiva === "prestador" ? "👉 " : ""}{vez}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -10230,6 +10278,10 @@ export default function App() {
                         </div>
                         {dia.endereco && <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginBottom:4 }}>📍 {dia.endereco.split(", ").slice(0,3).join(", ")}</div>}
 
+                        {/* Stepper do ciclo: só aparece quando há prestador no trilho
+                            (faseCiclo devolve null pra 'aberta'/'cancelada'/'expirada'). */}
+                        <StepperCiclo status={dia.status} perspectiva="anunciante" />
+
                         {/* ── Painel de ações rápidas (aparece ao expandir o card) ── */}
                         {estaExpandida && (
                           <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const, marginTop:10, paddingTop:10, borderTop:"1px solid var(--border,#f1f5f9)" }} onClick={e => e.stopPropagation()}>
@@ -13273,6 +13325,8 @@ export default function App() {
                     <span>🕐 {dia.horario_inicio.slice(0,5)}{dia.horario_fim ? `–${dia.horario_fim.slice(0,5)}` : ""}{dur ? ` · ${dur}` : ""}</span>
                   )}
                 </div>
+                {/* Stepper do ciclo: Selecionado → Combinando → No dia → Concluído */}
+                <StepperCiclo status={dia.status} perspectiva="prestador" />
                 {/* Endereço — visível apenas após aceitar */}
                 {dia.endereco && contatoLiberado(dia.status) && (
                   <div style={{ display:"flex", alignItems:"flex-start", gap:6, marginTop:8, background:"#f0fdf4", borderRadius:10, padding:"8px 12px" }}>

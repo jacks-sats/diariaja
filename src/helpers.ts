@@ -757,8 +757,50 @@ export function statusTerminal(status: string): boolean {
   return (TRANSICOES_DIARIA[status]?.length ?? 0) === 0;
 }
 
+// ── Fase do ciclo de vida (stepper da UI) ────────────────────────────────────
+// Traduz o `status` cru numa das 4 fases mostradas no stepper do card:
+//   1 Selecionado  — o anunciante escolheu, falta o prestador aceitar o serviço
+//   2 Combinando   — aceito; chat liberado pros dois combinarem os detalhes
+//   3 No dia       — dia do serviço (chegada registrada / em andamento)
+//   4 Concluído    — serviço encerrado
+// Retorna null pra status fora do trilho (aberta sem aceite, cancelada,
+// expirada/no-show) — nesses casos o card não mostra stepper.
+export type FaseCiclo = 1 | 2 | 3 | 4;
+export function faseCiclo(status: string): FaseCiclo | null {
+  switch (status) {
+    case "pendente":     return 1;
+    case "aceita":       return 2;
+    case "em_andamento": return 3;
+    case "concluida":    return 4;
+    default:             return null;
+  }
+}
+
+// De quem é a vez agir, dado o status e a perspectiva (prestador vs anunciante).
+// Usado pra escrever sempre "o que acontece agora" no card — some na audita de UX
+// os usuários não sabiam se estavam esperando ou se a bola estava com eles.
+export function vezDoCiclo(
+  status: string,
+  perspectiva: "prestador" | "anunciante",
+): string {
+  const ehPrest = perspectiva === "prestador";
+  switch (status) {
+    case "pendente":
+      return ehPrest ? "Sua vez: aceitar o serviço" : "Aguardando o prestador aceitar";
+    case "aceita":
+      return "Combinem os detalhes no chat";
+    case "em_andamento":
+      return ehPrest ? "Dia do serviço — registre sua chegada" : "Serviço em andamento";
+    case "concluida":
+      return "Serviço concluído";
+    default:
+      return "";
+  }
+}
+
+
 // ── Liberação de contato (chat + endereço) ───────────────────────────────────
-// Chat e endereço só abrem DEPOIS que o prestador confirma a presença (status
+// Chat e endereço só abrem DEPOIS que o prestador aceita o serviço (status
 // 'aceita'). Antes disso (aberta/pendente) o contato fica fechado — é o que
 // protege o modelo de "pagar R$1 pra liberar".
 const STATUS_COM_CONTATO = ["aceita", "em_andamento", "concluida"];

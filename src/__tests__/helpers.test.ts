@@ -36,6 +36,8 @@ import {
   checkinDentroDaJanela,
   diariaNoShow,
   calcularNivelAcademy,
+  faseCiclo,
+  vezDoCiclo,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -1166,5 +1168,43 @@ describe("protocoloContato", () => {
     expect(protocoloContato("")).toBe("—");
     expect(protocoloContato(null)).toBe("—");
     expect(protocoloContato(undefined)).toBe("—");
+  });
+});
+
+describe("faseCiclo", () => {
+  it("mapeia os 4 status do trilho para as fases 1–4", () => {
+    expect(faseCiclo("pendente")).toBe(1);
+    expect(faseCiclo("aceita")).toBe(2);
+    expect(faseCiclo("em_andamento")).toBe(3);
+    expect(faseCiclo("concluida")).toBe(4);
+  });
+  it("status fora do trilho → null (sem stepper)", () => {
+    expect(faseCiclo("aberta")).toBeNull();
+    expect(faseCiclo("cancelada")).toBeNull();
+    expect(faseCiclo("expirada")).toBeNull();
+    expect(faseCiclo("qualquer")).toBeNull();
+  });
+});
+
+describe("vezDoCiclo", () => {
+  it("pendente: a bola é do prestador (aceitar)", () => {
+    expect(vezDoCiclo("pendente", "prestador")).toMatch(/Sua vez/);
+    expect(vezDoCiclo("pendente", "anunciante")).toMatch(/Aguardando/);
+  });
+  it("aceita: combinar no chat (igual pros dois)", () => {
+    expect(vezDoCiclo("aceita", "prestador")).toBe(vezDoCiclo("aceita", "anunciante"));
+    expect(vezDoCiclo("aceita", "prestador")).toMatch(/chat/i);
+  });
+  it("em_andamento: prestador registra chegada", () => {
+    expect(vezDoCiclo("em_andamento", "prestador")).toMatch(/chegada/i);
+    expect(vezDoCiclo("em_andamento", "anunciante")).toMatch(/andamento/i);
+  });
+  it("concluida: mesma frase pros dois", () => {
+    expect(vezDoCiclo("concluida", "prestador")).toBe("Serviço concluído");
+    expect(vezDoCiclo("concluida", "anunciante")).toBe("Serviço concluído");
+  });
+  it("status fora do trilho → string vazia", () => {
+    expect(vezDoCiclo("cancelada", "prestador")).toBe("");
+    expect(vezDoCiclo("aberta", "anunciante")).toBe("");
   });
 });
