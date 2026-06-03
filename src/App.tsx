@@ -3159,6 +3159,7 @@ export default function App() {
     setAvaliadosDiarias(prev => new Set([...prev, modalAvalEmp.id]));
     setModalAvalEmp(null); setNotaEmp(0); setComentarioEmp("");
     setEnviandoAvalMutua(false);
+    setToastSuccess("⭐ Avaliação enviada! Obrigado pelo feedback.");
   };
 
   // Empregador avalia diarista real após concluir
@@ -3179,6 +3180,7 @@ export default function App() {
     setAvaliadosDiarias(prev => new Set([...prev, diaria.id]));
     setModalAvalDiaristaReal(null); setNotaDiaristaReal(0); setComentarioDiaristaReal("");
     setEnviandoAvalMutua(false);
+    setToastSuccess("⭐ Avaliação enviada! Obrigado pelo feedback.");
   };
 
   // Empregador escaneia QR → confirma início da diária
@@ -3834,7 +3836,7 @@ export default function App() {
     });
     setEquipePromovendo(null);
     if (error) {
-      setToastError(error.message || "Falha ao alterar equipe de suporte.");
+      setToastError(traduzirErroBanco(error) || "Falha ao alterar equipe de suporte.");
       return;
     }
     setToastSuccess(ativar ? "✅ Agente promovido pra equipe de suporte" : "Agente removido da equipe");
@@ -4063,7 +4065,7 @@ export default function App() {
         p_motivo: decisao === "rejeitado" ? docMotivoRejeicao.trim() : null,
       });
       if (error) {
-        setToastError("Falha ao revisar: " + error.message);
+        setToastError(traduzirErroBanco(error));
         return;
       }
       // Push pro user
@@ -4116,7 +4118,7 @@ export default function App() {
     });
     setRevisandoAntecedentes(false);
     if (error) {
-      setToastError("Falha ao revisar: " + error.message);
+      setToastError(traduzirErroBanco(error));
       return;
     }
     enviarPush(
@@ -4549,7 +4551,7 @@ export default function App() {
     setBloqueando(false);
     // Erro 23505 = duplicate key (já bloqueado) — tratamos como sucesso silencioso
     if (error && !String(error.code) .includes("23505") && !String(error.message ?? "").toLowerCase().includes("duplicate")) {
-      setToastError("Não foi possível bloquear: " + error.message);
+      setToastError(traduzirErroBanco(error));
       return;
     }
     setUsuariosBloqueados(prev => { const next = new Set(prev); next.add(alvo.id); return next; });
@@ -4569,7 +4571,7 @@ export default function App() {
       .delete().eq("bloqueador_id", session.user.id).eq("alvo_id", alvoId);
     setBloqueando(false);
     if (error) {
-      setToastError("Não foi possível desbloquear: " + error.message);
+      setToastError(traduzirErroBanco(error));
       return;
     }
     setUsuariosBloqueados(prev => { const next = new Set(prev); next.delete(alvoId); return next; });
@@ -4664,7 +4666,7 @@ export default function App() {
           p_diaria_id: diaria.id, p_metodo: "gps", p_lat: latitude, p_lng: longitude,
         });
         setCheckinGpsId(null);
-        if (error) { setToastError("Erro ao registrar chegada: " + error.message); return; }
+        if (error) { setToastError(traduzirErroBanco(error)); return; }
         if (data && data.ok === false) {
           const msgs: Record<string, string> = {
             fora_da_janela:  "⏰ Fora do horário da diária. O check-in vale de 30min antes até 2h após o fim.",
@@ -4738,7 +4740,7 @@ export default function App() {
       valor: Number(formEditarDiaria.valor),
     };
     const { error } = await supabase.from("diarias").update(updates).eq("id", modalEditarDiaria.id);
-    if (error) { setAuthError("Erro ao salvar: " + error.message); setSalvandoEdicao(false); return; }
+    if (error) { setAuthError(traduzirErroBanco(error)); setSalvandoEdicao(false); return; }
     setDiarias(prev => prev.map(d => d.id === modalEditarDiaria.id ? { ...d, ...updates } : d));
     setModalEditarDiaria(null);
     setSalvandoEdicao(false);
@@ -7423,7 +7425,7 @@ export default function App() {
             }
             const { error } = await supabase.auth.updateUser({ password: novaSenha });
             setAlterandoSenha(false);
-            if (error) { setAuthError("Erro ao alterar senha: " + error.message); }
+            if (error) { setAuthError(traduzirErroBanco(error)); }
             else {
               setToastSuccess("✅ Senha alterada com sucesso!");
               setSenhaAtual(""); setNovaSenha(""); setConfirmSenha("");
