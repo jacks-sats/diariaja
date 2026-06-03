@@ -17,7 +17,7 @@ export interface Assinatura {
 
 // Diária (jornada de várias horas) vs Serviço (tarefa pontual "vem-faz-vai").
 // Spec: docs/spec-tipo-oferta-diaria-vs-servico.md
-export type TipoOferta = 'diaria' | 'servico';
+export type TipoOferta = 'diaria' | 'servico' | 'emprego';
 export type TipoPreco = 'fixo' | 'a_combinar' | 'a_partir_de';
 
 export interface Diaria {
@@ -54,6 +54,9 @@ export interface Diaria {
   tipo_oferta: TipoOferta;            // default 'diaria' (legado + criação atual)
   tempo_estimado_min?: number | null; // só se tipo_oferta='servico'
   tipo_preco?: TipoPreco | null;      // só se tipo_oferta='servico'
+  tipo_contrato?: string | null;      // só se tipo_oferta='emprego' (CLT/PJ/Temporário/Estágio/Freelance)
+  regime?: string | null;             // só se tipo_oferta='emprego' (Presencial/Híbrido/Remoto)
+  salario_texto?: string | null;      // só se tipo_oferta='emprego' ("R$ 1.800" ou "A combinar")
   // ── Presença / ciclo de vida (Fase A) ────────────────────────────────────
   checkin_em?: string | null;         // quando o diarista bateu ponto de chegada
   checkin_metodo?: string | null;     // 'qr' | 'gps' | 'codigo'
