@@ -30,6 +30,7 @@ import {
   codigoPresenca,
   parseEnderecoEmpregador,
   verificarConteudoProibido,
+  verificarDiscriminacao,
   vagaProximaDeVencer,
   checkinDentroDaJanela,
   diariaNoShow,
@@ -921,6 +922,39 @@ describe("verificarConteudoProibido", () => {
   it("é insensível a acentos e caixa", () => {
     expect(verificarConteudoProibido("PROSTITUIÇÃO")).not.toBeNull();
     expect(verificarConteudoProibido("Cocaína")).not.toBeNull();
+  });
+});
+
+describe("verificarDiscriminacao (Lei 9.029/95)", () => {
+  it("libera vagas legítimas (retorna null)", () => {
+    expect(verificarDiscriminacao("Auxiliar administrativo com experiência em Excel")).toBeNull();
+    expect(verificarDiscriminacao("Garçom para evento, disponibilidade aos fins de semana")).toBeNull();
+    expect(verificarDiscriminacao("Vaga para todos — buscamos proatividade e responsabilidade")).toBeNull();
+    expect(verificarDiscriminacao("")).toBeNull();
+  });
+
+  it("bloqueia restrição de idade", () => {
+    expect(verificarDiscriminacao("Atendente, até 30 anos")).not.toBeNull();
+    expect(verificarDiscriminacao("idade máxima 25")).not.toBeNull();
+    expect(verificarDiscriminacao("somente menor de 40")).not.toBeNull();
+    expect(verificarDiscriminacao("dentro da faixa etária jovem")).not.toBeNull();
+  });
+
+  it("bloqueia restrição de sexo/gênero", () => {
+    expect(verificarDiscriminacao("Vaga apenas para mulheres")).not.toBeNull();
+    expect(verificarDiscriminacao("contratamos somente homens")).not.toBeNull();
+    expect(verificarDiscriminacao("sexo feminino")).not.toBeNull();
+  });
+
+  it("bloqueia 'boa aparência' e estado civil/família", () => {
+    expect(verificarDiscriminacao("Recepcionista com boa aparência")).not.toBeNull();
+    expect(verificarDiscriminacao("preferência para solteiras")).not.toBeNull();
+    expect(verificarDiscriminacao("que não tenha filhos")).not.toBeNull();
+  });
+
+  it("é insensível a acentos e caixa", () => {
+    expect(verificarDiscriminacao("BOA APARÊNCIA")).not.toBeNull();
+    expect(verificarDiscriminacao("Faixa Etária")).not.toBeNull();
   });
 });
 

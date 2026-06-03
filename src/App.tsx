@@ -69,7 +69,7 @@ import {
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
-  parseEnderecoEmpregador, verificarConteudoProibido,
+  parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao,
   calcularNivelAcademy, contatoLiberado,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
@@ -4652,7 +4652,7 @@ export default function App() {
   const confirmarChegadaGPS = async (diaria: Diaria) => {
     if (!session?.user) return;
     if (!("geolocation" in navigator)) {
-      setToastError("📍 Seu aparelho não permite localização. Use o QR Code com o empregador.");
+      setToastError("📍 Seu aparelho não permite localização. Use o QR Code com o anunciante.");
       return;
     }
     setCheckinGpsId(diaria.id);
@@ -4892,6 +4892,9 @@ export default function App() {
     // Cobre título (local), descrição e função do anúncio.
     const conteudoProibido = verificarConteudoProibido(`${formDiaria.local} ${formDiaria.descricao} ${formDiaria.funcao}`);
     if (conteudoProibido) { setAuthError(conteudoProibido); return; }
+    // Antidiscriminação (Lei 9.029/95): bloqueia exigência de idade/sexo/aparência/estado civil.
+    const discrim = verificarDiscriminacao(`${formDiaria.local} ${formDiaria.descricao}`);
+    if (discrim) { setAuthError(discrim); return; }
     const enderecoComposto = `${formDiaria.rua}, ${formDiaria.numero}${formDiaria.complemento.trim() ? ` — ${formDiaria.complemento.trim()}` : ""}, ${formDiaria.bairro}, ${formDiaria.cidade}/${formDiaria.estado} — CEP ${formDiaria.cep}`;
     setSalvandoDiaria(true);
     const isDelivery = FUNCOES_DELIVERY.includes(formDiaria.funcao);
@@ -9324,6 +9327,7 @@ export default function App() {
               { icon:"⚠️", txt:"Não verificamos ativamente as qualificações de cada profissional" },
               { icon:"💡", txt:"Recomendamos verificar referências pessoalmente quando possível" },
               { icon:"🤝", txt:"A negociação final é entre você e o prestador, de forma independente e autônoma" },
+              { icon:"🔁", txt:"Contratar o mesmo profissional de forma habitual (mais de 2 dias por semana) pode configurar vínculo doméstico (LC 150/2015) — avalie as obrigações legais" },
             ].map(it => (
               <div key={it.icon} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
                 <span style={{ fontSize:18, flexShrink:0 }}>{it.icon}</span>

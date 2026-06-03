@@ -293,6 +293,39 @@ export function verificarConteudoProibido(texto: string): string | null {
   return null;
 }
 
+// ── Moderação antidiscriminação (Lei 9.029/1995) ─────────────────────────────
+// Proíbe exigências discriminatórias em anúncios/vagas (idade, sexo, aparência,
+// estado civil/família). BLOQUEIA com mensagem EDUCATIVA (a maioria é por
+// desconhecimento, não má-fé). Conservadora: só pega a CONSTRUÇÃO discriminatória
+// clara, pra não barrar vaga legítima. Importante p/ o mural de "vaga de emprego".
+const MSG_DISCRIMINACAO =
+  "🚫 Esse texto traz uma exigência que pode ser discriminatória (Lei 9.029/95) — como idade, sexo, aparência ou estado civil. Descreva apenas requisitos da função (experiência, habilidades, disponibilidade) e tente de novo.";
+
+const PADROES_DISCRIMINATORIOS: RegExp[] = [
+  // Idade (ex.: "até 30 anos", "idade máxima 25", "menor de 40", "faixa etária")
+  /\bate\s+\d{2}\s+anos?\b/, /\bidade\s+m[ax]\w*/, /\bno\s+maximo\s+\d{2}\s+anos?\b/,
+  /\bmenor(es)?\s+de\s+\d{2}\b/, /\bfaixa\s+etaria\b/,
+  // Sexo/gênero exclusivo (ex.: "apenas mulheres", "só homens", "sexo feminino")
+  /\b(apenas|somente|so|exclusiv\w*|preferencialmente)\s+(para\s+)?(mulher(es)?|homens?|mo[cç]as|rapazes)\b/,
+  /\b(vaga|contrata\w*)\s+(para\s+)?(mulher(es)?|homens?)\s+(apenas|somente)\b/,
+  /\bsexo\s+(feminino|masculino)\b/,
+  // Aparência (clássico marcador discriminatório)
+  /\bboa\s+aparencia\b/,
+  // Estado civil / família
+  /\bsem\s+filhos\b/, /\bque\s+nao\s+tenha\s+filhos\b/,
+  /\b(solteir[ao]s?)\s+(apenas|somente|preferencialmente)\b/,   // "solteiras preferencialmente"
+  /\bpreferenc\w*\s+(para\s+)?solteir[ao]s?\b/,                 // "preferência para solteiras"
+];
+
+export function verificarDiscriminacao(texto: string): string | null {
+  if (!texto) return null;
+  const t = texto.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  for (const padrao of PADROES_DISCRIMINATORIOS) {
+    if (padrao.test(t)) return MSG_DISCRIMINACAO;
+  }
+  return null;
+}
+
 
 export function detectarContatoExterno(msg: string): boolean {
   return /\b\d{8,11}\b/.test(msg) ||
