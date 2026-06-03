@@ -264,8 +264,12 @@ function StepperCiclo({ status, perspectiva }: {
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         {passos.map((p, i) => {
           const n = i + 1;
-          const feito = n < fase;
-          const atual = n === fase;
+          // Concluída é estado TERMINAL: o último passo também fica ✓ verde
+          // (não "atual" laranja). Sem isso, o 4º círculo mostrava "4" laranja
+          // mesmo com o serviço já concluído.
+          const concluido = status === "concluida";
+          const feito = n < fase || (concluido && n === fase);
+          const atual = n === fase && !concluido;
           const cor = feito ? corOk : atual ? corAtual : "#e2e8f0";
           const corTxt = feito ? corOk : atual ? corAtual : "#94a3b8";
           return (
