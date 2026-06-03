@@ -5837,7 +5837,7 @@ export default function App() {
 
   const modalConfirmLogout = confirmLogout ? (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:9000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmLogout(false)}>
-      <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label="Sair da conta" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
         <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
         <div style={{ fontSize:32, textAlign:"center" as const, marginBottom:12 }}>🚪</div>
         <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center" as const, marginBottom:8 }}>Sair da conta?</div>
@@ -7304,7 +7304,7 @@ export default function App() {
         {/* Modal confirmar excluir conta */}
         {confirmDeleteConta && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:500, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmDeleteConta(false)}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+            <div role="dialog" aria-modal="true" aria-label="Excluir conta" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               <div style={{ fontSize:32, textAlign:"center", marginBottom:12 }}>🗑️</div>
               <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:8 }}>Excluir conta</div>
@@ -10614,7 +10614,7 @@ export default function App() {
         {/* ── Modal Cancelar Diária (empregador) ── */}
         {modalCancelar && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+            <div role="dialog" aria-modal="true" aria-label="Cancelar diária" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
               <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✕ Cancelar diária</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20, lineHeight:1.6 }}>
                 Informe o motivo do cancelamento. O diarista será notificado.
@@ -10922,7 +10922,7 @@ export default function App() {
         {/* ── Modal Excluir Diária (empregador) ── */}
         {modalExcluir && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+            <div role="dialog" aria-modal="true" aria-label="Excluir diária" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
               <div style={{ fontSize:48, textAlign:"center", marginBottom:10, lineHeight:1 }}>🗑️</div>
               <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:6, textAlign:"center" }}>Excluir diária?</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16, lineHeight:1.6, textAlign:"center" }}>
@@ -14411,7 +14411,7 @@ export default function App() {
         {/* ── Modal desistir da diária ── */}
         {modalDesistir && (
           <div style={S.modalOverlay}>
-            <div style={S.modal}>
+            <div role="dialog" aria-modal="true" aria-label="Desistir da diária" style={S.modal}>
               <h3 style={S.modalTitle}>🚪 Desistir da diária?</h3>
               <p style={S.modalText}>
                 Ao desistir, o anúncio ficará <strong>disponível para outros prestadores</strong>. O anunciante será notificado.
@@ -14663,7 +14663,7 @@ export default function App() {
         {/* ── Modal Cancelar Diária (diarista) ── */}
         {modalCancelar && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+            <div role="dialog" aria-modal="true" aria-label="Cancelar diária" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
               <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✕ Cancelar diária</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20, lineHeight:1.6 }}>
                 Informe o motivo para <strong>{modalCancelar.nome_negocio || modalCancelar.segmento}</strong>. O anunciante será notificado.
