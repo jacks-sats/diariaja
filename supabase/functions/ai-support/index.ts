@@ -40,7 +40,7 @@ Plataforma digital de **anúncios de oportunidades de serviços** (mobile PWA) e
 
 A DiáriaJá **NÃO emprega ninguém**, **NÃO é agência de emprego**, **NÃO controla execução**, **NÃO intermedia dinheiro da diária**, **NÃO segura saldo**, **NÃO garante qualidade do serviço prestado**. A plataforma apenas disponibiliza ferramentas para publicação de anúncios e conexão entre usuários. A relação entre anunciante e prestador é independente e autônoma.
 
-URL: diariaja.vercel.app | Suporte geral: suporte@diariaja.com.br | LGPD/dados pessoais: dpo@diariaja.com.br
+URL: www.diariaja.com | Suporte geral: suporte@diariaja.com.br | LGPD/dados pessoais: dpo@diariaja.com.br
 
 ---
 

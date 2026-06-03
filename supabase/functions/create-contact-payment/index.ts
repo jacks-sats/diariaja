@@ -49,7 +49,7 @@ async function rateLimitOrReject(opts: RateLimitOptions, supabase: SupabaseClien
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const MP_TOKEN          = Deno.env.get("MP_ACCESS_TOKEN")!;
-const APP_URL           = Deno.env.get("APP_URL") ?? "https://diariaja.vercel.app";
+const APP_URL           = Deno.env.get("APP_URL") ?? "https://www.diariaja.com";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",

@@ -17,7 +17,7 @@ const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const HEALTH_SECRET     = Deno.env.get("HEALTH_CHECK_SECRET") ?? "";
-const APP_URL           = Deno.env.get("APP_URL") ?? "https://diariaja.vercel.app";
+const APP_URL           = Deno.env.get("APP_URL") ?? "https://www.diariaja.com";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",

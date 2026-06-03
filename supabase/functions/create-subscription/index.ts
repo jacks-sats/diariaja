@@ -16,7 +16,7 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 // PA_UNAUTHORIZED_RESULT_FROM_POLICIES no Preapproval. Fallback pra
 // MP_ACCESS_TOKEN só se MP_SUBSCRIPTION_TOKEN não estiver setada (dev).
 const MP_TOKEN          = Deno.env.get("MP_SUBSCRIPTION_TOKEN") ?? Deno.env.get("MP_ACCESS_TOKEN")!;
-const APP_URL           = Deno.env.get("APP_URL") ?? "https://diariaja.vercel.app";
+const APP_URL           = Deno.env.get("APP_URL") ?? "https://www.diariaja.com";
 
 // Definição dos planos por papel (espelho do frontend — PLANOS_EMPREGADOR
 // e PLANOS_DIARISTA em src/constants.ts). Dual track: diarista e empregador

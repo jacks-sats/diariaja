@@ -3008,7 +3008,7 @@ export default function App() {
     setResetSenhaLoading(true); setAuthError("");
     // redirectTo fixo (não usar window.location.origin) para evitar open-redirect
     // se o app for embarcado em domínio comprometido.
-    const APP_REDIRECT = "https://diariaja.vercel.app/?recovery=1";
+    const APP_REDIRECT = "https://www.diariaja.com/?recovery=1";
     const { error } = await supabase.auth.resetPasswordForEmail(form.email.trim(), { redirectTo: APP_REDIRECT });
     setResetSenhaLoading(false);
     // Mensagem genérica em caso de erro/sucesso → evita enumeração de e-mail
@@ -6683,7 +6683,7 @@ export default function App() {
               ] : [];
               const secoesFinal = [
                 { titulo: `${secoesGerais.length + secoesDiarista.length + secoesContratante.length + 1}. Informações`,
-                  body:`DiáriaJá · Beta 1.0 · Campo Grande/MS\nsuporte@diariaja.com.br · diariaja.vercel.app\nForo: domicílio do consumidor (CDC).` },
+                  body:`DiáriaJá · Beta 1.0 · Campo Grande/MS\nsuporte@diariaja.com.br · www.diariaja.com\nForo: domicílio do consumidor (CDC).` },
               ];
               return [...secoesGerais, ...secoesDiarista, ...secoesContratante, ...secoesFinal];
             })().map(({ titulo, body }) => (
@@ -7203,9 +7203,9 @@ export default function App() {
                 sub:"Compartilhe o DiáriaJá com quem você conhece",
                 action:() => {
                   if (navigator.share) {
-                    navigator.share({ title:"DiáriaJá", text:"Encontre prestadores qualificados no DiáriaJá!", url:"https://diariaja.vercel.app" }).catch(() => {});
+                    navigator.share({ title:"DiáriaJá", text:"Encontre prestadores qualificados no DiáriaJá!", url:"https://www.diariaja.com" }).catch(() => {});
                   } else {
-                    try { navigator.clipboard?.writeText("https://diariaja.vercel.app"); setToastSuccess("🔗 Link copiado!"); } catch { /* ignore */ }
+                    try { navigator.clipboard?.writeText("https://www.diariaja.com"); setToastSuccess("🔗 Link copiado!"); } catch { /* ignore */ }
                   }
                 } },
               { icon:"💼", label:"Virar MEI (CNPJ)",
@@ -7955,7 +7955,7 @@ export default function App() {
               { titulo:"10. Dados Pessoais (LGPD)", body:`Tratamos: nome, e-mail, foto, CPF/CNPJ (privado), geolocalização, histórico e mensagens. O CPF nunca é exibido publicamente.\n\nVocê pode solicitar acesso, correção, exclusão ou portabilidade pelo e-mail suporte@diariaja.com.br.` },
               { titulo:"11. Condutas Proibidas", body:`São proibidas: fraude de dados, discriminação, assédio, atividades ilícitas, spam, engenharia reversa e conteúdo ofensivo. O descumprimento pode resultar em exclusão da conta e comunicação às autoridades.` },
               { titulo:"12. Limitação de Responsabilidade", body:`Não nos responsabilizamos por: informações falsas de usuários, descumprimento de acordos, qualidade do serviço, furtos, acidentes ou falhas de conexão. Os direitos previstos no CDC são preservados.` },
-              { titulo:"13. Informações da Operadora", body:`DiáriaJá · Beta 1.0 · diariaja.vercel.app\nE-mail: suporte@diariaja.com.br\nData de vigência: 21 de maio de 2026\n\nForo: domicílio do consumidor (relações de consumo, conforme CDC). Demais casos: Campo Grande, MS.` },
+              { titulo:"13. Informações da Operadora", body:`DiáriaJá · Beta 1.0 · www.diariaja.com\nE-mail: suporte@diariaja.com.br\nData de vigência: 21 de maio de 2026\n\nForo: domicílio do consumidor (relações de consumo, conforme CDC). Demais casos: Campo Grande, MS.` },
             ].map(({ titulo, body }) => (
               <div key={titulo} style={{ marginBottom:24 }}>
                 <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:8, paddingBottom:6, borderBottom:"2px solid #FF6B35" }}>{titulo}</div>
@@ -9740,9 +9740,9 @@ export default function App() {
                       style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:14, padding:"12px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 14px ${negocio.cor}55` }}
                       onClick={() => {
                         if (navigator.share) {
-                          navigator.share({ title:"DiáriaJá", text:"Cadastre-se como prestador no DiáriaJá e ganhe dinheiro!", url:"https://diariaja.vercel.app" });
+                          navigator.share({ title:"DiáriaJá", text:"Cadastre-se como prestador no DiáriaJá e ganhe dinheiro!", url:"https://www.diariaja.com" });
                         } else {
-                          navigator.clipboard?.writeText("https://diariaja.vercel.app");
+                          navigator.clipboard?.writeText("https://www.diariaja.com");
                           setToastSuccess("🔗 Link copiado!");
                         }
                       }}>
