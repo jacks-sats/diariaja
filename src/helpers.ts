@@ -155,9 +155,6 @@ export function calcCompletude(
     { chave: "avaliacao",    icone: "⭐", label: "Avaliação positiva",
       descricao: "Mantenha média acima de 4.0 para ganhar mais confiança.",
       preenchido: (mediaAval ?? 0) >= 4.0 },
-    { chave: "pagamento",    icone: "💳", label: "Recebimento via PIX",
-      descricao: "Cadastre sua chave PIX ou conecte o Mercado Pago para receber pagamentos.",
-      preenchido: !!(p.pix_chave || p.mp_user_id) },
   ];
   const preenchidos = itens.filter(i => i.preenchido).length;
   const pct = Math.round((preenchidos / itens.length) * 100);
