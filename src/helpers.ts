@@ -332,6 +332,39 @@ export function detectarContatoExterno(msg: string): boolean {
     /whatsapp|wpp|zap|telegram|meu.n[uú]mero|me.liga|me.chama|fora.do.app/i.test(msg);
 }
 
+// ── Tradução de erro de banco/rede → mensagem amigável (pt-BR) ───────────────
+// O usuário NUNCA deve ver jargão técnico do Postgres/Supabase
+// (ex.: "invalid input syntax for type time"). Esta função mapeia os erros mais
+// comuns pra um texto que o leigo entende. Aceita string, Error, ou o objeto de
+// erro do Supabase ({ message, code }). Fallback genérico e gentil.
+export function traduzirErroBanco(erro: unknown): string {
+  const obj = (erro && typeof erro === "object" ? erro : {}) as { message?: string; code?: string; error_description?: string };
+  const raw = (typeof erro === "string" ? erro : obj.message || obj.error_description || "") + " " + (obj.code || "");
+  const m = raw.toLowerCase();
+  if (!m.trim()) return "Não foi possível concluir agora. Tente de novo em instantes.";
+
+  if (m.includes("modo_beta")) return "🚀 Isso abre no lançamento (1º de julho). Por enquanto, deixe seu perfil completo!";
+  if (/failed to fetch|networkerror|network error|timeout|fetch|err_internet|offline/.test(m))
+    return "Sem conexão. Verifique sua internet e tente de novo.";
+  if (/invalid input syntax for type (time|timestamp|date)|date\/time/.test(m))
+    return "Houve um problema com a data ou o horário. Recarregue a página e tente de novo.";
+  if (/duplicate key|already exists|unique constraint|23505/.test(m))
+    return "Esse dado já está cadastrado.";
+  if (/permission denied|row-level security|violates row-level|42501|not authorized/.test(m))
+    return "Você não tem permissão para isso. Tente sair e entrar de novo.";
+  if (/jwt|token|expired|not authenticated|session|auth session missing/.test(m))
+    return "Sua sessão expirou. Entre novamente.";
+  if (/foreign key|violates foreign key|23503/.test(m))
+    return "Não foi possível concluir — um item relacionado não está mais disponível.";
+  if (/null value|not-null|23502/.test(m))
+    return "Faltou preencher um campo obrigatório. Confira e tente de novo.";
+  if (/check constraint|23514|invalid input value/.test(m))
+    return "Algum valor não é aceito. Confira os campos destacados.";
+  if (/rate limit|too many|429/.test(m))
+    return "Muitas tentativas em pouco tempo. Aguarde um minutinho e tente de novo.";
+  return "Não foi possível concluir agora. Tente de novo em instantes.";
+}
+
 // ── Validação de CPF com dígito verificador (LGPD / anti-fraude) ─────────────
 export function validarCPF(cpf: string): boolean {
   const c = cpf.replace(/\D/g, "");

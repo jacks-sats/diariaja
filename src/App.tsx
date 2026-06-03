@@ -69,7 +69,7 @@ import {
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
-  parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao,
+  parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
@@ -1287,7 +1287,7 @@ export default function App() {
         motivo_categoria: motivoExpSelecionado,
         motivo_texto:     motivoExpTexto.trim() || null,
       });
-      if (error) { setToastError("Erro: " + error.message); return; }
+      if (error) { setToastError(traduzirErroBanco(error)); return; }
       trackEvento("feedback_vaga_expirada", session.user.id, "empregador", {
         diaria_id: vaga.id, motivo: motivoExpSelecionado,
       });
@@ -1316,7 +1316,7 @@ export default function App() {
         recomendaria:      posRecomendaria,
         comentario:        posComentario.trim() || null,
       });
-      if (error) { setToastError("Erro: " + error.message); return; }
+      if (error) { setToastError(traduzirErroBanco(error)); return; }
       trackEvento("feedback_pos_conclusao", session.user.id, "empregador", {
         diaria_id: diaria.id, nota: posNotaQualidade, recomendaria: posRecomendaria, no_horario: posChegouHorario,
       });
@@ -1545,7 +1545,7 @@ export default function App() {
         cumpriu_combinado: avalEmpCumpriu,
         comentario:        avalEmpComentario.trim() || null,
       });
-      if (error) { setToastError("Erro: " + error.message); return; }
+      if (error) { setToastError(traduzirErroBanco(error)); return; }
       trackEvento("avaliacao_enviada", session.user.id, "diarista", {
         tipo: "empregador", nota: avalEmpNota, pagou: avalEmpPagou, cumpriu: avalEmpCumpriu,
       });
@@ -2607,7 +2607,7 @@ export default function App() {
           else setAuthError("⚠️ Esses dados já estão cadastrados em outra conta.");
           return false;
         }
-        setAuthError("Erro ao salvar perfil: " + error.message);
+        setAuthError(traduzirErroBanco(error));
         return false;
       }
       setProfile(full);
@@ -3074,7 +3074,7 @@ export default function App() {
       .update({ foto_url: url })
       .eq("id", session.user.id);
     if (error) {
-      setToastError("❌ Erro ao salvar foto: " + error.message);
+      setToastError("❌ " + traduzirErroBanco(error));
       return false;
     }
     // Atualiza estado local sem precisar rebuscar tudo
@@ -3153,7 +3153,7 @@ export default function App() {
       nota:          notaEmp,
       comentario:    comentarioEmp.trim(),
     });
-    if (error) { setAuthError("Erro: " + error.message); setEnviandoAvalMutua(false); return; }
+    if (error) { setAuthError(traduzirErroBanco(error)); setEnviandoAvalMutua(false); return; }
     trackEvento("avaliacao_enviada", session.user.id, "diarista", { tipo: "empregador", nota: notaEmp });
     setAvaliadosDiarias(prev => new Set([...prev, modalAvalEmp.id]));
     setModalAvalEmp(null); setNotaEmp(0); setComentarioEmp("");
@@ -3173,7 +3173,7 @@ export default function App() {
       nota:          notaDiaristaReal,
       comentario:    comentarioDiaristaReal.trim(),
     });
-    if (error) { setAuthError("Erro: " + error.message); setEnviandoAvalMutua(false); return; }
+    if (error) { setAuthError(traduzirErroBanco(error)); setEnviandoAvalMutua(false); return; }
     trackEvento("avaliacao_enviada", session.user.id, "empregador", { tipo: "diarista", nota: notaDiaristaReal });
     setAvaliadosDiarias(prev => new Set([...prev, diaria.id]));
     setModalAvalDiaristaReal(null); setNotaDiaristaReal(0); setComentarioDiaristaReal("");
@@ -3202,7 +3202,7 @@ export default function App() {
         .eq("id", diariaId).eq("empregador_id", session.user.id);
       if (errLegado) { setScanMsg({ ok:false, txt:"Erro: " + errLegado.message }); return; }
     } else if (error) {
-      setScanMsg({ ok:false, txt:"Erro: " + error.message }); return;
+      setScanMsg({ ok:false, txt:traduzirErroBanco(error) }); return;
     } else if (data && data.ok === false) {
       const msgs: Record<string, string> = {
         fora_da_janela:  "⏰ Fora do horário da diária. O check-in vale de 30min antes do início até 2h após o fim.",
@@ -3244,7 +3244,7 @@ export default function App() {
         .eq("id", diariaId).eq("empregador_id", session.user.id);
       if (errLegado) { setAuthError("Erro ao concluir: " + errLegado.message); return; }
     } else if (error) {
-      setAuthError("Erro ao concluir: " + error.message); return;
+      setAuthError(traduzirErroBanco(error)); return;
     } else if (data && data.ok === false) {
       setAuthError("Não foi possível concluir: " + (data.erro || "erro")); return;
     }
@@ -3263,7 +3263,7 @@ export default function App() {
       .update({ status: "cancelada", motivo_cancelamento: motivoCancelamento.trim() })
       .eq("id", modalCancelar.id)
       .eq("empregador_id", session.user.id); // BUG-M6 fix: garante que só o dono cancela
-    if (error) { setAuthError("Erro ao cancelar: " + error.message); setCancelando(false); return; }
+    if (error) { setAuthError(traduzirErroBanco(error)); setCancelando(false); return; }
     const atualizada = { ...modalCancelar, status: "cancelada", motivo_cancelamento: motivoCancelamento.trim() };
     setDiarias(prev => prev.map(d => d.id === modalCancelar.id ? atualizada : d));
     setMinhasDiarias(prev => prev.map(d => d.id === modalCancelar.id ? atualizada : d));
@@ -3297,7 +3297,7 @@ export default function App() {
       .from("diarias")
       .update({ status: "aberta", diarista_aceite_id: null, motivo_cancelamento: motivoDesistencia.trim() })
       .eq("id", diariaId);
-    if (error) { setAuthError("Erro ao desistir: " + error.message); setDesistindo(false); return; }
+    if (error) { setAuthError(traduzirErroBanco(error)); setDesistindo(false); return; }
     // Remove candidatura da tabela para que possa se recandidatar depois
     await supabase.from("candidaturas").delete()
       .eq("diaria_id", diariaId)
@@ -3455,7 +3455,7 @@ export default function App() {
       status:           "pendente",
     });
     if (error) {
-      setToastError(`Erro ao enviar convite: ${error.message}`);
+      setToastError(traduzirErroBanco(error));
       return;
     }
     setModalConvite(false);
@@ -3513,7 +3513,7 @@ export default function App() {
     setConfirmandoPresencaConvite(false);
     if (error) {
       console.error("[confirmarPresencaConvite] erro:", error);
-      setToastError(`Erro ao confirmar: ${error.message || error.code || "tente novamente"}`);
+      setToastError(traduzirErroBanco(error));
       return;
     }
     // Cria (idempotente) a diária real ligada ao convite — chat/agenda passam a
@@ -4257,7 +4257,7 @@ export default function App() {
       // Rollback: recarrega a diária do banco caso o delete falhe
       const { data: volta } = await supabase.from("diarias").select("*").eq("id", dia.id).single();
       if (volta) setDiarias(prev => [volta, ...prev.filter(d => d.id !== dia.id)]);
-      setAuthError("Erro ao excluir diária: " + error.message);
+      setAuthError(traduzirErroBanco(error));
       setExcluindo(false);
       return;
     }
@@ -4299,7 +4299,7 @@ export default function App() {
     }).select().single();
     // FIX 2026-05-28: era silencioso em erro (msg não aparecia, sem feedback).
     if (error) {
-      setToastError("❌ Falha ao enviar: " + error.message);
+      setToastError("❌ " + traduzirErroBanco(error));
       setEnviandoMsgReal(false);
       return;
     }
@@ -4397,7 +4397,7 @@ export default function App() {
       }
     });
     setEnviandoInteresse(false);
-    if (error) { setAuthError("Erro ao registrar interesse: " + error.message); return; }
+    if (error) { setAuthError(traduzirErroBanco(error)); return; }
     trackEvento("candidatura_enviada", session?.user?.id, "diarista", { diaria_id: diaria.id, funcao: diaria.funcao });
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "pendente" }));
     setVagaConfirmada(true);
@@ -4632,7 +4632,7 @@ export default function App() {
     if (!session?.user) return;
     setConfirmando(true);
     const { error } = await supabase.from("diarias").update({ status: "aceita" }).eq("id", diaria.id);
-    if (error) { setAuthError(error.message); setConfirmando(false); return; }
+    if (error) { setAuthError(traduzirErroBanco(error)); setConfirmando(false); return; }
     // Verifica o erro do 2º update: se a candidatura não sincroniza, o empregador
     // não vê o diarista como "confirmado" e o fluxo de contato/chat trava.
     const { error: errCand } = await supabase.from("candidaturas").update({ status: "confirmado" }).eq("diaria_id", diaria.id).eq("diarista_id", session.user.id);
@@ -4926,7 +4926,7 @@ export default function App() {
       }),
     };
     const { data, error } = await supabase.from("diarias").insert(nova).select().single();
-    if (error) { setAuthError("Erro ao publicar: " + error.message); setSalvandoDiaria(false); return; }
+    if (error) { setAuthError(traduzirErroBanco(error)); setSalvandoDiaria(false); return; }
     const novasDiarias = data ? [data] : [];
 
     // Cria diárias extras se recorrente
