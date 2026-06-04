@@ -570,7 +570,7 @@ export default function App() {
 
   // Editar diária
   const [modalEditarDiaria, setModalEditarDiaria] = useState<Diaria | null>(null);
-  const [formEditarDiaria, setFormEditarDiaria] = useState({ descricao:"", horario_inicio:"", horario_fim:"", valor:"" });
+  const [formEditarDiaria, setFormEditarDiaria] = useState({ funcao:"", descricao:"", data:"", horario_inicio:"", horario_fim:"", valor:"" });
   const [salvandoEdicao, setSalvandoEdicao] = useState(false);
   const [salvandoPerfil, setSalvandoPerfil] = useState(false); // loading global do saveProfile
 
@@ -4878,9 +4878,13 @@ export default function App() {
     const [h2, m2] = (formEditarDiaria.horario_fim || "0:0").split(":").map(Number);
     if ((h2 * 60 + m2) - (h1 * 60 + m1) <= 0) { setAuthError("Horário inválido."); return; }
     if (!formEditarDiaria.valor || Number(formEditarDiaria.valor) <= 0) { setAuthError("Informe um valor válido."); return; }
+    if (!formEditarDiaria.funcao.trim()) { setAuthError("Selecione a função."); return; }
+    if (!formEditarDiaria.data) { setAuthError("Informe a data."); return; }
     setSalvandoEdicao(true);
     const updates = {
+      funcao: formEditarDiaria.funcao,
       descricao: formEditarDiaria.descricao,
+      data: formEditarDiaria.data,
       horario_inicio: formEditarDiaria.horario_inicio,
       horario_fim: formEditarDiaria.horario_fim,
       valor: Number(formEditarDiaria.valor),
@@ -10335,7 +10339,7 @@ export default function App() {
                               <button
                                 style={{ background:"#eff6ff", color:"#3A86FF", border:"none", borderRadius:8, padding:"4px 9px", fontSize:14, cursor:"pointer", lineHeight:1 }}
                                 title="Editar diária"
-                                onClick={e => { e.stopPropagation(); setModalEditarDiaria(dia); setFormEditarDiaria({ descricao:dia.descricao, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); setAuthError(""); }}>
+                                onClick={e => { e.stopPropagation(); setModalEditarDiaria(dia); setFormEditarDiaria({ funcao:dia.funcao, descricao:dia.descricao, data:dia.data, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); setAuthError(""); }}>
                                 ✏️
                               </button>
                             )}
@@ -10416,7 +10420,7 @@ export default function App() {
                             {(dia.status === "aberta" || dia.status === "pendente") && (
                               <button
                                 style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#fef3c7", color:"#92400e", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
-                                onClick={() => { setModalEditarDiaria(dia); setFormEditarDiaria({ descricao:dia.descricao, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); }}>
+                                onClick={() => { setModalEditarDiaria(dia); setFormEditarDiaria({ funcao:dia.funcao, descricao:dia.descricao, data:dia.data, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); }}>
                                 ✏️ Editar
                               </button>
                             )}
@@ -11076,7 +11080,25 @@ export default function App() {
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
               <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✏️ Editar diária</div>
-              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16 }}>{modalEditarDiaria.funcao} · {new Date(modalEditarDiaria.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16 }}>{modalEditarDiaria.segmento}</div>
+              <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:6 }}>Função</label>
+              {(() => {
+                const funcs = (CATEGORIAS_NEGOCIO[modalEditarDiaria.segmento as keyof typeof CATEGORIAS_NEGOCIO]?.funcoes ?? []) as readonly string[];
+                const opcoes = funcs.includes(formEditarDiaria.funcao) ? [...funcs] : [formEditarDiaria.funcao, ...funcs].filter(Boolean);
+                return (
+                  <select
+                    style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box", marginBottom:14, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
+                    value={formEditarDiaria.funcao}
+                    onChange={e => setFormEditarDiaria(p => ({ ...p, funcao:e.target.value }))}>
+                    {opcoes.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                );
+              })()}
+              <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:6 }}>Data</label>
+              <input type="date"
+                style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box", marginBottom:14, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
+                value={formEditarDiaria.data}
+                onChange={e => setFormEditarDiaria(p => ({ ...p, data:e.target.value }))} />
               <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:6 }}>Descrição</label>
               <textarea
                 style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"none", height:72, outline:"none", color:"var(--text-1,#0f172a)", lineHeight:1.5, boxSizing:"border-box", marginBottom:14 }}
