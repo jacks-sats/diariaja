@@ -13197,6 +13197,13 @@ export default function App() {
                             })()}
                           </div>
 
+                          {/* Prévia do que precisa ser feito (2 linhas) — pra ver de relance */}
+                          {dia.descricao && (
+                            <div style={{ fontSize:13, color:"var(--text-1,#0f172a)", marginTop:8, lineHeight:1.45, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" as const, overflow:"hidden" }}>
+                              📋 {dia.descricao}
+                            </div>
+                          )}
+
                           {/* Delivery info block */}
                           {FUNCOES_DELIVERY.includes(dia.funcao) && (dia.valor_encostada || dia.valor_por_entrega || dia.ganho_estimado_dia) && (
                             <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:12, padding:"9px 12px", marginTop:10, display:"flex", gap:12, flexWrap:"wrap" }}>
@@ -14591,6 +14598,13 @@ export default function App() {
                           </div>
                         ))}
                       </div>
+                      {/* O que precisa ser feito — visível também na hora de aceitar */}
+                      {vagaConfirm.descricao && (
+                        <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 14px", marginBottom:14 }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>📋 O que precisa ser feito</div>
+                          <div style={{ fontSize:13.5, color:"var(--text-1,#0f172a)", lineHeight:1.5, whiteSpace:"pre-wrap" as const }}>{vagaConfirm.descricao}</div>
+                        </div>
+                      )}
                       {authError && <p style={S.errorText}>{authError}</p>}
                       <button style={{ ...S.btnPrimary, background:"#22c55e", marginTop:8, opacity:confirmando?0.6:1 }}
                         disabled={confirmando}
@@ -14695,6 +14709,13 @@ export default function App() {
                       </p>
                       <div style={S.modalRow}><span>Local</span><strong>{vagaConfirm.nome_negocio || vagaConfirm.segmento}</strong></div>
                       <div style={S.modalRow}><span>Função</span><strong>{vagaConfirm.funcao || "—"}</strong></div>
+                      {/* O que precisa ser feito — pra ninguém aceitar sem saber a tarefa */}
+                      {vagaConfirm.descricao && (
+                        <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", margin:"10px 0" }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>📋 O que precisa ser feito</div>
+                          <div style={{ fontSize:13.5, color:"var(--text-1,#0f172a)", lineHeight:1.5, whiteSpace:"pre-wrap" as const }}>{vagaConfirm.descricao}</div>
+                        </div>
+                      )}
                       {vagaConfirm.tipo_oferta === "emprego" ? (
                         <>
                           {vagaConfirm.tipo_contrato && <div style={S.modalRow}><span>Contrato</span><strong>{vagaConfirm.tipo_contrato}</strong></div>}
