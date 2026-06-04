@@ -110,11 +110,14 @@ async function processar(req: Request): Promise<Response> {
 
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
-  // 1) CNPJ já cadastrado? Compara com e sem máscara — em queries .eq()
-  // SEPARADAS, não num .or(): dentro de .or() o PostgREST quebra nos caracteres
-  // da máscara ('.'/'/'), o que deixava o CNPJ mascarado passar como "novo"
-  // (mesma raiz do bug de login por CNPJ).
+  // 1) CNPJ já cadastrado? Usa a RPC id_por_documento, que normaliza os DOIS
+  // lados pra dígitos (regexp_replace) e casa qualquer formato salvo (máscara,
+  // dígitos, sujeira). O .eq() com máscara NÃO casava no PostgREST (mesma raiz
+  // do bug de login por CNPJ) — então a checagem antiga deixava cadastrar
+  // CNPJ repetido. Fallback pro .eq() caso a RPC ainda não tenha sido aplicada.
   const cnpjMasked = maskCNPJ(cnpjDig);
+  const { data: dupId } = await admin.rpc("id_por_documento", { p_digits: cnpjDig });
+  if (typeof dupId === "string" && dupId) return erro("cnpj_existe", 409);
   for (const valor of [cnpjDig, cnpjMasked]) {
     const { data: dup } = await admin
       .from("user_profiles")
