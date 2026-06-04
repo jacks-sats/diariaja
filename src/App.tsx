@@ -726,6 +726,29 @@ export default function App() {
     return () => mq.removeEventListener?.("change", upd);
   }, []);
 
+  // Desktop: as telas de auth/onboarding são uma coluna de 480px centralizada.
+  // Sem isso, num monitor largo as laterais ficavam brancas (parecia uma tira
+  // no meio). Pintamos o fundo do body pra a coluna virar um "painel"
+  // centralizado: escuro nas telas de gradiente (login/cadastro de entrada) e
+  // var(--bg-surface) — respeita dark mode — nas telas claras (wizards/setup).
+  // No celular (isDesktop=false) nada muda. Reseta ao sair pra não afetar o app.
+  useEffect(() => {
+    const ESCURAS = new Set(["login", "cadastro-tipo", "cadastro-auth"]);
+    const CLARAS = new Set([
+      "cadastro-diarista", "cadastro-empregador", "cadastro-empresa", "escolha-negocio",
+      "verificar-telefone", "verificar-documento", "alterar-senha", "pedir-localizacao",
+      "setup-diarista", "setup-empregador",
+    ]);
+    if (isDesktop && ESCURAS.has(tela)) {
+      document.body.style.background = "#0a1428";
+    } else if (isDesktop && CLARAS.has(tela)) {
+      document.body.style.background = "var(--bg-surface, #f8fafc)";
+    } else {
+      document.body.style.background = "";
+    }
+    return () => { document.body.style.background = ""; };
+  }, [isDesktop, tela]);
+
   // Mostrar/ocultar senha nos campos de login e cadastro
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [mostrarSenhaCadastro, setMostrarSenhaCadastro] = useState(false);
