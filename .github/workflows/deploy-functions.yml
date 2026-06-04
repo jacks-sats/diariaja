@@ -42,14 +42,16 @@ jobs:
         run: |
           # Faz deploy de cada função (ignora a pasta _shared, que não é função).
           # CRÍTICO: mp-webhook e mp-oauth são chamadas SEM JWT (Mercado Pago /
-          # redirect de browser) — vão com --no-verify-jwt explícito pra o gateway
-          # não bloquear com 401 antes do código rodar. As demais mantêm o default
-          # (verify_jwt = true) e exigem JWT do usuário. Espelha o supabase/config.toml.
+          # redirect de browser); lookup-by-cpf e signup-empresa são chamadas
+          # PRÉ-LOGIN (usuário sem sessão, manda a chave publicável que não é
+          # JWT). Todas precisam de --no-verify-jwt, senão o gateway devolve 401
+          # antes do código rodar. As demais mantêm o default (verify_jwt = true)
+          # e exigem JWT do usuário. Espelha o supabase/config.toml.
           for dir in supabase/functions/*/; do
             name=$(basename "$dir")
             [ "$name" = "_shared" ] && continue
             case "$name" in
-              mp-webhook|mp-oauth) flags="--no-verify-jwt" ;;
+              mp-webhook|mp-oauth|lookup-by-cpf|signup-empresa) flags="--no-verify-jwt" ;;
               *)                    flags="" ;;
             esac
             echo "▶ deploy $name $flags"
