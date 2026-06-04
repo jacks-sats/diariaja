@@ -71,6 +71,7 @@ import {
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo,
+  montarTextoVaga,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -3409,6 +3410,26 @@ export default function App() {
     if (error) { setToastError("Erro ao retirar interesse. Tente novamente."); return; }
     setMeuInteresse(prev => { const n = { ...prev }; delete n[diariaId]; return n; });
     setToastSuccess("↩️ Interesse retirado.");
+  };
+
+  // ── COMPARTILHAR VAGA (loop viral) ────────────────────────────────────────
+  // Compartilha a vaga FORA do app (WhatsApp, etc.) com um texto público —
+  // sem endereço/contato (só liberados após aceitar). Usa a Web Share API no
+  // celular e cai pra copiar o texto no desktop. Cada compartilhamento é um
+  // anúncio grátis do DiáriaJá → traz usuários novos.
+  const compartilharVaga = async (dia: Diaria) => {
+    const texto = montarTextoVaga(dia);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Vaga no DiáriaJá", text: texto });
+      } else {
+        await navigator.clipboard?.writeText(texto);
+        setToastSuccess("🔗 Texto da vaga copiado! Cole onde quiser.");
+      }
+      trackEvento("vaga_compartilhada", session?.user?.id, "diarista", {
+        diaria_id: dia.id, tipo_oferta: dia.tipo_oferta,
+      });
+    } catch { /* usuário cancelou o compartilhamento — ignora */ }
   };
 
   // Envia denúncia de vaga ou usuário
@@ -13199,11 +13220,18 @@ export default function App() {
                                     onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); }}>
                                     ✋ Tenho interesse
                                   </button>
-                                  <div style={{ display:"flex", gap:8 }}>
+                                  <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
                                     <button
-                                      style={{ flex:1, background:"#f1f5f9", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"9px 10px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}
+                                      style={{ flex:1, minWidth:140, background:"#f1f5f9", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"9px 10px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}
                                       onClick={e => { e.stopPropagation(); marcarNaoInteresse(dia.id); }}>
                                       👎 Não tenho interesse
+                                    </button>
+                                    {/* Compartilhar vaga fora do app (loop viral — traz usuários novos) */}
+                                    <button
+                                      style={{ background:"#eff6ff", color:"#2563eb", border:"1.5px solid #bfdbfe", borderRadius:12, padding:"9px 12px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:5, flexShrink:0 }}
+                                      title="Compartilhar esta vaga no WhatsApp, Facebook, etc."
+                                      onClick={e => { e.stopPropagation(); compartilharVaga(dia); }}>
+                                      📤 Compartilhar
                                     </button>
                                     <button
                                       style={{ background:"#fef2f2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, padding:"9px 12px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, flexShrink:0 }}
