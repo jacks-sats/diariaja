@@ -13,7 +13,18 @@ verify_jwt = false
 # OAuth redirect do MP vem sem JWT no browser.
 verify_jwt = false
 
+# Endpoints PRÉ-LOGIN: chamados na tela de login/cadastro, quando o usuário
+# AINDA NÃO tem sessão. Vão com a chave publicável (sb_publishable_…), que NÃO
+# é um JWT — com verify_jwt=true o gateway barra com 401 antes do código rodar.
+# Era a causa do "login por CNPJ / cadastro PJ não funciona". Proteção fica
+# dentro da própria função (rate-limit por IP, validação, erros genéricos).
+[functions.lookup-by-cpf]
+verify_jwt = false
+
+[functions.signup-empresa]
+verify_jwt = false
+
 # Outras funções deixam o default (verify_jwt = true) — exigem JWT do user
 # como ai-support, delete-user, export-user-data, create-payment,
-# create-contact-payment, create-subscription, lookup-by-cpf, mp-health-check,
+# create-contact-payment, create-subscription, mp-health-check,
 # send-push, purge-antecedentes-storage.
