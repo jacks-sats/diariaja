@@ -11822,11 +11822,11 @@ export default function App() {
               {/* Suporte DiáriaJá — sempre no topo */}
               <div
                 style={{ background:"linear-gradient(135deg,#8338EC,#FF6B35)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 4px 14px rgba(131,56,236,.3)", cursor:"pointer", marginBottom:10 }}
-                onClick={() => { setChatSuporte(true); }}>
-                <div style={{ width:50, height:50, borderRadius:25, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>💬</div>
+                onClick={() => { setTela("suporte"); }}>
+                <div style={{ width:50, height:50, borderRadius:25, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>🎧</div>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Suporte DiáriaJá</div>
-                  <div style={{ fontSize:12, color:"rgba(255,255,255,.8)", marginTop:2 }}>Tire suas dúvidas instantaneamente</div>
+                  <div style={{ fontSize:12, color:"rgba(255,255,255,.8)", marginTop:2 }}>Abra um chamado — a equipe responde aqui no app</div>
                 </div>
                 <span style={{ background:"#22c55e", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>Online</span>
               </div>
@@ -13932,13 +13932,13 @@ export default function App() {
               {/* Suporte DiáriaJá — sempre no topo */}
               <div
                 style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 4px 14px rgba(255,107,53,.3)", cursor:"pointer", marginBottom:10 }}
-                onClick={() => { setChatSuporte(true); }}>
-                <div style={{ width:50, height:50, borderRadius:25, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>💬</div>
+                onClick={() => { setTela("suporte"); }}>
+                <div style={{ width:50, height:50, borderRadius:25, background:"rgba(255,255,255,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>🎧</div>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:900, fontSize:15, color:"#fff" }}>Suporte DiáriaJá</div>
-                  <div style={{ fontSize:12, color:"rgba(255,255,255,.8)", marginTop:2 }}>Tire suas dúvidas instantaneamente</div>
+                  <div style={{ fontSize:12, color:"rgba(255,255,255,.8)", marginTop:2 }}>Abra um chamado — a equipe responde aqui no app</div>
                 </div>
-                <span style={{ background:"#22c55e", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>Online</span>
+                <span style={{ background:"rgba(255,255,255,.22)", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20 }}>Equipe</span>
               </div>
               {conversas.length === 0 ? (
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"32px 20px", textAlign:"center" }}>
