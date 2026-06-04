@@ -1025,3 +1025,92 @@ export function calcularNivelAcademy(xp: number): NivelAcademy {
     xp: x, xpProximoNivel, faltam, progressoPct,
   };
 }
+
+// ── Compartilhar vaga (loop viral) ───────────────────────────────────────────
+// Link público do app — usado no texto compartilhado fora do app (WhatsApp,
+// Facebook, etc.). Sem deep link porque o app não usa rotas (padrão `tela`).
+export const URL_APP = "https://www.diariaja.com";
+
+// Campos da diária que podem entrar no texto compartilhado. SÓ informação
+// pública (o "chamariz"): função, segmento, valor/salário, bairro, data/horário.
+// NUNCA endereço completo nem contato — isso só é liberado DENTRO do app depois
+// que o anunciante aceita o prestador.
+export interface VagaCompartilhavel {
+  id?: string | null;                 // entra no link como ?vaga=ID (deep link)
+  tipo_oferta?: string | null;
+  segmento?: string | null;
+  funcao?: string | null;
+  descricao?: string | null;          // o que a pessoa vai fazer (observação)
+  valor?: number | null;
+  salario_texto?: string | null;
+  bairro?: string | null;
+  data?: string | null;
+  horario_inicio?: string | null;
+  horario_fim?: string | null;
+  tempo_estimado_min?: number | null;
+  tipo_contrato?: string | null;
+  regime?: string | null;
+}
+
+// Link direto pra vaga (deep link). O app lê ?vaga=ID ao abrir e já mostra a
+// vaga. Sem o id, cai no link genérico do app.
+export function linkVaga(id?: string | null): string {
+  return id ? `${URL_APP}/?vaga=${id}` : URL_APP;
+}
+
+// Monta o texto "chamariz" que o diarista compartilha fora do app. Trata os três
+// tipos de oferta (diária, serviço pontual e vaga de emprego), com layout limpo
+// (título em negrito do WhatsApp + divisórias) e termina com o link direto da
+// vaga, pra trazer usuários novos.
+export function montarTextoVaga(v: VagaCompartilhavel): string {
+  const hi = (v.horario_inicio || "").slice(0, 5);
+  const hf = (v.horario_fim || "").slice(0, 5);
+  const dataBR = isoParaBR(v.data);
+  const funcao = (v.funcao || "").trim();
+  const segmento = (v.segmento || "").trim();
+  const bairro = (v.bairro || "").trim();
+  const div = "━━━━━━━━━━━━━";
+
+  let emoji = "🌞";
+  let titulo = "Vaga de diária";
+  let linhaValor = "";
+  let linhaQuando = "";
+
+  if (v.tipo_oferta === "emprego") {
+    emoji = "💼"; titulo = "Vaga de emprego";
+    linhaValor = `💰 ${(v.salario_texto || "").trim() || "A combinar"}`;
+    const contrato = [v.tipo_contrato, v.regime].map(s => (s || "").trim()).filter(Boolean).join(" · ");
+    linhaQuando = contrato ? `📄 ${contrato}` : "";
+  } else if (v.tipo_oferta === "servico") {
+    emoji = "⚡"; titulo = "Serviço disponível";
+    const tempo = v.tempo_estimado_min
+      ? (v.tempo_estimado_min >= 60 ? `${Math.round(v.tempo_estimado_min / 60)}h` : `${v.tempo_estimado_min}min`)
+      : "a combinar";
+    linhaValor = typeof v.valor === "number" ? `💰 R$ ${v.valor}  ·  ⏱ ${tempo}` : `⏱ ${tempo}`;
+    linhaQuando = dataBR ? `📅 ${dataBR}${hi ? ` às ${hi}` : ""}` : "";
+  } else {
+    emoji = "🌞"; titulo = "Vaga de diária";
+    linhaValor = typeof v.valor === "number" ? `💰 R$ ${v.valor}/dia` : "";
+    linhaQuando = dataBR ? `📅 ${dataBR}${hi ? ` · ${hi}${hf ? `–${hf}` : ""}` : ""}` : "";
+  }
+
+  const linhas: string[] = [];
+  linhas.push(`${emoji} *${titulo} no DiáriaJá!*`);
+  linhas.push(div);
+  if (funcao) linhas.push(`👷 ${funcao}`);
+  if (segmento) linhas.push(`🏷️ ${segmento}`);
+  if (linhaValor) linhas.push(linhaValor);
+  if (linhaQuando) linhas.push(linhaQuando);
+  if (bairro) linhas.push(`📍 ${bairro}`);
+  // Descrição (o que a pessoa vai fazer) — limitada pra não virar um textão.
+  const desc = (v.descricao || "").trim();
+  if (desc) {
+    const descCurta = desc.length > 200 ? `${desc.slice(0, 197).trimEnd()}…` : desc;
+    linhas.push("");
+    linhas.push(`📋 ${descCurta}`);
+  }
+  linhas.push(div);
+  linhas.push("👉 Veja os detalhes e candidate-se no app:");
+  linhas.push(linkVaga(v.id));
+  return linhas.join("\n");
+}

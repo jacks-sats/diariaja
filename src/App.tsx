@@ -71,6 +71,7 @@ import {
   calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo,
+  montarTextoVaga,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -392,6 +393,9 @@ export default function App() {
   const [desistindo, setDesistindo] = useState(false);
   // Detalhes da diária aceita (modal ao clicar no card)
   const [detalhesDiaria, setDetalhesDiaria] = useState<Diaria | null>(null);
+  // Deep link de vaga compartilhada (?vaga=ID): guardado no load, aberto quando
+  // sessão/perfil já carregaram.
+  const [vagaDeepLinkId, setVagaDeepLinkId] = useState<string | null>(null);
   // Menu de troca de perfil (bottom sheet ao clicar no nome/avatar)
   const [menuTrocarPerfil, setMenuTrocarPerfil] = useState(false);
   // Modal de informações do perfil (ao clicar no nome)
@@ -566,7 +570,7 @@ export default function App() {
 
   // Editar diária
   const [modalEditarDiaria, setModalEditarDiaria] = useState<Diaria | null>(null);
-  const [formEditarDiaria, setFormEditarDiaria] = useState({ descricao:"", horario_inicio:"", horario_fim:"", valor:"" });
+  const [formEditarDiaria, setFormEditarDiaria] = useState({ funcao:"", descricao:"", data:"", horario_inicio:"", horario_fim:"", valor:"" });
   const [salvandoEdicao, setSalvandoEdicao] = useState(false);
   const [salvandoPerfil, setSalvandoPerfil] = useState(false); // loading global do saveProfile
 
@@ -1234,9 +1238,42 @@ export default function App() {
       setToastError("❌ Pagamento não concluído. Você pode tentar de novo em Planos.");
       window.history.replaceState({}, "", window.location.pathname);
     }
+    // Deep link de vaga compartilhada (?vaga=ID): guarda e limpa a URL. A
+    // abertura da vaga acontece noutro efeito, quando sessão/perfil carregam.
+    const vagaParam = params.get("vaga");
+    if (vagaParam) {
+      try { localStorage.setItem("diariaja_vaga_deeplink", vagaParam); } catch { /* ok */ }
+      setVagaDeepLinkId(vagaParam);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   // BUG-M5 fix: inclui session.user.id para reprocessar quando sessão carrega após redirect OAuth
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
+
+  // Abre a vaga do deep link assim que dá (sessão + perfil prontos). Busca a
+  // diária por id direto (pode não estar no feed filtrado) e abre o modal de
+  // detalhes. Se o usuário ainda não logou, o id fica no localStorage e este
+  // efeito reprocessa depois do login.
+  useEffect(() => {
+    let vid = vagaDeepLinkId;
+    if (!vid) { try { vid = localStorage.getItem("diariaja_vaga_deeplink"); } catch { vid = null; } }
+    if (!vid || !session?.user || !profile) return;
+    let cancelado = false;
+    (async () => {
+      const { data } = await supabase.from("diarias").select("*").eq("id", vid).maybeSingle();
+      if (cancelado) return;
+      try { localStorage.removeItem("diariaja_vaga_deeplink"); } catch { /* ok */ }
+      setVagaDeepLinkId(null);
+      if (data) {
+        if (profile.user_type === "diarista") setTela("home-diarista");
+        setDetalhesDiaria(data as Diaria);
+      } else {
+        setToastError("Essa vaga não está mais disponível.");
+      }
+    })();
+    return () => { cancelado = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vagaDeepLinkId, session?.user?.id, profile?.user_type]);
 
   // Diaristas reais: IDs negativos = índice no array (via ref)
   // Redireciona para escolha-negocio SOMENTE se nem o estado nem o perfil têm segmento.
@@ -3411,6 +3448,26 @@ export default function App() {
     setToastSuccess("↩️ Interesse retirado.");
   };
 
+  // ── COMPARTILHAR VAGA (loop viral) ────────────────────────────────────────
+  // Compartilha a vaga FORA do app (WhatsApp, etc.) com um texto público —
+  // sem endereço/contato (só liberados após aceitar). Usa a Web Share API no
+  // celular e cai pra copiar o texto no desktop. Cada compartilhamento é um
+  // anúncio grátis do DiáriaJá → traz usuários novos.
+  const compartilharVaga = async (dia: Diaria) => {
+    const texto = montarTextoVaga(dia);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Vaga no DiáriaJá", text: texto });
+      } else {
+        await navigator.clipboard?.writeText(texto);
+        setToastSuccess("🔗 Texto da vaga copiado! Cole onde quiser.");
+      }
+      trackEvento("vaga_compartilhada", session?.user?.id, "diarista", {
+        diaria_id: dia.id, tipo_oferta: dia.tipo_oferta,
+      });
+    } catch { /* usuário cancelou o compartilhamento — ignora */ }
+  };
+
   // Envia denúncia de vaga ou usuário
   // BUG-H2 fix: verifica erro do Supabase antes de fechar modal
   const enviarDenuncia = async () => {
@@ -4821,9 +4878,13 @@ export default function App() {
     const [h2, m2] = (formEditarDiaria.horario_fim || "0:0").split(":").map(Number);
     if ((h2 * 60 + m2) - (h1 * 60 + m1) <= 0) { setAuthError("Horário inválido."); return; }
     if (!formEditarDiaria.valor || Number(formEditarDiaria.valor) <= 0) { setAuthError("Informe um valor válido."); return; }
+    if (!formEditarDiaria.funcao.trim()) { setAuthError("Selecione a função."); return; }
+    if (!formEditarDiaria.data) { setAuthError("Informe a data."); return; }
     setSalvandoEdicao(true);
     const updates = {
+      funcao: formEditarDiaria.funcao,
       descricao: formEditarDiaria.descricao,
+      data: formEditarDiaria.data,
       horario_inicio: formEditarDiaria.horario_inicio,
       horario_fim: formEditarDiaria.horario_fim,
       valor: Number(formEditarDiaria.valor),
@@ -10278,7 +10339,7 @@ export default function App() {
                               <button
                                 style={{ background:"#eff6ff", color:"#3A86FF", border:"none", borderRadius:8, padding:"4px 9px", fontSize:14, cursor:"pointer", lineHeight:1 }}
                                 title="Editar diária"
-                                onClick={e => { e.stopPropagation(); setModalEditarDiaria(dia); setFormEditarDiaria({ descricao:dia.descricao, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); setAuthError(""); }}>
+                                onClick={e => { e.stopPropagation(); setModalEditarDiaria(dia); setFormEditarDiaria({ funcao:dia.funcao, descricao:dia.descricao, data:dia.data, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); setAuthError(""); }}>
                                 ✏️
                               </button>
                             )}
@@ -10359,7 +10420,7 @@ export default function App() {
                             {(dia.status === "aberta" || dia.status === "pendente") && (
                               <button
                                 style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#fef3c7", color:"#92400e", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
-                                onClick={() => { setModalEditarDiaria(dia); setFormEditarDiaria({ descricao:dia.descricao, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); }}>
+                                onClick={() => { setModalEditarDiaria(dia); setFormEditarDiaria({ funcao:dia.funcao, descricao:dia.descricao, data:dia.data, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); }}>
                                 ✏️ Editar
                               </button>
                             )}
@@ -11019,7 +11080,25 @@ export default function App() {
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
               <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✏️ Editar diária</div>
-              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16 }}>{modalEditarDiaria.funcao} · {new Date(modalEditarDiaria.data+"T12:00:00").toLocaleDateString("pt-BR")}</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16 }}>{modalEditarDiaria.segmento}</div>
+              <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:6 }}>Função</label>
+              {(() => {
+                const funcs = (CATEGORIAS_NEGOCIO[modalEditarDiaria.segmento as keyof typeof CATEGORIAS_NEGOCIO]?.funcoes ?? []) as readonly string[];
+                const opcoes = funcs.includes(formEditarDiaria.funcao) ? [...funcs] : [formEditarDiaria.funcao, ...funcs].filter(Boolean);
+                return (
+                  <select
+                    style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box", marginBottom:14, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
+                    value={formEditarDiaria.funcao}
+                    onChange={e => setFormEditarDiaria(p => ({ ...p, funcao:e.target.value }))}>
+                    {opcoes.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                );
+              })()}
+              <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:6 }}>Data</label>
+              <input type="date"
+                style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box", marginBottom:14, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" }}
+                value={formEditarDiaria.data}
+                onChange={e => setFormEditarDiaria(p => ({ ...p, data:e.target.value }))} />
               <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:6 }}>Descrição</label>
               <textarea
                 style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"none", height:72, outline:"none", color:"var(--text-1,#0f172a)", lineHeight:1.5, boxSizing:"border-box", marginBottom:14 }}
@@ -13140,6 +13219,13 @@ export default function App() {
                             })()}
                           </div>
 
+                          {/* Prévia do que precisa ser feito (2 linhas) — pra ver de relance */}
+                          {dia.descricao && (
+                            <div style={{ fontSize:13, color:"var(--text-1,#0f172a)", marginTop:8, lineHeight:1.45, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" as const, overflow:"hidden" }}>
+                              📋 {dia.descricao}
+                            </div>
+                          )}
+
                           {/* Delivery info block */}
                           {FUNCOES_DELIVERY.includes(dia.funcao) && (dia.valor_encostada || dia.valor_por_entrega || dia.ganho_estimado_dia) && (
                             <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:12, padding:"9px 12px", marginTop:10, display:"flex", gap:12, flexWrap:"wrap" }}>
@@ -13199,11 +13285,18 @@ export default function App() {
                                     onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); }}>
                                     ✋ Tenho interesse
                                   </button>
-                                  <div style={{ display:"flex", gap:8 }}>
+                                  <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
                                     <button
-                                      style={{ flex:1, background:"#f1f5f9", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"9px 10px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}
+                                      style={{ flex:1, minWidth:140, background:"#f1f5f9", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:12, padding:"9px 10px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}
                                       onClick={e => { e.stopPropagation(); marcarNaoInteresse(dia.id); }}>
                                       👎 Não tenho interesse
+                                    </button>
+                                    {/* Compartilhar vaga fora do app (loop viral — traz usuários novos) */}
+                                    <button
+                                      style={{ background:"#eff6ff", color:"#2563eb", border:"1.5px solid #bfdbfe", borderRadius:12, padding:"9px 12px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:5, flexShrink:0 }}
+                                      title="Compartilhar esta vaga no WhatsApp, Facebook, etc."
+                                      onClick={e => { e.stopPropagation(); compartilharVaga(dia); }}>
+                                      📤 Compartilhar
                                     </button>
                                     <button
                                       style={{ background:"#fef2f2", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, padding:"9px 12px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:4, flexShrink:0 }}
@@ -14527,6 +14620,13 @@ export default function App() {
                           </div>
                         ))}
                       </div>
+                      {/* O que precisa ser feito — visível também na hora de aceitar */}
+                      {vagaConfirm.descricao && (
+                        <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 14px", marginBottom:14 }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>📋 O que precisa ser feito</div>
+                          <div style={{ fontSize:13.5, color:"var(--text-1,#0f172a)", lineHeight:1.5, whiteSpace:"pre-wrap" as const }}>{vagaConfirm.descricao}</div>
+                        </div>
+                      )}
                       {authError && <p style={S.errorText}>{authError}</p>}
                       <button style={{ ...S.btnPrimary, background:"#22c55e", marginTop:8, opacity:confirmando?0.6:1 }}
                         disabled={confirmando}
@@ -14631,6 +14731,13 @@ export default function App() {
                       </p>
                       <div style={S.modalRow}><span>Local</span><strong>{vagaConfirm.nome_negocio || vagaConfirm.segmento}</strong></div>
                       <div style={S.modalRow}><span>Função</span><strong>{vagaConfirm.funcao || "—"}</strong></div>
+                      {/* O que precisa ser feito — pra ninguém aceitar sem saber a tarefa */}
+                      {vagaConfirm.descricao && (
+                        <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", margin:"10px 0" }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>📋 O que precisa ser feito</div>
+                          <div style={{ fontSize:13.5, color:"var(--text-1,#0f172a)", lineHeight:1.5, whiteSpace:"pre-wrap" as const }}>{vagaConfirm.descricao}</div>
+                        </div>
+                      )}
                       {vagaConfirm.tipo_oferta === "emprego" ? (
                         <>
                           {vagaConfirm.tipo_contrato && <div style={S.modalRow}><span>Contrato</span><strong>{vagaConfirm.tipo_contrato}</strong></div>}
