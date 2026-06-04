@@ -100,20 +100,27 @@ async function processar(req: Request): Promise<Response> {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  // Cadastros antigos podem ter sido salvos com ou sem máscara — tenta ambos.
+  // Cadastros podem ter sido salvos com máscara (PJ salva "24.626.142/0001-27")
+  // ou só com dígitos. Tentamos os dois — em queries .eq() SEPARADAS, e NÃO num
+  // .or(), porque dentro de .or() o PostgREST quebra o parsing nos caracteres
+  // especiais da máscara ('.' e '/'), fazendo o CNPJ mascarado nunca casar
+  // (era o bug do "login por CNPJ não funciona").
   const campo = digits.length === 11 ? "cpf" : "cnpj";
-  const { data: rows } = await supabase
-    .from("user_profiles")
-    .select("id")
-    .or(`${campo}.eq.${digits},${campo}.eq.${docFormatado}`)
-    .limit(1);
+  let profileId: string | null = null;
+  for (const valor of [digits, docFormatado]) {
+    const { data: rows } = await supabase
+      .from("user_profiles")
+      .select("id")
+      .eq(campo, valor)
+      .limit(1);
+    if (rows?.[0]?.id) { profileId = rows[0].id; break; }
+  }
 
-  const profile = rows?.[0];
-  if (!profile?.id) {
+  if (!profileId) {
     return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
   }
 
-  const { data: { user }, error } = await supabase.auth.admin.getUserById(profile.id);
+  const { data: { user }, error } = await supabase.auth.admin.getUserById(profileId);
   if (error || !user?.email) {
     return new Response(ERRO_GENERICO, { status: 401, headers: headersJson });
   }
