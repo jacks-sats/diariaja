@@ -100,20 +100,27 @@ async function processar(req: Request): Promise<Response> {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  // Cadastros podem ter sido salvos com máscara (PJ salva "24.626.142/0001-27")
-  // ou só com dígitos. Tentamos os dois — em queries .eq() SEPARADAS, e NÃO num
-  // .or(), porque dentro de .or() o PostgREST quebra o parsing nos caracteres
-  // especiais da máscara ('.' e '/'), fazendo o CNPJ mascarado nunca casar
-  // (era o bug do "login por CNPJ não funciona").
-  const campo = digits.length === 11 ? "cpf" : "cnpj";
   let profileId: string | null = null;
-  for (const valor of [digits, docFormatado]) {
-    const { data: rows } = await supabase
-      .from("user_profiles")
-      .select("id")
-      .eq(campo, valor)
-      .limit(1);
-    if (rows?.[0]?.id) { profileId = rows[0].id; break; }
+
+  // 1) À prova de formato: RPC normaliza os dois lados pra dígitos no SQL
+  // (regexp_replace), então casa o documento salvo com máscara, só dígitos ou
+  // com sujeira. Ver migration lookup_documento_normalizado.sql.
+  const { data: rpcId } = await supabase.rpc("id_por_documento", { p_digits: digits });
+  if (typeof rpcId === "string" && rpcId) profileId = rpcId;
+
+  // 2) Fallback (caso a RPC ainda não tenha sido aplicada): .eq() SEPARADOS —
+  // nunca num .or(), porque dentro de .or() o PostgREST quebra o parsing nos
+  // caracteres da máscara ('.' e '/') e o CNPJ mascarado nunca casa.
+  if (!profileId) {
+    const campo = digits.length === 11 ? "cpf" : "cnpj";
+    for (const valor of [digits, docFormatado]) {
+      const { data: rows } = await supabase
+        .from("user_profiles")
+        .select("id")
+        .eq(campo, valor)
+        .limit(1);
+      if (rows?.[0]?.id) { profileId = rows[0].id; break; }
+    }
   }
 
   if (!profileId) {
