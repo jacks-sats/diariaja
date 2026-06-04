@@ -1036,9 +1036,11 @@ export const URL_APP = "https://www.diariaja.com";
 // NUNCA endereço completo nem contato — isso só é liberado DENTRO do app depois
 // que o anunciante aceita o prestador.
 export interface VagaCompartilhavel {
+  id?: string | null;                 // entra no link como ?vaga=ID (deep link)
   tipo_oferta?: string | null;
   segmento?: string | null;
   funcao?: string | null;
+  descricao?: string | null;          // o que a pessoa vai fazer (observação)
   valor?: number | null;
   salario_texto?: string | null;
   bairro?: string | null;
@@ -1050,9 +1052,16 @@ export interface VagaCompartilhavel {
   regime?: string | null;
 }
 
+// Link direto pra vaga (deep link). O app lê ?vaga=ID ao abrir e já mostra a
+// vaga. Sem o id, cai no link genérico do app.
+export function linkVaga(id?: string | null): string {
+  return id ? `${URL_APP}/?vaga=${id}` : URL_APP;
+}
+
 // Monta o texto "chamariz" que o diarista compartilha fora do app. Trata os três
-// tipos de oferta (diária, serviço pontual e vaga de emprego) e termina sempre
-// com o convite + link do app, pra trazer usuários novos.
+// tipos de oferta (diária, serviço pontual e vaga de emprego), com layout limpo
+// (título em negrito do WhatsApp + divisórias) e termina com o link direto da
+// vaga, pra trazer usuários novos.
 export function montarTextoVaga(v: VagaCompartilhavel): string {
   const hi = (v.horario_inicio || "").slice(0, 5);
   const hf = (v.horario_fim || "").slice(0, 5);
@@ -1060,34 +1069,48 @@ export function montarTextoVaga(v: VagaCompartilhavel): string {
   const funcao = (v.funcao || "").trim();
   const segmento = (v.segmento || "").trim();
   const bairro = (v.bairro || "").trim();
-  const funcSeg = funcao ? `👷 ${funcao}${segmento ? ` · ${segmento}` : ""}` : (segmento ? `👷 ${segmento}` : "");
-  const linhas: string[] = [];
+  const div = "━━━━━━━━━━━━━";
+
+  let emoji = "🌞";
+  let titulo = "Vaga de diária";
+  let linhaValor = "";
+  let linhaQuando = "";
 
   if (v.tipo_oferta === "emprego") {
-    linhas.push("💼 Vaga de emprego no DiáriaJá!");
-    if (funcSeg) linhas.push(funcSeg);
+    emoji = "💼"; titulo = "Vaga de emprego";
+    linhaValor = `💰 ${(v.salario_texto || "").trim() || "A combinar"}`;
     const contrato = [v.tipo_contrato, v.regime].map(s => (s || "").trim()).filter(Boolean).join(" · ");
-    if (contrato) linhas.push(`📄 ${contrato}`);
-    linhas.push(`💰 ${(v.salario_texto || "").trim() || "A combinar"}`);
+    linhaQuando = contrato ? `📄 ${contrato}` : "";
   } else if (v.tipo_oferta === "servico") {
-    linhas.push("⚡ Serviço disponível no DiáriaJá!");
-    if (funcSeg) linhas.push(funcSeg);
-    if (typeof v.valor === "number") linhas.push(`💰 R$ ${v.valor}`);
+    emoji = "⚡"; titulo = "Serviço disponível";
     const tempo = v.tempo_estimado_min
       ? (v.tempo_estimado_min >= 60 ? `${Math.round(v.tempo_estimado_min / 60)}h` : `${v.tempo_estimado_min}min`)
       : "a combinar";
-    linhas.push(`⏱ ${tempo}`);
-    if (dataBR) linhas.push(`📅 ${dataBR}${hi ? ` · ${hi}` : ""}`);
+    linhaValor = typeof v.valor === "number" ? `💰 R$ ${v.valor}  ·  ⏱ ${tempo}` : `⏱ ${tempo}`;
+    linhaQuando = dataBR ? `📅 ${dataBR}${hi ? ` às ${hi}` : ""}` : "";
   } else {
-    linhas.push("🌞 Vaga de diária no DiáriaJá!");
-    if (funcSeg) linhas.push(funcSeg);
-    if (typeof v.valor === "number") linhas.push(`💰 R$ ${v.valor}/dia`);
-    if (dataBR) linhas.push(`📅 ${dataBR}${hi ? ` · ${hi}${hf ? `–${hf}` : ""}` : ""}`);
+    emoji = "🌞"; titulo = "Vaga de diária";
+    linhaValor = typeof v.valor === "number" ? `💰 R$ ${v.valor}/dia` : "";
+    linhaQuando = dataBR ? `📅 ${dataBR}${hi ? ` · ${hi}${hf ? `–${hf}` : ""}` : ""}` : "";
   }
 
+  const linhas: string[] = [];
+  linhas.push(`${emoji} *${titulo} no DiáriaJá!*`);
+  linhas.push(div);
+  if (funcao) linhas.push(`👷 ${funcao}`);
+  if (segmento) linhas.push(`🏷️ ${segmento}`);
+  if (linhaValor) linhas.push(linhaValor);
+  if (linhaQuando) linhas.push(linhaQuando);
   if (bairro) linhas.push(`📍 ${bairro}`);
-  linhas.push("");
-  linhas.push("Vi essa vaga no DiáriaJá. Baixe o app e veja as oportunidades perto de você:");
-  linhas.push(URL_APP);
+  // Descrição (o que a pessoa vai fazer) — limitada pra não virar um textão.
+  const desc = (v.descricao || "").trim();
+  if (desc) {
+    const descCurta = desc.length > 200 ? `${desc.slice(0, 197).trimEnd()}…` : desc;
+    linhas.push("");
+    linhas.push(`📋 ${descCurta}`);
+  }
+  linhas.push(div);
+  linhas.push("👉 Veja os detalhes e candidate-se no app:");
+  linhas.push(linkVaga(v.id));
   return linhas.join("\n");
 }

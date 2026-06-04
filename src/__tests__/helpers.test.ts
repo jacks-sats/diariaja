@@ -39,6 +39,7 @@ import {
   faseCiclo,
   vezDoCiclo,
   montarTextoVaga,
+  linkVaga,
   URL_APP,
 } from "../helpers";
 
@@ -1211,29 +1212,40 @@ describe("vezDoCiclo", () => {
   });
 });
 
+describe("linkVaga", () => {
+  it("com id → link com ?vaga=", () => {
+    expect(linkVaga("abc123")).toBe(`${URL_APP}/?vaga=abc123`);
+  });
+  it("sem id → link genérico do app", () => {
+    expect(linkVaga(null)).toBe(URL_APP);
+    expect(linkVaga(undefined)).toBe(URL_APP);
+  });
+});
+
 describe("montarTextoVaga", () => {
-  it("diária: valor/dia, data e bairro, sem endereço completo", () => {
+  it("diária: função e segmento em linhas separadas, valor/dia, data e bairro", () => {
     const t = montarTextoVaga({
       tipo_oferta: "diaria", funcao: "Faxineira", segmento: "Limpeza",
       valor: 150, data: "2026-07-10", horario_inicio: "08:00", horario_fim: "17:00",
       bairro: "Centro",
     });
     expect(t).toMatch(/Vaga de diária/);
-    expect(t).toContain("👷 Faxineira · Limpeza");
-    expect(t).toContain("R$ 150/dia");
-    expect(t).toContain("10/07/2026 · 08:00–17:00");
+    expect(t).toContain("👷 Faxineira");
+    expect(t).toContain("🏷️ Limpeza");
+    expect(t).toContain("💰 R$ 150/dia");
+    expect(t).toContain("📅 10/07/2026 · 08:00–17:00");
     expect(t).toContain("📍 Centro");
     expect(t).toContain(URL_APP);
   });
 
   it("serviço: mostra preço fixo e tempo estimado em horas", () => {
     const t = montarTextoVaga({
-      tipo_oferta: "servico", funcao: "Montador", valor: 80,
+      tipo_oferta: "servico", funcao: "Montador de Móveis", valor: 80,
       tempo_estimado_min: 120, data: "2026-07-02", horario_inicio: "14:00",
     });
     expect(t).toMatch(/Serviço disponível/);
-    expect(t).toContain("R$ 80");
-    expect(t).toContain("⏱ 2h");
+    expect(t).toContain("👷 Montador de Móveis");
+    expect(t).toContain("💰 R$ 80  ·  ⏱ 2h");
     expect(t).not.toContain("/dia");
   });
 
@@ -1251,6 +1263,22 @@ describe("montarTextoVaga", () => {
   it("emprego sem salário → 'A combinar'", () => {
     const t = montarTextoVaga({ tipo_oferta: "emprego", funcao: "Vendedor" });
     expect(t).toContain("💰 A combinar");
+  });
+
+  it("inclui a descrição (o que a pessoa vai fazer) e a corta se for longa", () => {
+    const t = montarTextoVaga({
+      tipo_oferta: "diaria", funcao: "Pedreiro", descricao: "Levantar muro nos fundos",
+    });
+    expect(t).toContain("📋 Levantar muro nos fundos");
+    const longa = "x".repeat(300);
+    const t2 = montarTextoVaga({ tipo_oferta: "diaria", descricao: longa });
+    expect(t2).toContain("…");
+    expect(t2.length).toBeLessThan(longa.length + 100);
+  });
+
+  it("deep link: com id, o texto termina com ?vaga=ID", () => {
+    const t = montarTextoVaga({ id: "v-99", tipo_oferta: "servico", funcao: "Pintor" });
+    expect(t.trim().endsWith(`${URL_APP}/?vaga=v-99`)).toBe(true);
   });
 
   it("nunca vaza endereço completo nem termina sem o link do app", () => {

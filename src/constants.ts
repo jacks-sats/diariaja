@@ -33,7 +33,7 @@ export const CATEGORIAS_NEGOCIO = {
   "Construção Civil": {
     icone: "🔨",
     cor: "#FF9F1C",
-    funcoes: ["Pedreiro", "Servente de Obra", "Pintor", "Eletricista", "Encanador", "Gesseiro"],
+    funcoes: ["Pedreiro", "Servente de Obra", "Pintor", "Eletricista", "Encanador", "Gesseiro", "Montador de Móveis"],
   },
   "Eventos & Festas": {
     icone: "🎉",
@@ -134,6 +134,7 @@ export const MEDIAS_CAMPO_GRANDE: Record<string, { min: number; max: number; med
   "Eletricista":                { min: 180, max: 320, media: 240 },
   "Encanador":                  { min: 170, max: 300, media: 220 },
   "Gesseiro":                   { min: 160, max: 260, media: 200 },
+  "Montador de Móveis":         { min: 120, max: 220, media: 160 },
   "Garçom de Eventos":          { min: 140, max: 220, media: 175 },
   "Barman":                     { min: 160, max: 280, media: 210 },
   "Montador de Estrutura":      { min: 130, max: 200, media: 160 },

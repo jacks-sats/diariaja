@@ -393,6 +393,9 @@ export default function App() {
   const [desistindo, setDesistindo] = useState(false);
   // Detalhes da diária aceita (modal ao clicar no card)
   const [detalhesDiaria, setDetalhesDiaria] = useState<Diaria | null>(null);
+  // Deep link de vaga compartilhada (?vaga=ID): guardado no load, aberto quando
+  // sessão/perfil já carregaram.
+  const [vagaDeepLinkId, setVagaDeepLinkId] = useState<string | null>(null);
   // Menu de troca de perfil (bottom sheet ao clicar no nome/avatar)
   const [menuTrocarPerfil, setMenuTrocarPerfil] = useState(false);
   // Modal de informações do perfil (ao clicar no nome)
@@ -1235,9 +1238,42 @@ export default function App() {
       setToastError("❌ Pagamento não concluído. Você pode tentar de novo em Planos.");
       window.history.replaceState({}, "", window.location.pathname);
     }
+    // Deep link de vaga compartilhada (?vaga=ID): guarda e limpa a URL. A
+    // abertura da vaga acontece noutro efeito, quando sessão/perfil carregam.
+    const vagaParam = params.get("vaga");
+    if (vagaParam) {
+      try { localStorage.setItem("diariaja_vaga_deeplink", vagaParam); } catch { /* ok */ }
+      setVagaDeepLinkId(vagaParam);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   // BUG-M5 fix: inclui session.user.id para reprocessar quando sessão carrega após redirect OAuth
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
+
+  // Abre a vaga do deep link assim que dá (sessão + perfil prontos). Busca a
+  // diária por id direto (pode não estar no feed filtrado) e abre o modal de
+  // detalhes. Se o usuário ainda não logou, o id fica no localStorage e este
+  // efeito reprocessa depois do login.
+  useEffect(() => {
+    let vid = vagaDeepLinkId;
+    if (!vid) { try { vid = localStorage.getItem("diariaja_vaga_deeplink"); } catch { vid = null; } }
+    if (!vid || !session?.user || !profile) return;
+    let cancelado = false;
+    (async () => {
+      const { data } = await supabase.from("diarias").select("*").eq("id", vid).maybeSingle();
+      if (cancelado) return;
+      try { localStorage.removeItem("diariaja_vaga_deeplink"); } catch { /* ok */ }
+      setVagaDeepLinkId(null);
+      if (data) {
+        if (profile.user_type === "diarista") setTela("home-diarista");
+        setDetalhesDiaria(data as Diaria);
+      } else {
+        setToastError("Essa vaga não está mais disponível.");
+      }
+    })();
+    return () => { cancelado = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vagaDeepLinkId, session?.user?.id, profile?.user_type]);
 
   // Diaristas reais: IDs negativos = índice no array (via ref)
   // Redireciona para escolha-negocio SOMENTE se nem o estado nem o perfil têm segmento.
