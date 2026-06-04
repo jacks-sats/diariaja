@@ -110,14 +110,19 @@ async function processar(req: Request): Promise<Response> {
 
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
-  // 1) CNPJ já cadastrado? (compara com e sem máscara — dados legados)
+  // 1) CNPJ já cadastrado? Compara com e sem máscara — em queries .eq()
+  // SEPARADAS, não num .or(): dentro de .or() o PostgREST quebra nos caracteres
+  // da máscara ('.'/'/'), o que deixava o CNPJ mascarado passar como "novo"
+  // (mesma raiz do bug de login por CNPJ).
   const cnpjMasked = maskCNPJ(cnpjDig);
-  const { data: dup } = await admin
-    .from("user_profiles")
-    .select("id")
-    .or(`cnpj.eq.${cnpjDig},cnpj.eq.${cnpjMasked}`)
-    .limit(1);
-  if (dup && dup.length > 0) return erro("cnpj_existe", 409);
+  for (const valor of [cnpjDig, cnpjMasked]) {
+    const { data: dup } = await admin
+      .from("user_profiles")
+      .select("id")
+      .eq("cnpj", valor)
+      .limit(1);
+    if (dup && dup.length > 0) return erro("cnpj_existe", 409);
+  }
 
   // 2) Cria o usuário JÁ confirmado (não exige clique no e-mail)
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
