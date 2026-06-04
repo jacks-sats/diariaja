@@ -5969,9 +5969,13 @@ export default function App() {
       { ic:"⚡", t:"Combine e resolva", d:"Fale pelo chat do app e acerte os detalhes. Sem burocracia." },
     ];
     const selos = [
-      { ic:"💳", l:"Pagamento via Mercado Pago" },
       { ic:"🪪", l:"CPF / CNPJ verificado" },
       { ic:"⭐", l:"Avaliações reais" },
+      { ic:"💰", l:"Sem comissão na diária" },
+    ];
+    const publicos = [
+      { ic:"🔎", t:"Precisa de um serviço?", d:"Anuncie de graça e receba profissionais verificados perto de você. Escolha por avaliação e nível de confiança — e combine o valor direto, sem comissão.", cta:"Anunciar uma vaga" },
+      { ic:"💼", t:"Quer trabalhar?", d:"Crie seu perfil grátis, apareça pra quem está perto e receba convites. Você negocia o valor direto com o cliente.", cta:"Quero trabalhar" },
     ];
     const btnPrimary: React.CSSProperties = { padding:"14px 26px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 8px 24px rgba(255,107,53,.45)" };
     const btnGhost: React.CSSProperties = { padding:"14px 26px", background:"transparent", color:"#e2e8f0", border:"1.5px solid rgba(255,255,255,.25)", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" };
@@ -6023,6 +6027,19 @@ export default function App() {
               ))}
             </div>
           </div>
+        </section>
+
+        {/* Dois públicos — deixa explícito o valor pra quem contrata E pra quem
+            trabalha (o headline desktop só falava com quem contrata). */}
+        <section style={{ maxWidth:1180, margin:"0 auto", padding:"16px 48px 8px", display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+          {publicos.map(b => (
+            <div key={b.t} style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:18, padding:"24px" }}>
+              <div style={{ fontSize:30, marginBottom:10 }}>{b.ic}</div>
+              <div style={{ fontSize:19, fontWeight:800, color:"#fff", marginBottom:8 }}>{b.t}</div>
+              <p style={{ fontSize:14, lineHeight:1.6, color:"#94a3b8", margin:"0 0 16px" }}>{b.d}</p>
+              <button style={{ ...btnGhost, padding:"10px 18px", fontSize:14 }} onClick={() => setTela("cadastro-tipo")}>{b.cta} →</button>
+            </div>
+          ))}
         </section>
 
         {/* Como funciona */}
