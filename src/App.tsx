@@ -68,7 +68,7 @@ import {
   validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
-  calcScoreBreakdown, calcCompletude, calcConquistas, codigoPresenca,
+  calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo,
   montarTextoVaga,
@@ -357,6 +357,9 @@ export default function App() {
   const diaristasReaisRef = useRef<UserProfile[]>([]);
   const [tabDiarista, setTabDiarista]     = useState("inicio");
   const [tabEmpregador, setTabEmpregador] = useState("inicio");
+  // Lembrete "Complete seu perfil" no topo do feed: "Agora não" esconde só nesta
+  // sessão (estado reseta a cada abertura do app, então volta no próximo acesso).
+  const [completarPerfilOculto, setCompletarPerfilOculto] = useState(false);
   // Aba de filtro dentro de "Minhas diárias" — segrega anúncios ativos,
   // concluídos e expirados em pills no topo, evitando que vagas expiradas
   // poluam a lista de oportunidades em aberto.
@@ -5896,6 +5899,61 @@ export default function App() {
     );
   };
 
+  // ── Lembrete "Complete seu perfil" no topo do feed ──────────────────────────
+  // Aparece toda vez que o usuário entra (enquanto faltar item que ele mesmo pode
+  // preencher: foto, CPF/CNPJ, telefone, bio, localização). "Agora não" esconde só
+  // nesta sessão; some sozinho quando os 5 itens editáveis estão completos (~70-80%
+  // do perfil — o resto, 1ª diária e avaliação, só vem com uso real).
+  const BannerCompletarPerfil = ({ paraDiarista }: { paraDiarista: boolean }) => {
+    if (completarPerfilOculto || !profile) return null;
+    const comp = completudeEditavel({
+      foto_url: profile.foto_url, cpf: profile.cpf, cnpj: profile.cnpj,
+      telefone: profile.telefone,
+      telefone_verificado: profile.telefone_verificado || telefoneVerificado,
+      bio: profile.bio, endereco_empregador: profile.endereco_empregador,
+      lat: profile.lat, pix_chave: profile.pix_chave, mp_user_id: profile.mp_user_id,
+    });
+    if (comp.pendentes.length === 0) return null; // já completou o que dá → não incomoda
+    const telaEdicao = paraDiarista ? "editar-perfil" : "editar-perfil-empregador";
+    const faltam = comp.pendentes.map(i => i.label).join(", ");
+    const ganho = paraDiarista
+      ? "Perfil completo aparece primeiro nas buscas e passa mais confiança."
+      : "Anunciante com perfil completo atrai prestadores melhores e mais rápido.";
+    return (
+      <div style={{ margin:"12px 16px 0", background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:18, padding:"15px 16px", color:"#fff", boxShadow:"0 4px 16px rgba(255,107,53,.3)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <div style={{ width:44, height:44, background:"rgba(255,255,255,.18)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>📋</div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:14, fontWeight:900, lineHeight:1.25 }}>Complete seu perfil</div>
+            <div style={{ fontSize:11, opacity:0.95, marginTop:2, lineHeight:1.35 }}>{ganho}</div>
+          </div>
+          <div style={{ fontSize:20, fontWeight:900, flexShrink:0 }}>{comp.pct}%</div>
+        </div>
+        <div style={{ background:"rgba(255,255,255,.25)", borderRadius:20, height:7, overflow:"hidden", margin:"11px 0 9px" }}>
+          <div style={{ background:"#fff", height:7, width:`${comp.pct}%`, borderRadius:20, transition:"width .4s" }} />
+        </div>
+        <div style={{ fontSize:11, fontWeight:600, opacity:0.95, marginBottom:11 }}>
+          Falta: {faltam}
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          <button
+            style={{ flex:1, background:"#fff", color:"#c2410c", border:"none", borderRadius:12, padding:"10px 14px", fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => {
+              trackEvento("completar_perfil_banner_click", session?.user?.id, paraDiarista ? "diarista" : "empregador", { pct: comp.pct, pendentes: comp.pendentes.length });
+              setTela(telaEdicao);
+            }}>
+            Completar agora →
+          </button>
+          <button
+            style={{ background:"rgba(255,255,255,.18)", color:"#fff", border:"none", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => setCompletarPerfilOculto(true)}>
+            Agora não
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // LOADING
   // ── Barra de progresso global (aparece em qualquer operação assíncrona) ─────
   const anyLoading = loading || salvandoPerfil || authLoading || salvandoDiaria || enviandoAvalMutua || selecionando;
@@ -9810,6 +9868,8 @@ export default function App() {
         {/* ── ABA INÍCIO ── */}
         {tabEmpregador === "inicio" && (
           <>
+            {/* Lembrete de completar perfil — aparece a cada acesso até completar */}
+            <BannerCompletarPerfil paraDiarista={false} />
             {/* Filtro de habilidades — sticky pra não sumir ao rolar (degrada sem quebrar) */}
             <div style={{ background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)", position:"sticky" as const, top:0, zIndex:5 }}>
               {/* Linha 1: disponíveis hoje + por categoria */}
@@ -12853,6 +12913,8 @@ export default function App() {
         {/* ── ABA INÍCIO ── */}
         {tabDiarista === "inicio" && (
           <>
+            {/* Lembrete de completar perfil — aparece a cada acesso até completar */}
+            <BannerCompletarPerfil paraDiarista={true} />
             {/* Toggle de disponibilidade — fixo no topo da aba */}
             <div style={{ margin:"12px 16px 0", background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 1px 6px rgba(0,0,0,.07)", border:"1.5px solid var(--border,#e2e8f0)" }}>
               <div>

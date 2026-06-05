@@ -161,6 +161,25 @@ export function calcCompletude(
   return { pct, itens };
 }
 
+// ── Lembrete "Complete seu perfil" ───────────────────────────────────────────
+// Dos itens de completude, estes são os que o usuário consegue preencher SOZINHO,
+// sem precisar trabalhar. "1ª diária concluída" e "avaliação positiva" só vêm com
+// uso real, então NÃO entram no lembrete — por isso o teto editável dá ~70-80% do
+// perfil (5 de 7 itens). O banner do feed some quando estes 5 estão completos.
+export const CHAVES_COMPLETUDE_EDITAVEL = ["foto", "cpf", "telefone", "bio", "endereco"] as const;
+
+export function completudeEditavel(
+  p: Parameters<typeof calcCompletude>[0],
+): { pct: number; pendentes: CompletudeItem[]; preenchidos: number; total: number } {
+  const { itens } = calcCompletude(p, 0, null);
+  const editaveis = itens.filter(i =>
+    (CHAVES_COMPLETUDE_EDITAVEL as readonly string[]).includes(i.chave));
+  const pendentes = editaveis.filter(i => !i.preenchido);
+  const preenchidos = editaveis.length - pendentes.length;
+  const pct = editaveis.length ? Math.round((preenchidos / editaveis.length) * 100) : 100;
+  return { pct, pendentes, preenchidos, total: editaveis.length };
+}
+
 // ── Conquistas (8 medalhas calculadas a partir do estado atual) ──────────────
 export interface Conquista {
   chave: string;
