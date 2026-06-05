@@ -41,6 +41,7 @@ import {
   montarTextoVaga,
   linkVaga,
   URL_APP,
+  completudeEditavel,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -1289,5 +1290,54 @@ describe("montarTextoVaga", () => {
     // bairro entra, mas nada de "Rua"/número (endereço só após aceitar no app)
     expect(t).not.toMatch(/Rua |Avenida |nº/i);
     expect(t.trim().endsWith(URL_APP)).toBe(true);
+  });
+});
+
+describe("completudeEditavel", () => {
+  it("perfil vazio: 0% e 5 itens pendentes (só os que o user preenche)", () => {
+    const r = completudeEditavel({});
+    expect(r.pct).toBe(0);
+    expect(r.preenchidos).toBe(0);
+    expect(r.total).toBe(5);
+    expect(r.pendentes).toHaveLength(5);
+  });
+
+  it("ignora '1ª diária' e 'avaliação' — só conta os 5 itens editáveis", () => {
+    // mesmo sem diárias/avaliação, preencher os 5 editáveis dá 100% editável.
+    const r = completudeEditavel({
+      foto_url: "u.jpg", cpf: "123", telefone: "67999999999",
+      telefone_verificado: true, bio: "Trabalho com limpeza há 5 anos, caprichosa.",
+      lat: -20.4,
+    });
+    expect(r.pct).toBe(100);
+    expect(r.pendentes).toHaveLength(0);
+  });
+
+  it("preenchimento parcial: % proporcional aos 5 itens", () => {
+    // foto + telefone preenchidos (2 de 5) = 40%
+    const r = completudeEditavel({
+      foto_url: "u.jpg", telefone: "67999999999",
+    });
+    expect(r.pct).toBe(40);
+    expect(r.preenchidos).toBe(2);
+    expect(r.pendentes.map(i => i.chave).sort()).toEqual(["bio", "cpf", "endereco"]);
+  });
+
+  it("aceita CNPJ no lugar de CPF (anunciante PJ) e endereço por lat ou endereco_empregador", () => {
+    const r = completudeEditavel({
+      foto_url: "u.jpg", cnpj: "11222333000181", telefone_verificado: true,
+      bio: "Empresa de eventos com 10 anos de mercado na cidade.",
+      endereco_empregador: "Centro, Campo Grande",
+    });
+    expect(r.pct).toBe(100);
+  });
+
+  it("bio curta (<20 chars) não conta como preenchida", () => {
+    const r = completudeEditavel({
+      foto_url: "u.jpg", cpf: "123", telefone: "67999999999", lat: -20.4,
+      bio: "Oi",
+    });
+    expect(r.pendentes.map(i => i.chave)).toEqual(["bio"]);
+    expect(r.pct).toBe(80);
   });
 });
