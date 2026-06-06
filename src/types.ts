@@ -50,6 +50,9 @@ export interface Diaria {
   taxa_plataforma?: number | null;
   valor_diarista?: number | null;
   bairro?: string | null;             // bairro do CEP da vaga (preenchido ao publicar)
+  // ── Multi-vagas ──────────────────────────────────────────────────────────
+  vagas?: number;                     // quantas pessoas a diária contrata (1–5; default 1)
+  vagas_preenchidas?: number;         // quantas já foram selecionadas/confirmadas
   // ── Tipo da oferta (diária vs serviço pontual) ───────────────────────────
   tipo_oferta: TipoOferta;            // default 'diaria' (legado + criação atual)
   tempo_estimado_min?: number | null; // só se tipo_oferta='servico'

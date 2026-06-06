@@ -1,5 +1,27 @@
 # Spec — Múltiplas vagas por diária (selecionar vários contratados)
 
+> ## ⚙️ STATUS DA IMPLEMENTAÇÃO
+>
+> **Fase 1 — FEITA** (`multi_vagas_schema.sql` aplicado + frontend):
+> - Modelo final reusa a tabela **`candidaturas`** (status `selecionado`/`confirmado`)
+>   como fonte da verdade — **NÃO** foi criada a tabela `diaria_contratacoes`
+>   descrita mais abaixo (decisão: menos invasivo, sem novo realtime).
+> - `diarias.vagas` (1–5) + `diarias.vagas_preenchidas`; `candidaturas.selecionado_em`.
+> - Criação com seletor "Quantas vagas?"; seleção múltipla até lotar; ao lotar a
+>   diária vira `pendente` (sai do feed); cobrança conta **cada vaga** via RPC
+>   `pode_selecionar_candidato` (count de candidaturas selecionadas/mês).
+> - `diarias.diarista_aceite_id` segue como **contratado principal** (o 1º) p/
+>   compatibilidade de chat/check-in/avaliação.
+>
+> **Fase 2 — PENDENTE** (testar no device): chat / check-in / avaliação **por
+> contratado** quando há vários na mesma vaga (hoje funcionam só p/ o principal).
+> A seção "Mudanças de frontend" itens 6–9 abaixo descreve esse trabalho. O
+> realtime do diarista (filtro `diarista_aceite_id`) só cobre o principal — os
+> demais contratados recebem **push** mas não o update em tempo real.
+
+---
+
+
 > **Objetivo (pedido do dono):** o anunciante define **quantas vagas** a diária
 > oferece ao publicar e pode **selecionar mais de um** candidato, até preencher
 > todas as vagas. Ex.: precisa de 3 diaristas pra mesma data → publica com 3

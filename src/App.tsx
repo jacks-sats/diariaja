@@ -577,6 +577,8 @@ export default function App() {
 
   // Diária recorrente
   const [dirariaRepetir, setDiariaRepetir] = useState<"nao"|"semanal"|"quinzenal">("nao");
+  // Multi-vagas: quantas pessoas o anunciante quer contratar nesta diária (1–5).
+  const [vagasDiaria, setVagasDiaria] = useState(1);
 
   // Editar diária
   const [modalEditarDiaria, setModalEditarDiaria] = useState<Diaria | null>(null);
@@ -1467,7 +1469,7 @@ export default function App() {
       // Não trafega `endereco` no feed de vagas abertas: o card só usa bairro/lat/lng,
       // e o endereço completo só deve aparecer após o contato ser liberado (status
       // aceita+). Defesa em profundidade contra vazamento do endereço pré-pagamento.
-      .select("id,oculto,empregador_id,nome_negocio,segmento,funcao,descricao,data,horario_inicio,horario_fim,valor,status,diarista_aceite_id,created_at,lat,lng,valor_encostada,valor_por_entrega,ganho_estimado_dia,bairro,tipo_oferta,tempo_estimado_min,tipo_preco,tipo_contrato,regime,salario_texto")
+      .select("id,oculto,empregador_id,nome_negocio,segmento,funcao,descricao,data,horario_inicio,horario_fim,valor,status,diarista_aceite_id,created_at,lat,lng,valor_encostada,valor_por_entrega,ganho_estimado_dia,bairro,tipo_oferta,tempo_estimado_min,tipo_preco,tipo_contrato,regime,salario_texto,vagas,vagas_preenchidas")
       .eq("status", "aberta")
       .neq("empregador_id", session.user.id) // BUG-M8 fix: usuário "ambos" não vê suas próprias vagas
       .order("created_at", { ascending: false })
@@ -4616,10 +4618,24 @@ export default function App() {
     setModalTermoCiencia(null);
     setTermoCienciaCheck(false);
 
-    // 1. Atualiza a diária
+    // ── Multi-vagas ──────────────────────────────────────────────────────
+    // Quantas vagas a diária oferece e quantas já foram preenchidas. Com
+    // vagas=1 (default), `lotou` é sempre true já na 1ª seleção → o fluxo
+    // fica IDÊNTICO ao de antes (status 'pendente', rejeita os demais).
+    const vagas = diaria.vagas ?? 1;
+    const jaSelecionados = candidaturas.filter(c => c.diaria_id === diaria.id && (c.status === "selecionado" || c.status === "confirmado")).length;
+    const novoTotal = jaSelecionados + 1;
+    const lotou = novoTotal >= vagas;
+    // O 1º selecionado vira o "principal" (diarista_aceite_id) p/ compatibilidade
+    // com chat/check-in/avaliação atuais. Enquanto não lota, a vaga segue 'aberta'
+    // (continua no feed recebendo gente); ao lotar, vira 'pendente' (sai do feed).
+    const principal = diaria.diarista_aceite_id || diaristaId;
+    const novoStatus = lotou ? "pendente" : "aberta";
+
+    // 1. Atualiza a diária (status + principal + contador de preenchidas)
     const { error: e1 } = await supabase
       .from("diarias")
-      .update({ status: "pendente", diarista_aceite_id: diaristaId })
+      .update({ status: novoStatus, diarista_aceite_id: principal, vagas_preenchidas: novoTotal })
       .eq("id", diaria.id)
       .eq("empregador_id", session.user.id);
 
@@ -4629,11 +4645,14 @@ export default function App() {
       return;
     }
 
-    // 2. Atualiza candidaturas
-    await supabase.from("candidaturas").update({ status: "selecionado" }).eq("diaria_id", diaria.id).eq("diarista_id", diaristaId);
-    await supabase.from("candidaturas").update({ status: "rejeitado"  }).eq("diaria_id", diaria.id).neq("diarista_id", diaristaId);
+    // 2. Candidaturas: marca este como selecionado (com o instante, p/ a cobrança
+    //    contar cada vaga). Só rejeita os pendentes restantes quando LOTA.
+    await supabase.from("candidaturas").update({ status: "selecionado", selecionado_em: new Date().toISOString() }).eq("diaria_id", diaria.id).eq("diarista_id", diaristaId);
+    if (lotou) {
+      await supabase.from("candidaturas").update({ status: "rejeitado" }).eq("diaria_id", diaria.id).eq("status", "pendente");
+    }
 
-    // 3. Push pro prestador escolhido + pros rejeitados (atualiza a sensação)
+    // 3. Push pro prestador escolhido
     enviarPush(
       [diaristaId],
       "🎯 Anunciante demonstrou interesse!",
@@ -4642,13 +4661,26 @@ export default function App() {
     );
     hapticConfirm();
 
-    // 3. Atualiza estado local
-    setDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "pendente", diarista_aceite_id: diaristaId } : d));
-    setCandidaturas(prev => prev.map(c => c.diaria_id === diaria.id ? { ...c, status: c.diarista_id === diaristaId ? "selecionado" : "rejeitado" } : c));
+    // 4. Atualiza estado local
+    setDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: novoStatus, diarista_aceite_id: principal, vagas_preenchidas: novoTotal } : d));
+    setCandidaturas(prev => prev.map(c => {
+      if (c.diaria_id !== diaria.id) return c;
+      if (c.diarista_id === diaristaId) return { ...c, status: "selecionado" };
+      if (lotou && c.status === "pendente") return { ...c, status: "rejeitado" };
+      return c;
+    }));
 
-    setModalCandidatos(null);
     setSelecionando(false);
-    setToastSuccess("✅ Interessado selecionado! O prestador vai receber a notificação.");
+    if (lotou) {
+      setModalCandidatos(null);
+      setToastSuccess(vagas > 1
+        ? `✅ Todas as ${vagas} vagas preenchidas! Os profissionais foram notificados.`
+        : "✅ Interessado selecionado! O prestador vai receber a notificação.");
+    } else {
+      // Ainda restam vagas: mantém o modal aberto p/ selecionar mais.
+      setModalCandidatos(prev => prev && prev.id === diaria.id ? { ...prev, status: novoStatus, diarista_aceite_id: principal, vagas_preenchidas: novoTotal } : prev);
+      setToastSuccess(`✅ Selecionado! Falta${vagas - novoTotal === 1 ? "" : "m"} ${vagas - novoTotal} de ${vagas} vaga${vagas > 1 ? "s" : ""}.`);
+    }
     // IMPORTANTE: a plataforma NÃO intermedia o valor da diária. O pagamento
     // entre contratante e diarista é combinado direto entre as partes (PIX,
     // dinheiro, etc.). A taxa de seleção de R$ 1 (no plano grátis a partir
@@ -4772,6 +4804,13 @@ export default function App() {
     // lançamento. O servidor também bloqueia (trigger em diarias.diarista_aceite_id).
     if (modoBeta && !profile?.acesso_total && !profile?.is_admin) {
       setToastSuccess("🚀 Selecionar candidatos abre em 1º de julho! Os interessados já ficam salvos aqui pra você. 😉");
+      return;
+    }
+    // Multi-vagas: trava a seleção quando todas as vagas já foram preenchidas.
+    const vagasTotal = diaria.vagas ?? 1;
+    const preenchidas = candidaturas.filter(c => c.diaria_id === diaria.id && (c.status === "selecionado" || c.status === "confirmado")).length;
+    if (preenchidas >= vagasTotal) {
+      setToastError(vagasTotal > 1 ? `Todas as ${vagasTotal} vagas desta diária já foram preenchidas.` : "Esta diária já tem um profissional selecionado.");
       return;
     }
     try {
@@ -5112,6 +5151,8 @@ export default function App() {
       horario_fim: ehEmprego ? "23:59" : ehServico ? "" : formDiaria.horario_fim,
       valor: ehEmprego ? 0 : Number(formDiaria.valor),
       status: "aberta",
+      // Multi-vagas: emprego é vaga única (seleção); diária/serviço usam o stepper (1–5).
+      vagas: ehEmprego ? 1 : vagasDiaria,
       endereco: enderecoComposto,
       bairro: formDiaria.bairro.trim() || null,
       lat: latDiaria,
@@ -5158,6 +5199,7 @@ export default function App() {
     });
     setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"" });
     setDiariaRepetir("nao");
+    setVagasDiaria(1);
     setLatDiaria(null); setLngDiaria(null);
     setAuthError("");
     setSalvandoDiaria(false);
@@ -10516,6 +10558,17 @@ export default function App() {
                             {/* Botão "💳 Pagar" do valor total removido — a plataforma
                                 NÃO intermedia o valor da diária. Pagamento entre
                                 contratante e diarista é combinado direto entre eles. */}
+                            {/* Multi-vagas: progresso de preenchimento (só quando há mais de 1 vaga) */}
+                            {(dia.vagas ?? 1) > 1 && (dia.status === "aberta" || dia.status === "pendente") && (() => {
+                              const preench = candidaturas.filter(c => c.diaria_id === dia.id && (c.status === "selecionado" || c.status === "confirmado")).length;
+                              const total = dia.vagas ?? 1;
+                              return (
+                                <div style={{ padding:"9px 12px", background:"#eff6ff", color:"#1d4ed8", border:"1.5px solid #bfdbfe", borderRadius:12, fontSize:13, fontWeight:800, display:"flex", alignItems:"center", gap:5, flexShrink:0 }}
+                                  title="Quantas vagas desta diária já foram preenchidas">
+                                  👥 {preench} de {total} vagas preenchidas
+                                </div>
+                              );
+                            })()}
                             {/* Ver interessados — diária aberta */}
                             {dia.status === "aberta" && (() => {
                               const cands = candidaturas.filter(c => c.diaria_id === dia.id && c.status === "pendente");
@@ -13361,6 +13414,13 @@ export default function App() {
                                   <div style={{ fontSize:15, fontWeight:900, color:"#ea580c" }}>R$ {dia.ganho_estimado_dia}</div>
                                 </div>
                               )}
+                            </div>
+                          )}
+
+                          {/* Multi-vagas: avisa o diarista que a vaga é para várias pessoas */}
+                          {(dia.vagas ?? 1) > 1 && (
+                            <div style={{ background:"#eff6ff", border:"1.5px solid #bfdbfe", borderRadius:12, padding:"8px 12px", marginTop:10, fontSize:13, fontWeight:700, color:"#1d4ed8", display:"flex", alignItems:"center", gap:6 }}>
+                              👥 Vaga para {dia.vagas} pessoas — boas chances!
                             </div>
                           )}
 
@@ -16923,6 +16983,26 @@ export default function App() {
         {dirariaRepetir !== "nao" && (
           <div style={{ background:`${cor}14`, border:`1.5px solid ${cor}30`, borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:13, color:cor, fontWeight:600 }}>
             🔄 Será criada uma diária {dirariaRepetir === "semanal" ? "por semana" : "a cada 2 semanas"} com os mesmos dados.
+          </div>
+        )}
+
+        {/* ── Multi-vagas: quantas pessoas contratar (1–5) ── */}
+        <label style={S.label}>Quantas vagas? <span style={{ fontWeight:400, color:"var(--text-2,#64748b)" }}>(quantas pessoas você quer contratar)</span></label>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:vagasDiaria>1?8:16 }}>
+          <button type="button" aria-label="Menos vagas"
+            onClick={() => setVagasDiaria(v => Math.max(1, v - 1))}
+            disabled={vagasDiaria <= 1}
+            style={{ width:46, height:46, borderRadius:12, border:`2px solid ${vagasDiaria<=1?"#e2e8f0":cor}`, background:"var(--bg-2,#fff)", color:vagasDiaria<=1?"#cbd5e1":cor, fontSize:24, fontWeight:800, lineHeight:1, cursor:vagasDiaria<=1?"default":"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>−</button>
+          <div style={{ minWidth:52, textAlign:"center" as const, fontSize:24, fontWeight:800, color:"var(--text,#1e293b)" }}>{vagasDiaria}</div>
+          <button type="button" aria-label="Mais vagas"
+            onClick={() => setVagasDiaria(v => Math.min(5, v + 1))}
+            disabled={vagasDiaria >= 5}
+            style={{ width:46, height:46, borderRadius:12, border:`2px solid ${vagasDiaria>=5?"#e2e8f0":cor}`, background:vagasDiaria>=5?"var(--bg-2,#fff)":cor, color:vagasDiaria>=5?"#cbd5e1":"#fff", fontSize:24, fontWeight:800, lineHeight:1, cursor:vagasDiaria>=5?"default":"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>+</button>
+          <span style={{ fontSize:13, color:"var(--text-2,#64748b)", fontWeight:600 }}>{vagasDiaria === 1 ? "1 vaga" : `${vagasDiaria} vagas`}</span>
+        </div>
+        {vagasDiaria > 1 && (
+          <div style={{ background:`${cor}14`, border:`1.5px solid ${cor}30`, borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:13, color:cor, fontWeight:600 }}>
+            👥 Você poderá selecionar até {vagasDiaria} profissionais para esta vaga (cada seleção conta como um contato).
           </div>
         )}
         </>

@@ -1,79 +1,112 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- Multi-vagas: anunciante define quantas vagas a diária oferece e pode
--- selecionar VÁRIOS contratados (até preencher). SCHEMA aditivo e idempotente.
+-- Multi-vagas: anunciante define quantas vagas a diária oferece (1–5) e pode
+-- selecionar VÁRIOS candidatos até preencher. Reusa `candidaturas` como fonte
+-- da verdade de quem foi selecionado (status 'selecionado'/'confirmado').
 -- ═══════════════════════════════════════════════════════════════════════════
--- Esta migration é SEGURA de aplicar a qualquer momento: só adiciona colunas
--- (com default) e uma tabela nova vazia. NÃO muda o fluxo atual sozinha — a
--- lógica de cobrança (RPC/trigger) e o frontend são alterados JUNTOS, conforme
--- docs/spec-multi-vagas.md. Enquanto vagas=1 (default), tudo segue como hoje.
+-- Aditivo e idempotente. SEGURO de aplicar a qualquer hora — com vagas=1
+-- (default de toda diária existente) o comportamento é idêntico ao de hoje.
 --
--- Aplicar: Supabase Dashboard → SQL Editor → Run. Idempotente.
+-- Aplicar: Supabase Dashboard → SQL Editor → Run.
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- 1. Quantas vagas a diária oferece (default 1 = comportamento atual).
+-- 1. Quantas vagas a diária oferece (1–5; default 1 = comportamento atual).
 ALTER TABLE diarias
   ADD COLUMN IF NOT EXISTS vagas INTEGER NOT NULL DEFAULT 1;
 
--- 2. Contador denormalizado de vagas já preenchidas (mantido pela app/trigger).
+-- 2. Contador denormalizado de vagas preenchidas (mantido pela app).
 ALTER TABLE diarias
   ADD COLUMN IF NOT EXISTS vagas_preenchidas INTEGER NOT NULL DEFAULT 0;
 
--- Garante 1..N vagas e que preenchidas nunca passe de vagas.
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'diarias_vagas_min_chk') THEN
-    ALTER TABLE diarias ADD CONSTRAINT diarias_vagas_min_chk CHECK (vagas >= 1);
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'diarias_vagas_range_chk') THEN
+    ALTER TABLE diarias ADD CONSTRAINT diarias_vagas_range_chk CHECK (vagas BETWEEN 1 AND 5);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'diarias_vagas_preenchidas_chk') THEN
-    ALTER TABLE diarias ADD CONSTRAINT diarias_vagas_preenchidas_chk
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'diarias_vagas_preench_chk') THEN
+    ALTER TABLE diarias ADD CONSTRAINT diarias_vagas_preench_chk
       CHECK (vagas_preenchidas >= 0 AND vagas_preenchidas <= vagas);
   END IF;
 END $$;
 
--- 3. Uma linha por contratação (hire). Substitui o "1 diarista_aceite_id" único
---    quando vagas > 1. Para vagas=1, diarias.diarista_aceite_id continua sendo o
---    "contratado principal" (compat. com chat/check-in/avaliação atuais).
-CREATE TABLE IF NOT EXISTS diaria_contratacoes (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  diaria_id    UUID NOT NULL REFERENCES diarias(id) ON DELETE CASCADE,
-  diarista_id  UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  empregador_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  -- selecionado → diarista ainda não confirmou; confirmado → aceitou;
-  -- cancelada → desistência/cancelamento (libera a vaga); concluida → finalizada.
-  status       TEXT NOT NULL DEFAULT 'selecionado'
-               CHECK (status IN ('selecionado','confirmado','cancelada','concluida')),
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  -- Não pode contratar o mesmo diarista duas vezes na mesma diária.
-  UNIQUE (diaria_id, diarista_id)
-);
+-- 3. Quando o candidato foi SELECIONADO (≠ created_at, que é quando se candidatou).
+--    Necessário para a cobrança contar "cada vaga = 1 contato" por mês.
+ALTER TABLE candidaturas
+  ADD COLUMN IF NOT EXISTS selecionado_em TIMESTAMPTZ;
 
-CREATE INDEX IF NOT EXISTS idx_contratacoes_diaria      ON diaria_contratacoes(diaria_id);
-CREATE INDEX IF NOT EXISTS idx_contratacoes_diarista    ON diaria_contratacoes(diarista_id);
-CREATE INDEX IF NOT EXISTS idx_contratacoes_empregador  ON diaria_contratacoes(empregador_id);
--- Para a contagem mensal da cobrança R$1 (ver spec).
-CREATE INDEX IF NOT EXISTS idx_contratacoes_emp_mes     ON diaria_contratacoes(empregador_id, created_at);
+-- 4. Cobrança R$1 por contato passa a contar CADA seleção (cada vaga), não cada
+--    diária. Reescreve a RPC consultiva `pode_selecionar_candidato` mantendo a
+--    regra do dono: plano grátis cota 0 (paga R$1 por contato), pago = ilimitado;
+--    desbloqueios avulsos (contatos_desbloqueios) abatem a cota.
+CREATE OR REPLACE FUNCTION pode_selecionar_candidato(
+  p_diaria_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid              UUID := auth.uid();
+  v_empregador       UUID;
+  v_plano            TEXT;
+  v_selecoes_mes     INTEGER;
+  v_extras           INTEGER;
+  v_limite_gratis    INTEGER;
+  v_limite_efetivo   INTEGER;
+  v_permitido_gratis BOOLEAN;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Não autenticado.';
+  END IF;
 
--- 4. RLS — anunciante dono e diarista contratado enxergam suas linhas.
-ALTER TABLE diaria_contratacoes ENABLE ROW LEVEL SECURITY;
+  SELECT empregador_id INTO v_empregador
+    FROM diarias WHERE id = p_diaria_id;
+  IF v_empregador IS NULL THEN
+    RAISE EXCEPTION 'Diária não encontrada.';
+  END IF;
+  IF v_empregador <> v_uid THEN
+    RAISE EXCEPTION 'Você não é o empregador desta diária.';
+  END IF;
 
-DROP POLICY IF EXISTS contratacoes_select ON diaria_contratacoes;
-CREATE POLICY contratacoes_select ON diaria_contratacoes
-  FOR SELECT USING (auth.uid() = empregador_id OR auth.uid() = diarista_id);
+  v_plano := plano_ativo_role(v_uid, 'empregador');
 
--- Só o empregador dono insere/atualiza contratações (a seleção parte dele).
-DROP POLICY IF EXISTS contratacoes_insert ON diaria_contratacoes;
-CREATE POLICY contratacoes_insert ON diaria_contratacoes
-  FOR INSERT WITH CHECK (auth.uid() = empregador_id);
+  -- Seleções do mês = cada candidato selecionado/confirmado (cada vaga conta).
+  -- NÃO conta no-show (diária 'expirada'): crédito interno preservado.
+  SELECT COUNT(*) INTO v_selecoes_mes
+    FROM candidaturas c
+    JOIN diarias d ON d.id = c.diaria_id
+   WHERE d.empregador_id   = v_uid
+     AND c.status IN ('selecionado','confirmado')
+     AND d.status <> 'expirada'
+     AND c.selecionado_em >= date_trunc('month', NOW());
 
--- Empregador atualiza (cancelar/concluir); diarista pode mudar p/ 'confirmado'
--- a própria linha (aceite). Enforcement fino fica na RPC de aceite (ver spec).
-DROP POLICY IF EXISTS contratacoes_update ON diaria_contratacoes;
-CREATE POLICY contratacoes_update ON diaria_contratacoes
-  FOR UPDATE USING (auth.uid() = empregador_id OR auth.uid() = diarista_id)
-  WITH CHECK (auth.uid() = empregador_id OR auth.uid() = diarista_id);
+  SELECT COUNT(*) INTO v_extras
+    FROM contatos_desbloqueios
+   WHERE empregador_id = v_uid
+     AND created_at >= date_trunc('month', NOW());
 
-DROP POLICY IF EXISTS contratacoes_delete ON diaria_contratacoes;
-CREATE POLICY contratacoes_delete ON diaria_contratacoes
-  FOR DELETE USING (auth.uid() = empregador_id);
+  IF v_plano IN ('essencial','plus') THEN
+    v_limite_gratis  := 2147483647;  -- "ilimitado" (int max)
+    v_limite_efetivo := 2147483647;
+  ELSE
+    -- Cota grátis = 0. Cada contato no plano grátis exige R$1 (abatido pelos extras).
+    v_limite_gratis  := 0;
+    v_limite_efetivo := 0 + COALESCE(v_extras, 0);
+  END IF;
 
-SELECT 'Schema multi-vagas (colunas vagas/vagas_preenchidas + tabela diaria_contratacoes) instalado.' AS resultado;
+  v_permitido_gratis := v_selecoes_mes < v_limite_efetivo;
+
+  RETURN jsonb_build_object(
+    'permitido_gratis',  v_permitido_gratis,
+    'plano',             v_plano,
+    'selecoes_mes',      v_selecoes_mes,
+    'limite_gratis_mes', v_limite_gratis,
+    'contatos_extras',   COALESCE(v_extras, 0),
+    'limite_efetivo',    v_limite_efetivo,
+    'exige_cobranca_r1', NOT v_permitido_gratis AND v_plano = 'gratis'
+  );
+END $$;
+
+REVOKE ALL ON FUNCTION pode_selecionar_candidato(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION pode_selecionar_candidato(UUID) TO authenticated;
+
+SELECT 'Multi-vagas instalado: colunas vagas/vagas_preenchidas + candidaturas.selecionado_em + cobrança por vaga.' AS resultado;
