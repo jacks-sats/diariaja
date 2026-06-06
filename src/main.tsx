@@ -17,6 +17,17 @@ import "@fontsource/inter/latin-ext-700.css";
 import "@fontsource/inter/latin-ext-800.css";
 import "@fontsource/inter/latin-ext-900.css";
 import App from "./App";
+import { Capacitor } from "@capacitor/core";
+import { CapacitorUpdater } from "@capgo/capacitor-updater";
+
+// Capgo OTA: avisa que o bundle subiu OK. Sem isso, o Capgo presume que a
+// atualização quebrou e faz rollback pro bundle anterior. Só roda no app
+// nativo (Android) — na web é no-op. Silencioso: nunca deixa derrubar o boot.
+if (Capacitor.isNativePlatform()) {
+  CapacitorUpdater.notifyAppReady().catch((e) => {
+    console.warn("[Capgo] notifyAppReady falhou:", e);
+  });
+}
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },

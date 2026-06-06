@@ -10,11 +10,13 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "verify": "bash scripts/verificar.sh",
-    "verify:quick": "bash scripts/verificar.sh --quick"
+    "verify:quick": "bash scripts/verificar.sh --quick",
+    "capgo:upload": "vite build && npx @capgo/cli@7 bundle upload --channel production"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
     "@capacitor/core": "^6.0.0",
+    "@capgo/capacitor-updater": "^6.45.10",
     "@fontsource/inter": "^5.2.8",
     "@supabase/supabase-js": "^2.39.0",
     "html5-qrcode": "^2.3.8",
