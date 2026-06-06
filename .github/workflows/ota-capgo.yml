@@ -1,0 +1,70 @@
+name: OTA (Capgo)
+
+# Sobe um bundle de Live Update (OTA) pro Capgo a cada push na main que mexa no
+# conteúdo web. Resultado: a mudança que já vai pra web (Vercel) também chega no
+# app Android instalado SEM novo AAB nem revisão do Google.
+#
+# Pré-requisito (uma vez): configurar o secret CAPGO_TOKEN em
+#   Settings → Secrets and variables → Actions → New repository secret.
+# Enquanto o secret NÃO existir, o job roda e PULA o upload (fica verde) — não
+# quebra nada. Depois de configurado, passa a subir automaticamente.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "vite.config.ts"
+      - "package.json"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ota-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ota:
+    name: build + upload OTA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checar se CAPGO_TOKEN está configurado
+        id: guard
+        run: |
+          if [ -z "${{ secrets.CAPGO_TOKEN }}" ]; then
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=OTA pulado::CAPGO_TOKEN não configurado. Configure em Settings → Secrets para ativar os updates automáticos."
+          else
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Node 20
+        if: steps.guard.outputs.has_token == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        if: steps.guard.outputs.has_token == 'true'
+        run: npm ci
+
+      - name: Build web (dist/)
+        if: steps.guard.outputs.has_token == 'true'
+        run: npm run build
+
+      - name: Upload do bundle OTA pro Capgo
+        if: steps.guard.outputs.has_token == 'true'
+        env:
+          CAPGO_TOKEN: ${{ secrets.CAPGO_TOKEN }}
+        # Versão única por execução (1.0.<run_number>) pra cada OTA ser distinto.
+        # Canal 'production' = o canal que o app escuta (autoUpdate).
+        run: >
+          npx @capgo/cli@7 bundle upload
+          --apikey "$CAPGO_TOKEN"
+          --channel production
+          --bundle "1.0.${{ github.run_number }}"
