@@ -7,6 +7,13 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import { Session } from "@supabase/supabase-js";
+import { Capacitor } from "@capacitor/core";
+import { SocialLogin } from "@capgo/capacitor-social-login";
+
+// Web Client ID do Google (OAuth). Habilita o login Google NATIVO no app Android
+// (o Google bloqueia OAuth dentro de WebView). Sem este valor, o login Google cai
+// no fluxo web (redirect) — comportamento atual. Configurar em Vercel/.env.local.
+const GOOGLE_WEB_CLIENT_ID = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID || "";
 // ── Ícones (Lucide React — outline moderno, tree-shaken) ─────────────────────
 import {
   Home, Briefcase, MessageCircle, User, Plus,
@@ -3106,6 +3113,29 @@ export default function App() {
   // só aparece em login (sempre) e em cadastro-auth quando tipo !== "empresa".
   const handleGoogleLogin = async () => {
     setAuthError("");
+    // Login deliberado → libera a blindagem de navegação (igual ao login por e-mail).
+    sessaoNavegadaRef.current = false;
+    // App NATIVO (Android) com client id configurado: login Google nativo de
+    // verdade (Credential Manager do Android) — o Google bloqueia OAuth dentro
+    // de WebView, por isso o redirect abria o navegador. Pega o idToken e troca
+    // por sessão no Supabase via signInWithIdToken. Requer, no Google Cloud, um
+    // Android OAuth client com o SHA-1 do app + este Web Client ID.
+    if (Capacitor.isNativePlatform() && GOOGLE_WEB_CLIENT_ID) {
+      try {
+        await SocialLogin.initialize({ google: { webClientId: GOOGLE_WEB_CLIENT_ID } });
+        const login = await SocialLogin.login({ provider: "google", options: { scopes: ["email", "profile"] } });
+        const idToken = (login as { result?: { idToken?: string } })?.result?.idToken;
+        if (!idToken) { setAuthError("Não foi possível entrar com o Google. Tente novamente."); return; }
+        const { error } = await supabase.auth.signInWithIdToken({ provider: "google", token: idToken });
+        if (error) setAuthError(traduzirErroAuth(error.message));
+      } catch (e) {
+        // Cancelamento do usuário → silencia; erro real → mensagem amigável.
+        const msg = String((e as { message?: string })?.message || e || "");
+        if (!/cancel/i.test(msg)) setAuthError("Não foi possível entrar com o Google no app. Use e-mail/CPF ou tente de novo.");
+      }
+      return;
+    }
+    // Web (ou app sem client id configurado): fluxo OAuth por redirect (atual).
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
