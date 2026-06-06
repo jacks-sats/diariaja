@@ -9722,6 +9722,21 @@ export default function App() {
     const catDoFiltro = filtroFuncao !== "Todos"
       ? Object.values(CATEGORIAS_NEGOCIO).find(info => (info.funcoes as readonly string[]).includes(filtroFuncao))
       : null;
+    // ── Ranking: segmento do anunciante + plano pago + verificação ──────────────
+    // Segmento do anunciante (negócio escolhido). Prestadores que atendem esse
+    // segmento aparecem PRIMEIRO ("mostrar o que ele procura em primeiro").
+    const segAnunciante = negocioSelecionado || profile?.segmento || "";
+    const funcoesSeg = (CATEGORIAS_NEGOCIO[segAnunciante as keyof typeof CATEGORIAS_NEGOCIO]?.funcoes ?? []) as readonly string[];
+    const atendeSegmento = (d: UserProfile): boolean => {
+      if (!segAnunciante) return false;
+      if (d.segmento === segAnunciante) return true;
+      const fs = (d.categorias?.length ? d.categorias : [d.funcao]).filter(Boolean);
+      return fs.some(f => funcoesSeg.includes(f));
+    };
+    // Peso do plano pago (Plus > Essencial > Grátis). Aceita nomes legados
+    // ('destaque'/'pro' = Plus) porque a migração dual-track pode não ter rodado.
+    const pesoPlanoRank = (p?: string): number =>
+      (p === "plus" || p === "destaque" || p === "pro") ? 100 : p === "essencial" ? 50 : 0;
     const diaristasReaisVisiveis = diaristasReais
       .filter(d => !(d as UserProfile & { oculto?: boolean }).oculto) // auto-moderação: esconde perfis suspensos por denúncias
       .filter(d => {
@@ -9734,19 +9749,26 @@ export default function App() {
         return true;
       })
       // Ordenação determinística + por relevância. Critérios, em ordem:
-      // 1) impulsionado (plano)  2) disponível  3) nível de confiança
-      // 4) mais perto (se geo conhecida)  5) id (desempate ESTÁVEL — evita o
-      // "embaralha" entre navegações que existia quando só ordenava por destaque
-      // e o resto vinha em ordem arbitrária do banco).
+      // 1) atende o SEGMENTO do anunciante (o que ele procura vem primeiro)
+      // 2) plano PAGO (Plus > Essencial > Grátis)
+      // 3) disponível agora
+      // 4) nível de confiança (documento reconhecido)
+      // 5) tem foto de perfil
+      // 6) mais perto (se geo conhecida)
+      // 7) id (desempate ESTÁVEL — evita "embaralhar" entre navegações).
       .sort((a, b) => {
         const A = a as UserProfile & { plano_ativo?: string; nivel?: number };
         const B = b as UserProfile & { plano_ativo?: string; nivel?: number };
-        const boost = Number(B.plano_ativo === "destaque") - Number(A.plano_ativo === "destaque");
-        if (boost) return boost;
+        const seg = Number(atendeSegmento(B)) - Number(atendeSegmento(A));
+        if (seg) return seg;
+        const plano = pesoPlanoRank(B.plano_ativo) - pesoPlanoRank(A.plano_ativo);
+        if (plano) return plano;
         const disp = Number(!!B.disponivel) - Number(!!A.disponivel);
         if (disp) return disp;
         const nivel = Number(B.nivel ?? 0) - Number(A.nivel ?? 0);
         if (nivel) return nivel;
+        const foto = Number(!!B.foto_url) - Number(!!A.foto_url);
+        if (foto) return foto;
         const temGeo = !!(profile?.lat && profile?.lng);
         const distA = temGeo && A.lat && A.lng ? haversineKm(profile!.lat!, profile!.lng!, A.lat!, A.lng!) : Infinity;
         const distB = temGeo && B.lat && B.lng ? haversineKm(profile!.lat!, profile!.lng!, B.lat!, B.lng!) : Infinity;
