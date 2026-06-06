@@ -1,5 +1,7 @@
 ext {
-    minSdkVersion = 22
+    // 23 (Android 6.0) — exigido pelo @capgo/capacitor-social-login (Credential
+    // Manager / Google Play Services do login Google nativo). Cobre ~99% dos aparelhos.
+    minSdkVersion = 23
     // Play exige compileSdk/targetSdk = 35 (Android 15) pra apps novos
     // desde 31-ago-2025 e pra updates desde 1-nov-2025.
     compileSdkVersion = 35
