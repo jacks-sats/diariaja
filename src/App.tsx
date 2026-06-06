@@ -2619,7 +2619,7 @@ export default function App() {
       // M3: inclui telas privilegiadas/contextuais que NÃO devem ser restauradas
       // do localStorage (evita flash de painel admin/suporte ao recarregar e
       // telas que precisam de contexto).
-      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat","admin-painel","painel-suporte","alterar-senha","verificar-telefone"]);
+      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat","admin-painel","painel-suporte","alterar-senha","verificar-telefone","configuracoes"]);
       const podeRestaurar = (t: string) => t && !TELAS_AUTH.has(t);
 
       // Sem localização → manda pro CEP. Mas se o usuário JÁ informou o CEP
@@ -2762,6 +2762,10 @@ export default function App() {
 
   const handleEmailLogin = async () => {
     setAuthError(""); setAuthLoading(true);
+    // Login é uma ação DELIBERADA do usuário → libera a blindagem pra que o
+    // SIGNED_IN que vem a seguir realmente navegue (corrige o "apertei Entrar e
+    // não respondeu, só entrou quando voltei", quando a ref ficava travada).
+    sessaoNavegadaRef.current = false;
     const { data: loginData, error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.senha });
     if (error) {
       setAuthError(traduzirErroAuth(error.message));
@@ -2787,6 +2791,8 @@ export default function App() {
     if (!form.senha) {
       setAuthError("Informe sua senha."); setAuthLoading(false); return;
     }
+    // Login deliberado → libera a blindagem de navegação (mesma correção do login por e-mail).
+    sessaoNavegadaRef.current = false;
     try {
       const resp = await fetch(`${SUPABASE_URL}/functions/v1/lookup-by-cpf`, {
         method: "POST",
