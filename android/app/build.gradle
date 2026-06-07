@@ -5,8 +5,10 @@ apply plugin: 'com.android.application'
 //  - versionName pode ser sobrescrito via env DIARIAJA_VERSION_NAME.
 // Defaults razoáveis pra build local sem env (mas SEMPRE bumpar antes de
 // subir nova release na Play Console).
-def computedVersionCode = (System.getenv("DIARIAJA_VERSION_CODE") ?: "1").toInteger()
-def computedVersionName = System.getenv("DIARIAJA_VERSION_NAME") ?: "1.0.0"
+// Default = 3 (última versão enviada à Play em 07/06/2026). SEMPRE bumpe antes
+// de subir nova release (a Play rejeita versionCode repetido).
+def computedVersionCode = (System.getenv("DIARIAJA_VERSION_CODE") ?: "3").toInteger()
+def computedVersionName = System.getenv("DIARIAJA_VERSION_NAME") ?: "1.1.0"
 
 android {
     namespace "com.diariaja.app"
