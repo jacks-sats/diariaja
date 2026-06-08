@@ -55,6 +55,18 @@ jobs:
 
       - name: Build web (dist/)
         if: steps.guard.outputs.has_token == 'true'
+        # IMPORTANTE: o bundle OTA SUBSTITUI o conteúdo web do app instalado.
+        # Sem estas envs, o bundle iria com as chaves VITE_* vazias e desligaria
+        # features sem fallback no código: login Google NATIVO (precisa do
+        # VITE_GOOGLE_WEB_CLIENT_ID) e a inscrição de Web Push (VITE_VAPID_PUBLIC_KEY).
+        # Configure os secrets em Settings → Secrets and variables → Actions.
+        # (VITE_SUPABASE_URL/ANON_KEY têm fallback de produção no código, mas
+        # passamos aqui também para o ambiente ser explícito.)
+        env:
+          VITE_GOOGLE_WEB_CLIENT_ID: ${{ secrets.VITE_GOOGLE_WEB_CLIENT_ID }}
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
 
       - name: Upload do bundle OTA pro Capgo
