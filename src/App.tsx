@@ -3117,27 +3117,67 @@ export default function App() {
     setAuthError("");
     // Login deliberado → libera a blindagem de navegação (igual ao login por e-mail).
     sessaoNavegadaRef.current = false;
-    // App NATIVO (Android) com client id configurado: login Google nativo de
-    // verdade (Credential Manager do Android) — o Google bloqueia OAuth dentro
-    // de WebView, por isso o redirect abria o navegador. Pega o idToken e troca
-    // por sessão no Supabase via signInWithIdToken. Requer, no Google Cloud, um
-    // Android OAuth client com o SHA-1 do app + este Web Client ID.
-    if (Capacitor.isNativePlatform() && GOOGLE_WEB_CLIENT_ID) {
+
+    // ── POR QUE WEB FUNCIONA E O APP NÃO ──────────────────────────────────────
+    // Web (navegador real): usa signInWithOAuth (redirect pro Google e volta).
+    // App Android (WebView): o Google BLOQUEIA OAuth dentro de WebView
+    // (disallowed_useragent), então o redirect NÃO funciona — o único caminho é o
+    // login nativo (Credential Manager) via @capgo/capacitor-social-login, que
+    // devolve um idToken trocado por sessão no Supabase (signInWithIdToken).
+    // Pré-requisitos do nativo (fora do código): (1) VITE_GOOGLE_WEB_CLIENT_ID no
+    // build; (2) Android OAuth client no Google Cloud com o SHA-1 do app (Play App
+    // Signing + upload key); (3) o Web Client ID em Supabase → Authentication →
+    // Providers → Google → "Authorized Client IDs". Ver docs/GOOGLE_LOGIN_NATIVO.md.
+    if (Capacitor.isNativePlatform()) {
+      // Sem client id no build não dá pra fazer login nativo — e cair no redirect
+      // web aqui só abriria um navegador que o Google recusa. Orienta e-mail/CPF.
+      if (!GOOGLE_WEB_CLIENT_ID) {
+        console.error("[google] VITE_GOOGLE_WEB_CLIENT_ID ausente no build nativo");
+        setAuthError("Login com Google indisponível neste app. Entre com e-mail ou CPF/CNPJ.");
+        return;
+      }
       try {
+        // mode 'online' (default do plugin) garante o idToken.
         await SocialLogin.initialize({ google: { webClientId: GOOGLE_WEB_CLIENT_ID } });
-        const login = await SocialLogin.login({ provider: "google", options: { scopes: ["email", "profile"] } });
+        // NÃO passar `scopes` aqui. No @capgo/capacitor-social-login 6.0.1, passar
+        // qualquer `scopes` exige trocar a MainActivity pela
+        // ModifiedMainActivityForSocialLoginPlugin; com a MainActivity padrão
+        // (BridgeActivity, que é a nossa) o plugin REJEITA o login com
+        // "You CANNOT use scopes without modifying the main activity" — o que caía
+        // direto no catch abaixo e mostrava o erro genérico em TODO login Google.
+        // O plugin já inclui por padrão os escopos email/profile/openid, que é o
+        // suficiente para o signInWithIdToken do Supabase.
+        const login = await SocialLogin.login({ provider: "google", options: {} });
         const idToken = (login as { result?: { idToken?: string } })?.result?.idToken;
-        if (!idToken) { setAuthError("Não foi possível entrar com o Google. Tente novamente."); return; }
+        if (!idToken) {
+          console.error("[google] login sem idToken:", login);
+          setAuthError("Não foi possível entrar com o Google. Tente novamente.");
+          return;
+        }
         const { error } = await supabase.auth.signInWithIdToken({ provider: "google", token: idToken });
-        if (error) setAuthError(traduzirErroAuth(error.message));
+        if (error) {
+          // idToken chegou, mas o Supabase recusou → quase sempre o Web Client ID
+          // não está nos "Authorized Client IDs" do provider Google do Supabase.
+          console.error("[google] signInWithIdToken recusou:", error.message);
+          setAuthError("Google conectou, mas o servidor recusou o acesso. Tente de novo em instantes.");
+        }
       } catch (e) {
-        // Cancelamento do usuário → silencia; erro real → mensagem amigável.
+        // Loga o erro REAL pra diagnóstico (chrome://inspect): "[16] ... 10:" =
+        // SHA-1 não bate no Android OAuth client; "NoCredential" = sem conta
+        // Google no aparelho; "cancel" = usuário fechou o seletor.
         const msg = String((e as { message?: string })?.message || e || "");
-        if (!/cancel/i.test(msg)) setAuthError("Não foi possível entrar com o Google no app. Use e-mail/CPF ou tente de novo.");
+        if (/cancel/i.test(msg)) return; // usuário cancelou — silencia
+        console.error("[google] falha no login nativo:", msg);
+        if (/no\s*credential|sem.+conta|no accounts?/i.test(msg)) {
+          setAuthError("Nenhuma conta Google encontrada neste aparelho. Adicione uma conta Google nas configurações do Android ou entre com e-mail/CPF.");
+        } else {
+          setAuthError("Não foi possível entrar com o Google no app. Use e-mail/CPF ou tente de novo.");
+        }
       }
       return;
     }
-    // Web (ou app sem client id configurado): fluxo OAuth por redirect (atual).
+
+    // Web (navegador real): fluxo OAuth por redirect — funciona normalmente.
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
