@@ -27,13 +27,13 @@ construction, beauty, etc.) in Brazil, with initial focus on Campo Grande / MS.
 | ------------ | ------------------------------------------------------ |
 | Frontend     | React 18 + TypeScript (strict), Vite 5                 |
 | Backend      | Supabase (Postgres + Auth + Storage + Edge Functions)  |
-| Maps         | Leaflet + react-leaflet (OpenStreetMap tiles)          |
 | QR           | `qrcode.react` (gerar) / `html5-qrcode` (escanear)     |
 | Payments     | Mercado Pago (CheckoutPro + Preapproval/assinaturas)   |
 | Push         | Web Push (VAPID) — own Deno Edge Function `send-push`  |
 | AI Support   | Groq (LLaMA 3.1) via Edge Function `ai-support`        |
-| Mobile       | Capacitor 6 (Android only — iOS not configured)        |
-| Tests        | Vitest (node env) — only `src/helpers.ts` / `constants`|
+| Google login | Native Android via `@capgo/capacitor-social-login` + Supabase `signInWithIdToken`; web via OAuth redirect |
+| Mobile       | Capacitor 6 (Android only — iOS not configured); OTA via Capgo |
+| Tests        | Vitest (node env) — `src/helpers.ts` + `constants.ts`  |
 | Hosting      | Vercel (web) + Supabase Edge Functions                 |
 
 `tsconfig.json` is strict. No linter (ESLint) is configured — TypeScript +
@@ -44,16 +44,16 @@ the verification script is the safety net.
 ```
 /
 ├── src/
-│   ├── App.tsx              ⚠️  Monolith — ~9.7k lines, every screen and flow
-│   ├── main.tsx             React root + ErrorBoundary
+│   ├── App.tsx              ⚠️  Monolith — ~19.3k lines, every screen and flow
+│   ├── main.tsx             React root + ErrorBoundary + Capgo notifyAppReady
 │   ├── supabaseClient.ts    Supabase client (flowType: "implicit" — see below)
 │   ├── types.ts             Shared TS interfaces (Diaria, UserProfile, Convite…)
 │   ├── constants.ts         CATEGORIAS_NEGOCIO, PLANOS_*, MEDIAS_CAMPO_GRANDE…
 │   ├── helpers.ts           Pure utility functions (validarCPF, haversineKm…)
+│   ├── hooks/               usePlan / useLimits / usePermissions (monetização dual-track)
 │   ├── usePushNotifications.ts  Web Push subscription hook
 │   ├── GlobalLoadingBar.tsx Imperative top-of-viewport progress bar
-│   ├── MapComponent.tsx     Leaflet map (dual-mode: diaristas / markers)
-│   └── __tests__/helpers.test.ts  60+ unit tests covering helpers
+│   └── __tests__/           helpers.test.ts + fluxo.test.ts (262 testes no total)
 ├── public/
 │   ├── sw.js                Service worker (network-first HTML, cache-first /assets/)
 │   ├── manifest.json
@@ -64,7 +64,7 @@ the verification script is the safety net.
 ├── android/                 Capacitor Android project (build via Android Studio)
 ├── scripts/verificar.sh     Local check: tsc + vitest + (optionally) build
 ├── capacitor.config.ts      webDir: "dist", scheme: https
-├── vite.config.ts           manualChunks: supabase / leaflet / qrcode / vendor
+├── vite.config.ts           manualChunks: supabase / qr-reader / qr-gen / icons / vendor
 ├── vercel.json              Cache headers (sw.js + index.html no-cache; /assets/ immutable)
 └── index.html               Inline CSS variables for light/dark mode + native splash
 ```
@@ -77,7 +77,7 @@ npm run dev              # Vite dev server on http://localhost:5173
 npm run build            # → dist/  (output for Vercel & Capacitor)
 npm run preview          # serves dist/
 
-npm test                 # vitest run (helpers.test.ts)
+npm test                 # vitest run (helpers.test.ts + fluxo.test.ts — 262 testes)
 npm run test:watch
 npm run test:coverage    # coverage for helpers.ts + constants.ts
 
@@ -127,7 +127,7 @@ checked into the repo — run `npm run verify` manually before pushing.
 
 ## Architecture notes
 
-### `src/App.tsx` is a 9.7k-line monolith
+### `src/App.tsx` is a ~19.3k-line monolith
 
 All screens, modals, business logic, and a giant inline `S` style dictionary
 live here. Navigation is **not** React Router — it's a single `tela` string
@@ -171,8 +171,18 @@ User-facing tables (all under RLS):
 - `nao_interesse` — diarista hides a vaga ("not interested")
 - `topicos`, `comentarios_comunidade` — community forum
 - `analytics_eventos` — generic event stream
-- `assinaturas` — Mercado Pago Preapproval subscriptions
+- `assinaturas` — Mercado Pago subscriptions (dual-track: `UNIQUE(user_id, user_type)`)
 - `push_subscriptions` — Web Push VAPID subscriptions
+- `contatos_desbloqueios` — R$ 1 contact unlocks (idempotent on `mp_payment_id`)
+- `usuarios_bloqueados` — user-to-user blocks (chat moderation)
+- `auditoria_acoes` — generic audit log (LGPD); fed by triggers
+- `kyc_documentos` / `user_profiles.documento_*` / `antecedentes_*` — KYC + criminal-record
+- `suporte_tickets`, `suporte_respostas` — admin support tickets
+- `feedback_vaga_expirada`, `feedback_pos_conclusao` — mandatory feedback queues
+- `rate_limits` — server-side rate limiting (RPC `check_rate_limit`)
+- `oauth_states` — single-use nonces (MP OAuth anti-CSRF)
+- `app_config` — feature flags (e.g. `modo_beta`)
+- `academy_*` — "Já Decola" gamified courses/quiz/progress/certificates
 
 Migrations are not numbered — apply them by hand in the Supabase Dashboard
 SQL editor. When adding schema changes:
@@ -185,14 +195,26 @@ SQL editor. When adding schema changes:
 
 | Function                  | Purpose                                             |
 | ------------------------- | --------------------------------------------------- |
-| `ai-support`              | "Jájá" support chatbot — Groq LLaMA-3.1-8b-instant  |
-| `create-payment`          | MP CheckoutPro preference for a diária              |
+| `ai-support`              | "Jájá" support chatbot — Groq LLaMA-3.1-8b-instant (sanitiza PII) |
 | `create-contact-payment`  | R$ 1 contact-unlock flow (free tier overflow)       |
-| `create-subscription`     | MP Preapproval (recurring plans: essencial/pro)     |
-| `mp-oauth`                | MP OAuth onboarding for diarista (token capture)    |
-| `mp-webhook`              | MP webhook: validates HMAC-SHA256 sig (`x-signature`), updates `diarias` and `assinaturas` |
-| `send-push`               | Web Push fan-out (RFC 8291 AES-GCM + VAPID JWT)     |
-| `delete-user`             | Account deletion (LGPD)                             |
+| `create-plano-payment`    | MP CheckoutPro — plano avulso 30 dias (aceita Pix)  |
+| `create-subscription`     | MP Preapproval (assinatura recorrente — só cartão)  |
+| `mp-oauth`                | MP OAuth onboarding for diarista (nonce one-time anti-CSRF) |
+| `mp-webhook`              | MP webhook: HMAC-SHA256 (`x-signature`) + idempotência; atualiza assinaturas/planos/contatos/diárias |
+| `mp-health-check`         | Diagnóstico end-to-end da stack MP (admin/secret)   |
+| `send-push`               | Web Push fan-out (RFC 8291 AES-GCM + VAPID JWT); auth JWT ou `x-internal-secret` |
+| `lembrar-diarias`         | Cron (~10min): lembrete push 30min antes da diária  |
+| `lookup-by-cpf`           | CPF/CNPJ → e-mail p/ login (anti-enumeração + timing) |
+| `signup-empresa`          | Cadastro PJ confirmado server-side (sem clicar e-mail) |
+| `verificar-whatsapp`      | OTP de telefone via Twilio Verify (WhatsApp)        |
+| `delete-user`             | Exclusão de conta (LGPD — apaga/anonimiza tudo)     |
+| `export-user-data`        | Portabilidade de dados (LGPD Art. 18 V)             |
+| `purge-antecedentes-storage` | Purga física dos PDFs de antecedentes vencidos   |
+
+> ⚠️ `verify_jwt=false` em: `mp-webhook`, `mp-oauth`, `lookup-by-cpf`,
+> `signup-empresa`, `lembrar-diarias` (protegidas por HMAC / secret / rate-limit
+> por IP). As demais exigem JWT. Não existe mais `create-payment` (modelo de
+> intermediação foi removido — ver "Payments model").
 
 Deploy: `supabase functions deploy <name>`. Secrets (set via
 `supabase secrets set KEY=value`):
@@ -217,7 +239,7 @@ it reloads at most once per session.
 **direto entre anunciante e diarista** (combinado por fora, ex.: PIX entre eles).
 O frontend **não chama mais** `create-payment` (veja o comentário em
 `App.tsx` — `iniciarPagamentoMP` foi removido). A Edge Function `create-payment`
-permanece deployada apenas caso o modelo volte a intermediar no futuro.
+também já foi **removida do repositório** (não está mais em `supabase/functions/`).
 
 A monetização da plataforma vem de:
 1. **R$ 1 por contato extra** — quando o anunciante no plano grátis estoura a

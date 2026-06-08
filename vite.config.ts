@@ -11,8 +11,6 @@ export default defineConfig({
           if (id.includes("node_modules")) {
             // Supabase em chunk separado (~120 KB)
             if (id.includes("@supabase")) return "supabase";
-            // Leaflet (mapa) em chunk separado (~150 KB)
-            if (id.includes("leaflet") || id.includes("react-leaflet")) return "leaflet";
             // QR Codes: separa o leitor (html5-qrcode, pesado) do gerador
             // (qrcode.react, leve) — ambos já são lazy-loaded no app
             if (id.includes("html5-qrcode")) return "qr-reader";
