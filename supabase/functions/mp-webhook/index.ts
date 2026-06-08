@@ -364,6 +364,38 @@ Deno.serve(async (req) => {
         return new Response("ok", { status: 200 });
       }
 
+      // ── Publicação avulsa de VAGA DE EMPREGO ───────────────────
+      // Mesmo modelo do contato: registra na tabela `vagas_emprego_desbloqueios`
+      // (UNIQUE em mp_payment_id = idempotente). Cada linha = 1 vaga de emprego
+      // extra liberada no mês p/ o anunciante grátis. Estorno revoga.
+      if (String(payment.external_reference).startsWith("vaga_emprego_unlock::")) {
+        const refParts = String(payment.external_reference).split("::");
+        const userId = refParts[1] ?? "";
+        const ehRefund = payment.status === "refunded" || payment.status === "charged_back";
+        if (payment.status === "approved" && userId) {
+          const { error: insErr } = await supabase
+            .from("vagas_emprego_desbloqueios")
+            .insert({
+              empregador_id:         userId,
+              mp_payment_id:         String(paymentId),
+              mp_external_reference: String(payment.external_reference),
+            });
+          if (insErr && !String(insErr.message ?? "").toLowerCase().includes("duplicate")) {
+            console.error(`[mp-webhook] insert vaga_emprego_desbloqueio falhou:`, insErr);
+          }
+        } else if (ehRefund) {
+          const { error: delErr } = await supabase
+            .from("vagas_emprego_desbloqueios")
+            .delete()
+            .eq("mp_payment_id", String(paymentId));
+          if (delErr) console.error(`[mp-webhook] revogar vaga_emprego (refund) falhou:`, delErr);
+          else console.log(`[mp-webhook] vaga_emprego_unlock REVOGADO por ${payment.status}: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))}`);
+        } else {
+          console.log(`[mp-webhook] vaga_emprego_unlock ignored: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
+        }
+        return new Response("ok", { status: 200 });
+      }
+
       // ── Plano 30 dias (pagamento único via Pix/cartão) ─────────
       // external_reference = "plano::USER_ID::PLANO_ID". Diferente do
       // preapproval: aqui é avulso (aceita Pix) e não renova sozinho —

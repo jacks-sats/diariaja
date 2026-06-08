@@ -605,6 +605,12 @@ export default function App() {
   // Permite mostrar "Aguarde..." só no botão clicado, não nos 2.
   const [criandoAssinatura, setCriandoAssinatura] = useState<false | string>(false);
   const [modalLimiteContato, setModalLimiteContato] = useState(false);
+  // Cota de VAGAS DE EMPREGO (plano grátis: 3/mês). Estado vindo da RPC
+  // `pode_postar_vaga_emprego`; o modal abre quando estourou e exige pagar avulso.
+  const [modalLimiteVagaEmprego, setModalLimiteVagaEmprego] = useState(false);
+  const [desbloqueandoVagaEmprego, setDesbloqueandoVagaEmprego] = useState(false);
+  const [cotaVagaEmprego, setCotaVagaEmprego] =
+    useState<{ postadas_mes: number; limite_efetivo: number; exige_pagamento: boolean; plano: string } | null>(null);
   // Prompt de notificações — aparece 1x após o login (não pede sozinho hoje, só
   // num item escondido em Configurações; usuários reclamam que "não pede").
   const [promptNotif, setPromptNotif] = useState(false);
@@ -2446,6 +2452,19 @@ export default function App() {
         localStorage.removeItem(chave);
       } catch { /* ignore */ }
       window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    // ── Retorno do MP após publicar vaga de emprego avulsa ─────────────────
+    // Só marca um flag aqui; a restauração do rascunho acontece num efeito que
+    // espera o perfil carregar (senão o checkProfile sobrescreveria a navegação).
+    const vagaExtra = urlParams.get("vaga_extra_paga");
+    if (vagaExtra) {
+      window.history.replaceState({}, "", window.location.pathname);
+      if (vagaExtra === "sucesso") {
+        try { localStorage.setItem("diariaja_vaga_extra_retorno", "1"); } catch { /* ignore */ }
+      } else if (vagaExtra === "falha") {
+        setToastError("Pagamento não concluído. Você pode tentar publicar a vaga de novo.");
+      }
     }
 
     // Se a URL contém erro de auth do Supabase (ex: bad_oauth_state), vai direto para splash
@@ -4790,6 +4809,109 @@ export default function App() {
     setDesbloqueandoContato(false);
   };
 
+  // Inicia pagamento avulso pra PUBLICAR uma vaga de emprego além da cota grátis
+  // (3/mês no plano grátis). Mesmo padrão do desbloquearContato: token fresco +
+  // timeout + mensagem de erro real. O webhook (vaga_emprego_unlock::) registra
+  // o desbloqueio; ao voltar, o rascunho é restaurado pra republicar.
+  const desbloquearVagaEmprego = async () => {
+    if (!session?.user) {
+      setToastError("Sessão expirada. Entre novamente e tente outra vez.");
+      return;
+    }
+    const { data: { session: sess } } = await supabase.auth.getSession();
+    if (!sess?.access_token) {
+      setToastError("Sua sessão expirou. Entre novamente e tente outra vez.");
+      return;
+    }
+    setDesbloqueandoVagaEmprego(true);
+    // Garante o rascunho salvo antes de sair pro Mercado Pago (a redireção
+    // perde o state do React; restauramos no retorno ?vaga_extra_paga=sucesso).
+    try { localStorage.setItem("diariaja_rascunho_vaga", JSON.stringify({ formDiaria, negocioSelecionado, vagasDiaria, latDiaria, lngDiaria })); } catch { /* ignore */ }
+    const ac = new AbortController();
+    const timeoutId = setTimeout(() => ac.abort(), 15_000);
+    try {
+      const resp = await fetch(
+        `${SUPABASE_URL}/functions/v1/create-vaga-payment`,
+        {
+          signal: ac.signal,
+          method: "POST",
+          headers: {
+            "Content-Type":  "application/json",
+            "Authorization": `Bearer ${sess.access_token}`,
+            "apikey":        SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ empregador_id: sess.user.id }),
+        }
+      );
+      const data = await resp.json().catch(() => ({} as { checkout_url?: string; error?: string }));
+      if (resp.ok && data.checkout_url) {
+        window.location.href = data.checkout_url;
+        return;
+      }
+      const motivo = data.error || `HTTP ${resp.status}`;
+      setToastError(`❌ Não foi possível gerar link de pagamento: ${motivo}`);
+    } catch (err) {
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      setToastError(isAbort
+        ? "⏱ Demorou muito pra responder. Tenta de novo (a primeira chamada pode ser lenta)."
+        : "❌ Erro de conexão. Verifique sua internet.");
+      console.warn("[desbloquearVagaEmprego] erro:", err instanceof Error ? err.message : String(err));
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    setDesbloqueandoVagaEmprego(false);
+  };
+
+  // Retorno do pagamento de vaga avulsa: espera session+profile prontos (pra não
+  // competir com a navegação do checkProfile), restaura o rascunho salvo e volta
+  // pro form de publicação. O webhook registra o desbloqueio em paralelo.
+  useEffect(() => {
+    if (!session?.user || !profile) return;
+    let flag = "";
+    try { flag = localStorage.getItem("diariaja_vaga_extra_retorno") || ""; } catch { /* ignore */ }
+    if (flag !== "1") return;
+    try { localStorage.removeItem("diariaja_vaga_extra_retorno"); } catch { /* ignore */ }
+    try {
+      const raw = localStorage.getItem("diariaja_rascunho_vaga");
+      if (raw) {
+        const r = JSON.parse(raw) as {
+          formDiaria?: typeof formDiaria; negocioSelecionado?: string | null;
+          vagasDiaria?: number; latDiaria?: number | null; lngDiaria?: number | null;
+        };
+        if (r.formDiaria) setFormDiaria(r.formDiaria);
+        if (r.negocioSelecionado !== undefined) setNegocio(r.negocioSelecionado ?? null);
+        if (typeof r.vagasDiaria === "number") setVagasDiaria(r.vagasDiaria);
+        if (r.latDiaria !== undefined) setLatDiaria(r.latDiaria ?? null);
+        if (r.lngDiaria !== undefined) setLngDiaria(r.lngDiaria ?? null);
+      }
+    } catch { /* ignore */ }
+    try { localStorage.removeItem("diariaja_rascunho_vaga"); } catch { /* ignore */ }
+    setTela("criar-diaria");
+    setToastSuccess("✅ Pagamento recebido! Confira os dados e toque em Publicar. (pode levar alguns segundos para liberar)");
+    // Atualiza a cota (o webhook pode levar uns segundos pra registrar o extra).
+    setTimeout(() => {
+      void supabase.rpc("pode_postar_vaga_emprego").then(({ data }) => {
+        const c = data as { postadas_mes?: number; limite_efetivo?: number; exige_pagamento?: boolean; plano?: string } | null;
+        if (c) setCotaVagaEmprego({ postadas_mes: c.postadas_mes ?? 0, limite_efetivo: c.limite_efetivo ?? 3, exige_pagamento: !!c.exige_pagamento, plano: c.plano ?? "gratis" });
+      });
+    }, 1200);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user, profile]);
+
+  // Carrega a cota de vagas de emprego ao abrir o formulário de criação, pra
+  // mostrar o contador "X/3" antes de o anunciante tentar publicar.
+  useEffect(() => {
+    if (tela !== "criar-diaria" || !session?.user) return;
+    (async () => {
+      try {
+        const { data } = await supabase.rpc("pode_postar_vaga_emprego");
+        const c = data as { postadas_mes?: number; limite_efetivo?: number; exige_pagamento?: boolean; plano?: string } | null;
+        if (c) setCotaVagaEmprego({ postadas_mes: c.postadas_mes ?? 0, limite_efetivo: c.limite_efetivo ?? 3, exige_pagamento: !!c.exige_pagamento, plano: c.plano ?? "gratis" });
+      } catch { /* RPC ausente (migration não aplicada) → ignora */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tela, session?.user]);
+
   // ── Bloqueio de usuário ────────────────────────────────────────────────────
   // Insere em `usuarios_bloqueados` e atualiza o Set local. Idempotente
   // (UNIQUE no banco — se já bloqueado, ignora erro).
@@ -5175,6 +5297,29 @@ export default function App() {
     const discrim = verificarDiscriminacao(`${formDiaria.local} ${formDiaria.descricao}`);
     if (discrim) { setAuthError(discrim); return; }
     const enderecoComposto = `${formDiaria.rua}, ${formDiaria.numero}${formDiaria.complemento.trim() ? ` — ${formDiaria.complemento.trim()}` : ""}, ${formDiaria.bairro}, ${formDiaria.cidade}/${formDiaria.estado} — CEP ${formDiaria.cep}`;
+    // ── Cota de VAGAS DE EMPREGO (plano grátis: 3/mês) ───────────────────────
+    // Autoridade real é o servidor (trigger enforce_limite_vaga_emprego). Aqui é
+    // UX: se a cota do mês estourou, persiste o rascunho e abre o modal de
+    // pagamento avulso em vez de inserir e tomar o erro do trigger.
+    if (ehEmprego) {
+      try {
+        const { data: cota } = await supabase.rpc("pode_postar_vaga_emprego");
+        const c = cota as { exige_pagamento?: boolean; postadas_mes?: number; limite_efetivo?: number; plano?: string } | null;
+        if (c) {
+          setCotaVagaEmprego({
+            postadas_mes:    c.postadas_mes ?? 0,
+            limite_efetivo:  c.limite_efetivo ?? 3,
+            exige_pagamento: !!c.exige_pagamento,
+            plano:           c.plano ?? "gratis",
+          });
+          if (c.exige_pagamento) {
+            try { localStorage.setItem("diariaja_rascunho_vaga", JSON.stringify({ formDiaria, negocioSelecionado, vagasDiaria, latDiaria, lngDiaria })); } catch { /* ignore */ }
+            setModalLimiteVagaEmprego(true);
+            return;
+          }
+        }
+      } catch { /* RPC ausente (migration não aplicada) → não bloqueia o fluxo */ }
+    }
     setSalvandoDiaria(true);
     const isDelivery = FUNCOES_DELIVERY.includes(formDiaria.funcao);
     const nova = {
@@ -11651,6 +11796,64 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Modal: limite de VAGAS DE EMPREGO (grátis 3/mês) ── */}
+        {modalLimiteVagaEmprego && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:28, padding:"32px 24px", maxWidth:370, width:"100%", textAlign:"center" }}>
+              <div style={{ fontSize:48, marginBottom:10 }}>💼</div>
+              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:6 }}>
+                Limite de vagas de emprego
+              </div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.7, marginBottom:20 }}>
+                No plano grátis você publica <strong>3 vagas de emprego por mês</strong>
+                {cotaVagaEmprego ? ` (você já usou ${cotaVagaEmprego.postadas_mes} este mês)` : ""}.<br />
+                Para publicar mais uma agora, escolha:
+              </div>
+
+              {/* Opção 1 — pagar avulso por esta vaga */}
+              <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"#166534", marginBottom:4 }}>💳 Publicar esta vaga — R$ 1,00</div>
+                <div style={{ fontSize:12, color:"#4b7c59", lineHeight:1.5, marginBottom:12 }}>
+                  Pague R$ 1 via Mercado Pago (cartão ou PIX) para publicar mais uma vaga de emprego neste mês.
+                </div>
+                <button
+                  style={{ width:"100%", padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: desbloqueandoVagaEmprego ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoVagaEmprego ? 0.6 : 1 }}
+                  disabled={desbloqueandoVagaEmprego}
+                  onClick={() => desbloquearVagaEmprego()}>
+                  {desbloqueandoVagaEmprego ? "Aguarde..." : "Pagar R$ 1,00 e publicar →"}
+                </button>
+              </div>
+
+              {/* Opção 2 — assinar plano (ilimitado). Valor das constants */}
+              {(() => {
+                const ess = PLANOS_EMPREGADOR.find(p => p.id === "essencial");
+                const valor = ess?.valor ?? 24.90;
+                return (
+                  <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
+                    <div style={{ fontWeight:800, fontSize:14, color:"#9a3412", marginBottom:4 }}>
+                      🚀 Ativar Essencial — R$ {valor.toFixed(2).replace(".", ",")} / 30 dias
+                    </div>
+                    <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.5, marginBottom:12 }}>
+                      Vagas de emprego ilimitadas, IA Jájá pra criar anúncios, filtros avançados e mais.
+                    </div>
+                    <button
+                      style={{ width:"100%", padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                      onClick={() => { setModalLimiteVagaEmprego(false); setTela("planos"); }}>
+                      Ver planos →
+                    </button>
+                  </div>
+                );
+              })()}
+
+              <button
+                style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => setModalLimiteVagaEmprego(false)}>
+                Agora não
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── Modal: Denúncia ── */}
         {/* Modal: confirmar bloqueio de usuário */}
         {modalBloquear && (
@@ -17342,13 +17545,27 @@ export default function App() {
           );
         })()}
 
+        {/* Contador de cota de vagas de emprego (plano grátis: 3/mês) */}
+        {formDiaria.tipo_oferta === "emprego" && cotaVagaEmprego && cotaVagaEmprego.plano === "gratis" && (
+          <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:12, padding:"10px 14px", marginTop:14, fontSize:12.5, color:"var(--text-2,#64748b)", display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontSize:18 }}>💼</span>
+            <span>
+              Vagas de emprego grátis:{" "}
+              <strong style={{ color: cotaVagaEmprego.postadas_mes >= cotaVagaEmprego.limite_efetivo ? "#dc2626" : "var(--text-1,#0f172a)" }}>
+                {Math.min(cotaVagaEmprego.postadas_mes, cotaVagaEmprego.limite_efetivo)}/{cotaVagaEmprego.limite_efetivo}
+              </strong>{" "}este mês.
+              {cotaVagaEmprego.postadas_mes >= cotaVagaEmprego.limite_efetivo ? " A próxima é paga (R$ 1) ou assine um plano." : ""}
+            </span>
+          </div>
+        )}
+
         {authError && <p style={S.errorText}>{authError}</p>}
 
         <button
           style={{ ...S.btnPrimary, background:cor, marginTop:16, opacity:salvandoDiaria?0.6:1, fontSize:16 }}
           disabled={salvandoDiaria}
           onClick={salvarDiaria}>
-          {salvandoDiaria ? "Publicando..." : "📋 Publicar diária"}
+          {salvandoDiaria ? "Publicando..." : (formDiaria.tipo_oferta === "emprego" ? "💼 Publicar vaga de emprego" : "📋 Publicar diária")}
         </button>
         <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginTop:8 }}>
           Campos com * são obrigatórios
