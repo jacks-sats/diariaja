@@ -3125,7 +3125,15 @@ export default function App() {
     if (Capacitor.isNativePlatform() && GOOGLE_WEB_CLIENT_ID) {
       try {
         await SocialLogin.initialize({ google: { webClientId: GOOGLE_WEB_CLIENT_ID } });
-        const login = await SocialLogin.login({ provider: "google", options: { scopes: ["email", "profile"] } });
+        // NÃO passar `scopes` aqui. No @capgo/capacitor-social-login 6.0.1, passar
+        // qualquer `scopes` exige trocar a MainActivity pela
+        // ModifiedMainActivityForSocialLoginPlugin; com a MainActivity padrão
+        // (BridgeActivity, que é a nossa) o plugin REJEITA o login com
+        // "You CANNOT use scopes without modifying the main activity" — o que caía
+        // direto no catch abaixo e mostrava o erro genérico em TODO login Google.
+        // O plugin já inclui por padrão os escopos email/profile/openid, que é o
+        // suficiente para o signInWithIdToken do Supabase.
+        const login = await SocialLogin.login({ provider: "google", options: {} });
         const idToken = (login as { result?: { idToken?: string } })?.result?.idToken;
         if (!idToken) { setAuthError("Não foi possível entrar com o Google. Tente novamente."); return; }
         const { error } = await supabase.auth.signInWithIdToken({ provider: "google", token: idToken });

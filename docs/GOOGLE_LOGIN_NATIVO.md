@@ -75,3 +75,8 @@ conta **nativo** do Android (não o navegador) e entrar direto.
   Google do Supabase (passo 3), ou a env tem um client id diferente.
 - **Abre o navegador mesmo assim:** `VITE_GOOGLE_WEB_CLIENT_ID` não chegou no
   build (rebuild após setar a env).
+- **Falha sempre com o erro genérico ("Não foi possível entrar com o Google no
+  app...")**: não passe `scopes` em `SocialLogin.login`. Na versão 6.0.1 do
+  plugin, qualquer `scopes` exige a `ModifiedMainActivityForSocialLoginPlugin`;
+  com a `MainActivity` padrão o plugin **rejeita** o login. Os escopos
+  email/profile/openid já entram por padrão (suficiente pro `signInWithIdToken`).
