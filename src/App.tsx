@@ -18392,9 +18392,24 @@ export default function App() {
               {/* Preview do doc */}
               {docRevisao.signedUrl ? (
                 docRevisao.url.toLowerCase().endsWith(".pdf") ? (
-                  <iframe src={docRevisao.signedUrl} title="Documento" style={{ width:"100%", height:380, border:"1px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"#fff" }} />
+                  // PDF: iframe vem em branco no celular (Capacitor/WebView). Em vez
+                  // de tentar embutir, oferecemos um link claro pra abrir em tela cheia.
+                  <a href={docRevisao.signedUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", gap:6, width:"100%", padding:"28px 16px", border:"1.5px dashed var(--border,#cbd5e1)", borderRadius:10, marginBottom:14, background:"var(--bg-subtle,#f1f5f9)", textDecoration:"none", boxSizing:"border-box" as const }}>
+                    <span style={{ fontSize:34 }}>📄</span>
+                    <span style={{ fontSize:14, fontWeight:800, color:"#3A86FF" }}>Abrir documento (PDF)</span>
+                    <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center" as const }}>Abre em tela cheia / nova aba — toque para ver e dar zoom</span>
+                  </a>
                 ) : (
-                  <img loading="lazy" src={docRevisao.signedUrl} alt="Documento" style={{ width:"100%", maxHeight:380, objectFit:"contain" as const, borderRadius:10, marginBottom:14, background:"#000" }} />
+                  <>
+                    <a href={docRevisao.signedUrl} target="_blank" rel="noopener noreferrer" title="Abrir em tela cheia" style={{ display:"block", marginBottom:8 }}>
+                      <img loading="lazy" src={docRevisao.signedUrl} alt="Documento" style={{ width:"100%", maxHeight:"62vh", objectFit:"contain" as const, borderRadius:10, background:"#0f172a", display:"block" }} />
+                    </a>
+                    <a href={docRevisao.signedUrl} target="_blank" rel="noopener noreferrer"
+                      style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, width:"100%", padding:"10px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"var(--bg-subtle,#f1f5f9)", color:"#3A86FF", fontSize:13, fontWeight:800, textDecoration:"none", boxSizing:"border-box" as const }}>
+                      🔍 Abrir em tela cheia (zoom)
+                    </a>
+                  </>
                 )
               ) : (
                 <div style={{ width:"100%", height:200, background:"#f1f5f9", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", color:"#94a3b8", fontSize:13, marginBottom:14 }}>
@@ -18446,9 +18461,24 @@ export default function App() {
 
               {antecedentesRevisao.signedUrl ? (
                 antecedentesRevisao.url.toLowerCase().endsWith(".pdf") ? (
-                  <iframe src={antecedentesRevisao.signedUrl} title="Certidão de antecedentes" style={{ width:"100%", height:380, border:"1px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"#fff" }} />
+                  // PDF: iframe vem em branco no celular (Capacitor/WebView). Link em
+                  // tela cheia é mais confiável — a maioria das certidões é PDF.
+                  <a href={antecedentesRevisao.signedUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", gap:6, width:"100%", padding:"28px 16px", border:"1.5px dashed var(--border,#cbd5e1)", borderRadius:10, marginBottom:14, background:"var(--bg-subtle,#f1f5f9)", textDecoration:"none", boxSizing:"border-box" as const }}>
+                    <span style={{ fontSize:34 }}>📄</span>
+                    <span style={{ fontSize:14, fontWeight:800, color:"#3A86FF" }}>Abrir certidão (PDF)</span>
+                    <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center" as const }}>Abre em tela cheia / nova aba — toque para ver e dar zoom</span>
+                  </a>
                 ) : (
-                  <img loading="lazy" src={antecedentesRevisao.signedUrl} alt="Certidão" style={{ width:"100%", maxHeight:380, objectFit:"contain" as const, borderRadius:10, marginBottom:14, background:"#000" }} />
+                  <>
+                    <a href={antecedentesRevisao.signedUrl} target="_blank" rel="noopener noreferrer" title="Abrir em tela cheia" style={{ display:"block", marginBottom:8 }}>
+                      <img loading="lazy" src={antecedentesRevisao.signedUrl} alt="Certidão" style={{ width:"100%", maxHeight:"62vh", objectFit:"contain" as const, borderRadius:10, background:"#0f172a", display:"block" }} />
+                    </a>
+                    <a href={antecedentesRevisao.signedUrl} target="_blank" rel="noopener noreferrer"
+                      style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, width:"100%", padding:"10px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"var(--bg-subtle,#f1f5f9)", color:"#3A86FF", fontSize:13, fontWeight:800, textDecoration:"none", boxSizing:"border-box" as const }}>
+                      🔍 Abrir em tela cheia (zoom)
+                    </a>
+                  </>
                 )
               ) : (
                 <div style={{ width:"100%", height:200, background:"#f1f5f9", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", color:"#94a3b8", fontSize:13, marginBottom:14 }}>
