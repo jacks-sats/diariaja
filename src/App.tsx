@@ -472,6 +472,12 @@ export default function App() {
   } | null>(null);
   const [adminSerieUsuarios, setAdminSerieUsuarios] = useState<{ dia: string; valor: number }[]>([]);
   const [adminSerieDiarias, setAdminSerieDiarias]   = useState<{ dia: string; valor: number }[]>([]);
+  const [adminSerieAtivos, setAdminSerieAtivos]     = useState<{ dia: string; valor: number }[]>([]);
+  const [adminRetencao, setAdminRetencao]           = useState<{
+    ativos_hoje: number; ativos_7d: number; ativos_30d: number;
+    retornantes_7d: number; recorrentes_14d: number; stickiness_pct: number;
+    retencao_d1_pct: number; retencao_d7_pct: number; novos_30d: number;
+  } | null>(null);
   type AdminDrillItem = { id: string; titulo: string; subtitulo: string; badge: string; badge_cor: string; criado_em: string };
   const [adminDrillTipo, setAdminDrillTipo]       = useState<string | null>(null);
   const [adminDrillTitulo, setAdminDrillTitulo]   = useState("");
@@ -2188,6 +2194,21 @@ export default function App() {
     };
   }, [session?.user?.id]);
 
+  // 11b) Registro de atividade diária: marca presença 1x por dia (histórico
+  //      pro painel de retenção). Idempotente no banco (ON CONFLICT), e ainda
+  //      gated por localStorage pra não repetir a chamada no mesmo dia/dispositivo.
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const hoje = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD (fuso local)
+    const chave = `diariaja_ativ_${hoje}`;
+    if (localStorage.getItem(chave) === "1") return;
+    supabase.rpc("registrar_atividade_diaria").then(
+      ({ error }) => { if (!error) { try { localStorage.setItem(chave, "1"); } catch {} } },
+      () => {}, // silencia falha de rede — tenta de novo no próximo load
+    );
+  }, [session?.user?.id]);
+
+
   // 12) Realtime: admin recebe notificação ao chegar mensagem nova num ticket
   //     de suporte. Usa channel separado pra não conflitar com tópicos da
   //     comunidade.
@@ -3838,14 +3859,20 @@ export default function App() {
       const { data, error } = await supabase.rpc("admin_stats");
       if (!error && data?.[0]) setAdminStats(data[0] as AdminStats);
       // Em paralelo: extras + 2 séries temporais pra os gráficos
-      const [extras, serieU, serieD] = await Promise.all([
+      const [extras, serieU, serieD, retencao, serieA] = await Promise.all([
         supabase.rpc("admin_metricas_extras"),
         supabase.rpc("admin_metricas_serie", { p_metrica: "novos_usuarios", p_dias: 14 }),
         supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_criadas", p_dias: 14 }),
+        supabase.rpc("admin_metricas_retencao"),
+        supabase.rpc("admin_serie_ativos", { p_dias: 14 }),
       ]);
       if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
       if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
       if (!serieD.error && serieD.data) setAdminSerieDiarias(serieD.data);
+      // Retenção é opcional: se a migration ainda não rodou, a RPC não existe —
+      // o painel só não mostra a seção (não quebra o resto das estatísticas).
+      if (!retencao.error && retencao.data?.[0]) setAdminRetencao(retencao.data[0]);
+      if (!serieA.error && serieA.data) setAdminSerieAtivos(serieA.data);
       // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
       const fin = await supabase.rpc("admin_resumo_financeiro");
       if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
@@ -18083,6 +18110,38 @@ export default function App() {
               <MiniBars data={adminSerieUsuarios} cor="#3A86FF" label="Novos usuários por dia" />
               <MiniBars data={adminSerieDiarias} cor="#f59e0b" label="Diárias criadas por dia" />
             </div>
+          </div>
+        )}
+
+        {/* ── RETENÇÃO & ATIVIDADE — quem volta e quem é recorrente ── */}
+        {adminRetencao && (
+          <div style={{ padding:"4px 16px 16px" }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>🔁 Retenção & atividade</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              {cardStat("Ativos hoje", adminRetencao.ativos_hoje, "#16a34a", "🟢")}
+              {cardStat("Ativos 7 dias", adminRetencao.ativos_7d, "#3A86FF", "📅")}
+              {cardStat("Ativos 30 dias", adminRetencao.ativos_30d, "#a855f7", "🗓️")}
+              {cardStat("Recorrentes", adminRetencao.recorrentes_14d, "#FF6B35", "🔥")}
+              {cardStat("Voltaram (7d)", adminRetencao.retornantes_7d, "#0ea5e9", "↩️")}
+              {cardStat("Fidelidade", `${adminRetencao.stickiness_pct}%`, "#f59e0b", "🧲")}
+              {cardStat("Retenção D1", `${adminRetencao.retencao_d1_pct}%`, "#16a34a", "1️⃣")}
+              {cardStat("Retenção D7", `${adminRetencao.retencao_d7_pct}%`, "#a855f7", "7️⃣")}
+            </div>
+            {/* Legenda curta — o dono pediu essas definições explicadas */}
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:12, padding:"12px 14px", marginTop:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", fontSize:11, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
+              <div><b>🔥 Recorrentes</b> = abriram o app em <b>7+ dias diferentes nos últimos 14</b> (o "dia sim, dia não").</div>
+              <div><b>↩️ Voltaram (7d)</b> = vieram em 2+ dias distintos na última semana.</div>
+              <div><b>🧲 Fidelidade</b> = dos ativos no mês, quantos voltaram hoje (ativos hoje ÷ ativos 30 dias).</div>
+              <div><b>1️⃣/7️⃣ Retenção D1/D7</b> = dos que se cadastraram, quantos voltaram no dia seguinte / em até 7 dias.</div>
+            </div>
+            <div style={{ marginTop:10 }}>
+              <MiniBars data={adminSerieAtivos} cor="#16a34a" label="Usuários ativos por dia" />
+            </div>
+            {adminRetencao.ativos_30d === 0 && (
+              <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, padding:"10px 12px", marginTop:10, fontSize:11, color:"#92400e", lineHeight:1.5 }}>
+                ℹ️ O histórico de atividade começou a ser gravado agora. Esses números vão "encher" conforme os usuários forem abrindo o app nos próximos dias.
+              </div>
+            )}
           </div>
         )}
 
