@@ -7549,6 +7549,10 @@ export default function App() {
   // CONFIGURAÇÕES
   if (tela === "configuracoes") {
     const voltarHome = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
+    // Usuário "só Google" (sem identidade de e-mail) ainda não tem senha → o
+    // item do menu vira "Criar senha".
+    const identidadesConta = (session?.user?.identities ?? []) as { provider?: string }[];
+    const semSenhaPropria = identidadesConta.length > 0 && !identidadesConta.some(i => i.provider === "email");
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
@@ -7628,7 +7632,7 @@ export default function App() {
           <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
             {[
               { icon:"👤", label:"Alterar perfil", sub:"Nome, foto, especialidade e dados", action:() => setTela(modoAtual === "diarista" ? "editar-perfil" : "editar-perfil-empregador") },
-              { icon:"🔑", label:"Alterar senha", sub:"Mude sua senha de acesso", action:() => setTela("alterar-senha") },
+              { icon:"🔑", label: semSenhaPropria ? "Criar senha" : "Alterar senha", sub: semSenhaPropria ? "Você entrou com o Google — crie uma senha pra entrar também com e-mail/CNPJ" : "Mude sua senha de acesso", action:() => setTela("alterar-senha") },
               ...(MOSTRAR_VERIFICAR_TELEFONE_CTA ? [{ icon:"📱", label:"Verificar número de telefone", sub: telefoneVerificado ? "✅ Número verificado" : "Confirme seu número para mais segurança", action:() => setTela("verificar-telefone") }] : []),
               { icon: profile?.documento_status === "aprovado" ? "✅" : profile?.documento_status === "enviado" ? "🔍" : profile?.documento_status === "rejeitado" ? "❌" : "🆔",
                 label:"Verificar identidade (RG/CNH)",
@@ -7908,20 +7912,32 @@ export default function App() {
       (typeof window !== "undefined" &&
        (window.location.hash.includes("type=recovery") ||
         window.location.search.includes("recovery=1")));
+    // Usuário "só Google" não tem senha própria (sem identidade de e-mail). Nesse
+    // caso a tela vira "Criar senha" e NÃO pede a senha atual — não faz sentido
+    // confirmar uma senha que ele nunca teve.
+    const identidades = (session?.user?.identities ?? []) as { provider?: string }[];
+    const modoCriarSenha = !veioDeRecovery && identidades.length > 0 &&
+      !identidades.some(i => i.provider === "email");
+    // Pede a senha atual só no fluxo normal (quem já tem senha e quer trocar).
+    const pedeSenhaAtual = !veioDeRecovery && !modoCriarSenha;
+    const tituloSenha = veioDeRecovery ? "Defina sua nova senha"
+      : modoCriarSenha ? "Criar senha de acesso" : "Alterar senha";
     return (
       <div style={S.page}>
         {!veioDeRecovery && (
           <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
         )}
-        <h2 style={S.pageTitle}>🔑 {veioDeRecovery ? "Defina sua nova senha" : "Alterar senha"}</h2>
+        <h2 style={S.pageTitle}>🔑 {tituloSenha}</h2>
         <p style={{ color:"var(--text-2,#64748b)", fontSize:13, marginBottom:20, lineHeight:1.5 }}>
           {veioDeRecovery
             ? "Você abriu o link de recuperação. Crie uma nova senha de pelo menos 8 caracteres com letra e número."
+            : modoCriarSenha
+            ? "Você entrou com o Google e ainda não tem uma senha. Crie uma (mín. 8 caracteres, com letra e número) pra também poder entrar com e-mail ou CNPJ + senha."
             : "Confirme sua senha atual e digite a nova. A nova precisa ter pelo menos 8 caracteres."}
         </p>
 
-        {/* Senha atual — só pedida quando NÃO veio de recovery (segurança contra device roubado) */}
-        {!veioDeRecovery && (
+        {/* Senha atual — só pedida no fluxo normal (segurança contra device roubado) */}
+        {pedeSenhaAtual && (
           <>
             <label style={S.label}>Senha atual</label>
             <input style={S.input} type="password" placeholder="Sua senha atual" value={senhaAtual}
@@ -7946,14 +7962,14 @@ export default function App() {
           disabled={alterandoSenha}
           onClick={async () => {
             setAuthError("");
-            // Quando NÃO veio de recovery, exige senha atual + valida via reauth
-            if (!veioDeRecovery) {
+            // No fluxo normal (troca de senha), exige senha atual + valida via reauth
+            if (pedeSenhaAtual) {
               if (!senhaAtual) { setAuthError("Informe sua senha atual."); return; }
               if (!session?.user?.email) { setAuthError("Sessão expirada. Faça login de novo."); return; }
             }
             { const erroSenha = validarSenhaForte(novaSenha); if (erroSenha) { setAuthError(erroSenha); return; } }
             if (novaSenha !== confirmSenha) { setAuthError("As senhas não coincidem."); return; }
-            if (!veioDeRecovery && senhaAtual === novaSenha) { setAuthError("A nova senha precisa ser diferente da atual."); return; }
+            if (pedeSenhaAtual && senhaAtual === novaSenha) { setAuthError("A nova senha precisa ser diferente da atual."); return; }
             setAlterandoSenha(true);
             // Recovery: o link do e-mail é de USO ÚNICO e expira. Se a sessão
             // não está ativa (link reaberto/expirado), o updateUser falharia com
@@ -7968,7 +7984,7 @@ export default function App() {
               }
             }
             // Reauth com senha atual antes de mudar (proteção contra device roubado)
-            if (!veioDeRecovery && session?.user?.email) {
+            if (pedeSenhaAtual && session?.user?.email) {
               const { error: reauthErr } = await supabase.auth.signInWithPassword({
                 email: session.user.email,
                 password: senhaAtual,
@@ -7983,7 +7999,7 @@ export default function App() {
             setAlterandoSenha(false);
             if (error) { setAuthError(traduzirErroBanco(error)); }
             else {
-              setToastSuccess("✅ Senha alterada com sucesso!");
+              setToastSuccess(modoCriarSenha ? "✅ Senha criada! Agora você também pode entrar com e-mail/CNPJ + senha." : "✅ Senha alterada com sucesso!");
               setSenhaAtual(""); setNovaSenha(""); setConfirmSenha("");
               if (veioDeRecovery) {
                 // Limpa marcadores da URL + reseta o flag pra próxima visita ser normal
@@ -7995,7 +8011,7 @@ export default function App() {
               }
             }
           }}>
-          {alterandoSenha ? "Alterando..." : "Salvar nova senha"}
+          {alterandoSenha ? (modoCriarSenha ? "Criando..." : "Alterando...") : (modoCriarSenha ? "Criar senha" : "Salvar nova senha")}
         </button>
         {veioDeRecovery && (
           <button
