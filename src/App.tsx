@@ -548,12 +548,14 @@ export default function App() {
   const [antecedentesPreview, setAntecedentesPreview] = useState<string | null>(null);
   const [enviandoAntecedentes, setEnviandoAntecedentes] = useState(false);
   const [adminDocsPendentes, setAdminDocsPendentes] = useState<{user_id:string; nome:string; user_type:string; documento_url:string; documento_enviado_em:string}[]>([]);
-  const [docRevisao, setDocRevisao]               = useState<{user_id:string; nome:string; url:string; signedUrl?:string} | null>(null);
+  const [docRevisao, setDocRevisao]               = useState<{user_id:string; nome:string; url:string; signedUrl?:string; erro?:string} | null>(null);
+  const [docImgErro, setDocImgErro]               = useState(false);
   const [docMotivoRejeicao, setDocMotivoRejeicao] = useState("");
   const [revisandoDoc, setRevisandoDoc]           = useState(false);
   // Admin — revisão de antecedentes criminais (espelha o de KYC)
   const [adminAntecedentesPendentes, setAdminAntecedentesPendentes] = useState<{user_id:string; nome:string; user_type:string; antecedentes_url:string; antecedentes_enviado_em:string}[]>([]);
-  const [antecedentesRevisao, setAntecedentesRevisao] = useState<{user_id:string; nome:string; url:string; signedUrl?:string} | null>(null);
+  const [antecedentesRevisao, setAntecedentesRevisao] = useState<{user_id:string; nome:string; url:string; signedUrl?:string; erro?:string} | null>(null);
+  const [antecedentesImgErro, setAntecedentesImgErro] = useState(false);
   const [antecedentesMotivoRejeicao, setAntecedentesMotivoRejeicao] = useState("");
   const [revisandoAntecedentes, setRevisandoAntecedentes] = useState(false);
 
@@ -4273,13 +4275,18 @@ export default function App() {
   // Admin: abre um doc específico — gera signed URL pra visualizar
   const abrirDocParaRevisao = async (d: {user_id:string; nome:string; documento_url:string}) => {
     setDocRevisao({ user_id: d.user_id, nome: d.nome, url: d.documento_url });
+    setDocImgErro(false);
     setDocMotivoRejeicao("");
     // Signed URL com 5 min de validade (mais que suficiente pra revisar)
-    const { data } = await supabase.storage
+    const { data, error } = await supabase.storage
       .from("documentos")
       .createSignedUrl(d.documento_url, 300);
     if (data?.signedUrl) {
       setDocRevisao(prev => prev ? { ...prev, signedUrl: data.signedUrl } : null);
+    } else {
+      // Sem URL = o arquivo não foi encontrado no storage ou faltou permissão.
+      // Mostra o motivo real em vez de deixar a tela travada em "Carregando".
+      setDocRevisao(prev => prev ? { ...prev, erro: error?.message || "Arquivo não encontrado no storage." } : null);
     }
   };
 
@@ -4337,12 +4344,15 @@ export default function App() {
 
   const abrirAntecedentesParaRevisao = async (d: {user_id:string; nome:string; antecedentes_url:string}) => {
     setAntecedentesRevisao({ user_id: d.user_id, nome: d.nome, url: d.antecedentes_url });
+    setAntecedentesImgErro(false);
     setAntecedentesMotivoRejeicao("");
-    const { data } = await supabase.storage
+    const { data, error } = await supabase.storage
       .from("antecedentes")
       .createSignedUrl(d.antecedentes_url, 300);
     if (data?.signedUrl) {
       setAntecedentesRevisao(prev => prev ? { ...prev, signedUrl: data.signedUrl } : null);
+    } else {
+      setAntecedentesRevisao(prev => prev ? { ...prev, erro: error?.message || "Arquivo não encontrado no storage." } : null);
     }
   };
 
@@ -18390,11 +18400,42 @@ export default function App() {
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:14 }}>{docRevisao.nome}</div>
 
               {/* Preview do doc */}
-              {docRevisao.signedUrl ? (
+              {docRevisao.erro ? (
+                // Não rolou gerar o link assinado — mostra o motivo real em vez de
+                // um quadrado preto mudo (arquivo sumiu do storage, permissão, etc.).
+                <div style={{ width:"100%", padding:"16px", background:"#fef2f2", border:"1px solid #fecaca", borderRadius:10, marginBottom:14, fontSize:12, color:"#991b1b", lineHeight:1.5, boxSizing:"border-box" as const }}>
+                  ⚠️ Não consegui carregar este arquivo.<br />
+                  <span style={{ color:"#b91c1c", fontWeight:700 }}>{docRevisao.erro}</span><br />
+                  <span style={{ color:"#7f1d1d", fontSize:11 }}>Caminho: {docRevisao.url}</span>
+                </div>
+              ) : docRevisao.signedUrl ? (
                 docRevisao.url.toLowerCase().endsWith(".pdf") ? (
-                  <iframe src={docRevisao.signedUrl} title="Documento" style={{ width:"100%", height:380, border:"1px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"#fff" }} />
+                  // PDF: iframe vem em branco no celular (Capacitor/WebView). Em vez
+                  // de tentar embutir, oferecemos um link claro pra abrir em tela cheia.
+                  <a href={docRevisao.signedUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", gap:6, width:"100%", padding:"28px 16px", border:"1.5px dashed var(--border,#cbd5e1)", borderRadius:10, marginBottom:14, background:"var(--bg-subtle,#f1f5f9)", textDecoration:"none", boxSizing:"border-box" as const }}>
+                    <span style={{ fontSize:34 }}>📄</span>
+                    <span style={{ fontSize:14, fontWeight:800, color:"#3A86FF" }}>Abrir documento (PDF)</span>
+                    <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center" as const }}>Abre em tela cheia / nova aba — toque para ver e dar zoom</span>
+                  </a>
                 ) : (
-                  <img loading="lazy" src={docRevisao.signedUrl} alt="Documento" style={{ width:"100%", maxHeight:380, objectFit:"contain" as const, borderRadius:10, marginBottom:14, background:"#000" }} />
+                  <>
+                    {docImgErro ? (
+                      // A imagem não pintou (formato que o WebView não exibe, arquivo
+                      // corrompido/vazio). Avisa e oferece abrir o arquivo bruto.
+                      <div style={{ width:"100%", padding:"16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, marginBottom:8, fontSize:12, color:"#92400e", lineHeight:1.5, boxSizing:"border-box" as const }}>
+                        ⚠️ Não deu pra exibir a prévia aqui (o arquivo pode estar corrompido, vazio ou num formato que o navegador não desenha). Toque em <b>“Abrir documento”</b> abaixo para ver o arquivo original.
+                      </div>
+                    ) : (
+                      <a href={docRevisao.signedUrl} target="_blank" rel="noopener noreferrer" title="Abrir em tela cheia" style={{ display:"block", marginBottom:8 }}>
+                        <img loading="lazy" src={docRevisao.signedUrl} alt="Documento" onError={() => setDocImgErro(true)} style={{ width:"100%", maxHeight:"62vh", objectFit:"contain" as const, borderRadius:10, background:"#0f172a", display:"block" }} />
+                      </a>
+                    )}
+                    <a href={docRevisao.signedUrl} target="_blank" rel="noopener noreferrer"
+                      style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, width:"100%", padding:"10px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"var(--bg-subtle,#f1f5f9)", color:"#3A86FF", fontSize:13, fontWeight:800, textDecoration:"none", boxSizing:"border-box" as const }}>
+                      {docImgErro ? "📄 Abrir documento" : "🔍 Abrir em tela cheia (zoom)"}
+                    </a>
+                  </>
                 )
               ) : (
                 <div style={{ width:"100%", height:200, background:"#f1f5f9", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", color:"#94a3b8", fontSize:13, marginBottom:14 }}>
@@ -18444,11 +18485,38 @@ export default function App() {
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4 }}>📋 Revisar antecedentes</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:14 }}>{antecedentesRevisao.nome}</div>
 
-              {antecedentesRevisao.signedUrl ? (
+              {antecedentesRevisao.erro ? (
+                <div style={{ width:"100%", padding:"16px", background:"#fef2f2", border:"1px solid #fecaca", borderRadius:10, marginBottom:14, fontSize:12, color:"#991b1b", lineHeight:1.5, boxSizing:"border-box" as const }}>
+                  ⚠️ Não consegui carregar esta certidão.<br />
+                  <span style={{ color:"#b91c1c", fontWeight:700 }}>{antecedentesRevisao.erro}</span><br />
+                  <span style={{ color:"#7f1d1d", fontSize:11 }}>Caminho: {antecedentesRevisao.url}</span>
+                </div>
+              ) : antecedentesRevisao.signedUrl ? (
                 antecedentesRevisao.url.toLowerCase().endsWith(".pdf") ? (
-                  <iframe src={antecedentesRevisao.signedUrl} title="Certidão de antecedentes" style={{ width:"100%", height:380, border:"1px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"#fff" }} />
+                  // PDF: iframe vem em branco no celular (Capacitor/WebView). Link em
+                  // tela cheia é mais confiável — a maioria das certidões é PDF.
+                  <a href={antecedentesRevisao.signedUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", gap:6, width:"100%", padding:"28px 16px", border:"1.5px dashed var(--border,#cbd5e1)", borderRadius:10, marginBottom:14, background:"var(--bg-subtle,#f1f5f9)", textDecoration:"none", boxSizing:"border-box" as const }}>
+                    <span style={{ fontSize:34 }}>📄</span>
+                    <span style={{ fontSize:14, fontWeight:800, color:"#3A86FF" }}>Abrir certidão (PDF)</span>
+                    <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center" as const }}>Abre em tela cheia / nova aba — toque para ver e dar zoom</span>
+                  </a>
                 ) : (
-                  <img loading="lazy" src={antecedentesRevisao.signedUrl} alt="Certidão" style={{ width:"100%", maxHeight:380, objectFit:"contain" as const, borderRadius:10, marginBottom:14, background:"#000" }} />
+                  <>
+                    {antecedentesImgErro ? (
+                      <div style={{ width:"100%", padding:"16px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, marginBottom:8, fontSize:12, color:"#92400e", lineHeight:1.5, boxSizing:"border-box" as const }}>
+                        ⚠️ Não deu pra exibir a prévia aqui (arquivo pode estar corrompido, vazio ou num formato que o navegador não desenha). Toque em <b>“Abrir certidão”</b> abaixo para ver o arquivo original.
+                      </div>
+                    ) : (
+                      <a href={antecedentesRevisao.signedUrl} target="_blank" rel="noopener noreferrer" title="Abrir em tela cheia" style={{ display:"block", marginBottom:8 }}>
+                        <img loading="lazy" src={antecedentesRevisao.signedUrl} alt="Certidão" onError={() => setAntecedentesImgErro(true)} style={{ width:"100%", maxHeight:"62vh", objectFit:"contain" as const, borderRadius:10, background:"#0f172a", display:"block" }} />
+                      </a>
+                    )}
+                    <a href={antecedentesRevisao.signedUrl} target="_blank" rel="noopener noreferrer"
+                      style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, width:"100%", padding:"10px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, marginBottom:14, background:"var(--bg-subtle,#f1f5f9)", color:"#3A86FF", fontSize:13, fontWeight:800, textDecoration:"none", boxSizing:"border-box" as const }}>
+                      {antecedentesImgErro ? "📄 Abrir certidão" : "🔍 Abrir em tela cheia (zoom)"}
+                    </a>
+                  </>
                 )
               ) : (
                 <div style={{ width:"100%", height:200, background:"#f1f5f9", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", color:"#94a3b8", fontSize:13, marginBottom:14 }}>
