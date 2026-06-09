@@ -42,6 +42,9 @@ import {
   linkVaga,
   URL_APP,
   completudeEditavel,
+  vagaEmpregoExcedeuCota,
+  limiteVagasEmpregoMes,
+  LIMITE_VAGAS_EMPREGO_GRATIS_MES,
 } from "../helpers";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
@@ -1339,5 +1342,39 @@ describe("completudeEditavel", () => {
     });
     expect(r.pendentes.map(i => i.chave)).toEqual(["bio"]);
     expect(r.pct).toBe(80);
+  });
+});
+
+describe("cota de vagas de emprego", () => {
+  it("a constante de cota grátis é 3", () => {
+    expect(LIMITE_VAGAS_EMPREGO_GRATIS_MES).toBe(3);
+  });
+
+  it("limite efetivo = 3 + extras pagas no plano grátis", () => {
+    expect(limiteVagasEmpregoMes(0, "gratis")).toBe(3);
+    expect(limiteVagasEmpregoMes(2, "gratis")).toBe(5);
+  });
+
+  it("plano pago = ilimitado", () => {
+    expect(limiteVagasEmpregoMes(0, "essencial")).toBe(Infinity);
+    expect(limiteVagasEmpregoMes(0, "plus")).toBe(Infinity);
+    expect(vagaEmpregoExcedeuCota(999, 0, "essencial")).toBe(false);
+    expect(vagaEmpregoExcedeuCota(999, 0, "plus")).toBe(false);
+  });
+
+  it("grátis: libera as 3 primeiras, exige pagamento na 4ª", () => {
+    expect(vagaEmpregoExcedeuCota(0, 0, "gratis")).toBe(false);
+    expect(vagaEmpregoExcedeuCota(2, 0, "gratis")).toBe(false); // 3ª ainda grátis
+    expect(vagaEmpregoExcedeuCota(3, 0, "gratis")).toBe(true);  // 4ª exige pagar
+  });
+
+  it("cada desbloqueio pago soma +1 à cota", () => {
+    expect(vagaEmpregoExcedeuCota(3, 1, "gratis")).toBe(false); // 3 + 1 pago = 4
+    expect(vagaEmpregoExcedeuCota(4, 1, "gratis")).toBe(true);  // estourou de novo
+  });
+
+  it("tolera entradas inválidas (negativas / NaN)", () => {
+    expect(vagaEmpregoExcedeuCota(-5, -2, "gratis")).toBe(false);
+    expect(vagaEmpregoExcedeuCota(NaN, NaN, "gratis")).toBe(false);
   });
 });

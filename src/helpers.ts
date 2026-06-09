@@ -1133,3 +1133,26 @@ export function montarTextoVaga(v: VagaCompartilhavel): string {
   linhas.push(linkVaga(v.id));
   return linhas.join("\n");
 }
+
+// ── Cota de VAGAS DE EMPREGO (plano grátis) ──────────────────────────────────
+// O anunciante no plano grátis publica até 3 vagas de emprego por mês; cada
+// publicação avulsa paga soma +1 à cota daquele mês. Planos pagos
+// (essencial/plus) = ilimitado. Diária e serviço NÃO entram nesta conta.
+// Pura/testável — o servidor (RPC `pode_postar_vaga_emprego` + trigger
+// `enforce_limite_vaga_emprego`) é a autoridade; isto espelha a regra no client.
+export const LIMITE_VAGAS_EMPREGO_GRATIS_MES = 3;
+
+// Limite efetivo do mês: 3 grátis + extras pagas (ou "ilimitado" se plano pago).
+export function limiteVagasEmpregoMes(extrasPagas: number, plano: string): number {
+  if (plano === "essencial" || plano === "plus") return Number.POSITIVE_INFINITY;
+  return LIMITE_VAGAS_EMPREGO_GRATIS_MES + Math.max(0, extrasPagas || 0);
+}
+
+// Já estourou a cota deste mês? (true = a próxima publicação exige pagamento).
+export function vagaEmpregoExcedeuCota(
+  postadasMes: number,
+  extrasPagas: number,
+  plano: string,
+): boolean {
+  return Math.max(0, postadasMes || 0) >= limiteVagasEmpregoMes(extrasPagas, plano);
+}
