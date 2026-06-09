@@ -3159,19 +3159,24 @@ export default function App() {
           // idToken chegou, mas o Supabase recusou → quase sempre o Web Client ID
           // não está nos "Authorized Client IDs" do provider Google do Supabase.
           console.error("[google] signInWithIdToken recusou:", error.message);
-          setAuthError("Google conectou, mas o servidor recusou o acesso. Tente de novo em instantes.");
+          setAuthError(`Google conectou, mas o servidor recusou o acesso. (${String(error.message).slice(0, 120)})`);
         }
       } catch (e) {
-        // Loga o erro REAL pra diagnóstico (chrome://inspect): "[16] ... 10:" =
-        // SHA-1 não bate no Android OAuth client; "NoCredential" = sem conta
-        // Google no aparelho; "cancel" = usuário fechou o seletor.
+        // Mostra a causa REAL na própria tela (além do console) — sem isso fica
+        // impossível diagnosticar sem chrome://inspect. Códigos comuns:
+        //   "10"/"DEVELOPER_ERROR" = SHA-1 não bate no Android OAuth client;
+        //   "NoCredential"/"no accounts" = sem conta Google no aparelho;
+        //   "cancel" = usuário fechou o seletor.
         const msg = String((e as { message?: string })?.message || e || "");
         if (/cancel/i.test(msg)) return; // usuário cancelou — silencia
         console.error("[google] falha no login nativo:", msg);
+        const trecho = msg.slice(0, 140);
         if (/no\s*credential|sem.+conta|no accounts?/i.test(msg)) {
           setAuthError("Nenhuma conta Google encontrada neste aparelho. Adicione uma conta Google nas configurações do Android ou entre com e-mail/CPF.");
+        } else if (/(^|\D)10(\D|$)|developer_?error|sha|signature|not\s*registered/i.test(msg)) {
+          setAuthError(`Google recusou: assinatura do app (SHA-1) não confere com o cadastrado no Google Cloud. (${trecho})`);
         } else {
-          setAuthError("Não foi possível entrar com o Google no app. Use e-mail/CPF ou tente de novo.");
+          setAuthError(`Não foi possível entrar com o Google no app: ${trecho || "erro desconhecido"}. Use e-mail/CPF ou tente de novo.`);
         }
       }
       return;

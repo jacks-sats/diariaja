@@ -73,10 +73,16 @@ jobs:
         if: steps.guard.outputs.has_token == 'true'
         env:
           CAPGO_TOKEN: ${{ secrets.CAPGO_TOKEN }}
-        # Versão única por execução (1.0.<run_number>) pra cada OTA ser distinto.
+        # Versão do bundle: 1.<run_number>.0 — ÚNICA por execução E sempre MAIOR
+        # que a versionName nativa do app (hoje 1.1.0 na Play).
+        # ⚠️ POR QUE: o Capgo NÃO aplica um bundle cuja versão é MENOR/IGUAL à
+        # versão nativa (proteção anti-downgrade). O esquema antigo "1.0.<run>"
+        # gerava 1.0.x < 1.1.0 → o OTA era baixado mas NUNCA aplicado (0% adoção).
+        # Como run_number só cresce, 1.<run>.0 fica sempre à frente da nativa.
+        # Se um dia a versionName nativa passar de 1.<run>.0, suba o major aqui.
         # Canal 'production' = o canal que o app escuta (autoUpdate).
         run: >
           npx @capgo/cli@7 bundle upload
           --apikey "$CAPGO_TOKEN"
           --channel production
-          --bundle "1.0.${{ github.run_number }}"
+          --bundle "1.${{ github.run_number }}.0"
