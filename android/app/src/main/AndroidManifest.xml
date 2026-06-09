@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:allowBackup="false"
@@ -58,5 +59,12 @@
          Background location NÃO declarado (não há rastreamento de jornada — risco
          trabalhista/LGPD). -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- AD_ID (ID de publicidade): uma dependência do Google Play Services
+         injeta esta permissão no merge do manifesto. O app NÃO usa anúncios
+         nem rastreia o usuário pra publicidade, então removemos a permissão
+         pra poder declarar "Não" no formulário de ID de publicidade da Play.
+         tools:node="remove" apaga a permissão herdada da dependência. -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
 </manifest>
 
