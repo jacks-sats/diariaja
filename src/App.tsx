@@ -4150,6 +4150,10 @@ export default function App() {
         i.onerror = reject;
         i.src = dataUrl;
       });
+      // Garante que o bitmap está realmente decodificado antes de desenhar —
+      // em alguns WebViews Android o onload dispara antes do decode e o
+      // drawImage sai PRETO. decode() pode não existir em browsers antigos.
+      try { await (img as any).decode?.(); } catch {}
       let width = img.width, height = img.height;
       if (width > maxDim || height > maxDim) {
         const escala = Math.min(maxDim / width, maxDim / height);
@@ -4160,7 +4164,12 @@ export default function App() {
       canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext("2d");
       if (!ctx) return file;
-      ctx.drawImage(img, 0, 0, width, height);
+      // Fundo branco: sem isso, qualquer transparência (PNG) vira PRETO no JPEG.
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      // Forma de 9 args (com retângulo de origem) é mais confiável pra reduzir
+      // foto grande sem sair preto em alguns aparelhos.
+      ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, width, height);
       let q = 0.9;
       let blob: Blob | null = await new Promise(res => canvas.toBlob(res, "image/jpeg", q));
       while (blob && blob.size > maxBytes && q > 0.4) {
@@ -4168,6 +4177,9 @@ export default function App() {
         blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", q));
       }
       if (!blob) return file;
+      // Guarda anti-preto: um canvas que falhou sai como JPEG minúsculo (poucos
+      // KB). Nesse caso, sobe o arquivo ORIGINAL em vez da versão quebrada.
+      if (blob.size < 3000 && file.size > 3000) return file;
       return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
     } catch {
       return file;
@@ -18243,14 +18255,15 @@ export default function App() {
             </div>
           ) : (
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              {adminDocsPendentes.map(d => (
+              {adminDocsPendentes.map(d => { const tipoDoc = /\/cnh_/i.test(d.documento_url) ? "CNH" : /\/rg_/i.test(d.documento_url) ? "RG" : "Documento"; return (
                 <div key={d.user_id}
                   style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer", borderLeft:"4px solid #f59e0b" }}
                   onClick={() => abrirDocParaRevisao(d)}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>
+                      <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
                         {d.nome || "Usuário"}
+                        <span style={{ background:"rgba(58,134,255,.14)", color:"#3A86FF", fontSize:10, fontWeight:900, borderRadius:6, padding:"1px 7px", textTransform:"uppercase" as const, letterSpacing:0.3 }}>{tipoDoc}</span>
                       </div>
                       <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
                         {d.user_type === "diarista" ? "👷 Prestador" : "🏢 Anunciante"} · Enviou {d.documento_enviado_em ? new Date(d.documento_enviado_em).toLocaleDateString("pt-BR") : "—"}
@@ -18259,7 +18272,7 @@ export default function App() {
                     <span style={{ background:"rgba(245,158,11,.18)", color:"#f59e0b", fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>Revisar</span>
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
           )}
         </div>
@@ -18455,7 +18468,12 @@ export default function App() {
             onClick={() => { setDocRevisao(null); setDocMotivoRejeicao(""); }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"18px", width:"100%", maxWidth:420, maxHeight:"92vh", overflowY:"auto" as const }}
               onClick={e => e.stopPropagation()}>
-              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4 }}>📄 Revisar documento</div>
+              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" as const }}>
+                📄 Revisar documento
+                <span style={{ background:"rgba(58,134,255,.14)", color:"#3A86FF", fontSize:11, fontWeight:900, borderRadius:6, padding:"2px 8px", textTransform:"uppercase" as const, letterSpacing:0.3 }}>
+                  {/\/cnh_/i.test(docRevisao.url) ? "CNH" : /\/rg_/i.test(docRevisao.url) ? "RG" : "Documento"}
+                </span>
+              </div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:14 }}>{docRevisao.nome}</div>
 
               {/* Preview do doc */}
