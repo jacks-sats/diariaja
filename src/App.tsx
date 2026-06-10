@@ -10215,8 +10215,8 @@ export default function App() {
             (money-first/gente-first): o anunciante vê os profissionais ANTES da
             cobrança de cadastro. Renderizado no fim da aba "início". */}
 
-        {/* Banner MEI — incentivo à formalização (PF sem CNPJ) */}
-        {bannerMEI}
+        {/* Banner MEI: só no modo Prestador. Escondido pro Anunciante
+            (antes aparecia aqui na home do anunciante também). */}
 
         {/* ── Lembrete: vaga PRA VENCER (manter no ar / tirar do ar) ── */}
         {(() => {
