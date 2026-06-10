@@ -12550,7 +12550,7 @@ export default function App() {
                 return (
                   <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
                     <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:4 }}>💬 Sua reputação</div>
-                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>Você ainda não recebeu avaliações dos prestadores. Pague e cumpra o combinado pra construir uma boa reputação ⭐</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>Você ainda não recebeu avaliações dos prestadores. Contrate e cumpra o combinado pra construir uma boa reputação ⭐</div>
                   </div>
                 );
               }
