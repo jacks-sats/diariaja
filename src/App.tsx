@@ -401,6 +401,10 @@ export default function App() {
   const [modalDesistir, setModalDesistir] = useState<Diaria | null>(null);
   const [motivoDesistencia, setMotivoDesistencia] = useState("");
   const [desistindo, setDesistindo] = useState(false);
+  // Detalhes do convite aceito (modal ao clicar no banner) + fluxo de desistência
+  const [convDetalhe, setConvDetalhe] = useState<Convite | null>(null);
+  const [confirmandoDesistirConvite, setConfirmandoDesistirConvite] = useState(false);
+  const [desistindoConvite, setDesistindoConvite] = useState(false);
   // Detalhes da diária aceita (modal ao clicar no card)
   const [detalhesDiaria, setDetalhesDiaria] = useState<Diaria | null>(null);
   // Deep link de vaga compartilhada (?vaga=ID): guardado no load, aberto quando
@@ -3754,6 +3758,33 @@ export default function App() {
         resposta === "aceito"
           ? `${primeiroNome} aceitou seu convite para ${conv.funcao || "a diária"}. Libere o contato pra combinar os detalhes.`
           : `${primeiroNome} não pôde aceitar seu convite para ${conv.funcao || "a diária"}.`,
+        { tipo: "convite_resposta", url: "/" },
+      );
+    }
+  };
+
+  // Prestador desiste de um convite que já tinha aceito (antes de confirmar a
+  // presença). Volta o convite pra "recusado" — some do banner de aceitos e
+  // aparece nos recusados do anunciante, que ainda é avisado por push.
+  const desistirConvite = async (conv: Convite) => {
+    if (!session?.user || desistindoConvite) return;
+    setDesistindoConvite(true);
+    const { error } = await supabase.from("convites")
+      .update({ status: "recusado" })
+      .eq("id", conv.id)
+      .eq("diarista_id", session.user.id);
+    setDesistindoConvite(false);
+    if (error) { setToastError(traduzirErroBanco(error)); return; }
+    setConvitesRecebidos(prev => prev.map(c => c.id === conv.id ? { ...c, status: "recusado" } : c));
+    setConvDetalhe(null);
+    setConfirmandoDesistirConvite(false);
+    setToastSuccess("Você desistiu do convite. O anunciante foi avisado.");
+    if (conv.contratante_id) {
+      const primeiroNome = profile?.nome?.split(" ")[0] || "O profissional";
+      enviarPush(
+        [conv.contratante_id],
+        "Convite cancelado",
+        `${primeiroNome} desistiu do convite para ${conv.funcao || "a diária"}.`,
         { tipo: "convite_resposta", url: "/" },
       );
     }
@@ -13301,11 +13332,13 @@ export default function App() {
           <div style={{ margin:"12px 16px 0" }}>
             {convitesRecebidos.filter(c => c.status === "aceito").map(c => (
               <div key={c.id} style={{ background:"linear-gradient(135deg,#16a34a,#22c55e)", borderRadius:16, padding:"14px 16px", marginBottom:10, boxShadow:"0 4px 16px rgba(34,197,94,.3)" }}>
-                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                <div role="button" tabIndex={0} onClick={() => { setConvDetalhe(c); setConfirmandoDesistirConvite(false); }}
+                  style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10, cursor:"pointer" }}>
                   <span style={{ fontSize:24, flexShrink:0 }}>🎯</span>
                   <div style={{ flex:1, minWidth:0, color:"#fff" }}>
                     <div style={{ fontWeight:900, fontSize:14, lineHeight:1.25 }}>{c.presenca_confirmada_em ? "Tudo certo" : "Convite aceito"} com {c.contratante_nome || "o anunciante"}!</div>
                     <div style={{ fontSize:12, opacity:0.95, marginTop:2 }}>{c.funcao || "Serviço"} · {new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR")} · {c.horario_servico}</div>
+                    <div style={{ fontSize:11, opacity:0.9, marginTop:3, fontWeight:700, textDecoration:"underline" }}>Toque para ver detalhes ›</div>
                   </div>
                 </div>
                 {/* Fluxo novo: chat abre só depois do anunciante pagar E o prestador
@@ -13333,6 +13366,77 @@ export default function App() {
             ))}
           </div>
         )}
+
+        {/* ── Modal: detalhes do convite aceito (+ desistir) ── */}
+        {convDetalhe && (() => {
+          const c = convDetalhe;
+          const statusLabel = c.presenca_confirmada_em ? "Serviço confirmado"
+            : c.pago_em ? "Contato liberado — confirme o serviço"
+            : "Aguardando o anunciante liberar o contato";
+          const statusCor = c.presenca_confirmada_em ? "#16a34a" : c.pago_em ? "#3A86FF" : "#f59e0b";
+          const linha = (icone: string, label: string, valor: string) => (
+            <div style={{ display:"flex", gap:10, padding:"9px 0", borderBottom:"1px solid var(--border,#eef2f7)" }}>
+              <span style={{ fontSize:15, flexShrink:0 }}>{icone}</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:10, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.3 }}>{label}</div>
+                <div style={{ fontSize:13.5, color:"var(--text-1,#0f172a)", fontWeight:600, marginTop:1 }}>{valor}</div>
+              </div>
+            </div>
+          );
+          return (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:700, display:"flex", alignItems:"flex-end", justifyContent:"center", padding:0 }}
+              onClick={() => { setConvDetalhe(null); setConfirmandoDesistirConvite(false); }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"20px 18px 24px", width:"100%", maxWidth:480, maxHeight:"88vh", overflowY:"auto" as const }}
+                onClick={e => e.stopPropagation()}>
+                <div style={{ width:40, height:4, background:"var(--border,#e2e8f0)", borderRadius:4, margin:"0 auto 14px" }} />
+                <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:4 }}>Detalhes do convite</div>
+                <span style={{ display:"inline-block", background:statusCor+"22", color:statusCor, fontSize:11, fontWeight:800, padding:"4px 10px", borderRadius:20, marginBottom:12 }}>{statusLabel}</span>
+
+                {linha("👤", "Anunciante", c.contratante_nome || "—")}
+                {linha("💼", "Função", c.funcao || "Serviço")}
+                {linha("📍", "Local", c.local_servico || "—")}
+                {linha("📅", "Data", new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR", { weekday:"long", day:"numeric", month:"long" }))}
+                {linha("🕐", "Horário", c.horario_servico || "—")}
+                {c.valor != null && linha("💰", "Valor", `R$ ${c.valor}/dia`)}
+                {c.observacoes && linha("📝", "Observações", c.observacoes)}
+
+                {/* Desistir — só enquanto não confirmou o serviço */}
+                {!c.presenca_confirmada_em && (
+                  confirmandoDesistirConvite ? (
+                    <div style={{ background:"#fef2f2", border:"1px solid #fecaca", borderRadius:12, padding:"12px 14px", marginTop:16 }}>
+                      <div style={{ fontSize:13, color:"#991b1b", fontWeight:700, lineHeight:1.5, marginBottom:10 }}>
+                        Tem certeza que quer desistir? O anunciante será avisado e este convite sairá da sua lista.
+                      </div>
+                      <div style={{ display:"flex", gap:8 }}>
+                        <button disabled={desistindoConvite}
+                          style={{ flex:1, background:"#ef4444", color:"#fff", border:"none", borderRadius:10, padding:"11px", fontWeight:800, fontSize:13.5, cursor: desistindoConvite ? "not-allowed" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desistindoConvite ? 0.6 : 1 }}
+                          onClick={() => desistirConvite(c)}>
+                          {desistindoConvite ? "Desistindo…" : "Sim, desistir"}
+                        </button>
+                        <button disabled={desistindoConvite}
+                          style={{ flex:1, background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:10, padding:"11px", fontWeight:800, fontSize:13.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                          onClick={() => setConfirmandoDesistirConvite(false)}>
+                          Voltar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      style={{ width:"100%", background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:10, padding:"12px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:16 }}
+                      onClick={() => setConfirmandoDesistirConvite(true)}>
+                      🚫 Desistir do convite
+                    </button>
+                  )
+                )}
+                <button
+                  style={{ width:"100%", background:"transparent", color:"var(--text-2,#64748b)", border:"none", borderRadius:10, padding:"12px", fontWeight:700, fontSize:13.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:8 }}
+                  onClick={() => { setConvDetalhe(null); setConfirmandoDesistirConvite(false); }}>
+                  Fechar
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── ABA INÍCIO ── */}
         {tabDiarista === "inicio" && (
