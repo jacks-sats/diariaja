@@ -3790,6 +3790,14 @@ export default function App() {
     }
   };
 
+  // Abre o fluxo "publicar quanto quero pagar" — a tela criar-diaria que já
+  // existe, começando com o formulário limpo. Reutilizado pelos atalhos da
+  // home do contratante (busca x publicar a própria oferta).
+  const irPublicarOferta = () => {
+    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"" });
+    setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria");
+  };
+
   const cancelarConvite = async (conviteId: string) => {
     const { error } = await supabase.from("convites").delete().eq("id", conviteId);
     if (error) { setToastError("Erro ao cancelar convite."); return; }
@@ -10256,6 +10264,22 @@ export default function App() {
           <>
             {/* Lembrete de completar perfil — aparece a cada acesso até completar */}
             <BannerCompletarPerfil paraDiarista={false} />
+            {/* Dois caminhos do contratante: buscar diaristas (lista abaixo) OU
+                publicar a própria oferta de quanto quer pagar (criar-diaria). */}
+            <div style={{ display:"flex", gap:10, padding:"12px 16px 4px" }}>
+              <button
+                style={{ flex:1, background:"var(--bg-card,#fff)", border:`2px solid ${negocio.cor}`, color:negocio.cor, borderRadius:14, padding:"12px 8px", fontWeight:800, fontSize:12.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1.25, display:"flex", flexDirection:"column" as const, alignItems:"center", gap:5 }}
+                onClick={() => document.getElementById("emp-lista-diaristas")?.scrollIntoView({ behavior:"smooth", block:"start" })}>
+                <span style={{ fontSize:20 }}>🔍</span>
+                Buscar diaristas disponíveis
+              </button>
+              <button
+                style={{ flex:1, background:negocio.cor, border:`2px solid ${negocio.cor}`, color:"#fff", borderRadius:14, padding:"12px 8px", fontWeight:800, fontSize:12.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1.25, display:"flex", flexDirection:"column" as const, alignItems:"center", gap:5, boxShadow:`0 4px 12px ${negocio.cor}44` }}
+                onClick={irPublicarOferta}>
+                <span style={{ fontSize:20 }}>📢</span>
+                Publicar quanto quero pagar
+              </button>
+            </div>
             {/* Filtro de habilidades — sticky pra não sumir ao rolar (degrada sem quebrar) */}
             <div style={{ background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)", position:"sticky" as const, top:0, zIndex:5 }}>
               {/* Linha 1: disponíveis hoje + por categoria */}
@@ -10291,8 +10315,13 @@ export default function App() {
               })()}
             </div>
 
+            {/* Frase que explica o modelo de duas pontas (aceitar um preço já
+                publicado) — sem negociação, sem pechincha. */}
+            <div style={{ padding:"12px 16px 0", fontSize:12.5, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
+              Estes são os valores que cada diarista cobra. Você pode aceitar um deles — ou <strong style={{ color:negocio.cor }}>anunciar quanto quer pagar</strong>.
+            </div>
             {/* Lista de profissionais */}
-            <div style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
+            <div id="emp-lista-diaristas" style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
                 {/* Favoritos */}
                 {favoritos.size > 0 && (() => {
                   const favList = diaristasReais.filter(d => favoritos.has(d.id));
@@ -10413,6 +10442,19 @@ export default function App() {
                     );
                   })
                 )}
+
+                {/* Caminho de saída no fim da lista: se não achou o valor ideal,
+                    publica a própria oferta (mesmo fluxo de aceitar preço). */}
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                  <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5, marginBottom:10 }}>
+                    Não achou o valor ideal? Publique quanto você quer pagar e espere as diaristas aceitarem.
+                  </div>
+                  <button
+                    style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"11px 20px", fontWeight:800, fontSize:13.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                    onClick={irPublicarOferta}>
+                    📢 Publicar quanto quero pagar
+                  </button>
+                </div>
 
                 {/* ── Banner "Complete seu perfil" — money-first/gente-first: renderizado
                     DEPOIS da lista de prestadores, pra recompensa vir antes da cobrança ── */}
