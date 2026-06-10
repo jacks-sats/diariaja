@@ -477,6 +477,9 @@ export default function App() {
   const [adminSerieUsuarios, setAdminSerieUsuarios] = useState<{ dia: string; valor: number }[]>([]);
   const [adminSerieDiarias, setAdminSerieDiarias]   = useState<{ dia: string; valor: number }[]>([]);
   const [adminSerieAtivos, setAdminSerieAtivos]     = useState<{ dia: string; valor: number }[]>([]);
+  const [adminSerieConcluidas, setAdminSerieConcluidas] = useState<{ dia: string; valor: number }[]>([]);
+  const [adminNovosLado, setAdminNovosLado]         = useState<{ diaristas_hoje: number; empregadores_hoje: number; diaristas_7d: number; empregadores_7d: number } | null>(null);
+  const [mostrarAvancadasAdmin, setMostrarAvancadasAdmin] = useState(false);
   const [adminRetencao, setAdminRetencao]           = useState<{
     ativos_hoje: number; ativos_7d: number; ativos_30d: number;
     retornantes_7d: number; recorrentes_14d: number; stickiness_pct: number;
@@ -3898,12 +3901,14 @@ export default function App() {
       const { data, error } = await supabase.rpc("admin_stats");
       if (!error && data?.[0]) setAdminStats(data[0] as AdminStats);
       // Em paralelo: extras + 2 séries temporais pra os gráficos
-      const [extras, serieU, serieD, retencao, serieA] = await Promise.all([
+      const [extras, serieU, serieD, retencao, serieA, serieC, novosLado] = await Promise.all([
         supabase.rpc("admin_metricas_extras"),
         supabase.rpc("admin_metricas_serie", { p_metrica: "novos_usuarios", p_dias: 14 }),
         supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_criadas", p_dias: 14 }),
         supabase.rpc("admin_metricas_retencao"),
         supabase.rpc("admin_serie_ativos", { p_dias: 14 }),
+        supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_concluidas", p_dias: 14 }),
+        supabase.rpc("admin_novos_por_lado"),
       ]);
       if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
       if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
@@ -3912,6 +3917,9 @@ export default function App() {
       // o painel só não mostra a seção (não quebra o resto das estatísticas).
       if (!retencao.error && retencao.data?.[0]) setAdminRetencao(retencao.data[0]);
       if (!serieA.error && serieA.data) setAdminSerieAtivos(serieA.data);
+      if (!serieC.error && serieC.data) setAdminSerieConcluidas(serieC.data);
+      // Novos por lado é opcional: degrada se a função SQL ainda não foi aplicada.
+      if (!novosLado.error && novosLado.data?.[0]) setAdminNovosLado(novosLado.data[0]);
       // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
       const fin = await supabase.rpc("admin_resumo_financeiro");
       if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
@@ -18184,6 +18192,10 @@ export default function App() {
         </div>
       );
     };
+    // Ajudantes pros números do bloco essencial: soma dos últimos 7 dias e
+    // valor de hoje (último ponto) de uma série diária [{dia,valor}].
+    const ult7 = (s: { dia: string; valor: number }[]) => (s || []).slice(-7).reduce((a, b) => a + (b.valor || 0), 0);
+    const hojeV = (s: { dia: string; valor: number }[]) => (s && s.length ? s[s.length - 1].valor : 0);
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
         {/* Toasts globais — admin tela não tinha, motivo do bug "click Aprovar sem feedback" */}
@@ -18209,6 +18221,74 @@ export default function App() {
           </div>
         </div>
 
+        {/* ═══════════ BLOCO 1 — ESSENCIAL (sempre visível) ═══════════ */}
+        <div style={{ padding:"16px 16px 4px" }}>
+          {/* Frase de estado pra bater o olho */}
+          {adminExtras && (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", marginBottom:10, fontSize:13.5, fontWeight:800, color:"var(--text-1,#0f172a)", lineHeight:1.45, textAlign:"center" as const }}>
+              {ult7(adminSerieDiarias)} diárias esta semana · {adminExtras.total_empregadores} contratantes · {adminExtras.total_diaristas} diaristas
+            </div>
+          )}
+          {/* Diárias criadas e concluídas (hoje + 7 dias) — o número mais importante */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>📋 Diárias criadas</div>
+              <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1, marginTop:3 }}>{hojeV(adminSerieDiarias)} <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>hoje</span></div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", fontWeight:700, marginTop:2 }}>{ult7(adminSerieDiarias)} em 7 dias</div>
+            </div>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>✅ Diárias concluídas</div>
+              <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1, marginTop:3 }}>{hojeV(adminSerieConcluidas)} <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>hoje</span></div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", fontWeight:700, marginTop:2 }}>{ult7(adminSerieConcluidas)} em 7 dias</div>
+            </div>
+          </div>
+          {/* Contratantes vs diaristas — desequilíbrio visível */}
+          {adminExtras && (
+            <div style={{ marginBottom:10 }}>
+              <CardComparacao titulo="Contratantes vs diaristas" dados={[
+                { label:"Diaristas (prestadores)", valor: adminExtras.total_diaristas, cor:"#FF6B35" },
+                { label:"Contratantes (anunciantes)", valor: adminExtras.total_empregadores, cor:"#3A86FF" },
+              ]} />
+            </div>
+          )}
+          {/* Novos de hoje SEPARADOS por lado */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+            {cardStat("Diaristas novos hoje", adminNovosLado ? adminNovosLado.diaristas_hoje : "—", "#FF6B35", "🆕")}
+            {cardStat("Contratantes novos hoje", adminNovosLado ? adminNovosLado.empregadores_hoje : "—", "#3A86FF", "🆕")}
+          </div>
+          {/* Dinheiro: desbloqueios de chat no mês + assinantes ativos */}
+          {adminFinanceiro && (() => {
+            const fmt = (n: unknown) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const u = adminFinanceiro.unlocks || {};
+            const pl = adminFinanceiro.planos || {};
+            return (
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                {cardStat("Chat liberado — mês", `R$ ${fmt(u.valor_mes)}`, "#16a34a", "💬")}
+                {cardStat("Assinantes ativos", pl.ativos_total ?? 0, "#3A86FF", "⭐")}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* ═══════════ BLOCO 2 — OPERACIONAL (cards) ═══════════ */}
+        <div style={{ padding:"4px 16px 8px" }}>
+          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>🛠️ Operacional</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            {cardStat("Online agora", adminStats ? adminStats.online_agora : 0, "#16a34a", "🟢", "online_agora")}
+            {cardStat("Tickets abertos", adminStats ? adminStats.tickets_abertos : 0, "#ef4444", "📨", "tickets_abertos")}
+            {cardStat("KYC pendente", adminDocsPendentes.length, "#f59e0b", "📄")}
+            {cardStat("Antecedentes pend.", adminAntecedentesPendentes.length, "#a855f7", "📋")}
+          </div>
+        </div>
+
+        {/* ═══════════ BLOCO 3 — MÉTRICAS AVANÇADAS (recolhível, nada apagado) ═══════════ */}
+        <div style={{ padding:"4px 16px 8px" }}>
+          <button onClick={() => setMostrarAvancadasAdmin(v => !v)}
+            style={{ width:"100%", background:"var(--bg-card,#fff)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px", fontSize:13, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+            {mostrarAvancadasAdmin ? "▲ Ocultar métricas avançadas" : "▼ Ver métricas avançadas"}
+          </button>
+        </div>
+        {mostrarAvancadasAdmin && (<>
         {/* Stats em grid */}
         <div style={{ padding:"16px" }}>
           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Visão geral</div>
@@ -18359,6 +18439,8 @@ export default function App() {
             </div>
           </div>
         )}
+        </>)}
+        {/* fim do BLOCO 3 — métricas avançadas recolhíveis */}
 
         {/* Lista de tickets */}
         <div style={{ padding:"4px 16px 16px" }}>
