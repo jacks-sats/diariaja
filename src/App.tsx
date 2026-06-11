@@ -11899,7 +11899,7 @@ export default function App() {
                 Liberar contato
               </div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.7, marginBottom:20 }}>
-                Para falar com este interessado, libere o contato.<br />
+                Você já usou seus <strong>3 contatos grátis</strong> deste mês. Para falar com este interessado, libere o contato.<br />
                 Escolha como continuar:
               </div>
 
@@ -12759,12 +12759,22 @@ export default function App() {
                         {planoInfo?.nome || "Grátis"}{planoAtivo !== "gratis" && " ✅"}
                       </div>
                       {planoAtivo === "gratis" && (
-                        <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
-                          {(() => {
-                            const n = Math.max(0, 3 - diarias.filter(d => d.created_at && d.created_at.slice(0,7) === new Date().toISOString().slice(0,7)).length);
-                            return `${n} anúncio${n !== 1 ? "s" : ""} restante${n !== 1 ? "s" : ""} este mês`;
-                          })()}
-                        </div>
+                        <>
+                          <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                            {(() => {
+                              const n = Math.max(0, 3 - diarias.filter(d => d.created_at && d.created_at.slice(0,7) === new Date().toISOString().slice(0,7)).length);
+                              return `${n} anúncio${n !== 1 ? "s" : ""} restante${n !== 1 ? "s" : ""} este mês`;
+                            })()}
+                          </div>
+                          <div style={{ fontSize:12, fontWeight:700, color: limits.empregador.matchesMesUsados < 3 ? "#16a34a" : "var(--text-2,#64748b)", marginTop:2 }}>
+                            {(() => {
+                              const rest = Math.max(0, 3 - limits.empregador.matchesMesUsados);
+                              return rest > 0
+                                ? `🔓 ${rest} de 3 contatos grátis este mês`
+                                : `🔓 Contatos grátis do mês usados — próximo R$ 1 (ou assine)`;
+                            })()}
+                          </div>
+                        </>
                       )}
                     </div>
                     <button style={{ padding:"8px 14px", background: planoAtivo === "gratis" ? "#FF6B35" : "rgba(255,255,255,.25)", color:"#fff", border:"none", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
