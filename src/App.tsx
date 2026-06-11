@@ -6586,6 +6586,7 @@ export default function App() {
           <div style={{ display:"flex", gap:20 }}>
             <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Privacidade</a>
             <a href="/excluir-conta.html" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Excluir conta</a>
+            <a href="https://instagram.com/diariaja.free" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Instagram</a>
             <a href="mailto:suporte@diariaja.com.br" style={{ color:"#94a3b8", textDecoration:"none" }}>suporte@diariaja.com.br</a>
           </div>
         </footer>
@@ -8465,16 +8466,26 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── Contato alternativo — só e-mail (WhatsApp/Insta omitidos até existirem) ── */}
+        {/* ── Contato alternativo — e-mail + Instagram ── */}
         <div style={{ padding:"4px 16px 8px" }}>
           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Contato alternativo</div>
           <div
-            style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:14, cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
+            style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:14, cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)", marginBottom:8 }}
             onClick={() => window.open("mailto:suporte@diariaja.com.br","_blank")}>
             <div style={{ width:46, height:46, background:"#3A86FF18", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>📧</div>
             <div style={{ flex:1 }}>
               <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>E-mail</div>
               <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>suporte@diariaja.com.br — use se não conseguir entrar no app.</div>
+            </div>
+            <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>
+          </div>
+          <div
+            style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:14, cursor:"pointer", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
+            onClick={() => window.open("https://instagram.com/diariaja.free","_blank","noopener,noreferrer")}>
+            <div style={{ width:46, height:46, background:"linear-gradient(45deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>📷</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Instagram</div>
+              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>@diariaja.free — siga pra novidades e dicas.</div>
             </div>
             <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>
           </div>
