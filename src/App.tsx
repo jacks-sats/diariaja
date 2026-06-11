@@ -561,6 +561,8 @@ export default function App() {
   const [antecedentesPreview, setAntecedentesPreview] = useState<string | null>(null);
   const [enviandoAntecedentes, setEnviandoAntecedentes] = useState(false);
   const [adminDocsPendentes, setAdminDocsPendentes] = useState<{user_id:string; nome:string; user_type:string; documento_url:string; documento_enviado_em:string}[]>([]);
+  // Admin — usuários com documento já verificado (KYC aprovado)
+  const [adminDocsVerificados, setAdminDocsVerificados] = useState<{user_id:string; nome:string; user_type:string; documento_url:string; documento_revisado_em:string}[]>([]);
   const [docRevisao, setDocRevisao]               = useState<{user_id:string; nome:string; url:string; signedUrl?:string; erro?:string} | null>(null);
   const [docImgErro, setDocImgErro]               = useState(false);
   const [docMotivoRejeicao, setDocMotivoRejeicao] = useState("");
@@ -4356,6 +4358,13 @@ export default function App() {
     if (!profile?.is_admin) return;
     const { data, error } = await supabase.rpc("admin_documentos_pendentes");
     if (!error && data) setAdminDocsPendentes(data as any);
+  };
+
+  // Admin: lista de usuários com documento já verificado (KYC aprovado)
+  const carregarDocsVerificados = async () => {
+    if (!profile?.is_admin) return;
+    const { data, error } = await supabase.rpc("admin_documentos_verificados");
+    if (!error && data) setAdminDocsVerificados(data as any);
   };
 
   // Admin: abre um doc específico — gera signed URL pra visualizar
@@ -13022,7 +13031,7 @@ export default function App() {
                 {profile?.is_admin && (
                   <button
                     style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); carregarEquipeSuporte(); setTela("admin-painel"); }}>
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarDocsVerificados(); carregarAntecedentesPendentes(); carregarEquipeSuporte(); setTela("admin-painel"); }}>
                     <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
@@ -15862,7 +15871,7 @@ export default function App() {
                 {profile?.is_admin && (
                   <button
                     style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"linear-gradient(135deg, rgba(255,107,53,.08), rgba(245,158,11,.08))", border:"1.5px solid rgba(255,107,53,.3)", borderRadius:14, padding:"14px 16px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
-                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); carregarEquipeSuporte(); setTela("admin-painel"); }}>
+                    onClick={() => { setMenuOpcoes(false); setTicketsNovos(0); carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarDocsVerificados(); carregarAntecedentesPendentes(); carregarEquipeSuporte(); setTela("admin-painel"); }}>
                     <div style={{ width:40, height:40, borderRadius:20, background:"linear-gradient(135deg,#FF6B35,#f59e0b)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👑</div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)" }}>Painel Admin</div>
@@ -18225,7 +18234,7 @@ export default function App() {
             <button
               title="Recarregar"
               style={{ marginLeft:"auto", background:"rgba(255,255,255,.15)", border:"none", color:"#fff", borderRadius:10, padding:"8px 12px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-              onClick={() => { carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarAntecedentesPendentes(); }}>
+              onClick={() => { carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarDocsVerificados(); carregarAntecedentesPendentes(); }}>
               {carregandoAdminStats ? "⏳" : "🔄"}
             </button>
           </div>
@@ -18287,6 +18296,7 @@ export default function App() {
             {cardStat("Online agora", adminStats ? adminStats.online_agora : 0, "#16a34a", "🟢", "online_agora")}
             {cardStat("Tickets abertos", adminStats ? adminStats.tickets_abertos : 0, "#ef4444", "📨", "tickets_abertos")}
             {cardStat("KYC pendente", adminDocsPendentes.length, "#f59e0b", "📄")}
+            {cardStat("Verificados", adminDocsVerificados.length, "#16a34a", "✅")}
             {cardStat("Antecedentes pend.", adminAntecedentesPendentes.length, "#a855f7", "📋")}
           </div>
         </div>
@@ -18524,6 +18534,40 @@ export default function App() {
                       </div>
                     </div>
                     <span style={{ background:"rgba(245,158,11,.18)", color:"#f59e0b", fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>Revisar</span>
+                  </div>
+                </div>
+              );})}
+            </div>
+          )}
+        </div>
+
+        {/* Documentos verificados (KYC aprovado) */}
+        <div style={{ padding:"4px 16px 24px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>✅ Documentos verificados</div>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{adminDocsVerificados.length} verificado{adminDocsVerificados.length !== 1 ? "s" : ""}</div>
+          </div>
+          {adminDocsVerificados.length === 0 ? (
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+              Nenhum usuário com documento verificado ainda.
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {adminDocsVerificados.map(d => { const tipoDoc = /\/cnh_/i.test(d.documento_url) ? "CNH" : /\/rg_/i.test(d.documento_url) ? "RG" : "Documento"; return (
+                <div key={d.user_id}
+                  style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer", borderLeft:"4px solid #16a34a" }}
+                  onClick={() => abrirDocParaRevisao(d)}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
+                        {d.nome || "Usuário"}
+                        <span style={{ background:"rgba(58,134,255,.14)", color:"#3A86FF", fontSize:10, fontWeight:900, borderRadius:6, padding:"1px 7px", textTransform:"uppercase" as const, letterSpacing:0.3 }}>{tipoDoc}</span>
+                      </div>
+                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                        {d.user_type === "diarista" ? "👷 Prestador" : "🏢 Anunciante"} · Verificado {d.documento_revisado_em ? new Date(d.documento_revisado_em).toLocaleDateString("pt-BR") : "—"}
+                      </div>
+                    </div>
+                    <span style={{ background:"rgba(22,163,74,.16)", color:"#16a34a", fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>Verificado</span>
                   </div>
                 </div>
               );})}
