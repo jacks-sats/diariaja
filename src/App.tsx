@@ -10203,8 +10203,15 @@ export default function App() {
                 </div>
               </div>
             </div>
-            {/* Sino + três pontinhos (mais opções) + botão trocar perfil */}
+            {/* Instagram + Sino + três pontinhos (mais opções) + botão trocar perfil */}
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              {/* Instagram oficial @diariaja.free */}
+              <button
+                aria-label="Instagram @diariaja.free"
+                style={{ background:"linear-gradient(45deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5)", border:"none", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer", padding:0, fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => window.open("https://instagram.com/diariaja.free","_blank","noopener,noreferrer")}>
+                📷
+              </button>
               {/* Botão "trocar perfil" agora mora dentro do menu ⋮ (header limpo) */}
               <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
                 onClick={() => { setModalNotif(true); setNotifNaoLidas(0); }}>
@@ -13238,8 +13245,15 @@ export default function App() {
                 </div>
               </div>
             </div>
-            {/* Sino + três pontinhos (mais opções) + botão trocar perfil */}
+            {/* Instagram + Sino + três pontinhos (mais opções) + botão trocar perfil */}
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              {/* Instagram oficial @diariaja.free */}
+              <button
+                aria-label="Instagram @diariaja.free"
+                style={{ background:"linear-gradient(45deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5)", border:"none", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer", padding:0, fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => window.open("https://instagram.com/diariaja.free","_blank","noopener,noreferrer")}>
+                📷
+              </button>
               {/* Botão "trocar perfil" agora mora dentro do menu ⋮ (header limpo) */}
               <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
                 onClick={() => { setModalNotif(true); setNotifNaoLidas(0); }}>
