@@ -765,22 +765,18 @@ export default function App() {
     return () => mq.removeEventListener?.("change", upd);
   }, []);
 
-  // Desktop: as telas de auth/onboarding são uma coluna de 480px centralizada.
-  // Sem isso, num monitor largo as laterais ficavam brancas (parecia uma tira
-  // no meio). Pintamos o fundo do body pra a coluna virar um "painel"
-  // centralizado: escuro nas telas de gradiente (login/cadastro de entrada) e
-  // var(--bg-surface) — respeita dark mode — nas telas claras (wizards/setup).
-  // No celular (isDesktop=false) nada muda. Reseta ao sair pra não afetar o app.
+  // Desktop: o app é uma coluna centralizada. Sem isso, num monitor largo as
+  // laterais ficavam brancas (parecia uma tira no meio). Pintamos o fundo do
+  // body pra a coluna virar um "painel" centralizado e integrado.
+  // Agora o tema é CLARO em todas as telas → fundo `var(--bg-surface)` (que no
+  // light mode é exatamente #f8fafc e respeita o dark mode). Exceção: as telas
+  // ainda no gradiente escuro (cadastro-auth), que serão clareadas na próxima
+  // onda. No celular (isDesktop=false) nada muda. Reseta ao sair.
   useEffect(() => {
-    const ESCURAS = new Set(["login", "cadastro-tipo", "cadastro-auth"]);
-    const CLARAS = new Set([
-      "cadastro-diarista", "cadastro-empregador", "cadastro-empresa", "escolha-negocio",
-      "verificar-telefone", "verificar-documento", "alterar-senha", "pedir-localizacao",
-      "setup-diarista", "setup-empregador",
-    ]);
+    const ESCURAS = new Set(["cadastro-auth"]);
     if (isDesktop && ESCURAS.has(tela)) {
       document.body.style.background = "#0a1428";
-    } else if (isDesktop && CLARAS.has(tela)) {
+    } else if (isDesktop) {
       document.body.style.background = "var(--bg-surface, #f8fafc)";
     } else {
       document.body.style.background = "";
@@ -6237,6 +6233,40 @@ export default function App() {
   };
 
   // Banner rotativo do Já Decola — inserido entre cards de vaga (home-diarista)
+  // ── Top nav do desktop (>1024px) ─────────────────────────────────────────
+  // Só visual: replica as abas da bottom nav numa barra fixa no topo (logo à
+  // esquerda, itens à direita, "Publicar" em destaque). Os onClick recebidos
+  // são EXATAMENTE os mesmos handlers da bottom nav — nenhuma lógica nova.
+  // É `position:fixed`, então atravessa o maxWidth do shell e ocupa a largura
+  // toda. No mobile não é renderizada (cada home só monta quando isDesktop).
+  type NavItemTopo = { key: string; label: string; icon: React.ReactNode; ativo?: boolean; destaque?: boolean; badge?: number; onClick: () => void };
+  const NavTopoDesktop = ({ items, cor }: { items: NavItemTopo[]; cor: string }) => (
+    <div style={{ position:"fixed" as const, top:0, left:0, right:0, width:"100%", zIndex:60, background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border,#e2e8f0)", boxShadow:"0 1px 10px rgba(0,0,0,.05)" }}>
+      <div style={{ maxWidth:1100, margin:"0 auto", padding:"0 24px", height:64, display:"flex", alignItems:"center", gap:6 }}>
+        <div style={{ fontSize:22, fontWeight:900, letterSpacing:-1, marginRight:"auto" }}>
+          <span style={{ color:"var(--text-1,#0f172a)" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
+        </div>
+        {items.map(it => it.destaque ? (
+          <button key={it.key} onClick={it.onClick}
+            style={{ display:"flex", alignItems:"center", gap:7, background:cor, color:"#fff", border:"none", borderRadius:12, padding:"10px 18px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 12px ${cor}55`, marginLeft:8 }}>
+            {it.icon}<span>{it.label}</span>
+          </button>
+        ) : (
+          <button key={it.key} onClick={it.onClick}
+            style={{ position:"relative" as const, display:"flex", alignItems:"center", gap:7, background: it.ativo ? cor+"14" : "transparent", color: it.ativo ? cor : "var(--text-2,#64748b)", border:"none", borderRadius:10, padding:"9px 14px", fontSize:14, fontWeight: it.ativo ? 800 : 600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+            <span style={{ position:"relative" as const, display:"inline-flex", alignItems:"center" }}>
+              {it.icon}
+              {it.badge && it.badge > 0 ? (
+                <span style={{ position:"absolute" as const, top:-6, right:-10, background:"#ef4444", color:"#fff", borderRadius:"50%", minWidth:16, height:16, padding:"0 4px", fontSize:10, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", lineHeight:"16px" }}>{it.badge > 9 ? "9+" : it.badge}</span>
+              ) : null}
+            </span>
+            <span>{it.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   // e entre cards de profissionais (home-empregador). A cada 6 cards aparece 1
   // banner; mensagem varia por índice pra não ficar repetitivo.
   const BannerJaDecolaInline = ({ index, paraDiarista }: { index: number; paraDiarista: boolean }) => {
@@ -6339,16 +6369,18 @@ export default function App() {
   }, [anyLoading]);
 
   if (loading) return (
-    <div style={S.splash}>
+    // Tema claro — alinhado à landing/app (S.splash segue escuro pq a tela de
+    // CEP ainda o usa; aqui sobrescrevemos só o fundo).
+    <div style={{ ...S.splash, background:"#f8fafc" }}>
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
-        <div style={{ fontSize:56, filter:"drop-shadow(0 0 24px #FF6B35)", animation:"pulse 1.5s ease-in-out infinite" }}>⚡</div>
-        <div style={{ fontSize:36, fontWeight:900, color:"#fff", letterSpacing:-1 }}>
+        <img src="/icon-192.png" alt="" width={72} height={72} style={{ borderRadius:18, boxShadow:"0 8px 24px rgba(255,107,53,.25)", animation:"pulse 1.5s ease-in-out infinite" }} />
+        <div style={{ fontSize:36, fontWeight:900, color:"#0f172a", letterSpacing:-1 }}>
           Diária<span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"var(--text-2,#64748b)", fontSize:15, marginTop:8 }}>Carregando...</p>
-        <p style={{ color:"var(--text-label,#475569)", fontSize:12, marginTop:4 }}>Se demorar, verifique sua conexão</p>
+        <p style={{ color:"#64748b", fontSize:15, marginTop:8 }}>Carregando...</p>
+        <p style={{ color:"#94a3b8", fontSize:12, marginTop:4 }}>Se demorar, verifique sua conexão</p>
         <button
-          style={{ marginTop:8, background:"none", border:"1px solid #334155", color:"var(--text-3,#94a3b8)", borderRadius:10, padding:"8px 20px", fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+          style={{ marginTop:8, background:"#fff", border:"1.5px solid #e2e8f0", color:"#64748b", borderRadius:10, padding:"8px 20px", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
           onClick={() => { setLoading(false); setTela("splash"); }}>
           Ir para o início
         </button>
@@ -6478,28 +6510,30 @@ export default function App() {
       { ic:"🌿", n:"Jardinagem" }, { ic:"🚚", n:"Logística & Entregas" },
       { ic:"🍳", n:"Cozinha" }, { ic:"🎉", n:"Eventos" },
     ];
-    const passos = [
-      { ic:"📝", t:"Anuncie ou procure", d:"Publique uma vaga em minutos ou encontre serviço perto de você." },
-      { ic:"🤝", t:"Conecte com segurança", d:"Perfis com CPF/CNPJ verificado, avaliações reais e nível de confiança." },
-      { ic:"⚡", t:"Combine e resolva", d:"Fale pelo chat do app e acerte os detalhes. Sem burocracia." },
+    // Cards de demonstração — 100% fictícios e estáticos (mesma regra da landing
+    // mobile: tela pré-login, sem sessão; nunca puxar do banco aqui).
+    const demos = [
+      { ini:"MS", nome:"Maria S.", prof:"Repositora",         valor:120, cor:"#3A86FF" },
+      { ini:"JP", nome:"João P.",  prof:"Açougueiro",         valor:170, cor:"#FF6B35" },
+      { ini:"AL", nome:"Ana L.",   prof:"Diarista — Limpeza", valor:150, cor:"#16a34a" },
+    ];
+    const contratantes = [
+      { ic:"🛒", lab:"Supermercados" }, { ic:"🍔", lab:"Lanchonetes" },
+      { ic:"🍺", lab:"Bares" }, { ic:"🏠", lab:"Sua casa" },
     ];
     const selos = [
-      { ic:"🪪", l:"CPF / CNPJ verificado" },
+      { ic:"✅", l:"CPF verificado" },
       { ic:"⭐", l:"Avaliações reais" },
-      { ic:"💰", l:"Sem comissão na diária" },
+      { ic:"🆓", l:"Grátis pra começar" },
     ];
-    const publicos = [
-      { ic:"🔎", t:"Precisa de um serviço?", d:"Anuncie de graça e receba profissionais verificados perto de você. Escolha por avaliação e nível de confiança — e combine o valor direto, sem comissão.", cta:"Anunciar uma vaga" },
-      { ic:"💼", t:"Quer trabalhar?", d:"Crie seu perfil grátis, apareça pra quem está perto e receba convites. Você negocia o valor direto com o cliente.", cta:"Quero trabalhar" },
-    ];
-    const btnPrimary: React.CSSProperties = { padding:"14px 26px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 8px 24px rgba(255,107,53,.45)" };
-    const btnGhost: React.CSSProperties = { padding:"14px 26px", background:"transparent", color:"#e2e8f0", border:"1.5px solid rgba(255,255,255,.25)", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" };
+    const btnPrimary: React.CSSProperties = { padding:"14px 26px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 8px 24px rgba(255,107,53,.35)" };
+    const btnGhost: React.CSSProperties = { padding:"14px 26px", background:"#fff", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" };
     return (
-      <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 55%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", color:"#e2e8f0" }}>
+      <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", color:"#0f172a" }}>
         {/* Top nav */}
         <header style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"22px 48px", maxWidth:1180, margin:"0 auto" }}>
           <div style={{ fontSize:26, fontWeight:900, letterSpacing:-1 }}>
-            <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
+            <span style={{ color:"#0f172a" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
           </div>
           <div style={{ display:"flex", gap:12 }}>
             <button style={{ ...btnGhost, padding:"10px 20px", fontSize:14 }} onClick={() => setTela("login")}>Entrar</button>
@@ -6507,87 +6541,85 @@ export default function App() {
           </div>
         </header>
 
-        {/* Hero */}
+        {/* Hero — texto à esquerda, cards de demonstração à direita */}
         <section style={{ maxWidth:1180, margin:"0 auto", padding:"56px 48px 40px", display:"grid", gridTemplateColumns:"1.1fr 0.9fr", gap:48, alignItems:"center" }}>
           <div>
-            <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:"rgba(255,107,53,.12)", border:"1px solid rgba(255,107,53,.3)", borderRadius:20, padding:"6px 14px", fontSize:13, fontWeight:700, color:"#FF6B35", marginBottom:20 }}>
-              ⚡ Serviços por diária — começou em Campo Grande/MS
+            <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:20, padding:"6px 14px", fontSize:13, fontWeight:700, color:"#475569", marginBottom:20 }}>
+              📍 Campo Grande-MS
             </div>
-            <h1 style={{ fontSize:52, lineHeight:1.08, fontWeight:900, color:"#fff", letterSpacing:-1.5, margin:"0 0 18px" }}>
-              Quem você precisa,<br /><span style={{ color:"#FF6B35" }}>pertinho de você.</span>
+            <h1 style={{ fontSize:52, lineHeight:1.08, fontWeight:900, color:"#0f172a", letterSpacing:-1.5, margin:"0 0 18px" }}>
+              Precisou de gente pra hoje?<br /><span style={{ color:"#FF6B35" }}>Achou.</span>
             </h1>
-            <p style={{ fontSize:18, lineHeight:1.6, color:"#94a3b8", maxWidth:520, margin:"0 0 28px" }}>
-              Anuncie uma vaga ou encontre serviço perto de você — faxina, reparos, beleza, cuidados, frete e muito mais. Combine direto, sem complicação.
+            <p style={{ fontSize:18, lineHeight:1.6, color:"#64748b", maxWidth:520, margin:"0 0 28px" }}>
+              Diaristas e profissionais verificados, com preço na tela. Pro seu negócio ou pra sua casa.
             </p>
             <div style={{ display:"flex", gap:14, flexWrap:"wrap" as const }}>
-              <button style={btnPrimary} onClick={() => setTela("cadastro-tipo")}>Começar grátis →</button>
+              <button style={btnPrimary} onClick={() => setTela("cadastro-tipo")}>Ver profissionais agora →</button>
               <button style={btnGhost} onClick={() => setTela("login")}>Já tenho conta</button>
             </div>
             <div style={{ display:"flex", gap:18, flexWrap:"wrap" as const, marginTop:28 }}>
               {selos.map(s => (
-                <div key={s.l} style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#cbd5e1" }}>
+                <div key={s.l} style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#475569", fontWeight:600 }}>
                   <span style={{ fontSize:16 }}>{s.ic}</span> {s.l}
                 </div>
               ))}
             </div>
           </div>
-          {/* Card ilustrativo */}
-          <div style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"28px", boxShadow:"0 30px 80px rgba(0,0,0,.4)" }}>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-              {cats.map(c => (
-                <div key={c.n} style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.08)", borderRadius:14, padding:"16px 14px", display:"flex", alignItems:"center", gap:10 }}>
-                  <span style={{ fontSize:22 }}>{c.ic}</span>
-                  <span style={{ fontSize:13, fontWeight:700, color:"#f1f5f9" }}>{c.n}</span>
+          {/* Cards de demonstração (estilo dos cards reais da home) */}
+          <div style={{ display:"flex", flexDirection:"column" as const, gap:12 }}>
+            {demos.map(c => (
+              <div key={c.nome} style={{ background:"#fff", borderRadius:16, padding:"16px 18px", boxShadow:"0 4px 16px rgba(15,23,42,.06)", border:"1px solid #eef2f7", display:"flex", alignItems:"center", gap:14 }}>
+                <div style={{ width:52, height:52, borderRadius:26, background:c.cor+"18", color:c.cor, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:17, flexShrink:0 }}>{c.ini}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:800, fontSize:15, color:"#0f172a" }}>{c.nome} <span style={{ fontWeight:600, color:"#64748b" }}>· {c.prof}</span></div>
+                  <div style={{ fontSize:12.5, color:"#16a34a", fontWeight:700, marginTop:2 }}>● Disponível hoje</div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:5, flexWrap:"wrap" as const }}>
+                    <span style={{ fontSize:15, fontWeight:900, color:"#FF6B35" }}>R$ {c.valor}<span style={{ fontSize:12, fontWeight:700, color:"#94a3b8" }}>/dia</span></span>
+                    <span style={{ background:"#dcfce7", color:"#16a34a", fontSize:10.5, fontWeight:800, borderRadius:8, padding:"2px 8px" }}>✓ CPF verificado</span>
+                  </div>
                 </div>
-              ))}
+              </div>
+            ))}
+            <div style={{ textAlign:"center" as const, fontSize:13, color:"#64748b", fontWeight:600, marginTop:2 }}>
+              + dezenas de profissionais na sua região
             </div>
           </div>
         </section>
 
-        {/* Dois públicos — deixa explícito o valor pra quem contrata E pra quem
-            trabalha (o headline desktop só falava com quem contrata). */}
-        <section style={{ maxWidth:1180, margin:"0 auto", padding:"16px 48px 8px", display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
-          {publicos.map(b => (
-            <div key={b.t} style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:18, padding:"24px" }}>
-              <div style={{ fontSize:30, marginBottom:10 }}>{b.ic}</div>
-              <div style={{ fontSize:19, fontWeight:800, color:"#fff", marginBottom:8 }}>{b.t}</div>
-              <p style={{ fontSize:14, lineHeight:1.6, color:"#94a3b8", margin:"0 0 16px" }}>{b.d}</p>
-              <button style={{ ...btnGhost, padding:"10px 18px", fontSize:14 }} onClick={() => setTela("cadastro-tipo")}>{b.cta} →</button>
-            </div>
-          ))}
-        </section>
-
-        {/* Como funciona */}
-        <section style={{ maxWidth:1180, margin:"0 auto", padding:"32px 48px 56px" }}>
-          <h2 style={{ fontSize:14, fontWeight:800, color:"#FF6B35", textTransform:"uppercase" as const, letterSpacing:1, margin:"0 0 20px", textAlign:"center" as const }}>Como funciona</h2>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:20 }}>
-            {passos.map((p, i) => (
-              <div key={p.t} style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:18, padding:"24px" }}>
-                <div style={{ fontSize:30, marginBottom:10 }}>{p.ic}</div>
-                <div style={{ fontSize:17, fontWeight:800, color:"#fff", marginBottom:6 }}>{i+1}. {p.t}</div>
-                <div style={{ fontSize:14, lineHeight:1.6, color:"#94a3b8" }}>{p.d}</div>
+        {/* Quem contrata aqui */}
+        <section style={{ maxWidth:1180, margin:"0 auto", padding:"8px 48px 8px" }}>
+          <div style={{ fontSize:12, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:12 }}>Quem contrata aqui</div>
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap" as const }}>
+            {contratantes.map(c => (
+              <div key={c.lab} style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:20, padding:"9px 15px", display:"flex", alignItems:"center", gap:7 }}>
+                <span style={{ fontSize:15 }}>{c.ic}</span>
+                <span style={{ fontSize:13, color:"#0f172a", fontWeight:700 }}>{c.lab}</span>
               </div>
             ))}
           </div>
         </section>
 
-        {/* CTA final */}
-        <section style={{ maxWidth:1180, margin:"0 auto", padding:"0 48px 56px" }}>
-          <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:24, padding:"40px", textAlign:"center" as const }}>
-            <div style={{ fontSize:28, fontWeight:900, color:"#fff", marginBottom:10 }}>Pronto pra começar?</div>
-            <div style={{ fontSize:16, color:"rgba(255,255,255,.92)", marginBottom:22 }}>Grátis pra anunciar e pra procurar. Leva menos de 2 minutos.</div>
-            <button style={{ ...btnPrimary, background:"#0f172a", boxShadow:"0 8px 24px rgba(0,0,0,.3)" }} onClick={() => setTela("cadastro-tipo")}>Criar minha conta grátis →</button>
+        {/* Categorias — a grade que já existia, agora em estilo claro */}
+        <section style={{ maxWidth:1180, margin:"0 auto", padding:"24px 48px 56px" }}>
+          <h2 style={{ fontSize:13, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.8, margin:"0 0 16px" }}>Categorias</h2>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12 }}>
+            {cats.map(c => (
+              <div key={c.n} style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:14, padding:"16px 14px", display:"flex", alignItems:"center", gap:10, boxShadow:"0 2px 8px rgba(15,23,42,.04)" }}>
+                <span style={{ fontSize:22 }}>{c.ic}</span>
+                <span style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{c.n}</span>
+              </div>
+            ))}
           </div>
         </section>
 
         {/* Footer */}
-        <footer style={{ borderTop:"1px solid rgba(255,255,255,.08)", padding:"28px 48px", maxWidth:1180, margin:"0 auto", display:"flex", flexWrap:"wrap" as const, alignItems:"center", justifyContent:"space-between", gap:16, fontSize:13, color:"#64748b" }}>
+        <footer style={{ borderTop:"1px solid #e2e8f0", padding:"28px 48px", maxWidth:1180, margin:"0 auto", display:"flex", flexWrap:"wrap" as const, alignItems:"center", justifyContent:"space-between", gap:16, fontSize:13, color:"#94a3b8" }}>
           <div>© {new Date().getFullYear()} DiáriaJá · Campo Grande, MS</div>
           <div style={{ display:"flex", gap:20 }}>
-            <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Privacidade</a>
-            <a href="/excluir-conta.html" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Excluir conta</a>
-            <a href="https://instagram.com/diariaja.free" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Instagram</a>
-            <a href="mailto:suporte@diariaja.com.br" style={{ color:"#94a3b8", textDecoration:"none" }}>suporte@diariaja.com.br</a>
+            <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#64748b", textDecoration:"none" }}>Privacidade</a>
+            <a href="/excluir-conta.html" target="_blank" rel="noopener noreferrer" style={{ color:"#64748b", textDecoration:"none" }}>Excluir conta</a>
+            <a href="https://instagram.com/diariaja.free" target="_blank" rel="noopener noreferrer" style={{ color:"#64748b", textDecoration:"none" }}>Instagram</a>
+            <a href="mailto:suporte@diariaja.com.br" style={{ color:"#64748b", textDecoration:"none" }}>suporte@diariaja.com.br</a>
           </div>
         </footer>
       </div>
@@ -6715,7 +6747,7 @@ export default function App() {
 
             {/* Header */}
             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
-              <div style={{ width:46, height:46, borderRadius:14, background:"rgba(255,107,53,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>⚡</div>
+              <img src="/icon-192.png" alt="" width={46} height={46} style={{ borderRadius:14, flexShrink:0 }} />
               <div>
                 <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>
                   Diária<span style={{ color:"#FF6B35" }}>Já</span>
@@ -6818,7 +6850,7 @@ export default function App() {
 
       {/* Hero */}
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"28px 0 26px", position:"relative", zIndex:1 }}>
-        <div style={{ width:72, height:72, borderRadius:36, background:"linear-gradient(135deg,#FF6B35,#fb923c)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:34, boxShadow:"0 8px 24px rgba(255,107,53,.35), 0 0 0 6px rgba(255,107,53,.1)", marginBottom:14 }}>⚡</div>
+        <img src="/icon-192.png" alt="" width={72} height={72} style={{ borderRadius:20, boxShadow:"0 8px 24px rgba(255,107,53,.35), 0 0 0 6px rgba(255,107,53,.1)", marginBottom:14 }} />
         <div style={{ fontSize:32, fontWeight:900, letterSpacing:-1, color:"#0f172a" }}>
           Diária<span style={{ color:"#FF6B35" }}>Já</span>
         </div>
@@ -6977,57 +7009,46 @@ export default function App() {
 
   // CADASTRO TIPO
   if (tela === "cadastro-tipo") return (
-    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth: isDesktop ? 880 : 480, margin:"0 auto", padding:"0 24px 40px" }}>
 
       <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setTela("splash")}>
         ← Voltar
       </button>
 
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"24px 0 32px" }}>
-        <div style={{ fontSize:36, marginBottom:8 }}>⚡</div>
+        <img src="/icon-192.png" alt="" width={52} height={52} style={{ borderRadius:14, marginBottom:8, boxShadow:"0 4px 14px rgba(255,107,53,.25)" }} />
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-0.5 }}>
           <span style={{ color:"#0f172a" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
         <p style={{ color:"#64748b", fontSize:15, marginTop:8 }}>Você quer contratar ou trabalhar?</p>
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:12 }}>
+      {/* Desktop (>1024px): os 3 cards lado a lado numa linha (repeat(3,1fr)).
+          Mobile: 2 PF na 1ª linha + empresa ocupando a linha toda (1/-1) —
+          idêntico ao layout anterior. Cada card mantém seu estilo original. */}
+      <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, 1fr)" : "1fr 1fr", gap:14, marginBottom:24, alignItems:"stretch" as const }}>
         {[
-          { key:"empregador", icone:"🏢", label:"Quero contratar", desc:"Publique e receba interessados verificados em minutos" },
-          { key:"diarista",   icone:"👷", label:"Quero trabalhar", desc:"Apareça pra quem contrata e receba propostas hoje" },
+          { key:"empregador", icone:"🏢", label:"Quero contratar",     desc:"Publique e receba interessados verificados em minutos",     accent:"#FF6B35", pad:"24px 14px", gap:10, icSize:36, labSize:16, descSize:12.5 },
+          { key:"diarista",   icone:"👷", label:"Quero trabalhar",      desc:"Apareça pra quem contrata e receba propostas hoje",          accent:"#FF6B35", pad:"24px 14px", gap:10, icSize:36, labSize:16, descSize:12.5 },
+          { key:"empresa",    icone:"🏢", label:"Sou empresa (CNPJ)",   desc:"Contrate em nome da empresa e fortaleça sua marca local",     accent:"#3A86FF", pad:"18px 14px", gap:8,  icSize:30, labSize:14, descSize:12 },
         ].map(t => {
           const ativo = tipo === t.key;
           return (
             <div key={t.key}
-              style={{ position:"relative" as const, background: ativo ? "#FF6B3510" : "#fff", border: ativo ? "2.5px solid #FF6B35" : "1.5px solid #e2e8f0", borderRadius:20, padding:"24px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:10, cursor:"pointer", transition:"all .15s", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
+              style={{ position:"relative" as const, gridColumn: (!isDesktop && t.key === "empresa") ? "1 / -1" : "auto", background: ativo ? t.accent+"10" : "#fff", border: ativo ? `2.5px solid ${t.accent}` : "1.5px solid #e2e8f0", borderRadius:20, padding:t.pad, display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", gap:t.gap, cursor:"pointer", transition:"all .15s", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
               onClick={() => { hapticTick(); setTipo(t.key); }}>
               {ativo && (
-                <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(255,107,53,.4)" }}>✓</div>
+                <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:t.accent, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:`0 2px 8px ${t.accent}66` }}>✓</div>
               )}
-              <span style={{ fontSize:36 }}>{t.icone}</span>
-              <span style={{ fontWeight:800, fontSize:16, color:"#0f172a" }}>{t.label}</span>
-              <span style={{ fontSize:12.5, color:"#64748b", textAlign:"center", lineHeight:1.4 }}>{t.desc}</span>
+              <span style={{ fontSize:t.icSize }}>{t.icone}</span>
+              <span style={{ fontWeight:800, fontSize:t.labSize, color:"#0f172a", textAlign:"center" as const }}>{t.label}</span>
+              <span style={{ fontSize:t.descSize, color:"#64748b", textAlign:"center" as const, lineHeight:1.4 }}>{t.desc}</span>
             </div>
           );
         })}
       </div>
-      {/* Card empresa — linha separada, largura total */}
-      {(() => {
-        const ativo = tipo === "empresa";
-        return (
-          <div
-            style={{ position:"relative" as const, background: ativo ? "#3A86FF10" : "#fff", border: ativo ? "2.5px solid #3A86FF" : "1.5px solid #e2e8f0", borderRadius:20, padding:"18px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:8, cursor:"pointer", marginBottom:24, transition:"all .15s", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
-            onClick={() => { hapticTick(); setTipo("empresa"); }}>
-            {ativo && (
-              <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#3A86FF", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(58,134,255,.4)" }}>✓</div>
-            )}
-            <span style={{ fontSize:30 }}>🏢</span>
-            <span style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>Sou empresa (CNPJ)</span>
-            <span style={{ fontSize:12, color:"#64748b", textAlign:"center" as const, lineHeight:1.4 }}>Contrate em nome da empresa e fortaleça sua marca local</span>
-          </div>
-        );
-      })()}
 
+      <div style={{ width:"100%", maxWidth: isDesktop ? 440 : "none", margin:"0 auto" }}>
       <button style={{ width:"100%", padding:"15px", background: tipo ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor: tipo ? "pointer" : "not-allowed", fontFamily:"Inter, system-ui, sans-serif", boxShadow: tipo ? "0 4px 16px rgba(255,107,53,.4)" : "none", transition:"all .2s" }}
         disabled={!tipo}
         aria-disabled={!tipo}
@@ -7053,6 +7074,7 @@ export default function App() {
         Ao continuar, você concorda com os{" "}
         <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#64748b", textDecoration:"underline" }}>Termos e a Política de Privacidade</a>.
       </p>
+      </div>
     </div>
   );
 
@@ -7065,7 +7087,7 @@ export default function App() {
       </button>
 
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"24px 0 28px" }}>
-        <div style={{ fontSize:36, filter:"drop-shadow(0 0 16px #FF6B35)", marginBottom:8 }}>⚡</div>
+        <img src="/icon-192.png" alt="" width={52} height={52} style={{ borderRadius:14, marginBottom:8, boxShadow:"0 0 16px rgba(255,107,53,.5)" }} />
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-0.5 }}>
           <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
@@ -7258,7 +7280,7 @@ export default function App() {
     const xpTotal = academyCertificados.reduce((s, c) => s + (academyCursos.find(x => x.id === c.curso_id)?.pontos_score || 0), 0);
     const nivelAc = calcularNivelAcademy(xpTotal);
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
         {/* Header gradiente */}
         <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"48px 20px 28px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
@@ -7357,7 +7379,7 @@ export default function App() {
     if (!academyCursoAberto) { setTela("academy"); return null; }
     const curso = academyCursoAberto;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:`linear-gradient(135deg, ${curso.cor}, ${curso.cor}cc)`, padding:"48px 20px 28px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela("academy")}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
@@ -7431,7 +7453,7 @@ export default function App() {
     if (academyQuizMostrando) {
       // Renderiza QUIZ
       return (
-        <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+        <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
           <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px", color:"#fff" }}>
             <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
               onClick={() => { setAcademyQuizMostrando(false); setTela("academy-curso"); }}>← Voltar</button>
@@ -7519,7 +7541,7 @@ export default function App() {
     const microOk = !microPergunta || academyMicroResp === microPergunta.correta;
     const podeConcluir = academyTempoRestante <= 0 && academyScrollOk && academyEntendi && microOk;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background: curso ? `linear-gradient(135deg, ${curso.cor}, ${curso.cor}cc)` : "linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"48px 20px 22px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:12 }} onClick={() => setTela("academy-curso")}>← Voltar ao curso</button>
           <div style={{ fontSize:11, fontWeight:700, opacity:0.85, marginBottom:4 }}>Aula {idxAtual+1} de {aulasMod.length}</div>
@@ -7604,7 +7626,7 @@ export default function App() {
     const identidadesConta = (session?.user?.identities ?? []) as { provider?: string }[];
     const semSenhaPropria = identidadesConta.length > 0 && !identidadesConta.some(i => i.provider === "email");
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
           <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -7845,8 +7867,8 @@ export default function App() {
         </div>
 
         <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:12, marginTop:24 }}>
-          <div style={{ fontSize:18, marginBottom:4 }}>⚡</div>
-          <strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0<br />Campo Grande, MS
+          <img src="/icon-192.png" alt="" width={28} height={28} style={{ borderRadius:8, marginBottom:4 }} />
+          <br /><strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0<br />Campo Grande, MS
         </div>
 
         {/* Modal confirmar excluir conta */}
@@ -8413,17 +8435,17 @@ export default function App() {
     // faqAberta já está no topo do componente (BUG-C1 fix)
     return (
       <>
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
 
-        {/* Header */}
-        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px", position:"relative" }}>
-          <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
+        {/* Header — tema claro (alinhado à landing/app) */}
+        <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", position:"relative", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+          <button style={{ background:"none", border:"none", color:"var(--text-2,#64748b)", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
             ← Voltar
           </button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🎧</div>
+            <div style={{ width:48, height:48, background:"#FF6B3518", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🎧</div>
             <div>
-              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Suporte</div>
+              <div style={{ fontSize:22, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Suporte</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>Estamos aqui para ajudar</div>
             </div>
           </div>
@@ -8521,8 +8543,8 @@ export default function App() {
 
         {/* Versão */}
         <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:12, marginTop:24 }}>
-          <div style={{ fontSize:20, marginBottom:4 }}>⚡</div>
-          <strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0 · Beta<br />
+          <img src="/icon-192.png" alt="" width={28} height={28} style={{ borderRadius:8, marginBottom:4 }} />
+          <br /><strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0 · Beta<br />
           Feito com ❤️ em Campo Grande, MS<br />
           suporte@diariaja.com.br
         </div>
@@ -10099,6 +10121,10 @@ export default function App() {
     // Usa constante global pré-computada (evita recalcular a cada render)
     const funcoes = TODAS_AS_FUNCOES;
     const iniciaisEmp = profile?.nome?.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase() || "?";
+    // Abrir o fluxo de publicar diária — mesma ação do FAB "Publicar" da bottom
+    // nav, extraída pra ser reusada também pelo top nav do desktop (sem duplicar
+    // o reset do formulário e sem mudar nada do comportamento).
+    const abrirCriarDiaria = () => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); };
     const hora = new Date().getHours();
     const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
     const primeiroNome = profile?.nome?.split(" ")[0] || "você";
@@ -10170,7 +10196,18 @@ export default function App() {
       });
 
     return (
-      <div style={{ ...S.appShell, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+
+        {/* Top nav do desktop — substitui a bottom nav em telas largas */}
+        {isDesktop && (
+          <NavTopoDesktop cor={negocio.cor} items={[
+            { key:"inicio",  label:"Home",    icon:<Home size={18} />,          ativo:tabEmpregador==="inicio",  onClick:()=>{ hapticTick(); setTabEmpregador("inicio"); } },
+            { key:"diarias", label:"Diárias", icon:<Briefcase size={18} />,     ativo:tabEmpregador==="diarias", onClick:()=>{ hapticTick(); setTabEmpregador("diarias"); } },
+            { key:"chat",    label:"Chat",    icon:<MessageCircle size={18} />, ativo:tabEmpregador==="chat",    badge:msgNaoLidas, onClick:()=>{ hapticTick(); setTabEmpregador("chat"); setMsgNaoLidas(0); } },
+            { key:"perfil",  label:"Perfil",  icon:<User size={18} />,          ativo:tabEmpregador==="perfil",  onClick:()=>{ hapticTick(); setTabEmpregador("perfil"); } },
+            { key:"publicar",label:"Publicar",icon:<Plus size={18} />,          destaque:true, onClick:abrirCriarDiaria },
+          ]} />
+        )}
 
         {/* Modal global de confirmação de logout (renderizado SEMPRE no escopo
             dessa home — antes ficava preso em configuracoes e não aparecia
@@ -10349,13 +10386,19 @@ export default function App() {
               Estes são os valores que cada diarista cobra. Você pode aceitar um deles — ou <strong style={{ color:negocio.cor }}>anunciar quanto quer pagar</strong>.
             </div>
             {/* Lista de profissionais */}
-            <div id="emp-lista-diaristas" style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
+            {/* Desktop (>1024px): grade de até 3 cards por linha (mesmo card).
+                Favoritos, empty-state, banner e card final ocupam a linha toda.
+                Mobile: coluna única, idêntico ao anterior. */}
+            <div id="emp-lista-diaristas" style={ isDesktop
+              ? { padding:"12px 16px 24px", display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(330px, 1fr))", gap:16, alignItems:"start" as const }
+              : { padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }
+            }>
                 {/* Favoritos */}
                 {favoritos.size > 0 && (() => {
                   const favList = diaristasReais.filter(d => favoritos.has(d.id));
                   if (favList.length === 0) return null;
                   return (
-                    <div style={{ marginBottom:4 }}>
+                    <div style={{ marginBottom:4, gridColumn: isDesktop ? "1 / -1" : undefined }}>
                       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>❤️ Meus favoritos</div>
                       <div style={{ display:"flex", gap:10, overflowX:"auto", paddingBottom:4 }}>
                         {favList.map(d => {
@@ -10376,7 +10419,7 @@ export default function App() {
                   );
                 })()}
                 {diaristasReaisVisiveis.length === 0 ? (
-                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined }}>
                     <div style={{ fontSize:56, marginBottom:12 }}>🔍</div>
                     <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Nenhum profissional ainda</div>
                     <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:16 }}>
@@ -10464,7 +10507,9 @@ export default function App() {
                         </div>
                       </div>
                       {mostrarBannerAposCard && (
-                        <BannerJaDecolaInline index={Math.floor(i / 6)} paraDiarista={false} />
+                        <div style={{ gridColumn: isDesktop ? "1 / -1" : undefined }}>
+                          <BannerJaDecolaInline index={Math.floor(i / 6)} paraDiarista={false} />
+                        </div>
                       )}
                       </React.Fragment>
                     );
@@ -10473,7 +10518,7 @@ export default function App() {
 
                 {/* Caminho de saída no fim da lista: se não achou o valor ideal,
                     publica a própria oferta (mesmo fluxo de aceitar preço). */}
-                <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined }}>
                   <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5, marginBottom:10 }}>
                     Não achou o valor ideal? Publique quanto você quer pagar e espere as diaristas aceitarem.
                   </div>
@@ -12347,6 +12392,12 @@ export default function App() {
 
         {/* ── ABA CHAT EMPREGADOR ── */}
         {tabEmpregador === "chat" && (() => {
+          // Desktop (>1024px): duas colunas — lista de conversas à esquerda e a
+          // conversa aberta à direita. Mobile: comportamento IDÊNTICO ao
+          // anterior (conversa OU lista). 100% layout: os JSX da conversa e da
+          // lista abaixo são os mesmos de antes, só atribuídos a variáveis em
+          // vez de retornados direto; handlers/estado/subscriptions intocados.
+          let conversaJSX: React.ReactElement | null = null;
           // Se há chat ativo, mostra conversa
           if (chatDiariaAtiva) {
             const dp = chatDiariaAtiva.diarista_aceite_id ? diaristasAceites[chatDiariaAtiva.diarista_aceite_id] : null;
@@ -12356,7 +12407,7 @@ export default function App() {
             const nomePrestador = dp?.nome || chatDiariaAtiva._nomeChat || "Prestador";
             const fotoPrestador = dp?.foto_url || chatDiariaAtiva._fotoChat || "";
             const iniciais = nomePrestador !== "Prestador" ? nomePrestador.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() : "?";
-            return (
+            conversaJSX = (
               <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 130px)", position:"relative" }}>
                 {/* Header do chat */}
                 <div style={{ background:"var(--bg-card,#fff)", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
@@ -12480,7 +12531,7 @@ export default function App() {
               tipo_oferta: "diaria" as const,
             } as Diaria));
           const conversas = [...conversasConvitesEmp, ...conversasDiariasEmp];
-          return (
+          const listaJSX = (
             <div style={{ padding:"16px" }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
               {/* Suporte DiáriaJá — sempre no topo */}
@@ -12531,11 +12582,30 @@ export default function App() {
               )}
             </div>
           );
+          // Mobile: idêntico ao comportamento anterior (conversa OU lista)
+          if (!isDesktop) return conversaJSX ?? listaJSX;
+          // Desktop: duas colunas
+          return (
+            <div style={{ display:"grid", gridTemplateColumns:"360px 1fr", gap:16, padding:"12px 16px 24px", alignItems:"start" as const }}>
+              <div style={{ maxHeight:"calc(100vh - 130px)", overflowY:"auto" as const }}>{listaJSX}</div>
+              <div>
+                {conversaJSX ?? (
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, height:"calc(100vh - 130px)", display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", gap:10, color:"var(--text-3,#94a3b8)", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                    <div style={{ fontSize:44 }}>💬</div>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-2,#64748b)" }}>Selecione uma conversa</div>
+                    <div style={{ fontSize:13 }}>Escolha uma conversa na lista ao lado.</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
         })()}
 
         {/* ── ABA PERFIL ── */}
         {tabEmpregador === "perfil" && (
-          <>
+          /* Desktop: coluna de 720px centralizada dentro do shell de 1100.
+             Mobile: div sem estilo = layout idêntico ao fragment anterior. */
+          <div style={ isDesktop ? { maxWidth:720, margin:"0 auto", width:"100%" } : undefined }>
             {/* Barra + ⚙️ */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
@@ -12819,7 +12889,7 @@ export default function App() {
                 Sair da conta
               </button>
             </div>
-          </>
+          </div>
         )}
 
         {/* ── Modal info do perfil (empregador) ── */}
@@ -12880,8 +12950,8 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Bottom nav — 5 abas ── */}
-        <div style={S.bottomNav}>
+        {/* ── Bottom nav — 5 abas (escondida no desktop; vira top nav) ── */}
+        <div style={{ ...S.bottomNav, ...(isDesktop ? { display:"none" as const } : {}) }}>
           <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="inicio"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>{ hapticTick(); setTabEmpregador("inicio"); }}>
             <Home size={22} strokeWidth={tabEmpregador==="inicio"?2.5:2} />
             <span>Home</span>
@@ -12892,7 +12962,7 @@ export default function App() {
           </button>
           <button style={{ ...S.bottomNavBtn, position:"relative" }}>
             <div style={{ width:52, height:52, borderRadius:26, background:negocio.cor, display:"flex", alignItems:"center", justifyContent:"center", marginTop:-20, boxShadow:`0 4px 14px ${negocio.cor}66`, border:"3px solid #f0f2f5" }}
-              onClick={() => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); }}>
+              onClick={abrirCriarDiaria}>
               <Plus size={26} color="#fff" strokeWidth={2.8} />
             </div>
             <span style={{ marginTop:2 }}>Publicar</span>
@@ -13205,7 +13275,18 @@ export default function App() {
     };
 
     return (
-      <div style={{ ...S.appShell, paddingBottom: 76, background: "#f0f2f5" }}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom: 76, background: "#f0f2f5" }}>
+
+        {/* Top nav do desktop — substitui a bottom nav em telas largas */}
+        {isDesktop && (
+          <NavTopoDesktop cor="#FF6B35" items={[
+            { key:"inicio", label:"Home",    icon:<Home size={18} />,          ativo:tabDiarista==="inicio", onClick:()=>{ hapticTick(); setTabDiarista("inicio"); } },
+            { key:"vagas",  label:"Diárias", icon:<Briefcase size={18} />,     ativo:tabDiarista==="vagas",  onClick:()=>{ hapticTick(); setTabDiarista("vagas"); } },
+            { key:"agenda", label:"Agenda",  icon:<Clock size={18} />,         ativo:tabDiarista==="agenda", onClick:()=>{ hapticTick(); setTabDiarista("agenda"); } },
+            { key:"chat",   label:"Chat",    icon:<MessageCircle size={18} />, ativo:tabDiarista==="chat",   badge:msgNaoLidas, onClick:()=>{ hapticTick(); setTabDiarista("chat"); setMsgNaoLidas(0); } },
+            { key:"perfil", label:"Perfil",  icon:<User size={18} />,          ativo:tabDiarista==="perfil", onClick:()=>{ hapticTick(); setTabDiarista("perfil"); } },
+          ]} />
+        )}
 
         {/* Modal global de logout (mesmo motivo do home-empregador) */}
         {modalConfirmLogout}
@@ -13662,7 +13743,10 @@ export default function App() {
             </div>
 
             <div
-              style={{ padding:"0 16px 24px", display:"flex", flexDirection:"column", gap:12, transform:`translateY(${puxando}px)`, transition: puxando === 0 ? "transform .3s" : "none" }}
+              style={ isDesktop
+                ? { padding:"0 16px 24px", display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(330px, 1fr))", gap:16, alignItems:"start" as const, maxWidth:1100, margin:"0 auto", width:"100%", boxSizing:"border-box" as const, transform:`translateY(${puxando}px)`, transition: puxando === 0 ? "transform .3s" : "none" }
+                : { padding:"0 16px 24px", display:"flex", flexDirection:"column" as const, gap:12, transform:`translateY(${puxando}px)`, transition: puxando === 0 ? "transform .3s" : "none" }
+              }
               onTouchStart={e => {
                 if (window.scrollY > 0) return;     // só ativa no topo da página
                 ptrStartY.current = e.touches[0].clientY;
@@ -13698,7 +13782,7 @@ export default function App() {
               {loading ? (
                 <SkeletonList count={4} altura={100} />
               ) : vagasFiltradas.length === 0 ? (
-                <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"36px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"36px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined }}>
                   <div style={{ width:80, height:80, borderRadius:40, background:"var(--bg-subtle,#f1f5f9)", display:"inline-flex", alignItems:"center", justifyContent:"center", marginBottom:12 }}>
                     <Inbox size={36} color="var(--text-3,#94a3b8)" strokeWidth={1.5} />
                   </div>
@@ -13996,7 +14080,9 @@ export default function App() {
                       </div>
                     </div>
                     {mostrarBannerAposCard && (
-                      <BannerJaDecolaInline index={Math.floor(idx / 6)} paraDiarista={true} />
+                      <div style={{ gridColumn: isDesktop ? "1 / -1" : undefined }}>
+                        <BannerJaDecolaInline index={Math.floor(idx / 6)} paraDiarista={true} />
+                      </div>
                     )}
                     </React.Fragment>
                   );
@@ -14569,8 +14655,11 @@ export default function App() {
 
         {/* ── ABA CHAT DIARISTA ── */}
         {tabDiarista === "chat" && (() => {
+          // Desktop: duas colunas (lista + conversa) — mesma mecânica do lado
+          // do anunciante; mobile idêntico ao anterior. 100% layout.
+          let conversaJSX: React.ReactElement | null = null;
           if (chatDiariaAtiva) {
-            return (
+            conversaJSX = (
               <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 130px)", position:"relative" }}>
                 {/* Header */}
                 <div style={{ background:"var(--bg-card,#fff)", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
@@ -14703,7 +14792,7 @@ export default function App() {
               tipo_oferta:        "diaria" as const,
             } as Diaria));
           const conversas = [...conversasConvites, ...conversasDiarias];
-          return (
+          const listaJSX = (
             <div style={{ padding:"16px" }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
               {/* Suporte DiáriaJá — sempre no topo */}
@@ -14751,6 +14840,23 @@ export default function App() {
               )}
             </div>
           );
+          // Mobile: idêntico ao comportamento anterior (conversa OU lista)
+          if (!isDesktop) return conversaJSX ?? listaJSX;
+          // Desktop: duas colunas
+          return (
+            <div style={{ display:"grid", gridTemplateColumns:"360px 1fr", gap:16, padding:"12px 16px 24px", alignItems:"start" as const }}>
+              <div style={{ maxHeight:"calc(100vh - 130px)", overflowY:"auto" as const }}>{listaJSX}</div>
+              <div>
+                {conversaJSX ?? (
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, height:"calc(100vh - 130px)", display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", gap:10, color:"var(--text-3,#94a3b8)", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                    <div style={{ fontSize:44 }}>💬</div>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-2,#64748b)" }}>Selecione uma conversa</div>
+                    <div style={{ fontSize:13 }}>Escolha uma conversa na lista ao lado.</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
         })()}
 
         {/* ── ABA PERFIL ── */}
@@ -14770,7 +14876,9 @@ export default function App() {
           // pela RPC `criar_oauth_state('mercadopago')`. URL antiga ficou abaixo
           // pra referência se algum botão de "Conectar MP" for reativado.
           return (
-          <>
+          /* Desktop: coluna de 720px centralizada (mesma mecânica do anunciante).
+             Mobile: div sem estilo = layout idêntico. */
+          <div style={ isDesktop ? { maxWidth:720, margin:"0 auto", width:"100%" } : undefined }>
             {/* Barra de boas-vindas + ⚙️ */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
@@ -15108,7 +15216,7 @@ export default function App() {
                 Sair da conta
               </button>
             </div>
-          </>
+          </div>
           );
         })()}
 
@@ -15789,8 +15897,8 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Bottom nav — 5 abas ── */}
-        <div style={S.bottomNav}>
+        {/* ── Bottom nav — 5 abas (escondida no desktop; vira top nav) ── */}
+        <div style={{ ...S.bottomNav, ...(isDesktop ? { display:"none" as const } : {}) }}>
           <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="inicio"?{ ...S.bottomNavAtivo, borderTop:"2px solid #FF6B35" }:{}) }} onClick={()=>{ hapticTick(); setTabDiarista("inicio"); }}>
             <Home size={22} strokeWidth={tabDiarista==="inicio"?2.5:2} />
             <span>Home</span>
@@ -16125,7 +16233,7 @@ export default function App() {
 
   // EDITAR PERFIL DIARISTA
   if (tela === "editar-perfil") return (
-    <div style={S.page}>
+    <div style={{ ...S.page, maxWidth: isDesktop ? 700 : 480 }}>
       <button style={S.back} onClick={() => { setCamposDestravadosEdit(new Set()); setTela("configuracoes"); }}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
 
@@ -16642,7 +16750,7 @@ export default function App() {
       (typeof rep.pct_cumpriu_combinado === "number" && rep.pct_cumpriu_combinado < 50)
     ));
     return (
-      <div style={S.appShell}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : 480 }}>
         <div style={{ padding:"12px 16px 0" }}>
           <button style={S.back} onClick={() => { setEmpregadorAberto(null); setAvaliacoesEmpAbertas([]); setTela("home-diarista"); }}>← Voltar</button>
         </div>
@@ -16805,7 +16913,7 @@ export default function App() {
     const diariasDaPerfilConc = diaristasContagemDiarias[d.id] || 0;
     const nivelD = nivelDiarista(diariasDaPerfilConc);
     return (
-      <div style={S.appShell}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 16px 0" }}>
           <button style={S.back} onClick={() => setTela("home-empregador")}>← Voltar</button>
           <button
@@ -16820,6 +16928,12 @@ export default function App() {
             {isFavorito ? "❤️" : "🤍"}
           </button>
         </div>
+
+        {/* Desktop (>1024px): duas colunas — info principal + foto à esquerda,
+            avaliações/ações à direita. Mobile: display:contents nos wrappers =
+            DOM extra sem NENHUMA mudança de layout (coluna única igual antes). */}
+        <div style={ isDesktop ? { display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, alignItems:"start" as const, padding:"12px 20px 0" } : { display:"contents" as const } }>
+        <div style={ isDesktop ? { display:"flex", flexDirection:"column" as const } : { display:"contents" as const } }>
 
         <div style={S.perfilHeader}>
           {d.foto_url
@@ -16890,6 +17004,10 @@ export default function App() {
           <div style={S.sectionTitle}>Valor por diária</div>
           <div style={S.valorGrande}>R$ {d.valor_diaria}<span style={{ fontSize:16, color:"var(--text-2,#64748b)" }}> /dia</span></div>
         </div>
+
+        </div>
+        {/* Coluna direita (desktop): avaliações + denúncia + área de ação */}
+        <div style={ isDesktop ? { display:"flex", flexDirection:"column" as const } : { display:"contents" as const } }>
 
         {/* Avaliações do diarista */}
         {avaliacoesDiaristaReal.length > 0 && (
@@ -17065,6 +17183,9 @@ export default function App() {
             </div>
           );
         })()}
+
+        </div>
+        </div>
 
         {/* Modal de convite com local/data/horário */}
         {modalConvite && (
@@ -17347,7 +17468,9 @@ export default function App() {
     );
 
     return (
-      <div style={S.page}>
+      // Desktop: formulário em container ~700px centralizado (campos width:100%
+      // acompanham). Mobile: 480px, idêntico ao anterior.
+      <div style={{ ...S.page, maxWidth: isDesktop ? 700 : 480 }}>
         <button style={S.back} onClick={() => { setAuthError(""); setTabEmpregador("perfil"); setTela("home-empregador"); }}>← Voltar</button>
 
         {/* Cabeçalho */}
@@ -17837,7 +17960,7 @@ export default function App() {
 
   // EDITAR PERFIL EMPREGADOR
   if (tela === "editar-perfil-empregador") return (
-    <div style={S.page}>
+    <div style={{ ...S.page, maxWidth: isDesktop ? 700 : 480 }}>
       <button style={S.back} onClick={() => { setCamposDestravadosEdit(new Set()); setTela("configuracoes"); }}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
 
@@ -18234,7 +18357,7 @@ export default function App() {
     const ult7 = (s: { dia: string; valor: number }[]) => (s || []).slice(-7).reduce((a, b) => a + (b.valor || 0), 0);
     const hojeV = (s: { dia: string; valor: number }[]) => (s && s.length ? s[s.length - 1].valor : 0);
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
         {/* Toasts globais — admin tela não tinha, motivo do bug "click Aprovar sem feedback" */}
         {toastSuccess && <div role="status" aria-live="polite" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastSuccess}</div>}
         {toastError   && <div role="alert" aria-live="assertive" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastError}</div>}
@@ -18969,7 +19092,7 @@ export default function App() {
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     const tk = adminTickets;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
         {/* Header */}
         <div style={{ background:"linear-gradient(135deg,#0f172a,#3A86FF)", padding:"48px 20px 24px" }}>
           <button style={{ background:"none", border:"none", color:"#fff", opacity:.85, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
@@ -19065,7 +19188,7 @@ export default function App() {
     };
     const info = statusInfo[docStatus];
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
           <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -19202,7 +19325,7 @@ export default function App() {
     };
     const info = statusInfo[antStatus];
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
           <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -19308,7 +19431,7 @@ export default function App() {
   if (tela === "meus-tickets") {
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
           <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
             ← Voltar
@@ -19509,7 +19632,7 @@ export default function App() {
     // Tela de detalhe do tópico
     if (topicoAtivo) {
       return (
-        <div style={{ ...S.appShell, paddingBottom:80, background:"var(--bg-app,#f0f2f5)" }}>
+        <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : 480, paddingBottom:80, background:"var(--bg-app,#f0f2f5)" }}>
           <div style={{ background:corAcento, padding:"16px 20px", display:"flex", alignItems:"center", gap:12 }}>
             <button style={{ background:"none", border:"none", color:"#fff", fontSize:22, cursor:"pointer", padding:0 }} onClick={() => setTopicoAtivo(null)}>←</button>
             <div style={{ flex:1 }}>
@@ -19591,7 +19714,7 @@ export default function App() {
 
     // Lista de tópicos
     return (
-      <div style={{ ...S.appShell, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : 480, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
         {/* Header */}
         <div style={{ background:corAcento, padding:"20px 20px 16px" }}>
           <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
@@ -19750,7 +19873,7 @@ export default function App() {
     const planoAtivo = isEmp ? plans.empregador : plans.diarista;
 
     return (
-      <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 80%)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 80%)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 760 : 480, margin:"0 auto", paddingBottom:40 }}>
 
         {/* Header */}
         <div style={{ padding:"52px 24px 0" }}>
@@ -19871,7 +19994,7 @@ export default function App() {
   return (
     <div style={{ minHeight:"100vh", background:"#0f172a", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" }}>
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16, padding:32 }}>
-        <div style={{ fontSize:48 }}>⚡</div>
+        <img src="/icon-192.png" alt="" width={64} height={64} style={{ borderRadius:16 }} />
         <div style={{ fontSize:28, fontWeight:900, color:"#fff" }}>Diária<span style={{ color:"#FF6B35" }}>Já</span></div>
         <p style={{ color:"var(--text-2,#64748b)", fontSize:14 }}>Algo deu errado. Toque para voltar ao início.</p>
         <button
