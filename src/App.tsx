@@ -622,6 +622,17 @@ export default function App() {
   // Permite mostrar "Aguarde..." só no botão clicado, não nos 2.
   const [criandoAssinatura, setCriandoAssinatura] = useState<false | string>(false);
   const [modalLimiteContato, setModalLimiteContato] = useState(false);
+  // ── Onda 1 (dinheiro): retorno robusto do MP + retomada de seleção ────────
+  // confirmandoPagamento dirige o banner pós-retorno do Mercado Pago:
+  //   "polling"  = voltou com ?sucesso → re-consulta a contagem a cada 5s (≤60s)
+  //   "pendente" = MP deixou em análise → aviso persistente (dispensável)
+  //   "timeout"  = 60s sem confirmação → banner com "Verificar de novo"/Suporte
+  // O webhook continua sendo a fonte da verdade (hidratação no login cobre o
+  // retorno tardio/outro dispositivo) — isso aqui é só feedback ativo de UI.
+  const [confirmandoPagamento, setConfirmandoPagamento] = useState<null | "polling" | "pendente" | "timeout">(null);
+  // Contexto da seleção que originou a cobrança R$1 (pra retomar após pagar).
+  const [selecaoPendente, setSelecaoPendente] = useState<{ diariaId: string; diaristaId: string } | null>(null);
+  const [retomarSelecao, setRetomarSelecao] = useState<{ diariaId: string; diaristaId: string } | null>(null);
   // Cota de VAGAS DE EMPREGO (plano grátis: 3/mês). Estado vindo da RPC
   // `pode_postar_vaga_emprego`; o modal abre quando estourou e exige pagar avulso.
   const [modalLimiteVagaEmprego, setModalLimiteVagaEmprego] = useState(false);
@@ -2106,6 +2117,71 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id]);
 
+  // 8.6) Confirmação ativa do R$1 (retorno do MP com ?sucesso) — re-consulta a
+  //      contagem a cada 5s por até 60s. Detecta a confirmação comparando com o
+  //      baseline salvo antes do redirect; sem baseline (retorno tardio/outro
+  //      device) confirma otimista após 2 ciclos — a hidratação do login e o
+  //      realtime garantem a correção do estado de qualquer forma.
+  useEffect(() => {
+    if (confirmandoPagamento !== "polling") return;
+    let cancelado = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let tentativas = 0;
+    let ctx: { baseline?: number; selecao?: { diariaId: string; diaristaId: string } | null; conviteId?: string | null; ts?: number } | null = null;
+    try { ctx = JSON.parse(localStorage.getItem("diariaja_pgto_r1") || "null"); } catch { /* ignore */ }
+    const ctxValido = !!(ctx && typeof ctx.ts === "number" && Date.now() - ctx.ts < 30 * 60_000);
+    const baseline = ctxValido && typeof ctx!.baseline === "number" ? ctx!.baseline : null;
+    const confirmar = () => {
+      if (cancelado) return;
+      setConfirmandoPagamento(null);
+      try { localStorage.removeItem("diariaja_pgto_r1"); } catch { /* ignore */ }
+      if (ctxValido && ctx?.selecao) {
+        setToastSuccess("✅ Pagamento confirmado! Retomando sua seleção…");
+        setRetomarSelecao(ctx.selecao);
+      } else {
+        // Saída limpa sem contexto (expirou/outro device): o crédito já conta
+        // no servidor — basta selecionar de novo que a RPC autoriza.
+        setToastSuccess("✅ Desbloqueio confirmado! Selecione o interessado para continuar.");
+      }
+    };
+    const tick = async () => {
+      if (cancelado) return;
+      tentativas++;
+      const { data } = await supabase.rpc("contar_contatos_desbloqueados_mes");
+      if (cancelado) return;
+      if (typeof data === "number") {
+        setContatosDesbloqueados(data);
+        if (baseline !== null && data > baseline) { confirmar(); return; }
+        if (baseline === null && tentativas >= 2) { confirmar(); return; }
+      }
+      // Convite pago: recarrega pra `pago_em` refletir sem depender só do realtime.
+      if (session?.user && modoAtual === "empregador") void carregarConvites(session.user.id, "empregador");
+      if (tentativas >= 12) { if (!cancelado) setConfirmandoPagamento("timeout"); return; }
+      timer = setTimeout(tick, 5000);
+    };
+    timer = setTimeout(tick, 1500);
+    return () => { cancelado = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmandoPagamento]);
+
+  // 8.7) Retomada da seleção pós-pagamento: espera estar na home do anunciante
+  //      com as diárias carregadas e reabre o MESMO fluxo (selecionarCandidato →
+  //      RPC re-valida no servidor → termo de ciência). One-shot.
+  useEffect(() => {
+    if (!retomarSelecao || !profile) return;
+    if (tela !== "home-empregador") { setTela("home-empregador"); return; }
+    if (diarias.length === 0) return; // ainda carregando — re-roda quando `diarias` popular
+    const d = diarias.find(x => x.id === retomarSelecao.diariaId);
+    setRetomarSelecao(null);
+    if (!d) {
+      setToastError("Não encontramos mais esse anúncio — abra o interessado e selecione de novo (seu desbloqueio já está valendo).");
+      return;
+    }
+    setModalLimiteContato(false);
+    void selecionarCandidato(d, retomarSelecao.diaristaId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retomarSelecao, tela, diarias, profile]);
+
   // 9) Realtime: contratante é notificado quando diarista responde ao convite
   useEffect(() => {
     if (!session?.user || modoAtual !== "empregador") return;
@@ -2461,21 +2537,26 @@ export default function App() {
       }, 1500);
     }
 
-    if (urlParams.get("contato_desbloqueado") === "sucesso") {
-      // Webhook do MP é fonte da verdade: insere na tabela contatos_desbloqueios
-      // quando o pagamento é aprovado. O client só recarrega a contagem.
-      // Pequeno atraso pra dar tempo do webhook processar antes do RPC retornar.
-      setTimeout(() => {
-        void supabase.rpc("contar_contatos_desbloqueados_mes").then(({ data }) => {
-          if (typeof data === "number") setContatosDesbloqueados(data);
-        });
-      }, 1200);
+    // ── Retorno do MP após desbloqueio R$1 — trata os 3 estados do back_url.
+    // Antes só `sucesso` era tratado; `falha`/`pendente` caíam em silêncio.
+    const retornoR1 = urlParams.get("contato_desbloqueado");
+    if (retornoR1) {
+      window.history.replaceState({}, "", window.location.pathname);
       // Limpa chave antiga do localStorage (legado — não é mais source of truth)
       try {
         const chave = "diariaja_contatos_desblo_" + new Date().toISOString().slice(0, 7);
         localStorage.removeItem(chave);
       } catch { /* ignore */ }
-      window.history.replaceState({}, "", window.location.pathname);
+      if (retornoR1 === "sucesso") {
+        // Webhook é a fonte da verdade — o banner "Confirmando…" + polling
+        // (efeito de confirmandoPagamento) assume a partir daqui.
+        setConfirmandoPagamento("polling");
+      } else if (retornoR1 === "pendente") {
+        setConfirmandoPagamento("pendente");
+      } else if (retornoR1 === "falha") {
+        try { localStorage.removeItem("diariaja_pgto_r1"); } catch { /* ignore */ }
+        setToastError("Pagamento não concluído — nada foi cobrado. Quando quiser, abra o interessado e tente de novo.");
+      }
     }
 
     // ── Retorno do MP após publicar vaga de emprego avulsa ─────────────────
@@ -4623,7 +4704,7 @@ export default function App() {
     if (!destinatario) {
       // Sem o outro lado definido (ex.: diária 'aceita' mas sem diarista_aceite_id).
       // Antes saía em silêncio: usuário digitava, clicava e achava que mandou.
-      setToastError("Chat ainda não disponível — aguardando a confirmação da outra parte.");
+      setToastError("Chat ainda não disponível — falta a outra parte confirmar. Você será avisado por notificação assim que liberar.");
       return;
     }
     // Anti-exit filter: detecta tentativa de sair do app
@@ -4893,17 +4974,29 @@ export default function App() {
       );
       const data = await resp.json().catch(() => ({} as { checkout_url?: string; error?: string }));
       if (resp.ok && data.checkout_url) {
+        // Persiste o contexto ANTES do redirect (o state do React se perde):
+        // baseline da contagem (pra detectar o webhook no retorno) + a seleção
+        // que originou a cobrança (pra retomar automático). Expira em 30min —
+        // no retorno tardio/outro device a hidratação do login cobre tudo.
+        try {
+          localStorage.setItem("diariaja_pgto_r1", JSON.stringify({
+            baseline: contatosDesbloqueados,
+            selecao: selecaoPendente,
+            conviteId: conviteId ?? null,
+            ts: Date.now(),
+          }));
+        } catch { /* ignore */ }
         window.location.href = data.checkout_url;
         return;
       }
-      // Mostra o motivo real (vem da Edge Function) — ajuda diagnóstico.
-      const motivo = data.error || `HTTP ${resp.status}`;
-      setToastError(`❌ Não foi possível gerar link de pagamento: ${motivo}`);
+      // Motivo técnico vai pro console (diagnóstico); o usuário vê ação clara.
+      console.warn("[desbloquearContato] falha:", data.error || `HTTP ${resp.status}`);
+      setToastError("❌ Não foi possível gerar o link de pagamento. Tente de novo em instantes — se continuar, fale com o suporte.");
     } catch (err) {
       const isAbort = err instanceof Error && err.name === "AbortError";
       setToastError(isAbort
-        ? "⏱ Demorou muito pra responder. Tenta de novo (a primeira chamada pode ser lenta)."
-        : "❌ Erro de conexão. Verifique sua internet.");
+        ? "⏱ O Mercado Pago demorou pra responder. Tente novamente — a primeira tentativa pode ser mais lenta."
+        : "❌ Sem conexão. Verifique sua internet e tente de novo.");
       console.warn("[desbloquearContato] erro:", err instanceof Error ? err.message : String(err));
     } finally {
       clearTimeout(timeoutId);
@@ -5090,6 +5183,8 @@ export default function App() {
         exige_cobranca_r1: boolean;
       } | null;
       if (dec?.exige_cobranca_r1) {
+        // Guarda o contexto pra retomar a seleção automaticamente após o R$1.
+        setSelecaoPendente({ diariaId: diaria.id, diaristaId });
         setModalLimiteContato(true);
         trackEvento("limite_contato_atingido", session?.user?.id, "empregador", {
           plano: dec.plano, selecoes_mes: dec.selecoes_mes,
@@ -5104,6 +5199,7 @@ export default function App() {
       // Em caso de erro de rede, melhor abrir modal de pagamento (conservador)
       // do que liberar seleção indevida.
       if (plans.empregador === "gratis" && limits.empregador.cobrancaR1Iminente) {
+        setSelecaoPendente({ diariaId: diaria.id, diaristaId });
         setModalLimiteContato(true);
         return;
       }
@@ -10211,6 +10307,72 @@ export default function App() {
         {modalConfirmLogout}
         {bannerBeta}
 
+        {/* ── Banner: confirmação do pagamento R$1 (retorno do MP) ── */}
+        {confirmandoPagamento === "polling" && (
+          <div style={{ margin:"10px 16px 0", background:"#fffbeb", border:"1.5px solid #fcd34d", borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:10 }}>
+            <span aria-hidden style={{ display:"inline-block", width:16, height:16, border:"2.5px solid #f59e0b", borderTopColor:"transparent", borderRadius:"50%", animation:"spin .8s linear infinite", flexShrink:0 }} />
+            <div style={{ fontSize:13, color:"#92400e", fontWeight:700, lineHeight:1.4 }}>
+              Confirmando seu pagamento… isso leva alguns segundos.
+            </div>
+          </div>
+        )}
+        {confirmandoPagamento === "pendente" && (
+          <div style={{ margin:"10px 16px 0", background:"#eff6ff", border:"1.5px solid #93c5fd", borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"flex-start", gap:10 }}>
+            <span style={{ fontSize:18, flexShrink:0 }}>🕐</span>
+            <div style={{ flex:1, fontSize:13, color:"#1d4ed8", lineHeight:1.5 }}>
+              <strong>Pagamento em análise no Mercado Pago.</strong> Liberamos automaticamente assim que confirmar — você será avisado por notificação.
+            </div>
+            <button aria-label="Dispensar aviso" style={{ background:"none", border:"none", color:"#60a5fa", fontSize:18, cursor:"pointer", padding:"2px 6px", lineHeight:1 }} onClick={() => setConfirmandoPagamento(null)}>✕</button>
+          </div>
+        )}
+        {confirmandoPagamento === "timeout" && (
+          <div style={{ margin:"10px 16px 0", background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:14, padding:"12px 14px" }}>
+            <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
+              <span style={{ fontSize:18, flexShrink:0 }}>⏳</span>
+              <div style={{ flex:1, fontSize:13, color:"#9a3412", lineHeight:1.5 }}>
+                <strong>O pagamento ainda não foi confirmado.</strong> Se você pagou, pode levar alguns minutos — seu desbloqueio aparece sozinho assim que o Mercado Pago confirmar.
+              </div>
+              <button aria-label="Dispensar aviso" style={{ background:"none", border:"none", color:"#fb923c", fontSize:18, cursor:"pointer", padding:"2px 6px", lineHeight:1 }} onClick={() => setConfirmandoPagamento(null)}>✕</button>
+            </div>
+            <div style={{ display:"flex", gap:8, marginTop:10 }}>
+              <button style={{ flex:1, padding:"10px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => setConfirmandoPagamento("polling")}>
+                🔄 Verificar de novo
+              </button>
+              <button style={{ flex:1, padding:"10px", background:"#fff", color:"#9a3412", border:"1.5px solid #fdba74", borderRadius:10, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => setTela("suporte")}>
+                🎧 Falar com suporte
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Banner: diária em andamento com horário encerrado → lembrar check-out ── */}
+        {(() => {
+          const agora = new Date();
+          const pendentesCheckout = diarias.filter(d => {
+            if (d.status !== "em_andamento" || !d.data || !d.horario_fim) return false;
+            const fim = new Date(`${d.data}T${d.horario_fim.length === 5 ? d.horario_fim : "23:59"}:00`);
+            return !isNaN(fim.getTime()) && fim < agora;
+          });
+          if (pendentesCheckout.length === 0) return null;
+          const d0 = pendentesCheckout[0];
+          return (
+            <div style={{ margin:"10px 16px 0", background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:14, padding:"12px 14px" }}>
+              <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>✅</span>
+                <div style={{ flex:1, fontSize:13, color:"#166534", lineHeight:1.5 }}>
+                  <strong>O serviço de {d0.funcao} terminou?</strong> Conclua com o check-out pra liberar a avaliação{pendentesCheckout.length > 1 ? ` (+${pendentesCheckout.length - 1} outra${pendentesCheckout.length > 2 ? "s" : ""} pendente${pendentesCheckout.length > 2 ? "s" : ""})` : ""}.
+                </div>
+              </div>
+              <button style={{ width:"100%", marginTop:10, padding:"10px", background:"#16a34a", color:"#fff", border:"none", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => concluirDiaria(d0.id)}>
+                Concluir "{d0.funcao}" agora →
+              </button>
+            </div>
+          );
+        })()}
+
         {/* ── Header ── */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
@@ -11319,6 +11481,15 @@ export default function App() {
                 <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:3 }}>
                   Toque em um perfil para ver detalhes · anúncio: <strong>{modalCandidatos.funcao || modalCandidatos.segmento}</strong>
                 </div>
+                {/* Aviso prévio: a cota grátis do mês acabou — a próxima seleção é paga.
+                    Usa o cálculo de UI que já existe (useLimits); a decisão final
+                    continua sendo da RPC no servidor. */}
+                {plans.empregador === "gratis" && limits.empregador.cobrancaR1Iminente && (
+                  <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:20, padding:"5px 12px", marginTop:8 }}>
+                    <span style={{ fontSize:13 }}>💳</span>
+                    <span style={{ fontSize:12, color:"#9a3412", fontWeight:700 }}>Sua próxima seleção custa R$ 1 (cota grátis do mês usada)</span>
+                  </div>
+                )}
               </div>
               <div style={{ padding:"12px 16px 32px", display:"flex", flexDirection:"column", gap:12 }}>
                 {candidaturas
@@ -11992,7 +12163,7 @@ export default function App() {
                     </div>
                     <button
                       style={{ width:"100%", padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                  onClick={() => { setModalLimiteContato(false); setTela("planos"); }}>
+                  onClick={() => { setModalLimiteContato(false); setSelecaoPendente(null); setTela("planos"); }}>
                       Ver planos →
                     </button>
                   </div>
@@ -12001,7 +12172,7 @@ export default function App() {
 
               <button
                 style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                onClick={() => setModalLimiteContato(false)}>
+                onClick={() => { setModalLimiteContato(false); setSelecaoPendente(null); }}>
                 Agora não
               </button>
             </div>
@@ -13509,8 +13680,8 @@ export default function App() {
                     aceitar o serviço aqui. 3 estados: aguardando pagamento /
                     pago-confirme / confirmado-abrir chat. */}
                 {!c.pago_em ? (
-                  <div style={{ width:"100%", background:"rgba(255,255,255,.2)", color:"#fff", borderRadius:10, padding:"11px", fontWeight:700, fontSize:13, textAlign:"center" as const }}>
-                    ⏳ Aguardando o anunciante liberar o contato…
+                  <div style={{ width:"100%", background:"rgba(255,255,255,.2)", color:"#fff", borderRadius:10, padding:"11px", fontWeight:700, fontSize:13, textAlign:"center" as const, lineHeight:1.45 }}>
+                    ⏳ Aguardando o anunciante liberar o contato — avisaremos você por notificação assim que estiver pronto.
                   </div>
                 ) : !c.presenca_confirmada_em ? (
                   <button
@@ -13536,7 +13707,7 @@ export default function App() {
           const c = convDetalhe;
           const statusLabel = c.presenca_confirmada_em ? "Serviço confirmado"
             : c.pago_em ? "Contato liberado — confirme o serviço"
-            : "Aguardando o anunciante liberar o contato";
+            : "Aguardando o anunciante liberar o contato — você será avisado";
           const statusCor = c.presenca_confirmada_em ? "#16a34a" : c.pago_em ? "#3A86FF" : "#f59e0b";
           const linha = (icone: string, label: string, valor: string) => (
             <div style={{ display:"flex", gap:10, padding:"9px 0", borderBottom:"1px solid var(--border,#eef2f7)" }}>
