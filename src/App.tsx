@@ -72,7 +72,7 @@ import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
-  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow,
+  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
@@ -3847,10 +3847,17 @@ export default function App() {
 
   const responderConvite = async (conviteId: string, resposta: "aceito" | "recusado") => {
     const conv = convitesRecebidos.find(c => c.id === conviteId);
+    // Guarda: não dá pra ACEITAR um convite cuja data/hora já passou (a UI já
+    // esconde vencidos, mas protege contra estado velho em memória).
+    if (resposta === "aceito" && conv && conviteExpirou(conv)) {
+      setToastError("Este convite já expirou — a data e o horário do serviço já passaram.");
+      setConvDetalhe(null);
+      return;
+    }
     const { error } = await supabase.from("convites")
       .update({ status: resposta })
       .eq("id", conviteId);
-    if (error) { setToastError("Erro ao responder convite."); return; }
+    if (error) { setToastError(traduzirErroBanco(error)); return; }
     setConvitesRecebidos(prev => prev.map(c => c.id === conviteId ? { ...c, status: resposta } : c));
     setToastSuccess(resposta === "aceito" ? "✅ Convite aceito! O anunciante será notificado." : "❌ Convite recusado.");
     // Notifica o anunciante sobre a resposta (antes não havia push de volta)
@@ -3903,8 +3910,22 @@ export default function App() {
   };
 
   const cancelarConvite = async (conviteId: string) => {
-    const { error } = await supabase.from("convites").delete().eq("id", conviteId);
-    if (error) { setToastError("Erro ao cancelar convite."); return; }
+    if (!session?.user) return;
+    // Lição C4 em ESCRITA: DELETE barrado por RLS NÃO retorna erro — retorna
+    // sucesso com 0 linhas. O .select("id") devolve o que foi deletado de
+    // verdade; 0 linhas = falha visível (nunca fingir sucesso). Requer a
+    // policy contratante_cancela_convite (migration de mesmo nome).
+    const { data, error } = await supabase.from("convites")
+      .delete()
+      .eq("id", conviteId)
+      .eq("contratante_id", session.user.id)
+      .select("id");
+    if (error) { setToastError(traduzirErroBanco(error)); return; }
+    if (!data || data.length === 0) {
+      setToastError("Não foi possível cancelar este convite. Atualize a tela e tente de novo — se continuar, fale com o suporte.");
+      void carregarConvites(session.user.id, "empregador");
+      return;
+    }
     setConvitesEnviados(prev => prev.filter(c => c.id !== conviteId));
     setConfirmCancelarConvite(null);
     setToastSuccess("🗑️ Convite cancelado.");
@@ -10956,14 +10977,14 @@ export default function App() {
               })()}
 
               {/* ── Convites: Pendentes ── */}
-              {convitesEnviados.filter(c => c.status === "pendente").length > 0 && (
+              {convitesEnviados.filter(c => c.status === "pendente" && !conviteExpirou(c)).length > 0 && (
                 <div style={{ marginBottom:20 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
                     <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>⏳ Aguardando resposta</span>
-                    <span style={{ background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c=>c.status==="pendente").length}</span>
+                    <span style={{ background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c => c.status === "pendente" && !conviteExpirou(c)).length}</span>
                   </div>
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
-                    {convitesEnviados.filter(c => c.status === "pendente").map(c => {
+                    {convitesEnviados.filter(c => c.status === "pendente" && !conviteExpirou(c)).map(c => {
                       const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
                       return (
                         <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:"4px solid #f59e0b" }}>
@@ -10990,6 +11011,50 @@ export default function App() {
                               </button>
                             )}
                           </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Convites: Expirados (pendentes cuja data/hora já passou) ──
+                  Sem regra no servidor: a fonte é o helper conviteExpirou. O
+                  excluir usa o MESMO cancelarConvite (agora com policy DELETE). */}
+              {convitesEnviados.filter(c => c.status === "pendente" && conviteExpirou(c)).length > 0 && (
+                <div style={{ marginBottom:20 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                    <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>⏰ Expirados</span>
+                    <span style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c => c.status === "pendente" && conviteExpirou(c)).length}</span>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+                    {convitesEnviados.filter(c => c.status === "pendente" && conviteExpirou(c)).map(c => {
+                      const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
+                      return (
+                        <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:"4px solid #94a3b8", opacity:0.9 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+                            <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>{c.diarista_nome}</div>
+                            <span style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800, whiteSpace:"nowrap" as const }}>⏰ Expirado</span>
+                          </div>
+                          {c.funcao && <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:4 }}>🛠 {c.funcao}</div>}
+                          <div style={{ fontSize:12, color:"var(--text-label,#475569)", display:"flex", flexWrap:"wrap" as const, gap:8 }}>
+                            <span>📅 {dataFmt}</span>
+                            <span>🕐 {c.horario_servico}</span>
+                          </div>
+                          <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:10, padding:"8px 12px", fontSize:12, color:"var(--text-2,#64748b)", fontWeight:600, margin:"10px 0" }}>
+                            O prestador não respondeu a tempo — a data/horário do serviço já passou. Convide de novo com outra data, se quiser.
+                          </div>
+                          {confirmCancelarConvite === c.id ? (
+                            <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:10, padding:"8px 12px" }}>
+                              <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Excluir este convite?</span>
+                              <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => cancelarConvite(c.id)}>Sim</button>
+                              <button style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setConfirmCancelarConvite(null)}>Não</button>
+                            </div>
+                          ) : (
+                            <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, cursor:"pointer", textDecoration:"underline", padding:0 }} onClick={() => setConfirmCancelarConvite(c.id)}>
+                              🗑️ Excluir convite
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -13700,12 +13765,12 @@ export default function App() {
         )}
 
         {/* ── Convites diretos pendentes ── */}
-        {convitesRecebidos.filter(c => c.status === "pendente").length > 0 && (
+        {convitesRecebidos.filter(c => c.status === "pendente" && !conviteExpirou(c)).length > 0 && (
           <div style={{ margin:"12px 16px 0" }}>
             <div style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)", marginBottom:8 }}>
-              📨 Convites diretos ({convitesRecebidos.filter(c => c.status === "pendente").length})
+              📨 Convites diretos ({convitesRecebidos.filter(c => c.status === "pendente" && !conviteExpirou(c)).length})
             </div>
-            {convitesRecebidos.filter(c => c.status === "pendente").map(c => (
+            {convitesRecebidos.filter(c => c.status === "pendente" && !conviteExpirou(c)).map(c => (
               <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:10, boxShadow:"0 2px 10px rgba(0,0,0,.07)", border:"1.5px solid #FF6B3530" }}>
                 <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:8 }}>
                   <div>

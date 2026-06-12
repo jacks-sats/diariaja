@@ -19,6 +19,7 @@ import {
   validarEmail,
   validarTelefone,
   vagaExpirou,
+  conviteExpirou,
   formatarDistancia,
   tempoEstimadoMin,
   formatarTempo,
@@ -1376,5 +1377,33 @@ describe("cota de vagas de emprego", () => {
   it("tolera entradas inválidas (negativas / NaN)", () => {
     expect(vagaEmpregoExcedeuCota(-5, -2, "gratis")).toBe(false);
     expect(vagaEmpregoExcedeuCota(NaN, NaN, "gratis")).toBe(false);
+  });
+});
+
+describe("conviteExpirou", () => {
+  const agora = new Date("2026-06-12T13:37:00");
+  it("expira convite pendente com data/hora já passada", () => {
+    expect(conviteExpirou({ data_servico: "2026-06-12", horario_servico: "06:00", status: "pendente" }, agora)).toBe(true);
+  });
+  it("não expira convite pendente com horário futuro no mesmo dia", () => {
+    expect(conviteExpirou({ data_servico: "2026-06-12", horario_servico: "15:00", status: "pendente" }, agora)).toBe(false);
+  });
+  it("não expira convite de data futura", () => {
+    expect(conviteExpirou({ data_servico: "2026-06-13", horario_servico: "06:00", status: "pendente" }, agora)).toBe(false);
+  });
+  it("só status pendente expira (aceito/confirmado/recusado nunca)", () => {
+    expect(conviteExpirou({ data_servico: "2026-06-10", horario_servico: "06:00", status: "aceito" }, agora)).toBe(false);
+    expect(conviteExpirou({ data_servico: "2026-06-10", horario_servico: "06:00", status: "confirmado" }, agora)).toBe(false);
+    expect(conviteExpirou({ data_servico: "2026-06-10", horario_servico: "06:00", status: "recusado" }, agora)).toBe(false);
+  });
+  it("sem horário, só expira depois do fim do dia (23:59)", () => {
+    expect(conviteExpirou({ data_servico: "2026-06-12", horario_servico: null, status: "pendente" }, agora)).toBe(false);
+    expect(conviteExpirou({ data_servico: "2026-06-11", horario_servico: null, status: "pendente" }, agora)).toBe(true);
+  });
+  it("horário malformado cai no fim do dia (não expira indevidamente)", () => {
+    expect(conviteExpirou({ data_servico: "2026-06-12", horario_servico: "ab:cd", status: "pendente" }, agora)).toBe(false);
+  });
+  it("sem data_servico nunca expira", () => {
+    expect(conviteExpirou({ data_servico: null, horario_servico: "06:00", status: "pendente" }, agora)).toBe(false);
   });
 });

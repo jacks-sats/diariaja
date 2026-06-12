@@ -1156,3 +1156,26 @@ export function vagaEmpregoExcedeuCota(
 ): boolean {
   return Math.max(0, postadasMes || 0) >= limiteVagasEmpregoMes(extrasPagas, plano);
 }
+
+// ── Convite direto vencido: a data/hora do serviço já passou e o prestador ──
+// não respondeu (status ainda 'pendente'). Não há regra no servidor — este
+// helper é a fonte da UI dos DOIS lados: anunciante vê badge "Expirado";
+// prestador deixa de ver o convite e não consegue aceitar vencido.
+// Sem horário, considera o fim do dia (23:59) — só expira no dia seguinte.
+export function conviteExpirou(
+  conv: { data_servico?: string | null; horario_servico?: string | null; status?: string },
+  agora: Date = new Date(),
+): boolean {
+  if (conv.status && conv.status !== "pendente") return false;
+  if (!conv.data_servico) return false;
+  // Number("") === 0 (!) — parse manual: vazio/ausente/inválido => NaN => 23:59
+  const [hRaw, mRaw] = (conv.horario_servico || "").trim().split(":");
+  const h = hRaw ? Number(hRaw) : NaN;
+  const m = mRaw ? Number(mRaw) : NaN;
+  const hOk = !Number.isNaN(h) ? h : 23;
+  const mOk = !Number.isNaN(m) ? m : 59;
+  // Horário local (sem timezone) — convites são locais ao usuário, igual vagaExpirou
+  const inicio = new Date(`${conv.data_servico}T${String(hOk).padStart(2, "0")}:${String(mOk).padStart(2, "0")}:00`);
+  if (Number.isNaN(inicio.getTime())) return false;
+  return agora.getTime() > inicio.getTime();
+}
