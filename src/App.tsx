@@ -6373,7 +6373,7 @@ export default function App() {
     // CEP ainda o usa; aqui sobrescrevemos só o fundo).
     <div style={{ ...S.splash, background:"#f8fafc" }}>
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
-        <div style={{ fontSize:56, animation:"pulse 1.5s ease-in-out infinite" }}>⚡</div>
+        <img src="/icon-192.png" alt="" width={72} height={72} style={{ borderRadius:18, boxShadow:"0 8px 24px rgba(255,107,53,.25)", animation:"pulse 1.5s ease-in-out infinite" }} />
         <div style={{ fontSize:36, fontWeight:900, color:"#0f172a", letterSpacing:-1 }}>
           Diária<span style={{ color:"#FF6B35" }}>Já</span>
         </div>
@@ -6747,7 +6747,7 @@ export default function App() {
 
             {/* Header */}
             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
-              <div style={{ width:46, height:46, borderRadius:14, background:"rgba(255,107,53,.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>⚡</div>
+              <img src="/icon-192.png" alt="" width={46} height={46} style={{ borderRadius:14, flexShrink:0 }} />
               <div>
                 <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>
                   Diária<span style={{ color:"#FF6B35" }}>Já</span>
@@ -6850,7 +6850,7 @@ export default function App() {
 
       {/* Hero */}
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"28px 0 26px", position:"relative", zIndex:1 }}>
-        <div style={{ width:72, height:72, borderRadius:36, background:"linear-gradient(135deg,#FF6B35,#fb923c)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:34, boxShadow:"0 8px 24px rgba(255,107,53,.35), 0 0 0 6px rgba(255,107,53,.1)", marginBottom:14 }}>⚡</div>
+        <img src="/icon-192.png" alt="" width={72} height={72} style={{ borderRadius:20, boxShadow:"0 8px 24px rgba(255,107,53,.35), 0 0 0 6px rgba(255,107,53,.1)", marginBottom:14 }} />
         <div style={{ fontSize:32, fontWeight:900, letterSpacing:-1, color:"#0f172a" }}>
           Diária<span style={{ color:"#FF6B35" }}>Já</span>
         </div>
@@ -7016,7 +7016,7 @@ export default function App() {
       </button>
 
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"24px 0 32px" }}>
-        <div style={{ fontSize:36, marginBottom:8 }}>⚡</div>
+        <img src="/icon-192.png" alt="" width={52} height={52} style={{ borderRadius:14, marginBottom:8, boxShadow:"0 4px 14px rgba(255,107,53,.25)" }} />
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-0.5 }}>
           <span style={{ color:"#0f172a" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
@@ -7087,7 +7087,7 @@ export default function App() {
       </button>
 
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"24px 0 28px" }}>
-        <div style={{ fontSize:36, filter:"drop-shadow(0 0 16px #FF6B35)", marginBottom:8 }}>⚡</div>
+        <img src="/icon-192.png" alt="" width={52} height={52} style={{ borderRadius:14, marginBottom:8, boxShadow:"0 0 16px rgba(255,107,53,.5)" }} />
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-0.5 }}>
           <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
@@ -7867,8 +7867,8 @@ export default function App() {
         </div>
 
         <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:12, marginTop:24 }}>
-          <div style={{ fontSize:18, marginBottom:4 }}>⚡</div>
-          <strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0<br />Campo Grande, MS
+          <img src="/icon-192.png" alt="" width={28} height={28} style={{ borderRadius:8, marginBottom:4 }} />
+          <br /><strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0<br />Campo Grande, MS
         </div>
 
         {/* Modal confirmar excluir conta */}
@@ -8543,8 +8543,8 @@ export default function App() {
 
         {/* Versão */}
         <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:12, marginTop:24 }}>
-          <div style={{ fontSize:20, marginBottom:4 }}>⚡</div>
-          <strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0 · Beta<br />
+          <img src="/icon-192.png" alt="" width={28} height={28} style={{ borderRadius:8, marginBottom:4 }} />
+          <br /><strong style={{ color:"#FF6B35" }}>DiáriaJá</strong> v1.0.0 · Beta<br />
           Feito com ❤️ em Campo Grande, MS<br />
           suporte@diariaja.com.br
         </div>
@@ -19994,7 +19994,7 @@ export default function App() {
   return (
     <div style={{ minHeight:"100vh", background:"#0f172a", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" }}>
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16, padding:32 }}>
-        <div style={{ fontSize:48 }}>⚡</div>
+        <img src="/icon-192.png" alt="" width={64} height={64} style={{ borderRadius:16 }} />
         <div style={{ fontSize:28, fontWeight:900, color:"#fff" }}>Diária<span style={{ color:"#FF6B35" }}>Já</span></div>
         <p style={{ color:"var(--text-2,#64748b)", fontSize:14 }}>Algo deu errado. Toque para voltar ao início.</p>
         <button

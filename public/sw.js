@@ -1,10 +1,11 @@
 // Service Worker — DiáriaJá PWA
 // v2 — estratégia network-first para HTML (evita tela branca após deploy)
 // v4 — corrige "Response body is already used" na rota de assets (clone síncrono)
-const CACHE = "diariajaV4";
+// v5 — ícones novos (pin DJ): bump invalida o cache dos PNGs antigos
+const CACHE = "diariajaV5";
 
 // Só pré-cacheia assets estáticos imutáveis (nunca o index.html)
-const STATIC_ASSETS = ["/icon-192.png", "/icon-512.png", "/manifest.json"];
+const STATIC_ASSETS = ["/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/manifest.json"];
 
 self.addEventListener("install", e => {
   e.waitUntil(
