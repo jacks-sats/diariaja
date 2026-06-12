@@ -765,22 +765,18 @@ export default function App() {
     return () => mq.removeEventListener?.("change", upd);
   }, []);
 
-  // Desktop: as telas de auth/onboarding são uma coluna de 480px centralizada.
-  // Sem isso, num monitor largo as laterais ficavam brancas (parecia uma tira
-  // no meio). Pintamos o fundo do body pra a coluna virar um "painel"
-  // centralizado: escuro nas telas de gradiente (login/cadastro de entrada) e
-  // var(--bg-surface) — respeita dark mode — nas telas claras (wizards/setup).
-  // No celular (isDesktop=false) nada muda. Reseta ao sair pra não afetar o app.
+  // Desktop: o app é uma coluna centralizada. Sem isso, num monitor largo as
+  // laterais ficavam brancas (parecia uma tira no meio). Pintamos o fundo do
+  // body pra a coluna virar um "painel" centralizado e integrado.
+  // Agora o tema é CLARO em todas as telas → fundo `var(--bg-surface)` (que no
+  // light mode é exatamente #f8fafc e respeita o dark mode). Exceção: as telas
+  // ainda no gradiente escuro (cadastro-auth), que serão clareadas na próxima
+  // onda. No celular (isDesktop=false) nada muda. Reseta ao sair.
   useEffect(() => {
-    const ESCURAS = new Set(["login", "cadastro-tipo", "cadastro-auth"]);
-    const CLARAS = new Set([
-      "cadastro-diarista", "cadastro-empregador", "cadastro-empresa", "escolha-negocio",
-      "verificar-telefone", "verificar-documento", "alterar-senha", "pedir-localizacao",
-      "setup-diarista", "setup-empregador",
-    ]);
+    const ESCURAS = new Set(["cadastro-auth"]);
     if (isDesktop && ESCURAS.has(tela)) {
       document.body.style.background = "#0a1428";
-    } else if (isDesktop && CLARAS.has(tela)) {
+    } else if (isDesktop) {
       document.body.style.background = "var(--bg-surface, #f8fafc)";
     } else {
       document.body.style.background = "";
@@ -6977,7 +6973,7 @@ export default function App() {
 
   // CADASTRO TIPO
   if (tela === "cadastro-tipo") return (
-    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth: isDesktop ? 880 : 480, margin:"0 auto", padding:"0 24px 40px" }}>
 
       <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setTela("splash")}>
         ← Voltar
@@ -6991,43 +6987,32 @@ export default function App() {
         <p style={{ color:"#64748b", fontSize:15, marginTop:8 }}>Você quer contratar ou trabalhar?</p>
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:12 }}>
+      {/* Desktop (>1024px): os 3 cards lado a lado numa linha (repeat(3,1fr)).
+          Mobile: 2 PF na 1ª linha + empresa ocupando a linha toda (1/-1) —
+          idêntico ao layout anterior. Cada card mantém seu estilo original. */}
+      <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, 1fr)" : "1fr 1fr", gap:14, marginBottom:24, alignItems:"stretch" as const }}>
         {[
-          { key:"empregador", icone:"🏢", label:"Quero contratar", desc:"Publique e receba interessados verificados em minutos" },
-          { key:"diarista",   icone:"👷", label:"Quero trabalhar", desc:"Apareça pra quem contrata e receba propostas hoje" },
+          { key:"empregador", icone:"🏢", label:"Quero contratar",     desc:"Publique e receba interessados verificados em minutos",     accent:"#FF6B35", pad:"24px 14px", gap:10, icSize:36, labSize:16, descSize:12.5 },
+          { key:"diarista",   icone:"👷", label:"Quero trabalhar",      desc:"Apareça pra quem contrata e receba propostas hoje",          accent:"#FF6B35", pad:"24px 14px", gap:10, icSize:36, labSize:16, descSize:12.5 },
+          { key:"empresa",    icone:"🏢", label:"Sou empresa (CNPJ)",   desc:"Contrate em nome da empresa e fortaleça sua marca local",     accent:"#3A86FF", pad:"18px 14px", gap:8,  icSize:30, labSize:14, descSize:12 },
         ].map(t => {
           const ativo = tipo === t.key;
           return (
             <div key={t.key}
-              style={{ position:"relative" as const, background: ativo ? "#FF6B3510" : "#fff", border: ativo ? "2.5px solid #FF6B35" : "1.5px solid #e2e8f0", borderRadius:20, padding:"24px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:10, cursor:"pointer", transition:"all .15s", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
+              style={{ position:"relative" as const, gridColumn: (!isDesktop && t.key === "empresa") ? "1 / -1" : "auto", background: ativo ? t.accent+"10" : "#fff", border: ativo ? `2.5px solid ${t.accent}` : "1.5px solid #e2e8f0", borderRadius:20, padding:t.pad, display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", gap:t.gap, cursor:"pointer", transition:"all .15s", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
               onClick={() => { hapticTick(); setTipo(t.key); }}>
               {ativo && (
-                <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(255,107,53,.4)" }}>✓</div>
+                <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:t.accent, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:`0 2px 8px ${t.accent}66` }}>✓</div>
               )}
-              <span style={{ fontSize:36 }}>{t.icone}</span>
-              <span style={{ fontWeight:800, fontSize:16, color:"#0f172a" }}>{t.label}</span>
-              <span style={{ fontSize:12.5, color:"#64748b", textAlign:"center", lineHeight:1.4 }}>{t.desc}</span>
+              <span style={{ fontSize:t.icSize }}>{t.icone}</span>
+              <span style={{ fontWeight:800, fontSize:t.labSize, color:"#0f172a", textAlign:"center" as const }}>{t.label}</span>
+              <span style={{ fontSize:t.descSize, color:"#64748b", textAlign:"center" as const, lineHeight:1.4 }}>{t.desc}</span>
             </div>
           );
         })}
       </div>
-      {/* Card empresa — linha separada, largura total */}
-      {(() => {
-        const ativo = tipo === "empresa";
-        return (
-          <div
-            style={{ position:"relative" as const, background: ativo ? "#3A86FF10" : "#fff", border: ativo ? "2.5px solid #3A86FF" : "1.5px solid #e2e8f0", borderRadius:20, padding:"18px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:8, cursor:"pointer", marginBottom:24, transition:"all .15s", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
-            onClick={() => { hapticTick(); setTipo("empresa"); }}>
-            {ativo && (
-              <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#3A86FF", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(58,134,255,.4)" }}>✓</div>
-            )}
-            <span style={{ fontSize:30 }}>🏢</span>
-            <span style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>Sou empresa (CNPJ)</span>
-            <span style={{ fontSize:12, color:"#64748b", textAlign:"center" as const, lineHeight:1.4 }}>Contrate em nome da empresa e fortaleça sua marca local</span>
-          </div>
-        );
-      })()}
 
+      <div style={{ width:"100%", maxWidth: isDesktop ? 440 : "none", margin:"0 auto" }}>
       <button style={{ width:"100%", padding:"15px", background: tipo ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor: tipo ? "pointer" : "not-allowed", fontFamily:"Inter, system-ui, sans-serif", boxShadow: tipo ? "0 4px 16px rgba(255,107,53,.4)" : "none", transition:"all .2s" }}
         disabled={!tipo}
         aria-disabled={!tipo}
@@ -7053,6 +7038,7 @@ export default function App() {
         Ao continuar, você concorda com os{" "}
         <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#64748b", textDecoration:"underline" }}>Termos e a Política de Privacidade</a>.
       </p>
+      </div>
     </div>
   );
 
@@ -13205,7 +13191,7 @@ export default function App() {
     };
 
     return (
-      <div style={{ ...S.appShell, paddingBottom: 76, background: "#f0f2f5" }}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingBottom: 76, background: "#f0f2f5" }}>
 
         {/* Modal global de logout (mesmo motivo do home-empregador) */}
         {modalConfirmLogout}
@@ -13662,7 +13648,10 @@ export default function App() {
             </div>
 
             <div
-              style={{ padding:"0 16px 24px", display:"flex", flexDirection:"column", gap:12, transform:`translateY(${puxando}px)`, transition: puxando === 0 ? "transform .3s" : "none" }}
+              style={ isDesktop
+                ? { padding:"0 16px 24px", display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(330px, 1fr))", gap:16, alignItems:"start" as const, maxWidth:1100, margin:"0 auto", width:"100%", boxSizing:"border-box" as const, transform:`translateY(${puxando}px)`, transition: puxando === 0 ? "transform .3s" : "none" }
+                : { padding:"0 16px 24px", display:"flex", flexDirection:"column" as const, gap:12, transform:`translateY(${puxando}px)`, transition: puxando === 0 ? "transform .3s" : "none" }
+              }
               onTouchStart={e => {
                 if (window.scrollY > 0) return;     // só ativa no topo da página
                 ptrStartY.current = e.touches[0].clientY;
@@ -13698,7 +13687,7 @@ export default function App() {
               {loading ? (
                 <SkeletonList count={4} altura={100} />
               ) : vagasFiltradas.length === 0 ? (
-                <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"36px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"36px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined }}>
                   <div style={{ width:80, height:80, borderRadius:40, background:"var(--bg-subtle,#f1f5f9)", display:"inline-flex", alignItems:"center", justifyContent:"center", marginBottom:12 }}>
                     <Inbox size={36} color="var(--text-3,#94a3b8)" strokeWidth={1.5} />
                   </div>
@@ -13996,7 +13985,9 @@ export default function App() {
                       </div>
                     </div>
                     {mostrarBannerAposCard && (
-                      <BannerJaDecolaInline index={Math.floor(idx / 6)} paraDiarista={true} />
+                      <div style={{ gridColumn: isDesktop ? "1 / -1" : undefined }}>
+                        <BannerJaDecolaInline index={Math.floor(idx / 6)} paraDiarista={true} />
+                      </div>
                     )}
                     </React.Fragment>
                   );
