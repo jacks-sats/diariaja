@@ -769,14 +769,10 @@ export default function App() {
   // laterais ficavam brancas (parecia uma tira no meio). Pintamos o fundo do
   // body pra a coluna virar um "painel" centralizado e integrado.
   // Agora o tema é CLARO em todas as telas → fundo `var(--bg-surface)` (que no
-  // light mode é exatamente #f8fafc e respeita o dark mode). Exceção: as telas
-  // ainda no gradiente escuro (cadastro-auth), que serão clareadas na próxima
-  // onda. No celular (isDesktop=false) nada muda. Reseta ao sair.
+  // light mode é exatamente #f8fafc e respeita o dark mode).
+  // No celular (isDesktop=false) nada muda. Reseta ao sair.
   useEffect(() => {
-    const ESCURAS = new Set(["cadastro-auth"]);
-    if (isDesktop && ESCURAS.has(tela)) {
-      document.body.style.background = "#0a1428";
-    } else if (isDesktop) {
+    if (isDesktop) {
       document.body.style.background = "var(--bg-surface, #f8fafc)";
     } else {
       document.body.style.background = "";
@@ -7080,18 +7076,18 @@ export default function App() {
 
   // CADASTRO AUTH (email/senha + Google)
   if (tela === "cadastro-auth") return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
 
-      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
+      <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
         ← Voltar
       </button>
 
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"24px 0 28px" }}>
-        <img src="/icon-192.png" alt="" width={52} height={52} style={{ borderRadius:14, marginBottom:8, boxShadow:"0 0 16px rgba(255,107,53,.5)" }} />
+        <img src="/icon-192.png" alt="" width={52} height={52} style={{ borderRadius:14, marginBottom:8, boxShadow:"0 4px 14px rgba(255,107,53,.25)" }} />
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-0.5 }}>
-          <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
+          <span style={{ color:"#0f172a" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"var(--text-3,#94a3b8)", fontSize:14, marginTop:6 }}>Crie sua conta grátis</p>
+        <p style={{ color:"#64748b", fontSize:14, marginTop:6 }}>Crie sua conta grátis</p>
         {/* Microcopy contextual baseado no tipo de perfil */}
         {tipo === "empregador" && (
           <p style={{ color:"#FF6B35", fontSize:13, fontWeight:600, marginTop:6, textAlign:"center" }}>
@@ -7099,18 +7095,18 @@ export default function App() {
           </p>
         )}
         {tipo === "diarista" && (
-          <p style={{ color:"#4ade80", fontSize:13, fontWeight:600, marginTop:6, textAlign:"center" }}>
+          <p style={{ color:"#16a34a", fontSize:13, fontWeight:600, marginTop:6, textAlign:"center" }}>
             💼 Cadastre-se e comece a receber propostas de serviços.
           </p>
         )}
         {tipo === "empresa" && (
-          <p style={{ color:"#60a5fa", fontSize:13, fontWeight:600, marginTop:6, textAlign:"center" }}>
+          <p style={{ color:"#1d4ed8", fontSize:13, fontWeight:600, marginTop:6, textAlign:"center" }}>
             🏢 Você precisará do CNPJ da empresa no próximo passo.
           </p>
         )}
       </div>
 
-      <div style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"24px 20px" }}>
+      <div style={{ background:"#fff", border:"1px solid #eef2f7", borderRadius:24, padding:"24px 20px", boxShadow:"0 2px 12px rgba(0,0,0,.08)" }}>
         {/* Cadastro com Google — disponível pra Diarista e Empregador PF.
             Bloqueado pra Empresa PJ (fluxo dedicado em cadastro-empresa). */}
         {tipo !== "empresa" && (
@@ -7118,14 +7114,14 @@ export default function App() {
             <button
               type="button"
               aria-label="Cadastrar com Google"
-              style={{ width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }}
+              style={{ width:"100%", padding:"13px", background:"#fff", color:"#0f172a", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:4 }}
               onClick={handleGoogleLogin}>
               {GoogleSVG} Cadastrar com Google
             </button>
             <div style={{ display:"flex", alignItems:"center", gap:10, margin:"16px 0" }}>
-              <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
-              <span style={{ color:"var(--text-label,#475569)", fontSize:12 }}>ou com e-mail</span>
-              <div style={{ flex:1, height:1, background:"rgba(255,255,255,.1)" }} />
+              <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+              <span style={{ color:"#94a3b8", fontSize:12 }}>ou com e-mail</span>
+              <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
             </div>
           </>
         )}
@@ -7137,23 +7133,23 @@ export default function App() {
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Nome completo</label>
         <input id="cad-nome" aria-label="Nome completo" type="text" autoComplete="name"
-          style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+          style={{ width:"100%", padding:"13px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, background:"#f8fafc", color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="Ex: Maria Oliveira" value={form.nome}
           onChange={e => setForm({ ...form, nome: e.target.value })} />
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Telefone (WhatsApp)</label>
         <input id="cad-tel" aria-label="Telefone" type="tel" inputMode="numeric" autoComplete="tel" maxLength={15}
-          style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+          style={{ width:"100%", padding:"13px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, background:"#f8fafc", color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="(67) 99999-9999" value={form.telefone}
           onChange={e => setForm({ ...form, telefone: maskTelefone(e.target.value) })} />
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>E-mail</label>
-        <input id="cad-email" aria-label="E-mail" type="email" autoComplete="email" style={{ width:"100%", padding:"13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
+        <input id="cad-email" aria-label="E-mail" type="email" autoComplete="email" style={{ width:"100%", padding:"13px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, background:"#f8fafc", color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none", marginBottom:12 }}
           placeholder="seu@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value.trim()})} />
 
         <label style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, display:"block", marginBottom:6 }}>Senha</label>
         <div style={{ position:"relative" as const }}>
-          <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid rgba(255,255,255,.12)", borderRadius:12, fontSize:15, background:"rgba(255,255,255,.07)", color:"#f1f5f9", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none" }}
+          <input style={{ width:"100%", padding:"13px 46px 13px 16px", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:15, background:"#f8fafc", color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, outline:"none" }}
             id="cad-senha" aria-label="Senha" autoComplete="new-password" placeholder="Mín. 8 caracteres, com letra e número" type={mostrarSenhaCadastro ? "text" : "password"} value={form.senha} onChange={e=>setForm({...form,senha:e.target.value})} />
           <button type="button" aria-label={mostrarSenhaCadastro ? "Ocultar senha" : "Mostrar senha"} style={{ position:"absolute" as const, right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:18, padding:0, lineHeight:1 }}
             onClick={() => setMostrarSenhaCadastro(p => !p)}>
@@ -7175,7 +7171,7 @@ export default function App() {
             <div style={{ marginTop:6 }}>
               <div style={{ display:"flex", gap:4 }}>
                 {[0,1,2,3].map(i => (
-                  <div key={i} style={{ flex:1, height:4, borderRadius:2, background: i < nivel ? cores[nivel] : "rgba(255,255,255,.1)", transition:"background .2s" }} />
+                  <div key={i} style={{ flex:1, height:4, borderRadius:2, background: i < nivel ? cores[nivel] : "#e2e8f0", transition:"background .2s" }} />
                 ))}
               </div>
               <p style={{ fontSize:11, color: cores[nivel], fontWeight:700, margin:"4px 0 0" }}>
@@ -7185,7 +7181,7 @@ export default function App() {
           );
         })()}
 
-        {authError && <p style={{ color:"#f87171", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>{authError}</p>}
+        {authError && <p style={{ color:"#dc2626", fontSize:13, fontWeight:600, marginTop:8, textAlign:"center" }}>{authError}</p>}
 
         {/* ── Consentimento de Termos (obrigatório antes de criar conta) ── */}
         <label aria-label="Aceite dos Termos de Uso" style={{ display:"flex", alignItems:"flex-start", gap:10, cursor:"pointer", margin:"16px 0 4px", background:"#f8fafc", borderRadius:12, padding:"12px 14px", border:`1.5px solid ${checkTermos?"#FF6B35":"#e2e8f0"}` }}>
@@ -16673,20 +16669,20 @@ export default function App() {
     };
 
     return (
-      <div style={S.splash}>
+      <div style={{ ...S.splash, background:"#f8fafc" }}>
         <div style={{ ...S.splashInner, maxWidth: 360, width:"100%" }}>
           <div style={{ fontSize:64 }}>📍</div>
-          <h2 style={{ color:"#fff", fontSize:22, fontWeight:900, textAlign:"center", margin:"8px 0" }}>
+          <h2 style={{ color:"#0f172a", fontSize:22, fontWeight:900, textAlign:"center", margin:"8px 0" }}>
             Informe seu CEP
           </h2>
-          <p style={{ color:"var(--text-3,#94a3b8)", textAlign:"center", fontSize:14, lineHeight:1.6, marginBottom:20 }}>
+          <p style={{ color:"#64748b", textAlign:"center", fontSize:14, lineHeight:1.6, marginBottom:20 }}>
             Usamos seu CEP para mostrar anúncios e profissionais próximos a você. Não compartilhamos seu endereço exato.
           </p>
 
           {/* CEP input */}
           <div style={{ display:"flex", gap:8, width:"100%", marginBottom:8 }}>
             <input
-              style={{ ...S.input, flex:1, marginBottom:0, background:"#1e293b", color:"#fff", borderColor:"#334155" }}
+              style={{ ...S.input, flex:1, marginBottom:0, background:"#fff", color:"#0f172a", borderColor:"#e2e8f0" }}
               placeholder="00000-000"
               maxLength={9}
               value={cepLoc}
@@ -16706,11 +16702,11 @@ export default function App() {
 
           {/* Feedback */}
           {geocodOk && (
-            <div style={{ display:"flex", alignItems:"center", gap:8, background:"#052e16", border:"1.5px solid #16a34a", borderRadius:12, padding:"10px 14px", width:"100%", marginBottom:8 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"10px 14px", width:"100%", marginBottom:8 }}>
               <span>✅</span>
               <div>
-                <p style={{ color:"#4ade80", fontSize:13, fontWeight:700, margin:0 }}>Localização definida!</p>
-                {form.bairro && form.cidade && <p style={{ color:"#86efac", fontSize:12, margin:"2px 0 0" }}>📍 {form.bairro}, {form.cidade}</p>}
+                <p style={{ color:"#16a34a", fontSize:13, fontWeight:700, margin:0 }}>Localização definida!</p>
+                {form.bairro && form.cidade && <p style={{ color:"#15803d", fontSize:12, margin:"2px 0 0" }}>📍 {form.bairro}, {form.cidade}</p>}
               </div>
             </div>
           )}
@@ -16728,7 +16724,7 @@ export default function App() {
               </button>
             );
           })()}
-          <p style={{ color:"var(--text-3,#94a3b8)", fontSize:11, textAlign:"center", marginTop:8, lineHeight:1.5 }}>
+          <p style={{ color:"#94a3b8", fontSize:11, textAlign:"center", marginTop:8, lineHeight:1.5 }}>
             Você pode informar ou alterar o CEP a qualquer momento no seu perfil.
           </p>
         </div>
@@ -19873,16 +19869,16 @@ export default function App() {
     const planoAtivo = isEmp ? plans.empregador : plans.diarista;
 
     return (
-      <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 80%)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 760 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 760 : 480, margin:"0 auto", paddingBottom:40 }}>
 
         {/* Header */}
         <div style={{ padding:"52px 24px 0" }}>
-          <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:24, padding:0 }}
+          <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:24, padding:0 }}
             onClick={() => setTela(isEmp ? "home-empregador" : "home-diarista")}>← Voltar</button>
           <div style={{ textAlign:"center", marginBottom:32 }}>
             <div style={{ fontSize:44, marginBottom:10 }}>🚀</div>
-            <div style={{ fontSize:26, fontWeight:900, color:"#fff", lineHeight:1.2, marginBottom:8 }}>Escolha seu plano</div>
-            <div style={{ fontSize:14, color:"var(--text-3,#94a3b8)", lineHeight:1.6 }}>
+            <div style={{ fontSize:26, fontWeight:900, color:"#0f172a", lineHeight:1.2, marginBottom:8 }}>Escolha seu plano</div>
+            <div style={{ fontSize:14, color:"#64748b", lineHeight:1.6 }}>
               {isEmp ? "Publique mais anúncios e encontre os melhores profissionais de CG." : "Apareça em primeiro e receba mais oportunidades de serviço."}
             </div>
             {planoAtivo !== "gratis" && (
@@ -19898,7 +19894,7 @@ export default function App() {
           {(planos as readonly { id: string; nome: string; valor: number; cor: string; recursos: readonly string[]; destaque: boolean; popular?: boolean }[]).map(p => {
             const ativo = planoAtivo === p.id;
             return (
-              <div key={p.id} style={{ background: ativo ? "rgba(255,107,53,.15)" : "rgba(255,255,255,.06)", border: ativo ? `2px solid ${p.cor}` : `1px solid rgba(255,255,255,.12)`, borderRadius:22, padding:"22px 20px", position:"relative" as const }}>
+              <div key={p.id} style={{ background: ativo ? p.cor+"10" : "#fff", border: ativo ? `2px solid ${p.cor}` : "1px solid #e2e8f0", borderRadius:22, padding:"22px 20px", position:"relative" as const, boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
 
                 {/* Badge popular */}
                 {(p as {popular?: boolean}).popular && !ativo && (
@@ -19915,15 +19911,15 @@ export default function App() {
                 {/* Cabeçalho do plano */}
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
                   <div>
-                    <div style={{ fontSize:18, fontWeight:900, color:"#fff" }}>{p.nome}</div>
+                    <div style={{ fontSize:18, fontWeight:900, color:"#0f172a" }}>{p.nome}</div>
                     {p.valor === 0
-                      ? <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:2 }}>Sempre grátis</div>
-                      : <div style={{ fontSize:13, color:"var(--text-3,#94a3b8)", marginTop:2 }}>por 30 dias</div>
+                      ? <div style={{ fontSize:13, color:"#64748b", marginTop:2 }}>Sempre grátis</div>
+                      : <div style={{ fontSize:13, color:"#94a3b8", marginTop:2 }}>por 30 dias</div>
                     }
                   </div>
                   <div style={{ textAlign:"right" }}>
                     {p.valor === 0
-                      ? <div style={{ fontSize:28, fontWeight:900, color:"var(--text-2,#64748b)" }}>R$ 0</div>
+                      ? <div style={{ fontSize:28, fontWeight:900, color:"#64748b" }}>R$ 0</div>
                       : <div style={{ fontSize:28, fontWeight:900, color:p.cor }}>R$ {p.valor}</div>
                     }
                   </div>
@@ -19936,7 +19932,7 @@ export default function App() {
                       <div style={{ width:18, height:18, borderRadius:9, background:`${p.cor}30`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                         <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1,5 4,8 9,2" stroke={p.cor} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
                       </div>
-                      <span style={{ fontSize:13, color:"#cbd5e1", lineHeight:1.4 }}>{r}</span>
+                      <span style={{ fontSize:13, color:"#475569", lineHeight:1.4 }}>{r}</span>
                     </div>
                   ))}
                 </div>
@@ -19957,7 +19953,7 @@ export default function App() {
                   );
                 })()}
                 {ativo && p.valor > 0 && (
-                  <div style={{ textAlign:"center", fontSize:13, color:"#4ade80", fontWeight:700, marginTop:4 }}>
+                  <div style={{ textAlign:"center", fontSize:13, color:"#16a34a", fontWeight:700, marginTop:4 }}>
                     ✅ Você já está neste plano
                   </div>
                 )}
@@ -19966,24 +19962,24 @@ export default function App() {
           })}
         </div>
 
-        {authError && <p style={{ color:"#f87171", fontSize:13, fontWeight:700, textAlign:"center", marginTop:16, padding:"0 24px" }}>{authError}</p>}
+        {authError && <p style={{ color:"#dc2626", fontSize:13, fontWeight:700, textAlign:"center", marginTop:16, padding:"0 24px" }}>{authError}</p>}
 
         {/* FAQ rápido */}
-        <div style={{ margin:"28px 20px 0", background:"rgba(255,255,255,.05)", borderRadius:18, padding:"18px 20px" }}>
-          <div style={{ fontWeight:800, fontSize:13, color:"var(--text-3,#94a3b8)", marginBottom:14, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Dúvidas</div>
+        <div style={{ margin:"28px 20px 0", background:"#fff", border:"1px solid #e2e8f0", borderRadius:18, padding:"18px 20px", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+          <div style={{ fontWeight:800, fontSize:13, color:"#94a3b8", marginBottom:14, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Dúvidas</div>
           {[
             { p:"Posso cancelar a qualquer momento?", r:"Sim. Você cancela pelo Mercado Pago quando quiser, sem multa." },
             { p:"Como é cobrado?", r:"Mensalmente via Mercado Pago — cartão, PIX ou saldo." },
             { p:"O plano ativa na hora?", r:"Sim. Após o pagamento confirmado, seu plano é ativado imediatamente." },
           ].map(f => (
-            <div key={f.p} style={{ marginBottom:12, paddingBottom:12, borderBottom:"1px solid rgba(255,255,255,.08)" }}>
-              <div style={{ fontSize:13, fontWeight:700, color:"#f1f5f9", marginBottom:4 }}>{f.p}</div>
-              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>{f.r}</div>
+            <div key={f.p} style={{ marginBottom:12, paddingBottom:12, borderBottom:"1px solid #f1f5f9" }}>
+              <div style={{ fontSize:13, fontWeight:700, color:"#0f172a", marginBottom:4 }}>{f.p}</div>
+              <div style={{ fontSize:12, color:"#64748b", lineHeight:1.6 }}>{f.r}</div>
             </div>
           ))}
         </div>
 
-        <p style={{ textAlign:"center", color:"#334155", fontSize:11, margin:"20px 24px 0", lineHeight:1.6 }}>
+        <p style={{ textAlign:"center", color:"#94a3b8", fontSize:11, margin:"20px 24px 0", lineHeight:1.6 }}>
           Os planos são gerenciados pelo Mercado Pago. A DiáriaJá não armazena dados de cartão.
         </p>
       </div>
