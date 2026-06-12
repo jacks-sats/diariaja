@@ -6478,28 +6478,30 @@ export default function App() {
       { ic:"🌿", n:"Jardinagem" }, { ic:"🚚", n:"Logística & Entregas" },
       { ic:"🍳", n:"Cozinha" }, { ic:"🎉", n:"Eventos" },
     ];
-    const passos = [
-      { ic:"📝", t:"Anuncie ou procure", d:"Publique uma vaga em minutos ou encontre serviço perto de você." },
-      { ic:"🤝", t:"Conecte com segurança", d:"Perfis com CPF/CNPJ verificado, avaliações reais e nível de confiança." },
-      { ic:"⚡", t:"Combine e resolva", d:"Fale pelo chat do app e acerte os detalhes. Sem burocracia." },
+    // Cards de demonstração — 100% fictícios e estáticos (mesma regra da landing
+    // mobile: tela pré-login, sem sessão; nunca puxar do banco aqui).
+    const demos = [
+      { ini:"MS", nome:"Maria S.", prof:"Repositora",         valor:120, cor:"#3A86FF" },
+      { ini:"JP", nome:"João P.",  prof:"Açougueiro",         valor:170, cor:"#FF6B35" },
+      { ini:"AL", nome:"Ana L.",   prof:"Diarista — Limpeza", valor:150, cor:"#16a34a" },
+    ];
+    const contratantes = [
+      { ic:"🛒", lab:"Supermercados" }, { ic:"🍔", lab:"Lanchonetes" },
+      { ic:"🍺", lab:"Bares" }, { ic:"🏠", lab:"Sua casa" },
     ];
     const selos = [
-      { ic:"🪪", l:"CPF / CNPJ verificado" },
+      { ic:"✅", l:"CPF verificado" },
       { ic:"⭐", l:"Avaliações reais" },
-      { ic:"💰", l:"Sem comissão na diária" },
+      { ic:"🆓", l:"Grátis pra começar" },
     ];
-    const publicos = [
-      { ic:"🔎", t:"Precisa de um serviço?", d:"Anuncie de graça e receba profissionais verificados perto de você. Escolha por avaliação e nível de confiança — e combine o valor direto, sem comissão.", cta:"Anunciar uma vaga" },
-      { ic:"💼", t:"Quer trabalhar?", d:"Crie seu perfil grátis, apareça pra quem está perto e receba convites. Você negocia o valor direto com o cliente.", cta:"Quero trabalhar" },
-    ];
-    const btnPrimary: React.CSSProperties = { padding:"14px 26px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 8px 24px rgba(255,107,53,.45)" };
-    const btnGhost: React.CSSProperties = { padding:"14px 26px", background:"transparent", color:"#e2e8f0", border:"1.5px solid rgba(255,255,255,.25)", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" };
+    const btnPrimary: React.CSSProperties = { padding:"14px 26px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 8px 24px rgba(255,107,53,.35)" };
+    const btnGhost: React.CSSProperties = { padding:"14px 26px", background:"#fff", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" };
     return (
-      <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 55%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", color:"#e2e8f0" }}>
+      <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", color:"#0f172a" }}>
         {/* Top nav */}
         <header style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"22px 48px", maxWidth:1180, margin:"0 auto" }}>
           <div style={{ fontSize:26, fontWeight:900, letterSpacing:-1 }}>
-            <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
+            <span style={{ color:"#0f172a" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
           </div>
           <div style={{ display:"flex", gap:12 }}>
             <button style={{ ...btnGhost, padding:"10px 20px", fontSize:14 }} onClick={() => setTela("login")}>Entrar</button>
@@ -6507,87 +6509,85 @@ export default function App() {
           </div>
         </header>
 
-        {/* Hero */}
+        {/* Hero — texto à esquerda, cards de demonstração à direita */}
         <section style={{ maxWidth:1180, margin:"0 auto", padding:"56px 48px 40px", display:"grid", gridTemplateColumns:"1.1fr 0.9fr", gap:48, alignItems:"center" }}>
           <div>
-            <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:"rgba(255,107,53,.12)", border:"1px solid rgba(255,107,53,.3)", borderRadius:20, padding:"6px 14px", fontSize:13, fontWeight:700, color:"#FF6B35", marginBottom:20 }}>
-              ⚡ Serviços por diária — começou em Campo Grande/MS
+            <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:20, padding:"6px 14px", fontSize:13, fontWeight:700, color:"#475569", marginBottom:20 }}>
+              📍 Campo Grande-MS
             </div>
-            <h1 style={{ fontSize:52, lineHeight:1.08, fontWeight:900, color:"#fff", letterSpacing:-1.5, margin:"0 0 18px" }}>
-              Quem você precisa,<br /><span style={{ color:"#FF6B35" }}>pertinho de você.</span>
+            <h1 style={{ fontSize:52, lineHeight:1.08, fontWeight:900, color:"#0f172a", letterSpacing:-1.5, margin:"0 0 18px" }}>
+              Precisou de gente pra hoje?<br /><span style={{ color:"#FF6B35" }}>Achou.</span>
             </h1>
-            <p style={{ fontSize:18, lineHeight:1.6, color:"#94a3b8", maxWidth:520, margin:"0 0 28px" }}>
-              Anuncie uma vaga ou encontre serviço perto de você — faxina, reparos, beleza, cuidados, frete e muito mais. Combine direto, sem complicação.
+            <p style={{ fontSize:18, lineHeight:1.6, color:"#64748b", maxWidth:520, margin:"0 0 28px" }}>
+              Diaristas e profissionais verificados, com preço na tela. Pro seu negócio ou pra sua casa.
             </p>
             <div style={{ display:"flex", gap:14, flexWrap:"wrap" as const }}>
-              <button style={btnPrimary} onClick={() => setTela("cadastro-tipo")}>Começar grátis →</button>
+              <button style={btnPrimary} onClick={() => setTela("cadastro-tipo")}>Ver profissionais agora →</button>
               <button style={btnGhost} onClick={() => setTela("login")}>Já tenho conta</button>
             </div>
             <div style={{ display:"flex", gap:18, flexWrap:"wrap" as const, marginTop:28 }}>
               {selos.map(s => (
-                <div key={s.l} style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#cbd5e1" }}>
+                <div key={s.l} style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#475569", fontWeight:600 }}>
                   <span style={{ fontSize:16 }}>{s.ic}</span> {s.l}
                 </div>
               ))}
             </div>
           </div>
-          {/* Card ilustrativo */}
-          <div style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, padding:"28px", boxShadow:"0 30px 80px rgba(0,0,0,.4)" }}>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-              {cats.map(c => (
-                <div key={c.n} style={{ background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.08)", borderRadius:14, padding:"16px 14px", display:"flex", alignItems:"center", gap:10 }}>
-                  <span style={{ fontSize:22 }}>{c.ic}</span>
-                  <span style={{ fontSize:13, fontWeight:700, color:"#f1f5f9" }}>{c.n}</span>
+          {/* Cards de demonstração (estilo dos cards reais da home) */}
+          <div style={{ display:"flex", flexDirection:"column" as const, gap:12 }}>
+            {demos.map(c => (
+              <div key={c.nome} style={{ background:"#fff", borderRadius:16, padding:"16px 18px", boxShadow:"0 4px 16px rgba(15,23,42,.06)", border:"1px solid #eef2f7", display:"flex", alignItems:"center", gap:14 }}>
+                <div style={{ width:52, height:52, borderRadius:26, background:c.cor+"18", color:c.cor, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:17, flexShrink:0 }}>{c.ini}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:800, fontSize:15, color:"#0f172a" }}>{c.nome} <span style={{ fontWeight:600, color:"#64748b" }}>· {c.prof}</span></div>
+                  <div style={{ fontSize:12.5, color:"#16a34a", fontWeight:700, marginTop:2 }}>● Disponível hoje</div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:5, flexWrap:"wrap" as const }}>
+                    <span style={{ fontSize:15, fontWeight:900, color:"#FF6B35" }}>R$ {c.valor}<span style={{ fontSize:12, fontWeight:700, color:"#94a3b8" }}>/dia</span></span>
+                    <span style={{ background:"#dcfce7", color:"#16a34a", fontSize:10.5, fontWeight:800, borderRadius:8, padding:"2px 8px" }}>✓ CPF verificado</span>
+                  </div>
                 </div>
-              ))}
+              </div>
+            ))}
+            <div style={{ textAlign:"center" as const, fontSize:13, color:"#64748b", fontWeight:600, marginTop:2 }}>
+              + dezenas de profissionais na sua região
             </div>
           </div>
         </section>
 
-        {/* Dois públicos — deixa explícito o valor pra quem contrata E pra quem
-            trabalha (o headline desktop só falava com quem contrata). */}
-        <section style={{ maxWidth:1180, margin:"0 auto", padding:"16px 48px 8px", display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
-          {publicos.map(b => (
-            <div key={b.t} style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:18, padding:"24px" }}>
-              <div style={{ fontSize:30, marginBottom:10 }}>{b.ic}</div>
-              <div style={{ fontSize:19, fontWeight:800, color:"#fff", marginBottom:8 }}>{b.t}</div>
-              <p style={{ fontSize:14, lineHeight:1.6, color:"#94a3b8", margin:"0 0 16px" }}>{b.d}</p>
-              <button style={{ ...btnGhost, padding:"10px 18px", fontSize:14 }} onClick={() => setTela("cadastro-tipo")}>{b.cta} →</button>
-            </div>
-          ))}
-        </section>
-
-        {/* Como funciona */}
-        <section style={{ maxWidth:1180, margin:"0 auto", padding:"32px 48px 56px" }}>
-          <h2 style={{ fontSize:14, fontWeight:800, color:"#FF6B35", textTransform:"uppercase" as const, letterSpacing:1, margin:"0 0 20px", textAlign:"center" as const }}>Como funciona</h2>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:20 }}>
-            {passos.map((p, i) => (
-              <div key={p.t} style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:18, padding:"24px" }}>
-                <div style={{ fontSize:30, marginBottom:10 }}>{p.ic}</div>
-                <div style={{ fontSize:17, fontWeight:800, color:"#fff", marginBottom:6 }}>{i+1}. {p.t}</div>
-                <div style={{ fontSize:14, lineHeight:1.6, color:"#94a3b8" }}>{p.d}</div>
+        {/* Quem contrata aqui */}
+        <section style={{ maxWidth:1180, margin:"0 auto", padding:"8px 48px 8px" }}>
+          <div style={{ fontSize:12, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:12 }}>Quem contrata aqui</div>
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap" as const }}>
+            {contratantes.map(c => (
+              <div key={c.lab} style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:20, padding:"9px 15px", display:"flex", alignItems:"center", gap:7 }}>
+                <span style={{ fontSize:15 }}>{c.ic}</span>
+                <span style={{ fontSize:13, color:"#0f172a", fontWeight:700 }}>{c.lab}</span>
               </div>
             ))}
           </div>
         </section>
 
-        {/* CTA final */}
-        <section style={{ maxWidth:1180, margin:"0 auto", padding:"0 48px 56px" }}>
-          <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:24, padding:"40px", textAlign:"center" as const }}>
-            <div style={{ fontSize:28, fontWeight:900, color:"#fff", marginBottom:10 }}>Pronto pra começar?</div>
-            <div style={{ fontSize:16, color:"rgba(255,255,255,.92)", marginBottom:22 }}>Grátis pra anunciar e pra procurar. Leva menos de 2 minutos.</div>
-            <button style={{ ...btnPrimary, background:"#0f172a", boxShadow:"0 8px 24px rgba(0,0,0,.3)" }} onClick={() => setTela("cadastro-tipo")}>Criar minha conta grátis →</button>
+        {/* Categorias — a grade que já existia, agora em estilo claro */}
+        <section style={{ maxWidth:1180, margin:"0 auto", padding:"24px 48px 56px" }}>
+          <h2 style={{ fontSize:13, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.8, margin:"0 0 16px" }}>Categorias</h2>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12 }}>
+            {cats.map(c => (
+              <div key={c.n} style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:14, padding:"16px 14px", display:"flex", alignItems:"center", gap:10, boxShadow:"0 2px 8px rgba(15,23,42,.04)" }}>
+                <span style={{ fontSize:22 }}>{c.ic}</span>
+                <span style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{c.n}</span>
+              </div>
+            ))}
           </div>
         </section>
 
         {/* Footer */}
-        <footer style={{ borderTop:"1px solid rgba(255,255,255,.08)", padding:"28px 48px", maxWidth:1180, margin:"0 auto", display:"flex", flexWrap:"wrap" as const, alignItems:"center", justifyContent:"space-between", gap:16, fontSize:13, color:"#64748b" }}>
+        <footer style={{ borderTop:"1px solid #e2e8f0", padding:"28px 48px", maxWidth:1180, margin:"0 auto", display:"flex", flexWrap:"wrap" as const, alignItems:"center", justifyContent:"space-between", gap:16, fontSize:13, color:"#94a3b8" }}>
           <div>© {new Date().getFullYear()} DiáriaJá · Campo Grande, MS</div>
           <div style={{ display:"flex", gap:20 }}>
-            <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Privacidade</a>
-            <a href="/excluir-conta.html" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Excluir conta</a>
-            <a href="https://instagram.com/diariaja.free" target="_blank" rel="noopener noreferrer" style={{ color:"#94a3b8", textDecoration:"none" }}>Instagram</a>
-            <a href="mailto:suporte@diariaja.com.br" style={{ color:"#94a3b8", textDecoration:"none" }}>suporte@diariaja.com.br</a>
+            <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#64748b", textDecoration:"none" }}>Privacidade</a>
+            <a href="/excluir-conta.html" target="_blank" rel="noopener noreferrer" style={{ color:"#64748b", textDecoration:"none" }}>Excluir conta</a>
+            <a href="https://instagram.com/diariaja.free" target="_blank" rel="noopener noreferrer" style={{ color:"#64748b", textDecoration:"none" }}>Instagram</a>
+            <a href="mailto:suporte@diariaja.com.br" style={{ color:"#64748b", textDecoration:"none" }}>suporte@diariaja.com.br</a>
           </div>
         </footer>
       </div>
