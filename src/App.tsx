@@ -17419,7 +17419,9 @@ export default function App() {
     );
 
     return (
-      <div style={S.page}>
+      // Desktop: formulário em container ~700px centralizado (campos width:100%
+      // acompanham). Mobile: 480px, idêntico ao anterior.
+      <div style={{ ...S.page, maxWidth: isDesktop ? 700 : 480 }}>
         <button style={S.back} onClick={() => { setAuthError(""); setTabEmpregador("perfil"); setTela("home-empregador"); }}>← Voltar</button>
 
         {/* Cabeçalho */}
