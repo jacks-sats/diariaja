@@ -6233,6 +6233,40 @@ export default function App() {
   };
 
   // Banner rotativo do Já Decola — inserido entre cards de vaga (home-diarista)
+  // ── Top nav do desktop (>1024px) ─────────────────────────────────────────
+  // Só visual: replica as abas da bottom nav numa barra fixa no topo (logo à
+  // esquerda, itens à direita, "Publicar" em destaque). Os onClick recebidos
+  // são EXATAMENTE os mesmos handlers da bottom nav — nenhuma lógica nova.
+  // É `position:fixed`, então atravessa o maxWidth do shell e ocupa a largura
+  // toda. No mobile não é renderizada (cada home só monta quando isDesktop).
+  type NavItemTopo = { key: string; label: string; icon: React.ReactNode; ativo?: boolean; destaque?: boolean; badge?: number; onClick: () => void };
+  const NavTopoDesktop = ({ items, cor }: { items: NavItemTopo[]; cor: string }) => (
+    <div style={{ position:"fixed" as const, top:0, left:0, right:0, width:"100%", zIndex:60, background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border,#e2e8f0)", boxShadow:"0 1px 10px rgba(0,0,0,.05)" }}>
+      <div style={{ maxWidth:1100, margin:"0 auto", padding:"0 24px", height:64, display:"flex", alignItems:"center", gap:6 }}>
+        <div style={{ fontSize:22, fontWeight:900, letterSpacing:-1, marginRight:"auto" }}>
+          <span style={{ color:"var(--text-1,#0f172a)" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
+        </div>
+        {items.map(it => it.destaque ? (
+          <button key={it.key} onClick={it.onClick}
+            style={{ display:"flex", alignItems:"center", gap:7, background:cor, color:"#fff", border:"none", borderRadius:12, padding:"10px 18px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 12px ${cor}55`, marginLeft:8 }}>
+            {it.icon}<span>{it.label}</span>
+          </button>
+        ) : (
+          <button key={it.key} onClick={it.onClick}
+            style={{ position:"relative" as const, display:"flex", alignItems:"center", gap:7, background: it.ativo ? cor+"14" : "transparent", color: it.ativo ? cor : "var(--text-2,#64748b)", border:"none", borderRadius:10, padding:"9px 14px", fontSize:14, fontWeight: it.ativo ? 800 : 600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+            <span style={{ position:"relative" as const, display:"inline-flex", alignItems:"center" }}>
+              {it.icon}
+              {it.badge && it.badge > 0 ? (
+                <span style={{ position:"absolute" as const, top:-6, right:-10, background:"#ef4444", color:"#fff", borderRadius:"50%", minWidth:16, height:16, padding:"0 4px", fontSize:10, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", lineHeight:"16px" }}>{it.badge > 9 ? "9+" : it.badge}</span>
+              ) : null}
+            </span>
+            <span>{it.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   // e entre cards de profissionais (home-empregador). A cada 6 cards aparece 1
   // banner; mensagem varia por índice pra não ficar repetitivo.
   const BannerJaDecolaInline = ({ index, paraDiarista }: { index: number; paraDiarista: boolean }) => {
@@ -10085,6 +10119,10 @@ export default function App() {
     // Usa constante global pré-computada (evita recalcular a cada render)
     const funcoes = TODAS_AS_FUNCOES;
     const iniciaisEmp = profile?.nome?.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase() || "?";
+    // Abrir o fluxo de publicar diária — mesma ação do FAB "Publicar" da bottom
+    // nav, extraída pra ser reusada também pelo top nav do desktop (sem duplicar
+    // o reset do formulário e sem mudar nada do comportamento).
+    const abrirCriarDiaria = () => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); };
     const hora = new Date().getHours();
     const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
     const primeiroNome = profile?.nome?.split(" ")[0] || "você";
@@ -10156,7 +10194,18 @@ export default function App() {
       });
 
     return (
-      <div style={{ ...S.appShell, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+
+        {/* Top nav do desktop — substitui a bottom nav em telas largas */}
+        {isDesktop && (
+          <NavTopoDesktop cor={negocio.cor} items={[
+            { key:"inicio",  label:"Home",    icon:<Home size={18} />,          ativo:tabEmpregador==="inicio",  onClick:()=>{ hapticTick(); setTabEmpregador("inicio"); } },
+            { key:"diarias", label:"Diárias", icon:<Briefcase size={18} />,     ativo:tabEmpregador==="diarias", onClick:()=>{ hapticTick(); setTabEmpregador("diarias"); } },
+            { key:"chat",    label:"Chat",    icon:<MessageCircle size={18} />, ativo:tabEmpregador==="chat",    badge:msgNaoLidas, onClick:()=>{ hapticTick(); setTabEmpregador("chat"); setMsgNaoLidas(0); } },
+            { key:"perfil",  label:"Perfil",  icon:<User size={18} />,          ativo:tabEmpregador==="perfil",  onClick:()=>{ hapticTick(); setTabEmpregador("perfil"); } },
+            { key:"publicar",label:"Publicar",icon:<Plus size={18} />,          destaque:true, onClick:abrirCriarDiaria },
+          ]} />
+        )}
 
         {/* Modal global de confirmação de logout (renderizado SEMPRE no escopo
             dessa home — antes ficava preso em configuracoes e não aparecia
@@ -12866,8 +12915,8 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Bottom nav — 5 abas ── */}
-        <div style={S.bottomNav}>
+        {/* ── Bottom nav — 5 abas (escondida no desktop; vira top nav) ── */}
+        <div style={{ ...S.bottomNav, ...(isDesktop ? { display:"none" as const } : {}) }}>
           <button style={{ ...S.bottomNavBtn, ...(tabEmpregador==="inicio"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>{ hapticTick(); setTabEmpregador("inicio"); }}>
             <Home size={22} strokeWidth={tabEmpregador==="inicio"?2.5:2} />
             <span>Home</span>
@@ -12878,7 +12927,7 @@ export default function App() {
           </button>
           <button style={{ ...S.bottomNavBtn, position:"relative" }}>
             <div style={{ width:52, height:52, borderRadius:26, background:negocio.cor, display:"flex", alignItems:"center", justifyContent:"center", marginTop:-20, boxShadow:`0 4px 14px ${negocio.cor}66`, border:"3px solid #f0f2f5" }}
-              onClick={() => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); }}>
+              onClick={abrirCriarDiaria}>
               <Plus size={26} color="#fff" strokeWidth={2.8} />
             </div>
             <span style={{ marginTop:2 }}>Publicar</span>
@@ -13191,7 +13240,18 @@ export default function App() {
     };
 
     return (
-      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingBottom: 76, background: "#f0f2f5" }}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom: 76, background: "#f0f2f5" }}>
+
+        {/* Top nav do desktop — substitui a bottom nav em telas largas */}
+        {isDesktop && (
+          <NavTopoDesktop cor="#FF6B35" items={[
+            { key:"inicio", label:"Home",    icon:<Home size={18} />,          ativo:tabDiarista==="inicio", onClick:()=>{ hapticTick(); setTabDiarista("inicio"); } },
+            { key:"vagas",  label:"Diárias", icon:<Briefcase size={18} />,     ativo:tabDiarista==="vagas",  onClick:()=>{ hapticTick(); setTabDiarista("vagas"); } },
+            { key:"agenda", label:"Agenda",  icon:<Clock size={18} />,         ativo:tabDiarista==="agenda", onClick:()=>{ hapticTick(); setTabDiarista("agenda"); } },
+            { key:"chat",   label:"Chat",    icon:<MessageCircle size={18} />, ativo:tabDiarista==="chat",   badge:msgNaoLidas, onClick:()=>{ hapticTick(); setTabDiarista("chat"); setMsgNaoLidas(0); } },
+            { key:"perfil", label:"Perfil",  icon:<User size={18} />,          ativo:tabDiarista==="perfil", onClick:()=>{ hapticTick(); setTabDiarista("perfil"); } },
+          ]} />
+        )}
 
         {/* Modal global de logout (mesmo motivo do home-empregador) */}
         {modalConfirmLogout}
@@ -15780,8 +15840,8 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Bottom nav — 5 abas ── */}
-        <div style={S.bottomNav}>
+        {/* ── Bottom nav — 5 abas (escondida no desktop; vira top nav) ── */}
+        <div style={{ ...S.bottomNav, ...(isDesktop ? { display:"none" as const } : {}) }}>
           <button style={{ ...S.bottomNavBtn, ...(tabDiarista==="inicio"?{ ...S.bottomNavAtivo, borderTop:"2px solid #FF6B35" }:{}) }} onClick={()=>{ hapticTick(); setTabDiarista("inicio"); }}>
             <Home size={22} strokeWidth={tabDiarista==="inicio"?2.5:2} />
             <span>Home</span>
