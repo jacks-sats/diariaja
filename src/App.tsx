@@ -12390,6 +12390,12 @@ export default function App() {
 
         {/* ── ABA CHAT EMPREGADOR ── */}
         {tabEmpregador === "chat" && (() => {
+          // Desktop (>1024px): duas colunas — lista de conversas à esquerda e a
+          // conversa aberta à direita. Mobile: comportamento IDÊNTICO ao
+          // anterior (conversa OU lista). 100% layout: os JSX da conversa e da
+          // lista abaixo são os mesmos de antes, só atribuídos a variáveis em
+          // vez de retornados direto; handlers/estado/subscriptions intocados.
+          let conversaJSX: React.ReactElement | null = null;
           // Se há chat ativo, mostra conversa
           if (chatDiariaAtiva) {
             const dp = chatDiariaAtiva.diarista_aceite_id ? diaristasAceites[chatDiariaAtiva.diarista_aceite_id] : null;
@@ -12399,7 +12405,7 @@ export default function App() {
             const nomePrestador = dp?.nome || chatDiariaAtiva._nomeChat || "Prestador";
             const fotoPrestador = dp?.foto_url || chatDiariaAtiva._fotoChat || "";
             const iniciais = nomePrestador !== "Prestador" ? nomePrestador.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() : "?";
-            return (
+            conversaJSX = (
               <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 130px)", position:"relative" }}>
                 {/* Header do chat */}
                 <div style={{ background:"var(--bg-card,#fff)", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
@@ -12523,7 +12529,7 @@ export default function App() {
               tipo_oferta: "diaria" as const,
             } as Diaria));
           const conversas = [...conversasConvitesEmp, ...conversasDiariasEmp];
-          return (
+          const listaJSX = (
             <div style={{ padding:"16px" }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
               {/* Suporte DiáriaJá — sempre no topo */}
@@ -12572,6 +12578,23 @@ export default function App() {
                   })}
                 </div>
               )}
+            </div>
+          );
+          // Mobile: idêntico ao comportamento anterior (conversa OU lista)
+          if (!isDesktop) return conversaJSX ?? listaJSX;
+          // Desktop: duas colunas
+          return (
+            <div style={{ display:"grid", gridTemplateColumns:"360px 1fr", gap:16, padding:"12px 16px 24px", alignItems:"start" as const }}>
+              <div style={{ maxHeight:"calc(100vh - 130px)", overflowY:"auto" as const }}>{listaJSX}</div>
+              <div>
+                {conversaJSX ?? (
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, height:"calc(100vh - 130px)", display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", gap:10, color:"var(--text-3,#94a3b8)", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                    <div style={{ fontSize:44 }}>💬</div>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-2,#64748b)" }}>Selecione uma conversa</div>
+                    <div style={{ fontSize:13 }}>Escolha uma conversa na lista ao lado.</div>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })()}
@@ -14628,8 +14651,11 @@ export default function App() {
 
         {/* ── ABA CHAT DIARISTA ── */}
         {tabDiarista === "chat" && (() => {
+          // Desktop: duas colunas (lista + conversa) — mesma mecânica do lado
+          // do anunciante; mobile idêntico ao anterior. 100% layout.
+          let conversaJSX: React.ReactElement | null = null;
           if (chatDiariaAtiva) {
-            return (
+            conversaJSX = (
               <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 130px)", position:"relative" }}>
                 {/* Header */}
                 <div style={{ background:"var(--bg-card,#fff)", padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 2px 8px rgba(0,0,0,.07)", flexShrink:0 }}>
@@ -14762,7 +14788,7 @@ export default function App() {
               tipo_oferta:        "diaria" as const,
             } as Diaria));
           const conversas = [...conversasConvites, ...conversasDiarias];
-          return (
+          const listaJSX = (
             <div style={{ padding:"16px" }}>
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>💬 Mensagens</div>
               {/* Suporte DiáriaJá — sempre no topo */}
@@ -14808,6 +14834,23 @@ export default function App() {
                   })}
                 </div>
               )}
+            </div>
+          );
+          // Mobile: idêntico ao comportamento anterior (conversa OU lista)
+          if (!isDesktop) return conversaJSX ?? listaJSX;
+          // Desktop: duas colunas
+          return (
+            <div style={{ display:"grid", gridTemplateColumns:"360px 1fr", gap:16, padding:"12px 16px 24px", alignItems:"start" as const }}>
+              <div style={{ maxHeight:"calc(100vh - 130px)", overflowY:"auto" as const }}>{listaJSX}</div>
+              <div>
+                {conversaJSX ?? (
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, height:"calc(100vh - 130px)", display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", gap:10, color:"var(--text-3,#94a3b8)", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                    <div style={{ fontSize:44 }}>💬</div>
+                    <div style={{ fontWeight:800, fontSize:15, color:"var(--text-2,#64748b)" }}>Selecione uma conversa</div>
+                    <div style={{ fontSize:13 }}>Escolha uma conversa na lista ao lado.</div>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })()}
