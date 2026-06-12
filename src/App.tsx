@@ -2747,13 +2747,12 @@ export default function App() {
       // Restaura o modo e a tela salvos em localStorage (sobrevive ao reload)
       const modoSalvo = localStorage.getItem("diariaja_modo") as "empregador"|"diarista" | null;
       const telaSalva = (() => { try { return localStorage.getItem("diariaja_tela") || ""; } catch { return ""; } })();
-      // Telas que NÃO devem ser restauradas (requerem autenticação/fluxo limpo)
-      // Telas que dependem de seleção em memória (não restaurar do localStorage)
-      // M3: inclui telas privilegiadas/contextuais que NÃO devem ser restauradas
-      // do localStorage (evita flash de painel admin/suporte ao recarregar e
-      // telas que precisam de contexto).
-      const TELAS_AUTH = new Set(["splash","login","cadastro-tipo","cadastro-auth","cadastro-empregador","cadastro-diarista","pedir-localizacao","perfil-empregador","perfil-diarista-real","chat","admin-painel","painel-suporte","alterar-senha","verificar-telefone","configuracoes"]);
-      const podeRestaurar = (t: string) => t && !TELAS_AUTH.has(t);
+      // C5 (auditoria): ALLOWLIST de telas restauráveis no reload — antes era
+      // blocklist e toda tela nova nascia restaurável por padrão (reabrir o app
+      // preso em criar-diaria/editar-perfil etc. parecia bug). Só restauram as
+      // telas SEM estado em memória; qualquer outra cai na home do papel.
+      const TELAS_RESTAURAVEIS = new Set(["home-diarista","home-empregador","comunidade","planos","suporte","meus-tickets"]);
+      const podeRestaurar = (t: string) => TELAS_RESTAURAVEIS.has(t);
 
       // Sem localização → manda pro CEP. Mas se o usuário JÁ informou o CEP
       // MUDANÇA (pedido do dono): a tela "informe seu CEP" NÃO é mais um muro no
@@ -2763,7 +2762,16 @@ export default function App() {
       // E o congelamento do botão dessa tela obrigatória.
       if (data.user_type === "diarista") {
         setModoAtual("diarista");
-        setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
+        // C2 (auditoria): prestador sem função/valor é INVISÍVEL pros anunciantes
+        // e não consegue se candidatar. Guarda central: resgata pro setup (cobre
+        // cadastro express via Google, cadastro por e-mail interrompido e a
+        // restauração de tela). Sai do setup ao salvar → home-diarista.
+        if (!data.funcao || !data.valor_diaria) {
+          setForm(f => ({ ...f, funcao: data.funcao || "", valor: data.valor_diaria ? String(data.valor_diaria) : "" }));
+          setTela("setup-diarista");
+        } else {
+          setTela(podeRestaurar(telaSalva) ? telaSalva : "home-diarista");
+        }
       } else if (data.user_type === "ambos" && modoSalvo === "diarista" && data.funcao && data.valor_diaria) {
         // Usuário "ambos" que estava no modo diarista → volta para diarista
         setModoAtual("diarista");
@@ -3337,8 +3345,10 @@ export default function App() {
     if (fotoGoogle) setFotoUrl(fotoGoogle);
     try { await supabase.rpc("aceitar_termos", { p_versao: TERMOS_VERSAO }); } catch { /* RPC tenta de novo no próximo login */ }
     trackEvento("cadastro_express", session.user.id, tipoEscolhido === "diarista" ? "diarista" : "empregador", { via: "google" });
-    // Direto pra home — mesmo destino do cadastro por e-mail.
-    if (tipoEscolhido === "diarista") setTela("home-diarista");
+    // C2 (auditoria): prestador SEM função/valor não aparece pros anunciantes —
+    // o express agora passa pelo setup obrigatório (1 tela) antes da home.
+    // Anunciante segue direto (o segmento é cobrado em escolha-negocio).
+    if (tipoEscolhido === "diarista") { setForm(f => ({ ...f, funcao: "", valor: "" })); setTela("setup-diarista"); }
     else if (tipoEscolhido === "empregador") setTela("home-empregador");
     else setTela("cadastro-tipo");
   };
@@ -8691,6 +8701,22 @@ export default function App() {
   // Acesso · Empresa · Endereço · Responsável · Termos.
   if (tela === "cadastro-empresa") {
     const erros = errosEmp;
+    // C6 (auditoria): CNPJ duplicado tinha aviso mas nenhuma saída — este botão
+    // leva pro login já na aba CPF/CNPJ com o CNPJ digitado pré-preenchido.
+    const irParaLoginComCNPJ = () => {
+      setAuthError("");
+      setModoLogin("cpf");
+      setLoginCpfInput(maskCNPJ(formEmp.cnpj.replace(/\D/g, "")));
+      setTela("login");
+    };
+    const cnpjDuplicado = (erros.cnpj || "").includes("já está cadastrado") || (authError || "").includes("CNPJ já");
+    const BotaoContaExistente = () => (
+      <button type="button"
+        style={{ width:"100%", marginTop:8, padding:"12px", background:"#fff", color:"#3A86FF", border:"1.5px solid #3A86FF", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+        onClick={irParaLoginComCNPJ}>
+        🔑 Entrar na conta existente →
+      </button>
+    );
     const tocados = tocadosEmp;
 
     // Helper visual: estilo do input baseado em erro tocado
@@ -8843,6 +8869,7 @@ export default function App() {
               {verificandoCnpjEmp && <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"#64748b", fontWeight:600 }}>Verificando...</span>}
             </div>
             {ErroInline("cnpj")}
+            {cnpjDuplicado && <BotaoContaExistente />}
 
             {Label("Nome Fantasia")}
             <input id="empresa-nomeFantasia" style={estiloInput("nomeFantasia")}
@@ -9096,6 +9123,7 @@ export default function App() {
             {authError}
           </p>
         )}
+        {(authError || "").includes("CNPJ já") && <BotaoContaExistente />}
 
         {/* ──────── NAVEGAÇÃO ENTRE PASSOS ──────────────────────────────────── */}
         {passoEmpresa < 4 ? (
@@ -17502,14 +17530,25 @@ export default function App() {
   // ── SETUP: adicionar perfil de DIARISTA (usuário que era só empregador) ──
   if (tela === "setup-diarista") {
     const todasFuncoes = [...new Set(Object.values(CATEGORIAS_NEGOCIO).flatMap(c => c.funcoes))].sort();
+    // C2: prestador puro chega aqui pelo resgate (sem função/valor) — o "Voltar"
+    // pra home-empregador não faz sentido pra ele; oferece sair da conta.
+    const ehPrestadorPuro = profile?.user_type === "diarista";
     return (
       <div style={S.page}>
-        <button style={S.back} onClick={() => { setAuthError(""); setTela("home-empregador"); }}>← Voltar</button>
+        {ehPrestadorPuro
+          ? <button style={S.back} onClick={() => { setAuthError(""); void handleLogout(); }}>Sair da conta</button>
+          : <button style={S.back} onClick={() => { setAuthError(""); setTela("home-empregador"); }}>← Voltar</button>}
         <div style={{ textAlign:"center", margin:"8px 0 24px" }}>
           <div style={{ fontSize:48 }}>👷</div>
           <h2 style={{ ...S.pageTitle, marginBottom:4 }}>Perfil de Prestador</h2>
           <p style={{ color:"var(--text-2,#64748b)", fontSize:13, margin:0 }}>Preencha seus dados para aparecer como prestador disponível.</p>
         </div>
+
+        {ehPrestadorPuro && (
+          <div style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:14, padding:"12px 14px", marginBottom:16, fontSize:13, color:"#9a3412", lineHeight:1.5 }}>
+            📋 <strong>Falta 1 passo</strong> pra você aparecer pros anunciantes: diga sua função e o valor da sua diária.
+          </div>
+        )}
 
         <label style={S.label}>Sua especialidade *</label>
         <select style={S.input} value={form.funcao} onChange={e => setForm({ ...form, funcao: e.target.value })}>
