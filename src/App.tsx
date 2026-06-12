@@ -6596,114 +6596,109 @@ export default function App() {
 
   // SPLASH
   if (tela === "splash") return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", position:"relative" as const, overflow:"hidden" as const }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:480, margin:"0 auto", position:"relative" as const }}>
 
-      {/* ── Brilhos de fundo + partículas flutuantes sutis ── */}
-      <div style={{ position:"absolute" as const, top:"4%", left:"50%", transform:"translateX(-50%)", width:340, height:340, background:"radial-gradient(circle,rgba(255,107,53,.22) 0%,transparent 70%)", pointerEvents:"none" as const }} />
-      <div style={{ position:"absolute" as const, top:"20%", right:"-8%", width:200, height:200, background:"radial-gradient(circle,rgba(59,130,246,.15) 0%,transparent 70%)", pointerEvents:"none" as const }} />
-      <div style={{ position:"absolute" as const, bottom:0, left:"50%", transform:"translateX(-50%)", width:380, height:200, background:"radial-gradient(ellipse,rgba(255,107,53,.08) 0%,transparent 70%)", pointerEvents:"none" as const }} />
-      {/* Partículas flutuantes (5 pontos animados) */}
-      {[
-        { l:"15%", t:"25%", s:5, d:"0s",   c:"#FF6B35" },
-        { l:"82%", t:"18%", s:4, d:"1.2s", c:"#fbbf24" },
-        { l:"25%", t:"45%", s:3, d:"2.5s", c:"#3A86FF" },
-        { l:"75%", t:"55%", s:4, d:"0.8s", c:"#FF6B35" },
-        { l:"50%", t:"15%", s:3, d:"3.2s", c:"#a78bfa" },
-      ].map((p, i) => (
-        <div key={i} style={{
-          position:"absolute" as const, left:p.l, top:p.t,
-          width:p.s, height:p.s, borderRadius:"50%",
-          background:p.c, opacity:0.3,
-          animation:`spl-float 5s ${p.d} ease-in infinite`,
-          pointerEvents:"none" as const, boxShadow:`0 0 ${p.s * 2}px ${p.c}`,
-        }} />
-      ))}
-
-      {/* ── HERO ── */}
-      <div style={{ flex:1, display:"flex", flexDirection:"column" as const, alignItems:"center", justifyContent:"center", padding:"40px 24px 16px", minHeight:"55vh", position:"relative" as const, zIndex:1 }}>
-
-        {/* Raio com glow + pulse animation */}
-        <div style={{ fontSize:80, marginBottom:14, lineHeight:1, animation:"spl-pulse 3s ease-in-out infinite" }}>⚡</div>
-
-        {/* Logo */}
-        <div style={{ fontSize:48, fontWeight:900, letterSpacing:-1.8, lineHeight:1, marginBottom:8, animation:"spl-fadein .8s ease-out" }}>
-          <span style={{ color:"#ffffff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
+      {/* ── Topo: logo + badge local ── */}
+      <div style={{ padding:"26px 24px 0", display:"flex", alignItems:"center", justifyContent:"space-between", animation:"spl-fadein .6s ease-out both" }}>
+        <div style={{ fontSize:26, fontWeight:900, letterSpacing:-1, lineHeight:1 }}>
+          <span style={{ color:"#0f172a" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
+        <div style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:20, padding:"6px 12px", fontSize:12, fontWeight:700, color:"#475569" }}>
+          📍 Campo Grande-MS
+        </div>
+      </div>
 
-        {/* Linha gradiente */}
-        <div style={{ width:180, height:2, background:"linear-gradient(90deg,transparent,#FF6B35,transparent)", marginBottom:22 }} />
-
-        {/* Headline emocional */}
-        <h1 style={{ fontSize:26, color:"#fff", textAlign:"center" as const, lineHeight:1.2, margin:"0 0 10px", fontWeight:900, letterSpacing:-0.5, animation:"spl-fadein 1s ease-out .2s both" }}>
-          Precisa de um serviço?<br />Quer trabalhar? <span style={{ color:"#FF6B35" }}>Já.</span>
+      {/* ── Headline ── */}
+      <div style={{ padding:"22px 24px 0", animation:"spl-fadein .7s ease-out .1s both" }}>
+        <h1 style={{ fontSize:28, color:"#0f172a", lineHeight:1.18, margin:"0 0 10px", fontWeight:900, letterSpacing:-0.6 }}>
+          Precisou de gente pra hoje? <span style={{ color:"#FF6B35" }}>Achou.</span>
         </h1>
-
-        {/* Sub funcional — curta, com o diferencial local (Campo Grande-MS) em
-            destaque (SEO + confiança local). "Verificados" comunica o diferencial
-            vs grupos de WhatsApp/Facebook sem precisar citá-los. */}
-        <p style={{ fontSize:15, color:"#cbd5e1", textAlign:"center" as const, lineHeight:1.6, margin:"0 0 18px", maxWidth:340, animation:"spl-fadein 1s ease-out .4s both" }}>
-          Encontre profissionais verificados na sua região. Serviços por diária em <strong style={{ color:"#fff" }}>Campo Grande-MS</strong>.
+        <p style={{ fontSize:14, color:"#64748b", lineHeight:1.6, margin:0 }}>
+          Diaristas e profissionais verificados, com preço na tela. Pro seu negócio ou pra sua casa.
         </p>
+      </div>
 
-        {/* Carrossel marquee de categorias (auto-scroll horizontal) */}
-        <div style={{ width:"100%", overflow:"hidden" as const, mask:"linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)", WebkitMask:"linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)", marginBottom:14, animation:"spl-fadein 1s ease-out .6s both" }}>
-          <div style={{ display:"flex", gap:10, width:"max-content", animation:"spl-marquee 30s linear infinite" }}>
-            {[...Array(2)].flatMap((_, dup) => [
-              { ic:"🏠", lab:"Diarista" },
-              { ic:"🔧", lab:"Reparos" },
-              { ic:"💆", lab:"Beleza" },
-              { ic:"👶", lab:"Cuidador" },
-              { ic:"🌿", lab:"Jardim" },
-              { ic:"🚚", lab:"Logística" },
-              { ic:"🍳", lab:"Cozinha" },
-              { ic:"🎉", lab:"Eventos" },
-            ].map((c, i) => (
-              <div key={`${dup}-${i}`} style={{ background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:20, padding:"8px 14px", display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
-                <span style={{ fontSize:14 }}>{c.ic}</span>
-                <span style={{ fontSize:12, color:"#f1f5f9", fontWeight:700, whiteSpace:"nowrap" as const }}>{c.lab}</span>
+      {/* ── Cards demo — 100% fictícios e estáticos (NUNCA puxar do banco aqui:
+          tela pré-login, sem sessão; e evita expor dados reais). O estilo
+          espelha o card real da home (bg branco, radius 16, sombra leve). ── */}
+      <div style={{ padding:"18px 24px 0", display:"flex", flexDirection:"column" as const, gap:10 }}>
+        {[
+          { ini:"MS", nome:"Maria S.", prof:"Repositora",         valor:120, cor:"#3A86FF", d:".25s" },
+          { ini:"JP", nome:"João P.",  prof:"Açougueiro",         valor:260, cor:"#FF6B35", d:".4s"  },
+          { ini:"AL", nome:"Ana L.",   prof:"Diarista — Limpeza", valor:150, cor:"#16a34a", d:".55s" },
+        ].map(c => (
+          <div key={c.nome} style={{ background:"#fff", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:13, animation:`spl-fadein .7s ease-out ${c.d} both` }}>
+            <div style={{ width:48, height:48, borderRadius:24, background:c.cor+"18", color:c.cor, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, flexShrink:0 }}>{c.ini}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>{c.nome} <span style={{ fontWeight:600, color:"#64748b" }}>· {c.prof}</span></div>
+              <div style={{ fontSize:12, color:"#16a34a", fontWeight:700, marginTop:2 }}>● Disponível hoje</div>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4, flexWrap:"wrap" as const }}>
+                <span style={{ fontSize:14, fontWeight:900, color:"#FF6B35" }}>R$ {c.valor}<span style={{ fontSize:11, fontWeight:700, color:"#94a3b8" }}>/dia</span></span>
+                <span style={{ background:"#dcfce7", color:"#16a34a", fontSize:10, fontWeight:800, borderRadius:8, padding:"2px 8px" }}>✓ CPF verificado</span>
               </div>
-            )))}
+            </div>
           </div>
+        ))}
+        <div style={{ textAlign:"center" as const, fontSize:12, color:"#64748b", fontWeight:600, marginTop:2, animation:"spl-fadein .7s ease-out .7s both" }}>
+          + dezenas de profissionais na sua região
         </div>
+      </div>
 
-        {/* Selos de confiança — prova social qualitativa + diferenciais.
-            (Não citamos pagamento: a diária é combinada direto entre as partes.) */}
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const, justifyContent:"center" as const, animation:"spl-fadein 1s ease-out .8s both" }}>
+      {/* ── Quem contrata aqui ── */}
+      <div style={{ padding:"20px 24px 0", animation:"spl-fadein .7s ease-out .8s both" }}>
+        <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:9 }}>Quem contrata aqui</div>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
           {[
-            { ic:"✅", lab:"CPF verificado" },
-            { ic:"⭐", lab:"Avaliações reais" },
-            { ic:"🆓", lab:"Gratuito pra começar" },
-          ].map(s => (
-            <div key={s.lab} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:"6px 12px", display:"flex", alignItems:"center", gap:5 }}>
-              <span style={{ fontSize:13 }}>{s.ic}</span>
-              <span style={{ fontSize:12, color:"#e2e8f0", fontWeight:600 }}>{s.lab}</span>
+            { ic:"🛒", lab:"Supermercados" },
+            { ic:"🍔", lab:"Lanchonetes" },
+            { ic:"🍺", lab:"Bares" },
+            { ic:"🏠", lab:"Sua casa" },
+          ].map(c => (
+            <div key={c.lab} style={{ background:"#fff", border:"1.5px solid #e2e8f0", borderRadius:20, padding:"8px 13px", display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ fontSize:14 }}>{c.ic}</span>
+              <span style={{ fontSize:12, color:"#0f172a", fontWeight:700 }}>{c.lab}</span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ── CTAs ── */}
-      <div style={{ padding:"0 24px 32px", display:"flex", flexDirection:"column" as const, gap:10, position:"relative" as const, zIndex:1, animation:"spl-fadein 1s ease-out 1s both" }}>
+      {/* ── Selos de confiança — prova social qualitativa + diferenciais.
+          (Não citamos pagamento: a diária é combinada direto entre as partes.) ── */}
+      <div style={{ padding:"14px 24px 0", display:"flex", gap:8, flexWrap:"wrap" as const, animation:"spl-fadein .7s ease-out .9s both" }}>
+        {[
+          { ic:"✅", lab:"CPF verificado" },
+          { ic:"⭐", lab:"Avaliações reais" },
+          { ic:"🆓", lab:"Grátis pra começar" },
+        ].map(s => (
+          <div key={s.lab} style={{ background:"rgba(58,134,255,.08)", border:"1px solid rgba(58,134,255,.2)", borderRadius:20, padding:"6px 12px", display:"flex", alignItems:"center", gap:5 }}>
+            <span style={{ fontSize:13 }}>{s.ic}</span>
+            <span style={{ fontSize:12, color:"#1d4ed8", fontWeight:700 }}>{s.lab}</span>
+          </div>
+        ))}
+      </div>
 
-        {/* CTA primário — Começar grátis */}
+      {/* ── CTAs — handlers de navegação INALTERADOS (cadastro-tipo / login) ── */}
+      <div style={{ padding:"22px 24px 28px", marginTop:"auto", display:"flex", flexDirection:"column" as const, gap:10, animation:"spl-fadein .7s ease-out 1s both" }}>
+
+        {/* CTA primário */}
         <button
-          style={{ width:"100%", padding:"17px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:17, fontWeight:900, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 8px 28px rgba(255,107,53,.55)", letterSpacing:0.2, minHeight:54, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
+          style={{ width:"100%", padding:"17px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:16, fontSize:17, fontWeight:900, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 8px 24px rgba(255,107,53,.35)", letterSpacing:0.2, minHeight:54, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
           onClick={() => setTela("cadastro-tipo")}>
-          Começar grátis <span style={{ fontSize:18 }}>→</span>
+          Ver profissionais agora <span style={{ fontSize:18 }}>→</span>
         </button>
 
         {/* CTA secundário — Já tenho conta */}
         <button
-          style={{ width:"100%", padding:"13px", background:"transparent", color:"#cbd5e1", border:"1.5px solid rgba(255,255,255,.18)", borderRadius:16, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:46 }}
+          style={{ width:"100%", padding:"13px", background:"transparent", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:16, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:46 }}
           onClick={() => setTela("login")}>
           Já tenho conta · <span style={{ color:"#FF6B35", fontWeight:800 }}>Entrar</span>
         </button>
 
-        <p style={{ textAlign:"center" as const, color:"#475569", fontSize:11, margin:"6px 0 0", lineHeight:1.7 }}>
+        <p style={{ textAlign:"center" as const, color:"#94a3b8", fontSize:11, margin:"6px 0 0", lineHeight:1.7 }}>
           Ao continuar você aceita os{" "}
-          <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setMostrarTermos(true)}>Termos</span>
+          <span style={{ color:"#64748b", cursor:"pointer", textDecoration:"underline" }} onClick={() => setMostrarTermos(true)}>Termos</span>
           {" · "}
-          <span style={{ color:"#94a3b8", cursor:"pointer", textDecoration:"underline" }} onClick={() => setModalQuemSomos(true)}>Quem Somos</span>
+          <span style={{ color:"#64748b", cursor:"pointer", textDecoration:"underline" }} onClick={() => setModalQuemSomos(true)}>Quem Somos</span>
         </p>
       </div>
 
