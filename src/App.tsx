@@ -67,6 +67,7 @@ import {
   PLANOS_EMPREGADOR, PLANOS_DIARISTA,
   DIAS, DIAS_LABEL, MAX_INTERESSADOS, avatarColors, TODAS_AS_FUNCOES,
   MOTIVOS_VAGA_EXPIRADA, MOTIVOS_NO_SHOW, TEMPOS_ESTIMADOS_SERVICO, TIPO_OFERTA_PADRAO_POR_CATEGORIA,
+  GOOGLE_ADS_ID, GOOGLE_ADS_LABEL_CADASTRO_PRESTADOR,
 } from "./constants";
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
@@ -17692,6 +17693,9 @@ export default function App() {
           onClick={async () => {
             if (!form.funcao || !form.valor) { setAuthError("Preencha especialidade e valor."); return; }
             setAuthError("");
+            // Captura ANTES do save: era a 1ª conclusão do perfil de prestador?
+            // (re-salvar/editar depois não é conversão — só o cadastro de qualidade)
+            const primeiraConclusao = !profile?.funcao || !profile?.valor_diaria;
             const ok = await saveProfile({
               funcao: form.funcao,
               valor_diaria: Number(form.valor),
@@ -17699,6 +17703,24 @@ export default function App() {
               user_type: "ambos",
             });
             if (ok) {
+              // ── Conversão Google Ads: "cadastro_prestador" ─────────────────
+              // Dispara UMA vez por dispositivo, só na 1ª conclusão. Best-effort:
+              // analytics nunca quebra o fluxo. O send_to só dispara quando o
+              // rótulo (gerado no painel do Google Ads) estiver em constants.
+              if (primeiraConclusao) {
+                try {
+                  if (!localStorage.getItem("diariaja_conv_cad_prestador")) {
+                    localStorage.setItem("diariaja_conv_cad_prestador", "1");
+                    const g = (window as unknown as { gtag?: (...args: unknown[]) => void }).gtag;
+                    if (typeof g === "function") {
+                      g("event", "cadastro_prestador");
+                      if (GOOGLE_ADS_LABEL_CADASTRO_PRESTADOR) {
+                        g("event", "conversion", { send_to: `${GOOGLE_ADS_ID}/${GOOGLE_ADS_LABEL_CADASTRO_PRESTADOR}` });
+                      }
+                    }
+                  }
+                } catch { /* ignore */ }
+              }
               setTipo("ambos");
               setModoAtual("diarista");
               setTela("home-diarista");
