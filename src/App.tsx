@@ -7596,11 +7596,11 @@ export default function App() {
       // Renderiza QUIZ
       return (
         <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
-          <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px", color:"#fff" }}>
-            <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
+          <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", color:"#0f172a", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+            <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
               onClick={() => { setAcademyQuizMostrando(false); setTela("academy-curso"); }}>← Voltar</button>
             <div style={{ fontSize:24, fontWeight:900 }}>🎯 Quiz do módulo</div>
-            <div style={{ fontSize:12, color:"#94a3b8", marginTop:4 }}>Acerte ao menos 70% pra liberar o próximo módulo.</div>
+            <div style={{ fontSize:12, color:"#64748b", marginTop:4 }}>Acerte ao menos 70% pra liberar o próximo módulo.</div>
           </div>
 
           {academyQuizResultado ? (
@@ -7769,13 +7769,13 @@ export default function App() {
     const semSenhaPropria = identidadesConta.length > 0 && !identidadesConta.some(i => i.provider === "email");
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
-        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
-          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
+        <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+          <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:48, height:48, background:"rgba(255,255,255,.1)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>⚙️</div>
+            <div style={{ width:48, height:48, background:"#FF6B3518", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>⚙️</div>
             <div>
-              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Configurações</div>
-              <div style={{ fontSize:13, color:"#94a3b8" }}>Gerencie sua conta e preferências</div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#0f172a" }}>Configurações</div>
+              <div style={{ fontSize:13, color:"#64748b" }}>Gerencie sua conta e preferências</div>
             </div>
           </div>
         </div>
@@ -8505,13 +8505,13 @@ export default function App() {
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:60 }}>
         {/* Header */}
-        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 28px" }}>
-          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
+        <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 28px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+          <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
             onClick={() => setTela("configuracoes")}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🔒</div>
+            <div style={{ width:48, height:48, background:"#FF6B3518", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🔒</div>
             <div>
-              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Política de Privacidade</div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#0f172a" }}>Política de Privacidade</div>
               <div style={{ fontSize:12, color:"#64748b" }}>Atualizado em maio de 2026 · LGPD</div>
             </div>
           </div>
@@ -9303,12 +9303,12 @@ export default function App() {
         }}>← Voltar</button>
 
         {/* Header escuro com barra de XP */}
-        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", borderRadius:20, padding:"22px 22px 18px", marginTop:8, marginBottom:8, color:"#fff" }}>
+        <div style={{ background:"var(--bg-card,#fff)", border:"1px solid var(--border,#e2e8f0)", borderRadius:20, padding:"22px 22px 18px", marginTop:8, marginBottom:8, color:"#0f172a", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ fontSize:32 }}>🏠</div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:20, fontWeight:900, lineHeight:1.2 }}>Cadastro de Anunciante</div>
-              <div style={{ fontSize:12, opacity:0.85, marginTop:2 }}>
+              <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>
                 Passo {passoEmpregadorPF} de 4 — {NOMES_PASSOS_EMPPF[passoEmpregadorPF]}
               </div>
             </div>
@@ -11667,8 +11667,8 @@ export default function App() {
                     onClick={e => e.stopPropagation()}>
 
                     {/* Header do perfil */}
-                    <div style={{ background:"linear-gradient(135deg,#0f172a 0%,#1e293b 100%)", borderRadius:"24px 24px 0 0", padding:"24px 20px 20px", position:"relative" }}>
-                      <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.6)", fontSize:22, cursor:"pointer", position:"absolute", top:16, right:20, lineHeight:1 }}
+                    <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"24px 20px 20px", position:"relative", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+                      <button aria-label="Fechar" style={{ background:"none", border:"none", color:"#94a3b8", fontSize:22, cursor:"pointer", position:"absolute", top:16, right:20, lineHeight:1 }}
                         onClick={() => setPerfilCandidato(null)}>✕</button>
                       <div style={{ display:"flex", alignItems:"center", gap:16 }}>
                         <div style={{ position:"relative", width:80, height:80, flexShrink:0 }}>
@@ -11681,18 +11681,18 @@ export default function App() {
                           />
                         </div>
                         <div style={{ flex:1 }}>
-                          <div style={{ fontWeight:900, fontSize:20, color:"#fff", lineHeight:1.2 }}>{dp.nome}</div>
+                          <div style={{ fontWeight:900, fontSize:20, color:"#0f172a", lineHeight:1.2 }}>{dp.nome}</div>
                           {dp.funcao && <div style={{ fontSize:13, color:"#FF6B35", fontWeight:700, marginTop:3 }}>{dp.funcao}</div>}
                           <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:6, flexWrap:"wrap" as const }}>
                             {idade && (
-                              <span style={{ background:"rgba(255,255,255,.12)", color:"rgba(255,255,255,.8)", fontSize:12, fontWeight:600, padding:"2px 9px", borderRadius:20 }}>{idade} anos</span>
+                              <span style={{ background:"#f1f5f9", color:"#475569", fontSize:12, fontWeight:600, padding:"2px 9px", borderRadius:20 }}>{idade} anos</span>
                             )}
                             {dp.sexo && dp.sexo !== "N" && (
-                              <span style={{ background:"rgba(255,255,255,.12)", color:"rgba(255,255,255,.8)", fontSize:12, fontWeight:600, padding:"2px 9px", borderRadius:20 }}>
+                              <span style={{ background:"#f1f5f9", color:"#475569", fontSize:12, fontWeight:600, padding:"2px 9px", borderRadius:20 }}>
                                 {dp.sexo === "M" ? "Masculino" : "Feminino"}
                               </span>
                             )}
-                            <span style={{ background: dp.disponivel ? "rgba(34,197,94,.25)" : "rgba(148,163,184,.2)", color: dp.disponivel ? "#4ade80" : "rgba(255,255,255,.4)", fontSize:12, fontWeight:700, padding:"2px 9px", borderRadius:20 }}>
+                            <span style={{ background: dp.disponivel ? "#dcfce7" : "#f1f5f9", color: dp.disponivel ? "#16a34a" : "#94a3b8", fontSize:12, fontWeight:700, padding:"2px 9px", borderRadius:20 }}>
                               {dp.disponivel ? "● Disponível" : "● Indisponível"}
                             </span>
                           </div>
@@ -14584,35 +14584,35 @@ export default function App() {
             <div style={{ padding:"16px 16px 32px" }}>
 
               {/* Banner de ganho acumulado */}
-              <div style={{ background:"linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%)", borderRadius:22, padding:"22px 20px 18px", marginBottom:20, position:"relative", overflow:"hidden" }}>
-                <div style={{ position:"absolute", top:-30, right:-30, width:110, height:110, background:"rgba(255,107,53,.15)", borderRadius:"50%", pointerEvents:"none" }} />
-                <div style={{ position:"absolute", bottom:-20, left:-20, width:80, height:80, background:"rgba(93,95,239,.15)", borderRadius:"50%", pointerEvents:"none" }} />
-                <div style={{ fontSize:11, color:"rgba(255,255,255,.5)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:4 }}>💰 Ganho acumulado</div>
+              <div style={{ background:"var(--bg-card,#fff)", border:"1px solid var(--border,#e2e8f0)", boxShadow:"0 2px 8px rgba(0,0,0,.05)", borderRadius:22, padding:"22px 20px 18px", marginBottom:20, position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", top:-30, right:-30, width:110, height:110, background:"rgba(255,107,53,.08)", borderRadius:"50%", pointerEvents:"none" }} />
+                <div style={{ position:"absolute", bottom:-20, left:-20, width:80, height:80, background:"rgba(58,134,255,.08)", borderRadius:"50%", pointerEvents:"none" }} />
+                <div style={{ fontSize:11, color:"#94a3b8", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:4, position:"relative" as const }}>💰 Ganho acumulado</div>
                 {concluidas.length === 0 ? (
-                  <div style={{ marginBottom:16 }}>
-                    <div style={{ fontSize:16, fontWeight:900, color:"#fff", lineHeight:1.4, marginBottom:4 }}>
+                  <div style={{ marginBottom:16, position:"relative" as const }}>
+                    <div style={{ fontSize:16, fontWeight:900, color:"#0f172a", lineHeight:1.4, marginBottom:4 }}>
                       Sua primeira diária pode render <span style={{ color:"#FF6B35" }}>R$ 150!</span>
                     </div>
-                    <div style={{ fontSize:12, color:"rgba(255,255,255,.55)", lineHeight:1.5 }}>
+                    <div style={{ fontSize:12, color:"#64748b", lineHeight:1.5 }}>
                       Ative sua disponibilidade e comece a receber propostas.
                     </div>
                   </div>
                 ) : (
-                  <div style={{ fontSize:40, fontWeight:900, color:"#FF6B35", lineHeight:1, marginBottom:16 }}>
+                  <div style={{ fontSize:40, fontWeight:900, color:"#FF6B35", lineHeight:1, marginBottom:16, position:"relative" as const }}>
                     R$ {ganhoTotal.toLocaleString("pt-BR", { minimumFractionDigits:2 })}
                   </div>
                 )}
-                <div style={{ display:"flex", gap:0 }}>
+                <div style={{ display:"flex", gap:0, position:"relative" as const }}>
                   {(() => {
                     const hojeFmt = new Date().toISOString().split("T")[0];
                     const aceitasHoje = minhasDiarias.filter(d => d.data === hojeFmt && (d.status === "aceita" || d.status === "em_andamento"));
                     return [
-                      { n:concluidas.length,  label:"Concluídas",  cor:"#4ade80" },
-                      { n:aceitasHoje.length, label:"Aceitas hoje", cor:"#60a5fa" },
+                      { n:concluidas.length,  label:"Concluídas",  cor:"#16a34a" },
+                      { n:aceitasHoje.length, label:"Aceitas hoje", cor:"#2563EB" },
                     ].map((item, i) => (
-                      <div key={item.label} style={{ flex:1, textAlign:"center", borderLeft: i>0 ? "1px solid rgba(255,255,255,.1)" : "none", padding:"0 8px" }}>
+                      <div key={item.label} style={{ flex:1, textAlign:"center", borderLeft: i>0 ? "1px solid var(--border,#e2e8f0)" : "none", padding:"0 8px" }}>
                         <div style={{ fontWeight:900, fontSize:22, color:item.cor, lineHeight:1 }}>{item.n}</div>
-                        <div style={{ fontSize:11, color:"rgba(255,255,255,.4)", marginTop:3 }}>{item.label}</div>
+                        <div style={{ fontSize:11, color:"#94a3b8", marginTop:3 }}>{item.label}</div>
                       </div>
                     ));
                   })()}
@@ -15431,15 +15431,15 @@ export default function App() {
 
             {/* Ganhos do mês (compacto) */}
             {diariasConc.length > 0 && (
-              <div style={{ margin:"8px 16px 0", background:"linear-gradient(135deg,#0f172a,#1e3a5f)", borderRadius:16, padding:"14px 16px" }}>
-                <div style={{ fontWeight:900, fontSize:13, color:"#fff", marginBottom:10 }}>💰 Ganhos do mês</div>
+              <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", border:"1px solid var(--border,#e2e8f0)", boxShadow:"0 2px 8px rgba(0,0,0,.05)", borderRadius:16, padding:"14px 16px" }}>
+                <div style={{ fontWeight:900, fontSize:13, color:"#0f172a", marginBottom:10 }}>💰 Ganhos do mês</div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-                  <div style={{ background:"rgba(255,255,255,.08)", borderRadius:10, padding:"10px 12px" }}>
-                    <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", fontWeight:600 }}>Este mês</div>
-                    <div style={{ fontWeight:900, fontSize:18, color:"#4ade80" }}>R$ {ganhoMes.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
+                  <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:10, padding:"10px 12px" }}>
+                    <div style={{ fontSize:10, color:"#94a3b8", fontWeight:600 }}>Este mês</div>
+                    <div style={{ fontWeight:900, fontSize:18, color:"#16a34a" }}>R$ {ganhoMes.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
                   </div>
-                  <div style={{ background:"rgba(255,255,255,.08)", borderRadius:10, padding:"10px 12px" }}>
-                    <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", fontWeight:600 }}>Total</div>
+                  <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:10, padding:"10px 12px" }}>
+                    <div style={{ fontSize:10, color:"#94a3b8", fontWeight:600 }}>Total</div>
                     <div style={{ fontWeight:900, fontSize:18, color:"#FF6B35" }}>R$ {diariasConc.reduce((s,d)=>s+d.valor,0).toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
                   </div>
                 </div>
@@ -18620,19 +18620,19 @@ export default function App() {
         {toastSuccess && <div role="status" aria-live="polite" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastSuccess}</div>}
         {toastError   && <div role="alert" aria-live="assertive" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastError}</div>}
         {/* Header */}
-        <div style={{ background:"linear-gradient(135deg,#0f172a,#FF6B35)", padding:"48px 20px 24px" }}>
-          <button style={{ background:"none", border:"none", color:"#fff", opacity:.85, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
+        <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+          <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
             ← Voltar
           </button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:50, height:50, background:"rgba(255,255,255,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26 }}>👑</div>
+            <div style={{ width:50, height:50, background:"#FF6B3518", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26 }}>👑</div>
             <div>
-              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Painel Admin</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.85)" }}>Visão geral e suporte</div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#0f172a" }}>Painel Admin</div>
+              <div style={{ fontSize:13, color:"#64748b" }}>Visão geral e suporte</div>
             </div>
             <button
-              title="Recarregar"
-              style={{ marginLeft:"auto", background:"rgba(255,255,255,.15)", border:"none", color:"#fff", borderRadius:10, padding:"8px 12px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+              title="Recarregar" aria-label="Recarregar"
+              style={{ marginLeft:"auto", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", color:"#64748b", borderRadius:10, padding:"8px 12px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
               onClick={() => { carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarDocsVerificados(); carregarAntecedentesPendentes(); }}>
               {carregandoAdminStats ? "⏳" : "🔄"}
             </button>
@@ -19352,15 +19352,15 @@ export default function App() {
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
         {/* Header */}
-        <div style={{ background:"linear-gradient(135deg,#0f172a,#3A86FF)", padding:"48px 20px 24px" }}>
-          <button style={{ background:"none", border:"none", color:"#fff", opacity:.85, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
+        <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+          <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
             ← Voltar
           </button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:48, height:48, background:"rgba(255,255,255,.18)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🎧</div>
+            <div style={{ width:48, height:48, background:"#3A86FF18", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🎧</div>
             <div>
-              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Painel de Suporte</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.78)" }}>Atender chamados dos usuários</div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#0f172a" }}>Painel de Suporte</div>
+              <div style={{ fontSize:13, color:"#64748b" }}>Atender chamados dos usuários</div>
             </div>
           </div>
         </div>
@@ -19447,13 +19447,13 @@ export default function App() {
     const info = statusInfo[docStatus];
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
-        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
-          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
+        <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+          <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🆔</div>
+            <div style={{ width:48, height:48, background:"#FF6B3518", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>🆔</div>
             <div>
-              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Verificar identidade</div>
-              <div style={{ fontSize:13, color:"#94a3b8" }}>Opcional · rende pontos de confiança</div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#0f172a" }}>Verificar identidade</div>
+              <div style={{ fontSize:13, color:"#64748b" }}>Opcional · rende pontos de confiança</div>
             </div>
           </div>
         </div>
@@ -19584,13 +19584,13 @@ export default function App() {
     const info = statusInfo[antStatus];
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
-        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
-          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
+        <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+          <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>📋</div>
+            <div style={{ width:48, height:48, background:"#FF6B3518", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>📋</div>
             <div>
-              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Antecedentes criminais</div>
-              <div style={{ fontSize:13, color:"#94a3b8" }}>Selo extra de confiança — opcional</div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#0f172a" }}>Antecedentes criminais</div>
+              <div style={{ fontSize:13, color:"#64748b" }}>Selo extra de confiança — opcional</div>
             </div>
           </div>
         </div>
@@ -19690,15 +19690,15 @@ export default function App() {
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
-        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"48px 20px 24px" }}>
-          <button style={{ background:"none", border:"none", color:"#94a3b8", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
+        <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+          <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
             ← Voltar
           </button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:48, height:48, background:"rgba(255,107,53,.2)", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>📨</div>
+            <div style={{ width:48, height:48, background:"#FF6B3518", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>📨</div>
             <div style={{ flex:1 }}>
-              <div style={{ fontSize:22, fontWeight:900, color:"#fff" }}>Meus tickets</div>
-              <div style={{ fontSize:13, color:"#94a3b8" }}>Conversas com a equipe de suporte</div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#0f172a" }}>Meus tickets</div>
+              <div style={{ fontSize:13, color:"#64748b" }}>Conversas com a equipe de suporte</div>
             </div>
             <button
               style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"8px 12px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -19785,16 +19785,16 @@ export default function App() {
     return (
       <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column" }}>
         {/* Header */}
-        <div style={{ background:"linear-gradient(135deg,#0f172a,#1e293b)", padding:"40px 16px 16px", position:"sticky", top:0, zIndex:5 }}>
+        <div style={{ background:"var(--bg-card,#fff)", padding:"40px 16px 16px", position:"sticky", top:0, zIndex:5, borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
-            <button style={{ background:"none", border:"none", color:"#fff", fontSize:22, cursor:"pointer", padding:0 }} onClick={() => { setTicketAtivo(null); setTela(voltarTela); }}>←</button>
+            <button aria-label="Voltar" style={{ background:"none", border:"none", color:"#64748b", fontSize:22, cursor:"pointer", padding:0 }} onClick={() => { setTicketAtivo(null); setTela(voltarTela); }}>←</button>
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:15, fontWeight:900, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>{ticketAtivo.assunto}</div>
+              <div style={{ fontSize:15, fontWeight:900, color:"#0f172a", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>{ticketAtivo.assunto}</div>
               <div style={{ fontSize:11, color:"#94a3b8" }}>
                 {isAdminView ? (ticketAtivo.user_nome || "Usuário") : "Ticket #" + ticketAtivo.id.slice(0,8)}
               </div>
             </div>
-            <span style={{ background:corStatus+"33", color:"#fff", fontSize:10, fontWeight:900, borderRadius:8, padding:"4px 8px", textTransform:"uppercase" as const, letterSpacing:0.3 }}>{labelStatus}</span>
+            <span style={{ background:corStatus+"22", color:corStatus, fontSize:10, fontWeight:900, borderRadius:8, padding:"4px 8px", textTransform:"uppercase" as const, letterSpacing:0.3 }}>{labelStatus}</span>
           </div>
           {isAdminView && ticketAtivo.status !== "resolvido" && ticketAtivo.status !== "fechado" && (
             <div style={{ display:"flex", gap:6, flexWrap:"wrap" as const, marginTop:6 }}>
@@ -20266,7 +20266,7 @@ export default function App() {
 }
 
 const S: Record<string, React.CSSProperties> = {
-  splash:           { minHeight:"100vh", background:"#0f172a", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" },
+  splash:           { minHeight:"100vh", background:"#f8fafc", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" },
   splashInner:      { display:"flex", flexDirection:"column", alignItems:"center", gap:20, padding:32 },
   logo:             { display:"flex", alignItems:"center", gap:10 },
   logoIcon:         { fontSize:40 },
@@ -20307,11 +20307,8 @@ const S: Record<string, React.CSSProperties> = {
   toggleThumbAtivo: { left:23 },
   appShell:         { minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:32 },
   header:           { padding:"20px 20px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" },
-  headerSub:        { color:"rgba(255,255,255,0.75)", fontSize:11, textTransform:"uppercase", letterSpacing:1 },
-  headerTitle:      { color:"#fff", fontSize:20, fontWeight:900 },
-  headerBack:       { background:"rgba(255,255,255,0.2)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", width:36, height:36, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" },
-  logoutBtn:        { background:"rgba(255,255,255,0.15)", border:"none", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", padding:"6px 14px", borderRadius:8, fontFamily:"Inter, system-ui, sans-serif" },
-  avatar:           { width:40, height:40, borderRadius:20, background:"rgba(255,255,255,0.2)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:900, fontSize:14 },
+  // (Removidos os tokens dark-first sem uso: headerSub/headerTitle/headerBack/
+  //  logoutBtn/avatar — eram código morto e nasceriam escuros no app claro.)
   tabs:             { display:"flex", background:"var(--bg-card,#fff)", borderBottom:"2px solid var(--border,#e2e8f0)" },
   tab:              { flex:1, padding:"13px", borderTopWidth:0, borderLeftWidth:0, borderRightWidth:0, borderBottomWidth:3, borderBottomStyle:"solid", borderBottomColor:"transparent", background:"none", fontSize:14, fontWeight:700, color:"var(--text-3,#94a3b8)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" },
   tabAtivo:         { borderBottomWidth:3, borderBottomStyle:"solid", borderBottomColor:"#FF6B35", color:"#FF6B35" },
