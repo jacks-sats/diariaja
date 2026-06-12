@@ -1314,7 +1314,7 @@ export default function App() {
         if (profile.user_type === "diarista") setTela("home-diarista");
         setDetalhesDiaria(data as Diaria);
       } else {
-        setToastError("Essa vaga não está mais disponível.");
+        setToastError("Esse anúncio não está mais disponível.");
       }
     })();
     return () => { cancelado = true; };
@@ -3696,7 +3696,7 @@ export default function App() {
         await navigator.share({ title: "Vaga no DiáriaJá", text: texto });
       } else {
         await navigator.clipboard?.writeText(texto);
-        setToastSuccess("🔗 Texto da vaga copiado! Cole onde quiser.");
+        setToastSuccess("🔗 Texto do anúncio copiado! Cole onde quiser.");
       }
       trackEvento("vaga_compartilhada", session?.user?.id, "diarista", {
         diaria_id: dia.id, tipo_oferta: dia.tipo_oferta,
@@ -4809,7 +4809,7 @@ export default function App() {
     if (profile?.documento_status !== "aprovado") {
       setVagaConfirm(null);
       setVagaConfirmada(false);
-      setToastError("🪪 Envie seu documento (RG ou CNH) e aguarde a aprovação para se candidatar às vagas.");
+      setToastError("🪪 Envie seu documento (RG ou CNH) e aguarde a aprovação para se candidatar aos anúncios.");
       setTela("verificar-documento");
       return;
     }
@@ -7170,7 +7170,7 @@ export default function App() {
           idêntico ao layout anterior. Cada card mantém seu estilo original. */}
       <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, 1fr)" : "1fr 1fr", gap:14, marginBottom:24, alignItems:"stretch" as const }}>
         {[
-          { key:"empregador", icone:"🏢", label:"Quero contratar",     desc:"Publique e receba interessados verificados em minutos",     accent:"#FF6B35", pad:"24px 14px", gap:10, icSize:36, labSize:16, descSize:12.5 },
+          { key:"empregador", icone:"🏢", label:"Quero contratar",     desc:"Publique e encontre interessados verificados em minutos",     accent:"#FF6B35", pad:"24px 14px", gap:10, icSize:36, labSize:16, descSize:12.5 },
           { key:"diarista",   icone:"👷", label:"Quero trabalhar",      desc:"Apareça pra quem contrata e receba propostas hoje",          accent:"#FF6B35", pad:"24px 14px", gap:10, icSize:36, labSize:16, descSize:12.5 },
           { key:"empresa",    icone:"🏢", label:"Sou empresa (CNPJ)",   desc:"Contrate em nome da empresa e fortaleça sua marca local",     accent:"#3A86FF", pad:"18px 14px", gap:8,  icSize:30, labSize:14, descSize:12 },
         ].map(t => {
@@ -10609,7 +10609,7 @@ export default function App() {
             {/* Frase que explica o modelo de duas pontas (aceitar um preço já
                 publicado) — sem negociação, sem pechincha. */}
             <div style={{ padding:"12px 16px 0", fontSize:12.5, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
-              Estes são os valores que cada diarista cobra. Você pode aceitar um deles — ou <strong style={{ color:negocio.cor }}>anunciar quanto quer pagar</strong>.
+              Estes são os valores que cada prestador cobra. Você pode aceitar um deles — ou <strong style={{ color:negocio.cor }}>anunciar quanto quer pagar</strong>.
             </div>
             {/* Lista de profissionais */}
             {/* Desktop (>1024px): grade de até 3 cards por linha (mesmo card).
@@ -10665,7 +10665,7 @@ export default function App() {
                           setToastSuccess("🔗 Link copiado!");
                         }
                       }}>
-                      📨 Convidar diarista
+                      📨 Convidar prestador
                     </button>
                   </div>
                 ) : (
@@ -12123,6 +12123,9 @@ export default function App() {
                 <li>Combinem todas as condições (valor, horário, local, escopo) <strong>antes</strong> da execução.</li>
                 <li>Em caso de problema, use o chat do app pra ter registro. NÃO compartilhe contatos externos antes do match.</li>
               </ul>
+              <div style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:13, color:"#9a3412", lineHeight:1.6 }}>
+                ⚠️ <strong>O valor da diária NÃO passa pelo app.</strong> Aqui você paga só a taxa de <strong>R$ 1</strong> do contato — o pagamento do serviço é combinado direto com o prestador (PIX, dinheiro etc.).
+              </div>
               <label style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoCompromissoCheck?"#FF6B35":"#e2e8f0"}`, cursor:"pointer", marginBottom:14 }}>
                 <input type="checkbox" checked={termoCompromissoCheck}
                   onChange={e => setTermoCompromissoCheck(e.target.checked)}
@@ -13014,7 +13017,7 @@ export default function App() {
               });
               const conquistas: { chave:string; icone:string; titulo:string; descricao:string; alcancada:boolean; progresso?:{ atual:number; alvo:number } }[] = [
                 { chave:"primeiro",     icone:"📢", titulo:"Primeiro anúncio",   descricao:"Publicou sua 1ª diária",        alcancada: totalAnuncios >= 1, progresso:{ atual: Math.min(totalAnuncios,1), alvo:1 } },
-                { chave:"ativo",        icone:"🤝", titulo:"Contratante ativo",   descricao:"5 diárias concluídas",          alcancada: concl >= 5,  progresso:{ atual: Math.min(concl,5),  alvo:5 } },
+                { chave:"ativo",        icone:"🤝", titulo:"Anunciante ativo",   descricao:"5 diárias concluídas",          alcancada: concl >= 5,  progresso:{ atual: Math.min(concl,5),  alvo:5 } },
                 { chave:"grande",       icone:"💎", titulo:"Grande contratante",  descricao:"15 diárias concluídas",         alcancada: concl >= 15, progresso:{ atual: Math.min(concl,15), alvo:15 } },
                 { chave:"pagador",      icone:"💰", titulo:"Pagador pontual",     descricao:"90%+ paga o combinado",         alcancada: totalAval >= 3 && pctPagou >= 90 },
                 { chave:"bem_avaliado", icone:"⭐", titulo:"Bem avaliado",        descricao:"Nota 4.5+ (3+ avaliações)",     alcancada: totalAval >= 3 && media >= 4.5 },
@@ -14571,7 +14574,7 @@ export default function App() {
                       <button
                         style={{ width:"100%", padding:"10px", background:"#fef3c7", color:"#d97706", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:4 }}
                         onClick={e => { e.stopPropagation(); setModalAvalEmp(dia); setNotaEmp(0); setComentarioEmp(""); }}>
-                        ⭐ Avaliar o empregador
+                        ⭐ Avaliar o anunciante
                       </button>
                     )}
                   </>
@@ -15801,7 +15804,7 @@ export default function App() {
                         <strong style={{ color:"#FF6B35", fontSize:17 }}>{vagaConfirm.tipo_oferta === "emprego" ? (vagaConfirm.salario_texto || "A combinar") : `R$ ${vagaConfirm.valor}/dia`}</strong>
                       </div>
                       <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", marginTop:12 }}>
-                        💡 O endereço completo só será revelado após o anunciante demonstrar interesse e você aceitar o serviço.
+                        💡 O endereço completo aparece pra você depois que o anunciante te selecionar e você aceitar o serviço.
                       </div>
                       {authError && <p style={S.errorText}>{authError}</p>}
                       {/* Trava de maioridade: só libera candidatura com documento (RG/CNH) APROVADO */}
@@ -16074,7 +16077,7 @@ export default function App() {
               </div>
               {qrDiaria.status === "em_andamento" && (
                 <div style={{ background:"#fef3c7", color:"#d97706", borderRadius:12, padding:"10px 14px", fontSize:13, fontWeight:700, marginBottom:12 }}>
-                  🔄 Diária em andamento — aguardando conclusão pelo empregador
+                  🔄 Diária em andamento — aguardando conclusão pelo anunciante
                 </div>
               )}
               <button style={{ width:"100%", padding:"12px", background:"#0f172a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -17738,7 +17741,7 @@ export default function App() {
           </div>
           <div style={{ fontSize:22, fontWeight:900, lineHeight:1.2 }}>Nova Diária</div>
           <div style={{ fontSize:13, opacity:0.85, marginTop:4 }}>
-            Preencha todos os campos — o endereço só será revelado ao prestador após ele aceitar.
+            Preencha todos os campos — o endereço completo só é mostrado ao prestador depois que você o selecionar e ele aceitar o serviço.
           </div>
         </div>
 
@@ -18663,16 +18666,16 @@ export default function App() {
           {/* Contratantes vs diaristas — desequilíbrio visível */}
           {adminExtras && (
             <div style={{ marginBottom:10 }}>
-              <CardComparacao titulo="Contratantes vs diaristas" dados={[
-                { label:"Diaristas (prestadores)", valor: adminExtras.total_diaristas, cor:"#FF6B35" },
-                { label:"Contratantes (anunciantes)", valor: adminExtras.total_empregadores, cor:"#3A86FF" },
+              <CardComparacao titulo="Anunciantes vs prestadores" dados={[
+                { label:"Prestadores", valor: adminExtras.total_diaristas, cor:"#FF6B35" },
+                { label:"Anunciantes", valor: adminExtras.total_empregadores, cor:"#3A86FF" },
               ]} />
             </div>
           )}
           {/* Novos de hoje SEPARADOS por lado */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-            {cardStat("Diaristas novos hoje", adminNovosLado ? adminNovosLado.diaristas_hoje : "—", "#FF6B35", "🆕")}
-            {cardStat("Contratantes novos hoje", adminNovosLado ? adminNovosLado.empregadores_hoje : "—", "#3A86FF", "🆕")}
+            {cardStat("Prestadores novos hoje", adminNovosLado ? adminNovosLado.diaristas_hoje : "—", "#FF6B35", "🆕")}
+            {cardStat("Anunciantes novos hoje", adminNovosLado ? adminNovosLado.empregadores_hoje : "—", "#3A86FF", "🆕")}
           </div>
           {/* Dinheiro: desbloqueios de chat no mês + assinantes ativos */}
           {adminFinanceiro && (() => {
