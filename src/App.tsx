@@ -6624,7 +6624,7 @@ export default function App() {
       <div style={{ padding:"18px 24px 0", display:"flex", flexDirection:"column" as const, gap:10 }}>
         {[
           { ini:"MS", nome:"Maria S.", prof:"Repositora",         valor:120, cor:"#3A86FF", d:".25s" },
-          { ini:"JP", nome:"João P.",  prof:"Açougueiro",         valor:260, cor:"#FF6B35", d:".4s"  },
+          { ini:"JP", nome:"João P.",  prof:"Açougueiro",         valor:170, cor:"#FF6B35", d:".4s"  },
           { ini:"AL", nome:"Ana L.",   prof:"Diarista — Limpeza", valor:150, cor:"#16a34a", d:".55s" },
         ].map(c => (
           <div key={c.nome} style={{ background:"#fff", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:13, animation:`spl-fadein .7s ease-out ${c.d} both` }}>
@@ -6677,8 +6677,9 @@ export default function App() {
         ))}
       </div>
 
-      {/* ── CTAs — handlers de navegação INALTERADOS (cadastro-tipo / login) ── */}
-      <div style={{ padding:"22px 24px 28px", marginTop:"auto", display:"flex", flexDirection:"column" as const, gap:10, animation:"spl-fadein .7s ease-out 1s both" }}>
+      {/* ── CTAs — sticky no rodapé (sempre visível na rolagem) com degradê
+          branco atrás pra descolar do conteúdo. Handlers INALTERADOS. ── */}
+      <div style={{ position:"sticky" as const, bottom:0, marginTop:"auto", padding:"30px 24px 22px", display:"flex", flexDirection:"column" as const, gap:10, background:"linear-gradient(to top, #f8fafc 62%, rgba(248,250,252,0))", animation:"spl-fadein .7s ease-out 1s both" }}>
 
         {/* CTA primário */}
         <button
@@ -6807,12 +6808,9 @@ export default function App() {
 
   // LOGIN
   if (tela === "login") return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(165deg,#0a1428 0%,#101b3a 45%,#1a2754 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 22px 40px", position:"relative" as const, overflow:"hidden" }}>
-      {/* Glow laranja decorativo no topo direito — assinatura da marca */}
-      <div aria-hidden style={{ position:"absolute", top:-100, right:-80, width:280, height:280, borderRadius:"50%", background:"radial-gradient(circle, rgba(255,107,53,.28) 0%, rgba(255,107,53,0) 70%)", pointerEvents:"none" }} />
-      <div aria-hidden style={{ position:"absolute", bottom:-120, left:-100, width:320, height:320, borderRadius:"50%", background:"radial-gradient(circle, rgba(58,134,255,.18) 0%, rgba(58,134,255,0) 70%)", pointerEvents:"none" }} />
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 22px 40px", position:"relative" as const }}>
 
-      <button style={{ background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", color:"#cbd5e1", fontSize:13, fontWeight:700, cursor:"pointer", padding:"8px 14px", marginTop:48, alignSelf:"flex-start", borderRadius:20, fontFamily:"Inter, system-ui, sans-serif", backdropFilter:"blur(8px)" as const }}
+      <button style={{ background:"#fff", border:"1.5px solid #e2e8f0", color:"#64748b", fontSize:13, fontWeight:700, cursor:"pointer", padding:"8px 14px", marginTop:48, alignSelf:"flex-start", borderRadius:20, fontFamily:"Inter, system-ui, sans-serif" }}
         aria-label="Voltar para a tela inicial"
         onClick={() => { setAuthError(""); setTela("splash"); }}>
         ← Voltar
@@ -6820,16 +6818,16 @@ export default function App() {
 
       {/* Hero */}
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"28px 0 26px", position:"relative", zIndex:1 }}>
-        <div style={{ width:72, height:72, borderRadius:36, background:"linear-gradient(135deg,#FF6B35,#fb923c)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:34, boxShadow:"0 8px 32px rgba(255,107,53,.45), 0 0 0 6px rgba(255,107,53,.1)", marginBottom:14 }}>⚡</div>
-        <div style={{ fontSize:32, fontWeight:900, letterSpacing:-1, color:"#fff" }}>
+        <div style={{ width:72, height:72, borderRadius:36, background:"linear-gradient(135deg,#FF6B35,#fb923c)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:34, boxShadow:"0 8px 24px rgba(255,107,53,.35), 0 0 0 6px rgba(255,107,53,.1)", marginBottom:14 }}>⚡</div>
+        <div style={{ fontSize:32, fontWeight:900, letterSpacing:-1, color:"#0f172a" }}>
           Diária<span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"#cbd5e1", fontSize:14, marginTop:6, fontWeight:500 }}>Bom te ver de novo 👋</p>
-        <p style={{ color:"rgba(255,255,255,.55)", fontSize:12, marginTop:2 }}>Entre e continue de onde parou</p>
+        <p style={{ color:"#64748b", fontSize:14, marginTop:6, fontWeight:500 }}>Bom te ver de novo 👋</p>
+        <p style={{ color:"#94a3b8", fontSize:12, marginTop:2 }}>Entre e continue de onde parou</p>
       </div>
 
-      {/* Card de login — fundo branco com sombra, contraste alto */}
-      <div style={{ background:"#fff", borderRadius:24, padding:"24px 22px", boxShadow:"0 20px 60px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.05)", position:"relative", zIndex:1 }}>
+      {/* Card de login — fundo branco, borda suave e sombra leve (estilo landing) */}
+      <div style={{ background:"#fff", borderRadius:24, padding:"24px 22px", boxShadow:"0 2px 12px rgba(0,0,0,.08)", border:"1px solid #eef2f7", position:"relative", zIndex:1 }}>
         {/* Entrar com Google — atalho rápido pra quem já tem conta */}
         <button
           type="button"
@@ -6967,7 +6965,7 @@ export default function App() {
 
       {/* Footer — cadastro novo */}
       <button type="button"
-        style={{ background:"none", border:"none", textAlign:"center", color:"#cbd5e1", fontSize:14, marginTop:22, cursor:"pointer", padding:"10px 14px", borderRadius:12, fontFamily:"Inter, system-ui, sans-serif", position:"relative", zIndex:1 }}
+        style={{ background:"none", border:"none", textAlign:"center", color:"#64748b", fontSize:14, marginTop:22, cursor:"pointer", padding:"10px 14px", borderRadius:12, fontFamily:"Inter, system-ui, sans-serif", position:"relative", zIndex:1 }}
         onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
         Ainda não tem conta? <span style={{ color:"#FF6B35", fontWeight:800 }}>Cadastre-se grátis →</span>
       </button>
@@ -6979,18 +6977,18 @@ export default function App() {
 
   // CADASTRO TIPO
   if (tela === "cadastro-tipo") return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg,#060d1f 0%,#0d1a35 60%,#0f2040 100%)", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
 
-      <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:15, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setTela("splash")}>
+      <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setTela("splash")}>
         ← Voltar
       </button>
 
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", margin:"24px 0 32px" }}>
-        <div style={{ fontSize:36, filter:"drop-shadow(0 0 16px #FF6B35)", marginBottom:8 }}>⚡</div>
+        <div style={{ fontSize:36, marginBottom:8 }}>⚡</div>
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-0.5 }}>
-          <span style={{ color:"#fff" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
+          <span style={{ color:"#0f172a" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"#cbd5e1", fontSize:15, marginTop:8 }}>Você quer contratar ou trabalhar?</p>
+        <p style={{ color:"#64748b", fontSize:15, marginTop:8 }}>Você quer contratar ou trabalhar?</p>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:12 }}>
@@ -7001,14 +6999,14 @@ export default function App() {
           const ativo = tipo === t.key;
           return (
             <div key={t.key}
-              style={{ position:"relative" as const, background: ativo ? "rgba(255,107,53,.35)" : "rgba(255,255,255,.06)", border: ativo ? "3px solid #FF6B35" : "1.5px solid rgba(255,255,255,.1)", borderRadius:20, padding:"24px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:10, cursor:"pointer", transition:"all .15s" }}
+              style={{ position:"relative" as const, background: ativo ? "#FF6B3510" : "#fff", border: ativo ? "2.5px solid #FF6B35" : "1.5px solid #e2e8f0", borderRadius:20, padding:"24px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:10, cursor:"pointer", transition:"all .15s", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
               onClick={() => { hapticTick(); setTipo(t.key); }}>
               {ativo && (
-                <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(0,0,0,.3)" }}>✓</div>
+                <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(255,107,53,.4)" }}>✓</div>
               )}
               <span style={{ fontSize:36 }}>{t.icone}</span>
-              <span style={{ fontWeight:800, fontSize:16, color: ativo ? "#fff" : "#f1f5f9" }}>{t.label}</span>
-              <span style={{ fontSize:12.5, color: ativo ? "rgba(255,255,255,.9)" : "#cbd5e1", textAlign:"center", lineHeight:1.4 }}>{t.desc}</span>
+              <span style={{ fontWeight:800, fontSize:16, color:"#0f172a" }}>{t.label}</span>
+              <span style={{ fontSize:12.5, color:"#64748b", textAlign:"center", lineHeight:1.4 }}>{t.desc}</span>
             </div>
           );
         })}
@@ -7018,19 +7016,19 @@ export default function App() {
         const ativo = tipo === "empresa";
         return (
           <div
-            style={{ position:"relative" as const, background: ativo ? "rgba(58,134,255,.35)" : "rgba(255,255,255,.06)", border: ativo ? "3px solid #3A86FF" : "1.5px solid rgba(255,255,255,.1)", borderRadius:20, padding:"18px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:8, cursor:"pointer", marginBottom:24, transition:"all .15s" }}
+            style={{ position:"relative" as const, background: ativo ? "#3A86FF10" : "#fff", border: ativo ? "2.5px solid #3A86FF" : "1.5px solid #e2e8f0", borderRadius:20, padding:"18px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:8, cursor:"pointer", marginBottom:24, transition:"all .15s", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}
             onClick={() => { hapticTick(); setTipo("empresa"); }}>
             {ativo && (
-              <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#3A86FF", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(0,0,0,.3)" }}>✓</div>
+              <div style={{ position:"absolute" as const, top:8, right:8, width:24, height:24, borderRadius:12, background:"#3A86FF", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, boxShadow:"0 2px 8px rgba(58,134,255,.4)" }}>✓</div>
             )}
             <span style={{ fontSize:30 }}>🏢</span>
-            <span style={{ fontWeight:800, fontSize:14, color: ativo ? "#fff" : "#e2e8f0" }}>Sou empresa (CNPJ)</span>
-            <span style={{ fontSize:12, color: ativo ? "rgba(255,255,255,.9)" : "#cbd5e1", textAlign:"center" as const, lineHeight:1.4 }}>Contrate em nome da empresa e fortaleça sua marca local</span>
+            <span style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>Sou empresa (CNPJ)</span>
+            <span style={{ fontSize:12, color:"#64748b", textAlign:"center" as const, lineHeight:1.4 }}>Contrate em nome da empresa e fortaleça sua marca local</span>
           </div>
         );
       })()}
 
-      <button style={{ width:"100%", padding:"15px", background: tipo ? "#FF6B35" : "#475569", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor: tipo ? "pointer" : "not-allowed", fontFamily:"Inter, system-ui, sans-serif", opacity: tipo ? 1 : 0.75, boxShadow: tipo ? "0 4px 16px rgba(255,107,53,.4)" : "none", transition:"all .2s" }}
+      <button style={{ width:"100%", padding:"15px", background: tipo ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:16, fontSize:16, fontWeight:800, cursor: tipo ? "pointer" : "not-allowed", fontFamily:"Inter, system-ui, sans-serif", boxShadow: tipo ? "0 4px 16px rgba(255,107,53,.4)" : "none", transition:"all .2s" }}
         disabled={!tipo}
         aria-disabled={!tipo}
         onClick={() => {
@@ -7051,9 +7049,9 @@ export default function App() {
         }}>
         {tipo ? "Continuar →" : "👆 Escolha um tipo de conta acima"}
       </button>
-      <p style={{ color:"rgba(255,255,255,.5)", fontSize:11, textAlign:"center" as const, lineHeight:1.5, marginTop:12 }}>
+      <p style={{ color:"#94a3b8", fontSize:11, textAlign:"center" as const, lineHeight:1.5, marginTop:12 }}>
         Ao continuar, você concorda com os{" "}
-        <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#cbd5e1", textDecoration:"underline" }}>Termos e a Política de Privacidade</a>.
+        <a href="/politica-privacidade.html" target="_blank" rel="noopener noreferrer" style={{ color:"#64748b", textDecoration:"underline" }}>Termos e a Política de Privacidade</a>.
       </p>
     </div>
   );
