@@ -6369,16 +6369,18 @@ export default function App() {
   }, [anyLoading]);
 
   if (loading) return (
-    <div style={S.splash}>
+    // Tema claro — alinhado à landing/app (S.splash segue escuro pq a tela de
+    // CEP ainda o usa; aqui sobrescrevemos só o fundo).
+    <div style={{ ...S.splash, background:"#f8fafc" }}>
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
-        <div style={{ fontSize:56, filter:"drop-shadow(0 0 24px #FF6B35)", animation:"pulse 1.5s ease-in-out infinite" }}>⚡</div>
-        <div style={{ fontSize:36, fontWeight:900, color:"#fff", letterSpacing:-1 }}>
+        <div style={{ fontSize:56, animation:"pulse 1.5s ease-in-out infinite" }}>⚡</div>
+        <div style={{ fontSize:36, fontWeight:900, color:"#0f172a", letterSpacing:-1 }}>
           Diária<span style={{ color:"#FF6B35" }}>Já</span>
         </div>
-        <p style={{ color:"var(--text-2,#64748b)", fontSize:15, marginTop:8 }}>Carregando...</p>
-        <p style={{ color:"var(--text-label,#475569)", fontSize:12, marginTop:4 }}>Se demorar, verifique sua conexão</p>
+        <p style={{ color:"#64748b", fontSize:15, marginTop:8 }}>Carregando...</p>
+        <p style={{ color:"#94a3b8", fontSize:12, marginTop:4 }}>Se demorar, verifique sua conexão</p>
         <button
-          style={{ marginTop:8, background:"none", border:"1px solid #334155", color:"var(--text-3,#94a3b8)", borderRadius:10, padding:"8px 20px", fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+          style={{ marginTop:8, background:"#fff", border:"1.5px solid #e2e8f0", color:"#64748b", borderRadius:10, padding:"8px 20px", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
           onClick={() => { setLoading(false); setTela("splash"); }}>
           Ir para o início
         </button>
