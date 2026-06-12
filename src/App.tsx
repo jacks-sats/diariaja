@@ -16864,7 +16864,7 @@ export default function App() {
     const diariasDaPerfilConc = diaristasContagemDiarias[d.id] || 0;
     const nivelD = nivelDiarista(diariasDaPerfilConc);
     return (
-      <div style={S.appShell}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 16px 0" }}>
           <button style={S.back} onClick={() => setTela("home-empregador")}>← Voltar</button>
           <button
@@ -16879,6 +16879,12 @@ export default function App() {
             {isFavorito ? "❤️" : "🤍"}
           </button>
         </div>
+
+        {/* Desktop (>1024px): duas colunas — info principal + foto à esquerda,
+            avaliações/ações à direita. Mobile: display:contents nos wrappers =
+            DOM extra sem NENHUMA mudança de layout (coluna única igual antes). */}
+        <div style={ isDesktop ? { display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, alignItems:"start" as const, padding:"12px 20px 0" } : { display:"contents" as const } }>
+        <div style={ isDesktop ? { display:"flex", flexDirection:"column" as const } : { display:"contents" as const } }>
 
         <div style={S.perfilHeader}>
           {d.foto_url
@@ -16949,6 +16955,10 @@ export default function App() {
           <div style={S.sectionTitle}>Valor por diária</div>
           <div style={S.valorGrande}>R$ {d.valor_diaria}<span style={{ fontSize:16, color:"var(--text-2,#64748b)" }}> /dia</span></div>
         </div>
+
+        </div>
+        {/* Coluna direita (desktop): avaliações + denúncia + área de ação */}
+        <div style={ isDesktop ? { display:"flex", flexDirection:"column" as const } : { display:"contents" as const } }>
 
         {/* Avaliações do diarista */}
         {avaliacoesDiaristaReal.length > 0 && (
@@ -17124,6 +17134,9 @@ export default function App() {
             </div>
           );
         })()}
+
+        </div>
+        </div>
 
         {/* Modal de convite com local/data/horário */}
         {modalConvite && (
