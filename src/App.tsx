@@ -340,6 +340,14 @@ export default function App() {
   const [lngDiaria, setLngDiaria]                 = useState<number | null>(null);
   const [salvandoDiaria, setSalvandoDiaria]       = useState(false);
   const [vagasReais, setVagasReais]               = useState<Diaria[]>([]);
+  // Onda 3 (erros): flags de falha de carregamento — diferenciam "deu erro de
+  // rede" (mostra card com "Tentar de novo") de "lista realmente vazia".
+  const [erroFeed, setErroFeed]                   = useState(false);
+  const [erroPrestadores, setErroPrestadores]     = useState(false);
+  const [erroMensagens, setErroMensagens]         = useState(false);
+  // "Nonces" pro botão Tentar de novo re-disparar os efeitos de carregamento.
+  const [recarregarPrest, setRecarregarPrest]     = useState(0);
+  const [recarregarMsg, setRecarregarMsg]         = useState(0);
   const [vagaConfirm, setVagaConfirm]             = useState<Diaria | null>(null);
   const [vagaConfirmada, setVagaConfirmada]       = useState(false);
   const [enviandoInteresse, setEnviandoInteresse] = useState(false); // guard anti duplo-clique na candidatura
@@ -1350,14 +1358,16 @@ export default function App() {
       // + derivados (tem_documento, nivel), sem telefone/cpf/cnpj/PIX/token. Filtra
       // por papel (diarista/ambos) e exclui o próprio usuário no servidor.
       const { data, error } = await supabase.rpc("prestadores_publicos", { p_limit: 200 });
-      if (error) console.warn("[home-empregador] erro carregando prestadores:", error.message);
+      // Onda 3: antes só logava no console — o anunciante via "nenhum profissional".
+      if (error) { console.warn("[home-empregador] erro carregando prestadores:", error.message); setErroPrestadores(true); return; }
+      setErroPrestadores(false);
       if (data) {
         const lista = (data as unknown as UserProfile[]) ?? [];
         setDiaristasReais(lista);
         diaristasReaisRef.current = lista;
       }
     })();
-  }, [tela, session?.user?.id]);
+  }, [tela, session?.user?.id, recarregarPrest]);
 
   // Carrega as diárias do empregador ao entrar na home
   useEffect(() => {
@@ -1490,7 +1500,7 @@ export default function App() {
     // Cap em 100 vagas: 100 cards é mais que qualquer prestador vai rolar.
     // Sem limit, com a base crescendo, esse fetch fica pesado e o N+1
     // subsequente (candidaturas, profiles, reputacao) multiplica linearmente.
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("diarias")
       // Não trafega `endereco` no feed de vagas abertas: o card só usa bairro/lat/lng,
       // e o endereço completo só deve aparecer após o contato ser liberado (status
@@ -1500,6 +1510,9 @@ export default function App() {
       .neq("empregador_id", session.user.id) // BUG-M8 fix: usuário "ambos" não vê suas próprias vagas
       .order("created_at", { ascending: false })
       .limit(100);
+      // Onda 3: falha de rede não pode virar "nada por aqui" silencioso.
+      if (error) { setErroFeed(true); return; }
+      setErroFeed(false);
       if (data) {
         const ids = data.map((d: any) => d.id);
         // Conta candidaturas pendentes por vaga para ocultar vagas lotadas
@@ -2403,11 +2416,14 @@ export default function App() {
     const userId = session.user.id;
     const diariaId = chatDiariaAtiva.id;
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("mensagens")
         .select("*")
         .eq("diaria_id", diariaId)
         .order("created_at", { ascending: true });
+      // Onda 3: erro de rede mostrava chat em branco (parecia "sem mensagens").
+      if (error) { setErroMensagens(true); return; }
+      setErroMensagens(false);
       if (data) setMensagensReais(data);
       setTimeout(() => mensagensEndRef.current?.scrollIntoView(), 100);
 
@@ -2425,7 +2441,7 @@ export default function App() {
         return next;
       });
     })();
-  }, [chatDiariaAtiva?.id, session?.user?.id]);
+  }, [chatDiariaAtiva?.id, session?.user?.id, recarregarMsg]);
 
   // Realtime: novas mensagens no chat ativo + UPDATE de lida_em (✓✓)
   useEffect(() => {
@@ -3540,7 +3556,7 @@ export default function App() {
       const { error: errLegado } = await supabase
         .from("diarias").update({ status: "em_andamento" })
         .eq("id", diariaId).eq("empregador_id", session.user.id);
-      if (errLegado) { setScanMsg({ ok:false, txt:"Erro: " + errLegado.message }); return; }
+      if (errLegado) { setScanMsg({ ok:false, txt: traduzirErroBanco(errLegado) }); return; }
     } else if (error) {
       setScanMsg({ ok:false, txt:traduzirErroBanco(error) }); return;
     } else if (data && data.ok === false) {
@@ -3582,7 +3598,7 @@ export default function App() {
       const { error: errLegado } = await supabase
         .from("diarias").update({ status: "concluida" })
         .eq("id", diariaId).eq("empregador_id", session.user.id);
-      if (errLegado) { setAuthError("Erro ao concluir: " + errLegado.message); return; }
+      if (errLegado) { setAuthError(traduzirErroBanco(errLegado)); return; }
     } else if (error) {
       setAuthError(traduzirErroBanco(error)); return;
     } else if (data && data.ok === false) {
@@ -4023,7 +4039,8 @@ export default function App() {
     setCarregandoDrill(true);
     try {
       const { data, error } = await supabase.rpc("admin_drill_lista", { p_tipo: tipo, p_limit: 50 });
-      if (!error && data) setAdminDrillLista(data as AdminDrillItem[]);
+      if (error) setToastError(traduzirErroBanco(error));
+      else if (data) setAdminDrillLista(data as AdminDrillItem[]);
     } finally {
       setCarregandoDrill(false);  // A4
     }
@@ -4051,21 +4068,23 @@ export default function App() {
   // Carrega tickets do próprio usuário (visão user)
   const carregarMeusTickets = async () => {
     if (!session?.user?.id) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("suporte_tickets")
       .select("*")
       .eq("user_id", session.user.id)
       .order("updated_at", { ascending: false });
+    if (error) { setToastError(traduzirErroBanco(error)); return; }
     setMeusTickets((data || []) as SuporteTicket[]);
   };
 
   // Carrega o histórico de mensagens de um ticket
   const carregarRespostasTicket = async (ticketId: string) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("suporte_respostas")
       .select("*")
       .eq("ticket_id", ticketId)
       .order("created_at", { ascending: true });
+    if (error) { setToastError(traduzirErroBanco(error)); return; }
     setRespostasTicket((data || []) as SuporteResposta[]);
   };
 
@@ -4440,14 +4459,16 @@ export default function App() {
   const carregarDocsPendentes = async () => {
     if (!profile?.is_admin) return;
     const { data, error } = await supabase.rpc("admin_documentos_pendentes");
-    if (!error && data) setAdminDocsPendentes(data as any);
+    if (error) setToastError(traduzirErroBanco(error));
+    else if (data) setAdminDocsPendentes(data as any);
   };
 
   // Admin: lista de usuários com documento já verificado (KYC aprovado)
   const carregarDocsVerificados = async () => {
     if (!profile?.is_admin) return;
     const { data, error } = await supabase.rpc("admin_documentos_verificados");
-    if (!error && data) setAdminDocsVerificados(data as any);
+    if (error) setToastError(traduzirErroBanco(error));
+    else if (data) setAdminDocsVerificados(data as any);
   };
 
   // Admin: abre um doc específico — gera signed URL pra visualizar
@@ -4472,9 +4493,9 @@ export default function App() {
   const revisarDocumento = async (decisao: "aprovado" | "rejeitado") => {
     if (!profile?.is_admin || !docRevisao || revisandoDoc) {
       setToastError(
-        !profile?.is_admin ? "Você não tem permissão (is_admin=false). Manda print desse aviso."
-        : !docRevisao ? "Estado do documento perdido (docRevisao=null). Reabra o modal."
-        : "Já tem uma revisão em andamento (revisandoDoc=true). Espera ou recarrega a página."
+        !profile?.is_admin ? "Você não tem permissão para revisar documentos."
+        : !docRevisao ? "Recarregue a página e abra o documento de novo para revisar."
+        : "Já há uma revisão em andamento — aguarde concluir."
       );
       return;
     }
@@ -4517,7 +4538,8 @@ export default function App() {
   const carregarAntecedentesPendentes = async () => {
     if (!profile?.is_admin) return;
     const { data, error } = await supabase.rpc("admin_antecedentes_pendentes");
-    if (!error && data) setAdminAntecedentesPendentes(data as { user_id:string; nome:string; user_type:string; antecedentes_url:string; antecedentes_enviado_em:string }[]);
+    if (error) setToastError(traduzirErroBanco(error));
+    else if (data) setAdminAntecedentesPendentes(data as { user_id:string; nome:string; user_type:string; antecedentes_url:string; antecedentes_enviado_em:string }[]);
   };
 
   const abrirAntecedentesParaRevisao = async (d: {user_id:string; nome:string; antecedentes_url:string}) => {
@@ -4570,12 +4592,14 @@ export default function App() {
   const carregarTopicos = async (categoria = "todos") => {
     let q = supabase.from("topicos").select("*").order("pinned", { ascending: false }).order("created_at", { ascending: false });
     if (categoria !== "todos") q = q.eq("categoria", categoria);
-    const { data } = await q;
+    const { data, error } = await q;
+    if (error) { setToastError(traduzirErroBanco(error)); return; }
     setTopicos(data || []);
   };
 
   const carregarComentarios = async (topicoId: string) => {
-    const { data } = await supabase.from("comentarios_comunidade").select("*").eq("topico_id", topicoId).order("created_at", { ascending: true });
+    const { data, error } = await supabase.from("comentarios_comunidade").select("*").eq("topico_id", topicoId).order("created_at", { ascending: true });
+    if (error) { setToastError(traduzirErroBanco(error)); return; }
     setComentariosTopico(data || []);
   };
 
@@ -6335,6 +6359,22 @@ export default function App() {
   };
 
   // Banner rotativo do Já Decola — inserido entre cards de vaga (home-diarista)
+  // ── Onda 3: card de erro de carregamento (rede) com "Tentar de novo" ──────
+  // Diferencia falha de rede de "lista vazia". Usado nos feeds e no chat.
+  const CardErroCarregar = ({ onRetry, texto, compacto }: { onRetry: () => void; texto?: string; compacto?: boolean }) => (
+    <div style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:14, padding: compacto ? "12px 14px" : "24px 20px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+      {!compacto && <div style={{ fontSize:34, marginBottom:8 }}>⚠️</div>}
+      <div style={{ fontSize:14, fontWeight:700, color:"#9a3412", marginBottom: compacto ? 10 : 14, lineHeight:1.5 }}>
+        {texto || "Não foi possível carregar. Verifique sua conexão e tente de novo."}
+      </div>
+      <button
+        style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"10px 22px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.35)" }}
+        onClick={onRetry}>
+        🔄 Tentar de novo
+      </button>
+    </div>
+  );
+
   // ── Top nav do desktop (>1024px) ─────────────────────────────────────────
   // Só visual: replica as abas da bottom nav numa barra fixa no topo (logo à
   // esquerda, itens à direita, "Publicar" em destaque). Os onClick recebidos
@@ -10604,7 +10644,11 @@ export default function App() {
                     </div>
                   );
                 })()}
-                {diaristasReaisVisiveis.length === 0 ? (
+                {erroPrestadores && diaristasReais.length === 0 ? (
+                  <div style={{ gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined, width:"100%" }}>
+                    <CardErroCarregar texto="Não foi possível carregar os profissionais. Verifique sua conexão e tente de novo." onRetry={() => setRecarregarPrest(n => n + 1)} />
+                  </div>
+                ) : diaristasReaisVisiveis.length === 0 ? (
                   <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined }}>
                     <div style={{ fontSize:56, marginBottom:12 }}>🔍</div>
                     <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Nenhum profissional ainda</div>
@@ -12651,7 +12695,11 @@ export default function App() {
                 </div>
                 {/* Mensagens */}
                 <div style={{ flex:1, overflowY:"auto", padding:"16px", display:"flex", flexDirection:"column", gap:10, background:"var(--bg-app,#f0f2f5)" }}>
-                  {mensagensReais.length === 0 && (
+                  {erroMensagens && mensagensReais.length === 0 ? (
+                    <div style={{ marginTop:24 }}>
+                      <CardErroCarregar compacto texto="Não foi possível carregar as mensagens." onRetry={() => setRecarregarMsg(n => n + 1)} />
+                    </div>
+                  ) : mensagensReais.length === 0 && (
                     <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:13, marginTop:40 }}>Nenhuma mensagem ainda. Inicie a conversa! 👋</div>
                   )}
                   {mensagensReais.map(m => {
@@ -13976,6 +14024,10 @@ export default function App() {
               )}
               {loading ? (
                 <SkeletonList count={4} altura={100} />
+              ) : erroFeed && vagasReais.length === 0 ? (
+                <div style={{ gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined, width:"100%" }}>
+                  <CardErroCarregar texto="Não foi possível carregar os anúncios. Verifique sua conexão e tente de novo." onRetry={() => carregarFeedVagas()} />
+                </div>
               ) : vagasFiltradas.length === 0 ? (
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"36px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined }}>
                   <div style={{ width:80, height:80, borderRadius:40, background:"var(--bg-subtle,#f1f5f9)", display:"inline-flex", alignItems:"center", justifyContent:"center", marginBottom:12 }}>
