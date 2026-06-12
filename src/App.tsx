@@ -10384,13 +10384,19 @@ export default function App() {
               Estes são os valores que cada diarista cobra. Você pode aceitar um deles — ou <strong style={{ color:negocio.cor }}>anunciar quanto quer pagar</strong>.
             </div>
             {/* Lista de profissionais */}
-            <div id="emp-lista-diaristas" style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
+            {/* Desktop (>1024px): grade de até 3 cards por linha (mesmo card).
+                Favoritos, empty-state, banner e card final ocupam a linha toda.
+                Mobile: coluna única, idêntico ao anterior. */}
+            <div id="emp-lista-diaristas" style={ isDesktop
+              ? { padding:"12px 16px 24px", display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(330px, 1fr))", gap:16, alignItems:"start" as const }
+              : { padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }
+            }>
                 {/* Favoritos */}
                 {favoritos.size > 0 && (() => {
                   const favList = diaristasReais.filter(d => favoritos.has(d.id));
                   if (favList.length === 0) return null;
                   return (
-                    <div style={{ marginBottom:4 }}>
+                    <div style={{ marginBottom:4, gridColumn: isDesktop ? "1 / -1" : undefined }}>
                       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>❤️ Meus favoritos</div>
                       <div style={{ display:"flex", gap:10, overflowX:"auto", paddingBottom:4 }}>
                         {favList.map(d => {
@@ -10411,7 +10417,7 @@ export default function App() {
                   );
                 })()}
                 {diaristasReaisVisiveis.length === 0 ? (
-                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined }}>
                     <div style={{ fontSize:56, marginBottom:12 }}>🔍</div>
                     <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Nenhum profissional ainda</div>
                     <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:16 }}>
@@ -10499,7 +10505,9 @@ export default function App() {
                         </div>
                       </div>
                       {mostrarBannerAposCard && (
-                        <BannerJaDecolaInline index={Math.floor(i / 6)} paraDiarista={false} />
+                        <div style={{ gridColumn: isDesktop ? "1 / -1" : undefined }}>
+                          <BannerJaDecolaInline index={Math.floor(i / 6)} paraDiarista={false} />
+                        </div>
                       )}
                       </React.Fragment>
                     );
@@ -10508,7 +10516,7 @@ export default function App() {
 
                 {/* Caminho de saída no fim da lista: se não achou o valor ideal,
                     publica a própria oferta (mesmo fluxo de aceitar preço). */}
-                <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined }}>
                   <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5, marginBottom:10 }}>
                     Não achou o valor ideal? Publique quanto você quer pagar e espere as diaristas aceitarem.
                   </div>
