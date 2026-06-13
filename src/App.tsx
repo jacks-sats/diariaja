@@ -10960,7 +10960,7 @@ export default function App() {
                                 style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.7 : 1 }}
                                 disabled={desbloqueandoContato}
                                 onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: primeiroNome, conviteId: c.id })}>
-                                {desbloqueandoContato ? "Aguarde..." : "✅ Confirmar diária por R$ 1"}
+                                {desbloqueandoContato ? "Aguarde..." : "✅ Confirmar diária por R$ 2,50"}
                               </button>
                             )}
                             <button
@@ -11321,7 +11321,7 @@ export default function App() {
                         {/* Botão "Pagar via Mercado Pago" do valor total removido —
                             DiáriaJá NÃO intermedia o valor da diária. O anunciante
                             paga direto pro diarista (PIX, dinheiro, etc.). A plataforma
-                            cobra apenas R$ 1 por seleção extra (no plano grátis após
+                            cobra apenas R$ 2,50 por seleção extra (no plano grátis após
                             a 4ª seleção do mês) + planos premium opcionais. */}
 
                         {/* Diarista confirmou presença (aceita = confirmou, aguardando QR scan) */}
@@ -11625,7 +11625,7 @@ export default function App() {
                 {plans.empregador === "gratis" && limits.empregador.cobrancaR1Iminente && (
                   <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:20, padding:"5px 12px", marginTop:8 }}>
                     <span style={{ fontSize:13 }}>💳</span>
-                    <span style={{ fontSize:12, color:"#9a3412", fontWeight:700 }}>Sua próxima seleção custa R$ 1 (cota grátis do mês usada)</span>
+                    <span style={{ fontSize:12, color:"#9a3412", fontWeight:700 }}>Sua próxima seleção custa R$ 2,50 (cota grátis do mês usada)</span>
                   </div>
                 )}
               </div>
@@ -12185,12 +12185,12 @@ export default function App() {
               <ul style={{ fontSize:13, color:"#334155", lineHeight:1.7, margin:"0 0 14px 18px", padding:0 }}>
                 <li>É uma <strong>relação autônoma</strong> entre prestador independente e anunciante. NÃO é vínculo de emprego (CLT) nem doméstico (LC 150/2015).</li>
                 <li>O DiáriaJá <strong>NÃO intermedia o valor da diária</strong>. Pagamento é combinado e realizado <strong>direto via PIX entre vocês</strong>, fora da plataforma, após a execução.</li>
-                <li>A plataforma cobra apenas <strong>R$ 1,00</strong> pra liberar o chat — facilitar a conexão.</li>
+                <li>A plataforma cobra apenas <strong>R$ 2,50</strong> pra liberar o chat — facilitar a conexão.</li>
                 <li>Combinem todas as condições (valor, horário, local, escopo) <strong>antes</strong> da execução.</li>
                 <li>Em caso de problema, use o chat do app pra ter registro. NÃO compartilhe contatos externos antes do match.</li>
               </ul>
               <div style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:13, color:"#9a3412", lineHeight:1.6 }}>
-                ⚠️ <strong>O valor da diária NÃO passa pelo app.</strong> Aqui você paga só a taxa de <strong>R$ 1</strong> do contato — o pagamento do serviço é combinado direto com o prestador (PIX, dinheiro etc.).
+                ⚠️ <strong>O valor da diária NÃO passa pelo app.</strong> Aqui você paga só a taxa de <strong>R$ 2,50</strong> do contato — o pagamento do serviço é combinado direto com o prestador (PIX, dinheiro etc.).
               </div>
               <label style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoCompromissoCheck?"#FF6B35":"#e2e8f0"}`, cursor:"pointer", marginBottom:14 }}>
                 <input type="checkbox" checked={termoCompromissoCheck}
@@ -12216,7 +12216,7 @@ export default function App() {
                     trackEvento("termo_compromisso_aceito", session?.user?.id, modoAtual);
                     desbloquearContato(conviteId);
                   }}>
-                  {desbloqueandoContato ? "Aguarde..." : "Aceitar e pagar R$ 1"}
+                  {desbloqueandoContato ? "Aguarde..." : "Aceitar e pagar R$ 2,50"}
                 </button>
               </div>
             </div>
@@ -12278,15 +12278,15 @@ export default function App() {
 
               {/* Opção 1 — R$ 1 por este contato */}
               <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
-                <div style={{ fontWeight:800, fontSize:14, color:"#166534", marginBottom:4 }}>💳 Desbloquear este contato — R$ 1,00</div>
+                <div style={{ fontWeight:800, fontSize:14, color:"#166534", marginBottom:4 }}>💳 Desbloquear este contato — R$ 2,50</div>
                 <div style={{ fontSize:12, color:"#4b7c59", lineHeight:1.5, marginBottom:12 }}>
-                  Pague R$ 1 via Mercado Pago (cartão, PIX ou saldo) para selecionar mais um interessado agora.
+                  Pague R$ 2,50 via Mercado Pago (cartão, PIX ou saldo) para selecionar mais um interessado agora.
                 </div>
                 <button
                   style={{ width:"100%", padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: desbloqueandoContato ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.6 : 1 }}
                   disabled={desbloqueandoContato}
                   onClick={() => desbloquearContato()}>
-                  {desbloqueandoContato ? "Aguarde..." : "Pagar R$ 1,00 e selecionar →"}
+                  {desbloqueandoContato ? "Aguarde..." : "Pagar R$ 2,50 e selecionar →"}
                 </button>
               </div>
 
@@ -13173,7 +13173,7 @@ export default function App() {
                               const rest = Math.max(0, 3 - limits.empregador.matchesMesUsados);
                               return rest > 0
                                 ? `🔓 ${rest} de 3 contatos grátis este mês`
-                                : `🔓 Contatos grátis do mês usados — próximo R$ 1 (ou assine)`;
+                                : `🔓 Contatos grátis do mês usados — próximo R$ 2,50 (ou assine)`;
                             })()}
                           </div>
                         </>
@@ -17417,7 +17417,7 @@ export default function App() {
                   <div>
                     <div style={{ fontWeight:800, fontSize:14, color:"#166534" }}>Convite aceito!</div>
                     <div style={{ fontSize:12, color:"#15803d", marginTop:2 }}>
-                      {d.nome.split(" ")[0]} aceitou o serviço. Libere o chat com R$ 1 pra combinar os detalhes.
+                      {d.nome.split(" ")[0]} aceitou o serviço. Libere o chat com R$ 2,50 pra combinar os detalhes.
                     </div>
                   </div>
                 </div>
@@ -17457,7 +17457,7 @@ export default function App() {
                     <div style={{ fontSize:20, marginBottom:6 }}>🔒</div>
                     <div style={{ fontWeight:800, fontSize:13, color:"#92400e", marginBottom:4 }}>Chat bloqueado</div>
                     <div style={{ fontSize:12, color:"#a16207", lineHeight:1.5 }}>
-                      Pague <strong>R$ 1,00</strong>. Depois {d.nome.split(" ")[0]} aceita o serviço e o chat libera.<br />
+                      Pague <strong>R$ 2,50</strong>. Depois {d.nome.split(" ")[0]} aceita o serviço e o chat libera.<br />
                       O valor da diária ({conviteAtivo?.valor ? `R$ ${conviteAtivo.valor}` : "combinado"}) você paga direto pra ele via PIX, fora do app.
                     </div>
                   </div>
@@ -17472,7 +17472,7 @@ export default function App() {
                     style={{ ...S.btnPrimary, background:cor, opacity: desbloqueandoContato ? 0.7 : 1 }}
                     disabled={desbloqueandoContato}
                     onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: d.nome.split(" ")[0], conviteId: conviteAtivo?.id })}>
-                    {desbloqueandoContato ? "Aguarde..." : "💳 Pagar R$ 1 e liberar chat"}
+                    {desbloqueandoContato ? "Aguarde..." : "💳 Pagar R$ 2,50 e liberar chat"}
                   </button>
                 )}
 

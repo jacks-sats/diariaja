@@ -177,12 +177,12 @@ export const PLANOS_EMPREGADOR = [
   {
     id: "gratis", nome: "Grátis", valor: 0, cor: "#64748b",
     vagas_mes: Infinity,
-    matches_gratis_mes: 0,                 // sem cota grátis: R$1 por contato liberado
+    matches_gratis_mes: 0,                 // sem cota grátis: R$ 2,50 por contato liberado
     descricao: "Pra começar a publicar anúncios sem custo",
     recursos: [
       "Anúncios ilimitados",
       "Até 5 interessados por anúncio",
-      "R$ 1 por contato liberado",
+      "R$ 2,50 por contato liberado",
       "Chat liberado só após conexão confirmada",
     ],
     destaque: false, badge: false,
@@ -194,7 +194,7 @@ export const PLANOS_EMPREGADOR = [
     descricao: "Pra quem publica anúncios com frequência",
     recursos: [
       "Tudo do Grátis",
-      "Conexões ilimitadas (sem R$1)",
+      "Conexões ilimitadas (sem a taxa por contato)",
       "IA Jájá pra criar anúncios em segundos",
       "Filtros avançados",
       "Prestadores favoritos",
