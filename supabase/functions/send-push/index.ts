@@ -1,5 +1,9 @@
 // Edge Function: send-push
-// Envia Web Push Notification para um ou mais usuários.
+// Envia notificação push para um ou mais usuários por DOIS canais:
+//   - Navegador / PWA  → Web Push (VAPID, RFC 8291) via push_subscriptions
+//   - App Android       → FCM (Firebase Cloud Messaging HTTP v1) via fcm_tokens
+// Os dois canais são independentes: um usuário pode ter subscription web,
+// token FCM, ambos ou nenhum. O envio é feito para todos os destinos achados.
 //
 // SEGURANÇA (corrigido — antes era pública, vetor de phishing autenticado)
 // - Exige Authorization: Bearer <jwt> de usuário logado.
@@ -11,10 +15,14 @@
 //   não revela se push foi enviado ou não pra cada user_id.
 //
 // Deploy: supabase functions deploy send-push
-// Secrets necessários:
+// Secrets necessários (Web Push — já em uso):
 //   supabase secrets set VAPID_PUBLIC_KEY=<chave-pública>
 //   supabase secrets set VAPID_PRIVATE_KEY=<chave-privada>
 //   supabase secrets set VAPID_SUBJECT=mailto:suporte@diariaja.com.br
+// Secret opcional (FCM nativo — DORMENTE enquanto não setado):
+//   supabase secrets set FCM_SERVICE_ACCOUNT='<json da conta de serviço>'
+//   Sem esse secret, o canal FCM é simplesmente ignorado e o Web Push
+//   continua funcionando exatamente como antes (zero regressão).
 //
 // Body da requisição:
 //   { user_ids: string[], title: string, body: string, url?: string, tipo?: string }
@@ -204,6 +212,91 @@ async function encrypt(
   return { body, salt };
 }
 
+// ── Canal FCM (HTTP v1) — só usado se FCM_SERVICE_ACCOUNT estiver setado ─────
+// base64url de string / bytes (sem padding) para montar o JWT do OAuth2.
+const b64urlStr = (s: string) =>
+  btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+const b64urlBytes = (b: Uint8Array) =>
+  btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+
+interface ServiceAccount {
+  client_email: string;
+  private_key: string;
+  project_id: string;
+  token_uri?: string;
+}
+
+// Converte a private_key PEM (PKCS#8) da conta de serviço em chave RSA p/ assinar.
+async function importServiceAccountKey(pem: string): Promise<CryptoKey> {
+  const b64 = pem
+    .replace(/-----BEGIN PRIVATE KEY-----/, "")
+    .replace(/-----END PRIVATE KEY-----/, "")
+    .replace(/\s+/g, "");
+  const der = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return crypto.subtle.importKey(
+    "pkcs8",
+    der,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+}
+
+// Troca a conta de serviço por um access_token OAuth2 (scope firebase.messaging).
+async function getFcmAccessToken(sa: ServiceAccount): Promise<string> {
+  const tokenUri = sa.token_uri || "https://oauth2.googleapis.com/token";
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64urlStr(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claim = b64urlStr(JSON.stringify({
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: tokenUri,
+    iat: now,
+    exp: now + 3600,
+  }));
+  const unsigned = `${header}.${claim}`;
+  const key = await importServiceAccountKey(sa.private_key);
+  const sig = await crypto.subtle.sign(
+    { name: "RSASSA-PKCS1-v1_5" },
+    key,
+    new TextEncoder().encode(unsigned),
+  );
+  const jwt = `${unsigned}.${b64urlBytes(new Uint8Array(sig))}`;
+
+  const res = await fetch(tokenUri, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `grant_type=${encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer")}&assertion=${jwt}`,
+  });
+  if (!res.ok) throw new Error(`oauth ${res.status}`);
+  const json = await res.json();
+  return json.access_token as string;
+}
+
+// Envia uma mensagem FCM HTTP v1 para um registration token.
+async function sendFcm(
+  token: string,
+  projectId: string,
+  accessToken: string,
+  p: { title: string; body: string; url: string; tipo: string },
+): Promise<Response> {
+  return fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        token,
+        notification: { title: p.title, body: p.body },
+        data: { url: String(p.url), tipo: String(p.tipo) },
+        android: {
+          priority: "high",
+          notification: { channel_id: "diariaja_geral" },
+        },
+      },
+    }),
+  });
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -274,48 +367,103 @@ serve(async (req) => {
       });
     }
 
-    const { data: subs } = await supabaseAdmin
-      .from("push_subscriptions")
-      .select("endpoint, p256dh, auth_key")
-      .in("user_id", user_ids);
+    // Busca os destinos dos DOIS canais em paralelo. Se a tabela fcm_tokens
+    // ainda não existir (migration não aplicada), o select retorna erro e
+    // fcmTokens fica null → canal FCM é ignorado, Web Push segue normal.
+    const [{ data: subs }, { data: fcmTokens }] = await Promise.all([
+      supabaseAdmin
+        .from("push_subscriptions")
+        .select("endpoint, p256dh, auth_key")
+        .in("user_id", user_ids),
+      supabaseAdmin
+        .from("fcm_tokens")
+        .select("token")
+        .in("user_id", user_ids),
+    ]);
 
-    if (!subs?.length) return new Response(JSON.stringify({ sent: 0, reason: "no_subscriptions" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (!subs?.length && !fcmTokens?.length) {
+      return new Response(JSON.stringify({ sent: 0, reason: "no_subscriptions" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const payload = JSON.stringify({ title, body: msgBody, url, tipo, icon: "/icon-192.png", badge: "/icon-192.png" });
-    let sent = 0;
+    let webSent = 0;
+    let fcmSent = 0;
 
-    await Promise.all(subs.map(async (sub) => {
-      try {
-        const auth = await buildVapidAuth(sub.endpoint, vapidPublic, vapidPrivate, vapidSubject);
-        const { body: encBody, salt } = await encrypt(payload, sub);
+    // ── Canal 1: Web Push (VAPID) — navegador / PWA (inalterado) ───────────
+    if (subs?.length) {
+      await Promise.all(subs.map(async (sub) => {
+        try {
+          const auth = await buildVapidAuth(sub.endpoint, vapidPublic, vapidPrivate, vapidSubject);
+          const { body: encBody } = await encrypt(payload, sub);
 
-        const res = await fetch(sub.endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/octet-stream",
-            "Content-Encoding": "aes128gcm",
-            "Authorization": auth,
-            "TTL": "86400",
-            "Urgency": "normal",
-            "Content-Length": encBody.length.toString(),
-          },
-          body: encBody,
-        });
+          const res = await fetch(sub.endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/octet-stream",
+              "Content-Encoding": "aes128gcm",
+              "Authorization": auth,
+              "TTL": "86400",
+              "Urgency": "normal",
+              "Content-Length": encBody.length.toString(),
+            },
+            body: encBody,
+          });
 
-        if (res.ok || res.status === 201) {
-          sent++;
-        } else if (res.status === 410 || res.status === 404) {
-          // Assinatura expirada — remove do banco
-          await supabaseAdmin.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+          if (res.ok || res.status === 201) {
+            webSent++;
+          } else if (res.status === 410 || res.status === 404) {
+            // Assinatura expirada — remove do banco
+            await supabaseAdmin.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+          }
+        } catch {
+          // Falha individual não cancela as outras
         }
-      } catch {
-        // Falha individual não cancela as outras
-      }
-    }));
+      }));
+    }
 
-    return new Response(JSON.stringify({ sent, total: subs.length }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    // ── Canal 2: FCM nativo (app Android) — DORMENTE até o secret entrar ───
+    // Sem FCM_SERVICE_ACCOUNT setado, ou sem tokens, este bloco é no-op.
+    const fcmSaRaw = Deno.env.get("FCM_SERVICE_ACCOUNT") ?? "";
+    if (fcmSaRaw && fcmTokens?.length) {
+      try {
+        const sa = JSON.parse(fcmSaRaw) as ServiceAccount;
+        const accessToken = await getFcmAccessToken(sa);
+        await Promise.all(fcmTokens.map(async (row: any) => {
+          try {
+            const res = await sendFcm(row.token, sa.project_id, accessToken, { title, body: msgBody, url, tipo });
+            if (res.ok) {
+              fcmSent++;
+            } else if (res.status === 404) {
+              // Token não registrado (UNREGISTERED) — remove do banco
+              await supabaseAdmin.from("fcm_tokens").delete().eq("token", row.token);
+            } else {
+              // Não derruba o token em 400/401/500 — pode ser config/payload
+              const txt = await res.text().catch(() => "");
+              if (txt.includes("UNREGISTERED")) {
+                await supabaseAdmin.from("fcm_tokens").delete().eq("token", row.token);
+              }
+            }
+          } catch {
+            // Falha individual não cancela as outras
+          }
+        }));
+      } catch (e) {
+        // Config FCM inválida (JSON/chave) não pode derrubar o Web Push já enviado
+        console.error("[send-push] canal FCM ignorado:", e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    return new Response(
+      JSON.stringify({
+        sent: webSent + fcmSent,
+        total: (subs?.length ?? 0) + (fcmTokens?.length ?? 0),
+        web: webSent,
+        fcm: fcmSent,
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   } catch (err) {
     // FIX 2026-05-28: NUNCA vazar stack/mensagem pro client (vazava nomes
     // de tabela, IDs, etc.). Loga internamente, retorna genérico.
