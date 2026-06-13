@@ -1,5 +1,5 @@
 // Edge Function: create-contact-payment
-// Cria preferência de R$ 1 no Mercado Pago para desbloquear
+// Cria preferência de R$ 2,50 no Mercado Pago para desbloquear
 // uma seleção de candidato adicional no plano Grátis.
 //
 // Body: { empregador_id: string }
@@ -126,7 +126,7 @@ Deno.serve(async (req) => {
           description: "Liberação do chat interno com 1 candidato/diarista.",
           quantity:    1,
           currency_id: "BRL",
-          unit_price:  1.00,
+          unit_price:  2.50,
         },
       ],
       external_reference: convite_id
