@@ -101,7 +101,7 @@ f) Direcionar Usuarios para canais externos antes do match qualificado, com inte
 
 E proibido:
 
-a) Combinar com a contraparte que o pagamento de desbloqueio de R$ 1,00, ou tarifa equivalente, sera evitado mediante contato direto antes da Conexao oficial;
+a) Combinar com a contraparte que o pagamento de desbloqueio de R$ 2,50, ou tarifa equivalente, sera evitado mediante contato direto antes da Conexao oficial;
 b) Mascarar nome, telefone, endereco ou perfil em redes sociais dentro do Anuncio ou de mensagens iniciais para induzir contato fora do app antes do desbloqueio;
 c) Solicitar ao outro Usuario que cancele uma assinatura para receber "desconto por fora" da Plataforma;
 d) Oferecer ou aceitar pagamento direto **antes** da realizacao do Servico, **com a finalidade especifica** de evitar a tarifa, vedacao que **nao se confunde** com o pagamento legitimo do proprio Servico, que continua sendo direto entre as partes (clausula 8 dos Termos de Uso);
@@ -270,7 +270,7 @@ export const POLITICA_USO_ACEITAVEL_V1 = [
   {
     titulo: "2.5. Pagamento por fora e burla de tarifas",
     corpo:
-      "Proibido combinar evitar o desbloqueio de R$ 1 mascarando contato no Anuncio, ou pedir cancelamento de assinatura por desconto fora do app. Isso NAO se confunde com o pagamento do proprio Servico, que e legitimamente direto entre as partes (clausula 8 dos Termos).",
+      "Proibido combinar evitar o desbloqueio de R$ 2,50 mascarando contato no Anuncio, ou pedir cancelamento de assinatura por desconto fora do app. Isso NAO se confunde com o pagamento do proprio Servico, que e legitimamente direto entre as partes (clausula 8 dos Termos).",
   },
   {
     titulo: "2.6. Conteudo ilegal, perigoso ou sexualizado",

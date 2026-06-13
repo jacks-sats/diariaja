@@ -155,7 +155,7 @@ O valor do Servico e **integralmente negociado e pago diretamente entre Anuncian
 A Plataforma cobra do Usuario, mediante adesao expressa, exclusivamente:
 
 a) **Assinaturas opcionais** (planos com valores entre R$ 9,90 e R$ 49,90 por mes, sujeitos a reajuste comunicado com antecedencia), que ampliam limites e desbloqueiam funcionalidades premium;
-b) **Desbloqueio extra de contato** (R$ 1,00 por desbloqueio) para Usuarios do plano gratuito que excederem a cota mensal de Conexoes;
+b) **Desbloqueio extra de contato** (R$ 2,50 por desbloqueio) para Usuarios do plano gratuito que excederem a cota mensal de Conexoes;
 c) Outras tarifas eventualmente apresentadas com transparencia e mediante aceite previo.
 
 Esses valores sao processados pelo **Mercado Pago** (Ebazar.com.br Ltda. / MercadoLibre), que e a instituicao de pagamento regulamentada responsavel pela transacao. A Plataforma recebe apenas a confirmacao do pagamento e o identificador da transacao.
@@ -190,7 +190,7 @@ a) Criar perfil falso, fornecer dados inveridicos ou usar identidade de terceiro
 b) Praticar fraude, golpe, estelionato, lavagem de dinheiro ou qualquer crime;
 c) Discriminar com base em raca, cor, etnia, genero, identidade ou orientacao sexual, religiao, deficiencia, origem ou idade (Lei 7.716/1989; CF, art. 5º);
 d) Praticar assedio moral, sexual, ameaca ou violencia verbal;
-e) Combinar com a contraparte o pagamento "por fora" para burlar tarifas devidas a Plataforma (desbloqueio R$ 1,00, taxas de assinatura ou similares);
+e) Combinar com a contraparte o pagamento "por fora" para burlar tarifas devidas a Plataforma (desbloqueio R$ 2,50, taxas de assinatura ou similares);
 f) Anunciar ou solicitar conteudo ilegal, perigoso, sexual, exploratorio ou que viole direitos de terceiros;
 g) Manipular avaliacoes (comprar, trocar, criar falsas), reputacao ou ranking;
 h) Praticar spam, envio massivo, anuncio duplicado ou conteudo irrelevante;
@@ -405,7 +405,7 @@ export const TERMOS_DE_USO_V2 = [
   {
     titulo: "8. Pagamentos",
     corpo:
-      "O valor do Servico e pago direto entre as partes, fora da Plataforma (PIX, dinheiro, etc.). A Plataforma cobra apenas assinaturas opcionais (R$ 9,90 a R$ 49,90/mes) e desbloqueio extra de contato (R$ 1,00) via Mercado Pago. Cancelamento da assinatura e imediato para cobrancas futuras. Direito de arrependimento de 7 dias (CDC art. 49) quando nao houver consumo dos beneficios. Reembolsos entre as partes nao sao tratados pela Plataforma. NF apenas dos valores cobrados pela Plataforma.",
+      "O valor do Servico e pago direto entre as partes, fora da Plataforma (PIX, dinheiro, etc.). A Plataforma cobra apenas assinaturas opcionais (R$ 9,90 a R$ 49,90/mes) e desbloqueio extra de contato (R$ 2,50) via Mercado Pago. Cancelamento da assinatura e imediato para cobrancas futuras. Direito de arrependimento de 7 dias (CDC art. 49) quando nao houver consumo dos beneficios. Reembolsos entre as partes nao sao tratados pela Plataforma. NF apenas dos valores cobrados pela Plataforma.",
   },
   {
     titulo: "9. Obrigacoes tributarias do Prestador",
