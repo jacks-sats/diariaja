@@ -312,3 +312,11 @@ export const MOTIVOS_NO_SHOW: { id: string; label: string; emoji: string }[] = [
   { id: "desisti",                 label: "Não precisei mais",                      emoji: "🤷" },
   { id: "outro",                   label: "Outro motivo (descrever)",               emoji: "✏️"  },
 ];
+
+// ── Google Ads (gtag) ─────────────────────────────────────────────────────────
+// ID da tag instalada no index.html. O RÓTULO de conversão é gerado pelo
+// painel do Google Ads ao criar a ação de conversão (Metas → Conversões →
+// Nova ação → Site → criar manualmente). Enquanto o rótulo estiver vazio,
+// o disparo de conversão é pulado (o evento nomeado dispara mesmo assim).
+export const GOOGLE_ADS_ID = "AW-18217224314";
+export const GOOGLE_ADS_LABEL_CADASTRO_PRESTADOR = "l2gcCLn_mL4cEPqQ0-5D";
