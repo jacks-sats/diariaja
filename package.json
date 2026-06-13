@@ -11,7 +11,8 @@
     "test:coverage": "vitest run --coverage",
     "verify": "bash scripts/verificar.sh",
     "verify:quick": "bash scripts/verificar.sh --quick",
-    "capgo:upload": "vite build && npx @capgo/cli@7 bundle upload --channel production"
+    "capgo:upload": "vite build && npx @capgo/cli@7 bundle upload --channel production",
+    "assets:android": "npx @capacitor/assets generate --android"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
