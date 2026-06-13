@@ -319,4 +319,4 @@ export const MOTIVOS_NO_SHOW: { id: string; label: string; emoji: string }[] = [
 // Nova ação → Site → criar manualmente). Enquanto o rótulo estiver vazio,
 // o disparo de conversão é pulado (o evento nomeado dispara mesmo assim).
 export const GOOGLE_ADS_ID = "AW-18217224314";
-export const GOOGLE_ADS_LABEL_CADASTRO_PRESTADOR = "";
+export const GOOGLE_ADS_LABEL_CADASTRO_PRESTADOR = "l2gcCLn_mL4cEPqQ0-5D";
