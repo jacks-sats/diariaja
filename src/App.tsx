@@ -2613,6 +2613,7 @@ export default function App() {
       });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+     try {
       // B5: TOKEN_REFRESHED — atualiza a session no state (pra não ficar com
       // access_token velho) mas NÃO re-roda checkProfile/navegação (o usuário já
       // está logado e na tela dele).
@@ -2707,6 +2708,13 @@ export default function App() {
         sessaoNavegadaRef.current = false;
         setProfile(null);
         setTela("splash");
+        setLoading(false);
+      }
+     } catch (err) {
+        // BLINDAGEM: um erro inesperado no listener de auth (boot/restauração de
+        // sessão) NUNCA deve derrubar o app. Loga e libera o loading pra cair
+        // numa tela utilizável em vez de ficar preso/quebrar.
+        console.error("[auth] onAuthStateChange falhou:", err);
         setLoading(false);
       }
     });
