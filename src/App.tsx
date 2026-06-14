@@ -2715,23 +2715,31 @@ export default function App() {
                 const fotoGoogle = String(meta.avatar_url || meta.picture || "").trim();
                 // M7: respeita pessoa_tipo do metadata (PJ grava "juridica" no signup).
                 const pessoaTipo = meta.pessoa_tipo === "juridica" ? "juridica" : "fisica";
+                // PR-B: navega pra home SÓ se o perfil realmente gravou. Antes
+                // navegava mesmo com o upsert falhando (RLS/timing) → usuário caía
+                // numa home SEM perfil. Em falha, volta pra escolha de tipo.
+                let perfilGravado = false;
                 try {
-                  await supabase.from("user_profiles").upsert({
+                  const { error: upErr } = await supabase.from("user_profiles").upsert({
                     id: session.user.id,
                     user_type: t,
                     nome: nomeGoogle,
                     foto_url: fotoGoogle || "",
                     pessoa_tipo: pessoaTipo,
                   }, { onConflict: "id" });
-                  // M7: persiste o aceite de termos (LGPD) mesmo se o flag em
-                  // localStorage não existir (caso de confirmar e-mail noutro device).
-                  supabase.rpc("aceitar_termos", { p_versao: TERMOS_VERSAO }).then(
-                    () => { try { localStorage.removeItem("diariaja_termos_pendente_db"); } catch { /* ignore */ } },
-                    () => {},
-                  );
-                  try { localStorage.removeItem("diariaja_tipo_pendente"); } catch { /* ignore */ }
+                  if (!upErr) {
+                    perfilGravado = true;
+                    // M7: persiste o aceite de termos (LGPD) mesmo se o flag em
+                    // localStorage não existir (caso de confirmar e-mail noutro device).
+                    supabase.rpc("aceitar_termos", { p_versao: TERMOS_VERSAO }).then(
+                      () => { try { localStorage.removeItem("diariaja_termos_pendente_db"); } catch { /* ignore */ } },
+                      () => {},
+                    );
+                    try { localStorage.removeItem("diariaja_tipo_pendente"); } catch { /* ignore */ }
+                  }
                 } catch { /* RLS pode bloquear em "Confirm email" — re-tenta no próximo login */ }
-                if (t === "empregador") setTela("home-empregador");
+                if (!perfilGravado) setTela("cadastro-tipo");
+                else if (t === "empregador") setTela("home-empregador");
                 else setTela("home-diarista");
               } else {
                 // Sem tipo conhecido — primeira vez via Google direto. Manda escolher.
@@ -3657,7 +3665,8 @@ export default function App() {
     if (rpcAusente) {
       const { error: errLegado } = await supabase
         .from("diarias").update({ status: "em_andamento" })
-        .eq("id", diariaId).eq("empregador_id", session.user.id);
+        .eq("id", diariaId).eq("empregador_id", session.user.id)
+        .eq("status", "aceita"); // PR-B: não pular etapas (igual ao RPC)
       if (errLegado) { setScanMsg({ ok:false, txt: traduzirErroBanco(errLegado) }); return; }
     } else if (error) {
       setScanMsg({ ok:false, txt:traduzirErroBanco(error) }); return;
@@ -3699,7 +3708,8 @@ export default function App() {
     if (rpcAusente) {
       const { error: errLegado } = await supabase
         .from("diarias").update({ status: "concluida" })
-        .eq("id", diariaId).eq("empregador_id", session.user.id);
+        .eq("id", diariaId).eq("empregador_id", session.user.id)
+        .eq("status", "em_andamento"); // PR-B: só conclui o que está em andamento
       if (errLegado) { setAuthError(traduzirErroBanco(errLegado)); return; }
     } else if (error) {
       setAuthError(traduzirErroBanco(error)); return;
@@ -3754,7 +3764,9 @@ export default function App() {
     const { error } = await supabase
       .from("diarias")
       .update({ status: "aberta", diarista_aceite_id: null, motivo_cancelamento: motivoDesistencia.trim() })
-      .eq("id", diariaId);
+      .eq("id", diariaId)
+      .eq("diarista_aceite_id", session.user.id) // PR-B: só o prestador designado
+      .in("status", ["pendente", "aceita"]);      // PR-B: não desistir após check-in
     if (error) { setAuthError(traduzirErroBanco(error)); setDesistindo(false); return; }
     // Remove candidatura da tabela para que possa se recandidatar depois
     await supabase.from("candidaturas").delete()
