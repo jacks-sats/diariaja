@@ -1,64 +1,25 @@
 // ── usePushNotifications ─────────────────────────────────────────────────────
-// Hook DUAL-CANAL para gerenciar push notifications:
-//   - App nativo (Capacitor / Android) → FCM via @capacitor/push-notifications
-//   - Navegador / PWA                  → Web Push (VAPID, RFC 8291)
-// A API exposta (estado / solicitarPermissao / cancelarInscricao) é idêntica
-// nos dois modos, então os callers no App.tsx não mudam.
+// Hook para gerenciar assinaturas de Web Push Notifications.
 //
-// Pré-requisitos (Web Push):
+// Pré-requisitos:
 //   1. Executar supabase/migrations/push_subscriptions.sql
 //   2. Configurar VITE_VAPID_PUBLIC_KEY no .env.local
 //   3. Configurar VAPID_PRIVATE_KEY como secret no Supabase Dashboard
-//   4. supabase functions deploy send-push
-// Pré-requisitos (FCM nativo):
-//   1. Executar supabase/migrations/fcm_tokens.sql
-//   2. android/app/google-services.json (projeto Firebase, package com.diariaja.app)
-//   3. npx cap sync android  (registra o plugin no projeto Android)
-//   4. Setar FCM_SERVICE_ACCOUNT como secret no Supabase (ativa o envio)
+//   4. Fazer deploy da Edge Function send-push:
+//      supabase functions deploy send-push
 
 import { useState, useEffect, useCallback } from "react";
-import { Capacitor } from "@capacitor/core";
-import { PushNotifications } from "@capacitor/push-notifications";
 import { supabase } from "./supabaseClient";
 
 // Chave pública VAPID gerada em generate-icons.mjs ou separadamente
 // Definida em .env.local como VITE_VAPID_PUBLIC_KEY
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
 
-// true quando rodando dentro do app Capacitor (Android) — usa FCM em vez de VAPID.
-const NATIVO = Capacitor.isNativePlatform();
-
-// ⚠️ KILL SWITCH (emergência 2026-06-14): o registro NATIVO de push (FCM) estava
-// derrubando o app no LOGIN em vários aparelhos — crash nativo do plugin
-// @capacitor/push-notifications, que o try/catch do JS não consegue capturar.
-// Com `false`, o app NÃO chama nenhum método nativo de push (não crasha) e o
-// Web Push do navegador segue normal. Reativar (true) só depois de confirmar a
-// causa pelo stack (Play Console -> Falhas e ANRs) e corrigir.
-const FCM_NATIVO_ATIVO = false;
-
-// Canal de notificação Android (obrigatório no Android 8+). O id tem que bater
-// com o channel_id enviado pelo send-push (android.notification.channel_id).
-const CANAL_GERAL = {
-  id: "diariaja_geral",
-  name: "Geral",
-  description: "Convites, mensagens, avaliações e avisos do DiáriaJá",
-  importance: 5 as const, // IMPORTANCE_HIGH — notificação com heads-up
-  visibility: 1 as const, // VISIBILITY_PUBLIC
-  vibration: true,
-};
-
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
   const rawData = window.atob(base64);
   return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
-}
-
-// Mapeia o PermissionState do plugin nativo pro NotificationPermission do web.
-function mapPermNativa(p: string): NotificationPermission {
-  if (p === "granted") return "granted";
-  if (p === "denied") return "denied";
-  return "default"; // "prompt" | "prompt-with-rationale"
 }
 
 export interface PushState {
@@ -77,64 +38,7 @@ export function usePushNotifications(userId: string | undefined) {
     solicitando: false,
   });
 
-  // ── Salva/atualiza o token FCM no Supabase, ligado ao user_id ───────────────
-  const salvarTokenFcm = useCallback(async (uid: string, token: string) => {
-    const { error } = await supabase.from("fcm_tokens").upsert({
-      user_id: uid,
-      token,
-      platform: Capacitor.getPlatform(),
-      user_agent: navigator.userAgent.slice(0, 200),
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "token" });
-    if (error) {
-      console.error("[Push nativo] erro ao salvar token FCM:", error.message);
-      return;
-    }
-    setEstado(e => ({ ...e, inscrito: true }));
-  }, []);
-
-  // ── Modo NATIVO (Capacitor / FCM) ───────────────────────────────────────────
-  // Cria o canal Android, lê a permissão, registra os listeners e — se já houver
-  // permissão — registra em silêncio pra refrescar o token a cada abertura.
   useEffect(() => {
-    if (!NATIVO || !userId || !FCM_NATIVO_ATIVO) return;
-    let cancelado = false;
-    const handles: { remove: () => void }[] = [];
-
-    (async () => {
-      try {
-        if (Capacitor.getPlatform() === "android") {
-          await PushNotifications.createChannel(CANAL_GERAL).catch(() => { /* canal já existe */ });
-        }
-
-        const perm = await PushNotifications.checkPermissions();
-        if (cancelado) return;
-        setEstado(e => ({ ...e, suportado: true, permissao: mapPermNativa(perm.receive) }));
-
-        // Token capturado (no register e nos refreshes) → salva no banco.
-        handles.push(await PushNotifications.addListener("registration", (t) => {
-          salvarTokenFcm(userId, t.value);
-        }));
-        handles.push(await PushNotifications.addListener("registrationError", (err) => {
-          console.error("[Push nativo] registrationError:", JSON.stringify(err));
-        }));
-
-        // Já autorizado: registra agora pra garantir token atualizado no Supabase.
-        if (perm.receive === "granted") await PushNotifications.register();
-      } catch (err) {
-        console.error("[Push nativo] init falhou:", err);
-      }
-    })();
-
-    return () => {
-      cancelado = true;
-      handles.forEach(h => { try { h.remove(); } catch { /* ignore */ } });
-    };
-  }, [userId, salvarTokenFcm]);
-
-  // ── Modo WEB (Web Push / VAPID) ─────────────────────────────────────────────
-  useEffect(() => {
-    if (NATIVO) return; // no app nativo, o efeito acima cuida do push
     const suportado =
       "serviceWorker" in navigator &&
       "PushManager" in window &&
@@ -172,33 +76,7 @@ export function usePushNotifications(userId: string | undefined) {
   };
 
   const solicitarPermissao = useCallback(async (): Promise<boolean> => {
-    if (!userId) return false;
-
-    // ── NATIVO: permissão pela API do plugin + register (token → fcm_tokens) ──
-    if (NATIVO) {
-      // Kill switch: FCM nativo desligado (estava crashando) — no-op seguro.
-      if (!FCM_NATIVO_ATIVO) return false;
-      setEstado(e => ({ ...e, solicitando: true }));
-      try {
-        const r = await PushNotifications.requestPermissions();
-        setEstado(e => ({ ...e, permissao: mapPermNativa(r.receive) }));
-        if (r.receive !== "granted") {
-          setEstado(e => ({ ...e, solicitando: false }));
-          return false;
-        }
-        // Dispara o listener "registration" acima, que salva o token no banco.
-        await PushNotifications.register();
-        setEstado(e => ({ ...e, solicitando: false }));
-        return true;
-      } catch (err) {
-        console.error("[Push nativo] solicitarPermissao:", err);
-        setEstado(e => ({ ...e, solicitando: false }));
-        return false;
-      }
-    }
-
-    // ── WEB: Web Push / VAPID (inalterado) ──
-    if (!estado.suportado) return false;
+    if (!estado.suportado || !userId) return false;
     if (!VAPID_PUBLIC_KEY) {
       console.warn("[Push] VITE_VAPID_PUBLIC_KEY não configurada");
       // Expõe o erro no estado pra UI avisar (sem depender do console).
@@ -250,20 +128,6 @@ export function usePushNotifications(userId: string | undefined) {
 
   const cancelarInscricao = useCallback(async () => {
     if (!userId) return;
-
-    // ── NATIVO: desregistra do FCM + apaga os tokens deste usuário ──
-    if (NATIVO) {
-      try {
-        await PushNotifications.unregister().catch(() => { /* ignore */ });
-        await supabase.from("fcm_tokens").delete().eq("user_id", userId);
-        setEstado(e => ({ ...e, inscrito: false }));
-      } catch (err) {
-        console.error("[Push nativo] Erro ao cancelar:", err);
-      }
-      return;
-    }
-
-    // ── WEB (inalterado) ──
     try {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
