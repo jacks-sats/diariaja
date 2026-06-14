@@ -6800,7 +6800,7 @@ export default function App() {
 
   // SPLASH
   if (tela === "splash") return (
-    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:480, margin:"0 auto", position:"relative" as const }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:"var(--shell-max, 480px)", margin:"0 auto", position:"relative" as const }}>
 
       {/* ── Topo: logo + badge local ── */}
       <div style={{ padding:"26px 24px 0", display:"flex", alignItems:"center", justifyContent:"space-between", animation:"spl-fadein .6s ease-out both" }}>
@@ -6989,7 +6989,7 @@ export default function App() {
             <button aria-label="Fechar termos" style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
             <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
           </div>
-          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
+          <div style={{ padding:"20px 20px 60px", maxWidth:"var(--shell-max, 480px)", margin:"0 auto" }}>
             <p style={{ fontSize:13, color:"#475569", lineHeight:1.7, marginBottom:14 }}>
               A DiáriaJá é uma plataforma digital de anúncios de oportunidades de serviços, que conecta anunciantes e prestadores autônomos. A plataforma não participa da execução do serviço — a relação entre as partes é independente e autônoma.
             </p>
@@ -7012,7 +7012,7 @@ export default function App() {
 
   // LOGIN
   if (tela === "login") return (
-    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 22px 40px", position:"relative" as const }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:"var(--shell-max, 480px)", margin:"0 auto", padding:"0 22px 40px", position:"relative" as const }}>
 
       <button style={{ background:"#fff", border:"1.5px solid #e2e8f0", color:"#64748b", fontSize:13, fontWeight:700, cursor:"pointer", padding:"8px 14px", marginTop:48, alignSelf:"flex-start", borderRadius:20, fontFamily:"Inter, system-ui, sans-serif" }}
         aria-label="Voltar para a tela inicial"
@@ -7181,7 +7181,7 @@ export default function App() {
 
   // CADASTRO TIPO
   if (tela === "cadastro-tipo") return (
-    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth: isDesktop ? 880 : 480, margin:"0 auto", padding:"0 24px 40px" }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth: isDesktop ? 880 : "var(--shell-max, 480px)", margin:"0 auto", padding:"0 24px 40px" }}>
 
       <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setTela("splash")}>
         ← Voltar
@@ -7252,7 +7252,7 @@ export default function App() {
 
   // CADASTRO AUTH (email/senha + Google)
   if (tela === "cadastro-auth") return (
-    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:"var(--shell-max, 480px)", margin:"0 auto", padding:"0 24px 40px" }}>
 
       <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
         ← Voltar
@@ -7397,7 +7397,7 @@ export default function App() {
             <button aria-label="Fechar termos" style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
             <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
           </div>
-          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
+          <div style={{ padding:"20px 20px 60px", maxWidth:"var(--shell-max, 480px)", margin:"0 auto" }}>
             {(() => {
               const isDiarista = tipo === "diarista";
               const isContratante = tipo === "empregador" || tipo === "empresa";
@@ -7452,7 +7452,7 @@ export default function App() {
     const xpTotal = academyCertificados.reduce((s, c) => s + (academyCursos.find(x => x.id === c.curso_id)?.pontos_score || 0), 0);
     const nivelAc = calcularNivelAcademy(xpTotal);
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", margin:"0 auto", paddingBottom:40 }}>
         {/* Header gradiente */}
         <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"48px 20px 28px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
@@ -7551,7 +7551,7 @@ export default function App() {
     if (!academyCursoAberto) { setTela("academy"); return null; }
     const curso = academyCursoAberto;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:`linear-gradient(135deg, ${curso.cor}, ${curso.cor}cc)`, padding:"48px 20px 28px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela("academy")}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
@@ -7625,7 +7625,7 @@ export default function App() {
     if (academyQuizMostrando) {
       // Renderiza QUIZ
       return (
-        <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+        <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", margin:"0 auto", paddingBottom:40 }}>
           <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", color:"#0f172a", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
             <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
               onClick={() => { setAcademyQuizMostrando(false); setTela("academy-curso"); }}>← Voltar</button>
@@ -7713,7 +7713,7 @@ export default function App() {
     const microOk = !microPergunta || academyMicroResp === microPergunta.correta;
     const podeConcluir = academyTempoRestante <= 0 && academyScrollOk && academyEntendi && microOk;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background: curso ? `linear-gradient(135deg, ${curso.cor}, ${curso.cor}cc)` : "linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"48px 20px 22px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:12 }} onClick={() => setTela("academy-curso")}>← Voltar ao curso</button>
           <div style={{ fontSize:11, fontWeight:700, opacity:0.85, marginBottom:4 }}>Aula {idxAtual+1} de {aulasMod.length}</div>
@@ -7798,7 +7798,7 @@ export default function App() {
     const identidadesConta = (session?.user?.identities ?? []) as { provider?: string }[];
     const semSenhaPropria = identidadesConta.length > 0 && !identidadesConta.some(i => i.provider === "email");
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -8414,7 +8414,7 @@ export default function App() {
       { ic:"🏦", t:"Conta e crédito PJ", d:"Conta empresarial, empréstimos e compras no atacado." },
     ];
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:60 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:"var(--shell-max, 480px)", margin:"0 auto", paddingBottom:60 }}>
         {/* Header */}
         <div style={{ background:"linear-gradient(135deg,#0f766e,#16a34a)", padding:"48px 20px 28px" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.9)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
@@ -8533,7 +8533,7 @@ export default function App() {
     ];
     const [secaoAberta, setSecaoAberta] = useState<number | null>(null);
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:60 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:"var(--shell-max, 480px)", margin:"0 auto", paddingBottom:60 }}>
         {/* Header */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 28px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
@@ -8607,7 +8607,7 @@ export default function App() {
     // faqAberta já está no topo do componente (BUG-C1 fix)
     return (
       <>
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", margin:"0 auto", paddingBottom:40 }}>
 
         {/* Header — tema claro (alinhado à landing/app) */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", position:"relative", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
@@ -8729,7 +8729,7 @@ export default function App() {
             <button style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
             <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)" }}>Termos de Uso — DiáriaJá</div>
           </div>
-          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
+          <div style={{ padding:"20px 20px 60px", maxWidth:"var(--shell-max, 480px)", margin:"0 auto" }}>
             {[
               { titulo:"1. Apresentação", body:`A DiáriaJá é uma plataforma digital de anúncios de oportunidades de serviços (PWA) que conecta prestadores autônomos a anunciantes (pessoas físicas ou empresas) para serviços pontuais nas categorias: Doméstico, Supermercado, Restaurante, Construção, Eventos, Saúde & Cuidado, Logística e Pet & Animais.\n\nA plataforma não participa da execução do serviço. A DiáriaJá apenas disponibiliza ferramentas para publicação de anúncios e conexão entre usuários.\n\nEste Termo observa: LGPD (Lei nº 13.709/2018), Marco Civil da Internet (Lei nº 12.965/2014), CDC (Lei nº 8.078/1990) e LC nº 150/2015.` },
               { titulo:"2. Natureza da Plataforma", body:`Somos um ambiente digital de divulgação de anúncios. Não prestamos serviços diretamente, não somos empregador dos prestadores, não somos agência de emprego, e não garantimos qualidade, presença ou pagamento externo.\n\nA relação entre prestador e anunciante é independente e autônoma — após o aceite, é de responsabilidade exclusiva das partes.` },
@@ -8881,7 +8881,7 @@ export default function App() {
     };
 
     return (
-      <div style={{ minHeight:"100vh", background:"#f0f2f5", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", padding:"0 20px 40px" }}>
+      <div style={{ minHeight:"100vh", background:"#f0f2f5", fontFamily:"Inter, system-ui, sans-serif", maxWidth:"var(--shell-max, 480px)", margin:"0 auto", padding:"0 20px 40px" }}>
         <button
           style={{ background:"none", border:"none", color:"#475569", fontSize:15, cursor:"pointer", padding:"32px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif", minHeight:44 }}
           onClick={() => {
@@ -10056,7 +10056,7 @@ export default function App() {
       void responderSuporte(txt);
     };
     return (
-      <div style={{ position:"fixed", inset:0, background:"var(--bg-app,#f0f2f5)", zIndex:300, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", fontFamily:"Inter, system-ui, sans-serif" }}>
+      <div style={{ position:"fixed", inset:0, background:"var(--bg-app,#f0f2f5)", zIndex:300, display:"flex", flexDirection:"column", maxWidth:"var(--shell-max, 480px)", margin:"0 auto", fontFamily:"Inter, system-ui, sans-serif" }}>
         {/* Header */}
         <div style={{ background:"linear-gradient(135deg,#8338EC,#FF6B35)", padding:"20px 16px 14px", display:"flex", alignItems:"center", gap:12 }}>
           <button style={{ background:"rgba(255,255,255,.2)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", width:36, height:36, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={() => setChatSuporte(false)}>←</button>
@@ -10386,7 +10386,7 @@ export default function App() {
       });
 
     return (
-      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : "var(--shell-max, 480px)", paddingTop: isDesktop ? 64 : undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
         {isDesktop && (
@@ -13595,7 +13595,7 @@ export default function App() {
     };
 
     return (
-      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom: 76, background: "#f0f2f5" }}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : "var(--shell-max, 480px)", paddingTop: isDesktop ? 64 : undefined, paddingBottom: 76, background: "#f0f2f5" }}>
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
         {isDesktop && (
@@ -16557,7 +16557,7 @@ export default function App() {
 
   // EDITAR PERFIL DIARISTA
   if (tela === "editar-perfil") return (
-    <div style={{ ...S.page, maxWidth: isDesktop ? 700 : 480 }}>
+    <div style={{ ...S.page, maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)" }}>
       <button style={S.back} onClick={() => { setCamposDestravadosEdit(new Set()); setTela("configuracoes"); }}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
 
@@ -17074,7 +17074,7 @@ export default function App() {
       (typeof rep.pct_cumpriu_combinado === "number" && rep.pct_cumpriu_combinado < 50)
     ));
     return (
-      <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : 480 }}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)" }}>
         <div style={{ padding:"12px 16px 0" }}>
           <button style={S.back} onClick={() => { setEmpregadorAberto(null); setAvaliacoesEmpAbertas([]); setTela("home-diarista"); }}>← Voltar</button>
         </div>
@@ -17237,7 +17237,7 @@ export default function App() {
     const diariasDaPerfilConc = diaristasContagemDiarias[d.id] || 0;
     const nivelD = nivelDiarista(diariasDaPerfilConc);
     return (
-      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480 }}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : "var(--shell-max, 480px)" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 16px 0" }}>
           <button style={S.back} onClick={() => setTela("home-empregador")}>← Voltar</button>
           <button
@@ -17826,7 +17826,7 @@ export default function App() {
     return (
       // Desktop: formulário em container ~700px centralizado (campos width:100%
       // acompanham). Mobile: 480px, idêntico ao anterior.
-      <div style={{ ...S.page, maxWidth: isDesktop ? 700 : 480 }}>
+      <div style={{ ...S.page, maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)" }}>
         <button style={S.back} onClick={() => { setAuthError(""); setTabEmpregador("perfil"); setTela("home-empregador"); }}>← Voltar</button>
 
         {/* Cabeçalho */}
@@ -18316,7 +18316,7 @@ export default function App() {
 
   // EDITAR PERFIL EMPREGADOR
   if (tela === "editar-perfil-empregador") return (
-    <div style={{ ...S.page, maxWidth: isDesktop ? 700 : 480 }}>
+    <div style={{ ...S.page, maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)" }}>
       <button style={S.back} onClick={() => { setCamposDestravadosEdit(new Set()); setTela("configuracoes"); }}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
 
@@ -18713,7 +18713,7 @@ export default function App() {
     const ult7 = (s: { dia: string; valor: number }[]) => (s || []).slice(-7).reduce((a, b) => a + (b.valor || 0), 0);
     const hojeV = (s: { dia: string; valor: number }[]) => (s && s.length ? s[s.length - 1].valor : 0);
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", margin:"0 auto", paddingBottom:40 }}>
         {/* Toasts globais — admin tela não tinha, motivo do bug "click Aprovar sem feedback" */}
         {toastSuccess && <div role="status" aria-live="polite" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastSuccess}</div>}
         {toastError   && <div role="alert" aria-live="assertive" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastError}</div>}
@@ -19448,7 +19448,7 @@ export default function App() {
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     const tk = adminTickets;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", margin:"0 auto", paddingBottom:40 }}>
         {/* Header */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
@@ -19544,7 +19544,7 @@ export default function App() {
     };
     const info = statusInfo[docStatus];
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -19681,7 +19681,7 @@ export default function App() {
     };
     const info = statusInfo[antStatus];
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -19787,7 +19787,7 @@ export default function App() {
   if (tela === "meus-tickets") {
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
             ← Voltar
@@ -19881,7 +19881,7 @@ export default function App() {
       ticketAtivo.status === "aguardando_user"   ? "Aguardando " + (isAdminView ? "usuário" : "você") :
       ticketAtivo.status === "resolvido"         ? "Resolvido" : "Fechado";
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column" }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:"var(--shell-max, 480px)", margin:"0 auto", display:"flex", flexDirection:"column" }}>
         {/* Header */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"40px 16px 16px", position:"sticky", top:0, zIndex:5, borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
@@ -19988,7 +19988,7 @@ export default function App() {
     // Tela de detalhe do tópico
     if (topicoAtivo) {
       return (
-        <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : 480, paddingBottom:80, background:"var(--bg-app,#f0f2f5)" }}>
+        <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", paddingBottom:80, background:"var(--bg-app,#f0f2f5)" }}>
           <div style={{ background:corAcento, padding:"16px 20px", display:"flex", alignItems:"center", gap:12 }}>
             <button style={{ background:"none", border:"none", color:"#fff", fontSize:22, cursor:"pointer", padding:0 }} onClick={() => setTopicoAtivo(null)}>←</button>
             <div style={{ flex:1 }}>
@@ -20070,7 +20070,7 @@ export default function App() {
 
     // Lista de tópicos
     return (
-      <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : 480, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+      <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : "var(--shell-max, 480px)", paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
         {/* Header */}
         <div style={{ background:corAcento, padding:"20px 20px 16px" }}>
           <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
@@ -20370,7 +20370,7 @@ const S: Record<string, React.CSSProperties> = {
   logoIcon:         { fontSize:40 },
   logoText:         { fontSize:42, fontWeight:900, color:"#FF6B35", letterSpacing:-1 },
   splashSub:        { color:"var(--text-3,#94a3b8)", fontSize:20, textAlign:"center", lineHeight:1.5, margin:"8px 0 24px" },
-  page:             { minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", padding:"24px 20px", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" },
+  page:             { minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", padding:"24px 20px", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:"var(--shell-max, 480px)", margin:"0 auto" },
   pageTitle:        { fontSize:26, fontWeight:900, color:"var(--text-1,#0f172a)", margin:"16px 0 8px" },
   subTexto:         { color:"var(--text-2,#64748b)", fontSize:14, marginBottom:20 },
   back:             { background:"none", border:"none", color:"#FF6B35", fontSize:16, cursor:"pointer", padding:0, marginBottom:8, fontFamily:"Inter, system-ui, sans-serif" },
@@ -20403,7 +20403,7 @@ const S: Record<string, React.CSSProperties> = {
   toggleAtivo:      { background:"#FF6B35" },
   toggleThumb:      { width:22, height:22, borderRadius:11, background:"var(--bg-card,#fff)", position:"absolute", top:3, left:3, transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" },
   toggleThumbAtivo: { left:23 },
-  appShell:         { minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:32 },
+  appShell:         { minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:"var(--shell-max, 480px)", margin:"0 auto", paddingBottom:32 },
   header:           { padding:"20px 20px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" },
   // (Removidos os tokens dark-first sem uso: headerSub/headerTitle/headerBack/
   //  logoutBtn/avatar — eram código morto e nasceriam escuros no app claro.)
