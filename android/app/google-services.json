@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1052030861458",
+    "project_id": "diariaja-496821",
+    "storage_bucket": "diariaja-496821.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1052030861458:android:603643fc3cacac79f9a64b",
+        "android_client_info": {
+          "package_name": "com.diariaja.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1052030861458-aafgg6v1lgq1cuoi575mqd446ranja8b.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA-Qaz4bGfIq8RQO1BtLIC053ldhweSIf8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1052030861458-aafgg6v1lgq1cuoi575mqd446ranja8b.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
