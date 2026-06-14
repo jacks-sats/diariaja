@@ -322,7 +322,8 @@ export default function App() {
     return (localStorage.getItem("diariaja_modo") as "empregador"|"diarista") || "empregador";
   });
   const [negocioSelecionado, setNegocio]  = useState<string | null>(null);
-  const [form, setForm]                   = useState({ nome:"", telefone:"", funcao:"", valor:"", nomeNegocio:"", email:"", senha:"", bio:"", cpf:"", cnpj:"", pessoaTipo:"fisica", sexo:"", dataNasc:"", cepEmp:"", ruaEmp:"", numeroEmp:"", complementoEmp:"", bairroEmp:"", cidadeEmp:"", estadoEmp:"", cep:"", bairro:"", cidade:"", pixTipo:"cpf", pixChave:"" });
+  const FORM_VAZIO = { nome:"", telefone:"", funcao:"", valor:"", nomeNegocio:"", email:"", senha:"", bio:"", cpf:"", cnpj:"", pessoaTipo:"fisica", sexo:"", dataNasc:"", cepEmp:"", ruaEmp:"", numeroEmp:"", complementoEmp:"", bairroEmp:"", cidadeEmp:"", estadoEmp:"", cep:"", bairro:"", cidade:"", pixTipo:"cpf", pixChave:"" };
+  const [form, setForm]                   = useState(FORM_VAZIO);
   const [buscandoCEPEmp, setBuscandoCEPEmp] = useState(false);
   const [fotoUrl, setFotoUrl]             = useState<string | null>(null);
   const [uploadingFoto, setUploadingFoto] = useState(false);
@@ -948,6 +949,10 @@ export default function App() {
   // Telefone verificado, CPF e data de nascimento ficam read-only por padrão.
   // Botãozinho "Alterar" ao lado destrava só aquele campo. Limpamos ao sair da tela.
   const [camposDestravadosEdit, setCamposDestravadosEdit] = useState<Set<string>>(new Set());
+  // PR-A: trava de duplo-clique nos setups (diarista/empregador) e flag de
+  // "perfil demorou a carregar" na tela de editar perfil (timeout do esqueleto).
+  const [salvandoSetup, setSalvandoSetup] = useState(false);
+  const [perfilEdicaoFalhou, setPerfilEdicaoFalhou] = useState(false);
   const destravarCampoEdit = (c: string) => setCamposDestravadosEdit(prev => {
     const next = new Set(prev); next.add(c); return next;
   });
@@ -2706,6 +2711,10 @@ export default function App() {
       } else {
         // Logout / sessão expirada → libera a blindagem pra próxima sessão navegar.
         sessaoNavegadaRef.current = false;
+        // PR-A: no logout REAL (não no boot-anônimo), zera PII/onboarding pra não
+        // vazar dados entre contas. `event === "SIGNED_OUT"` evita limpar no
+        // INITIAL_SESSION-sem-sessão (cold start de quem nunca logou).
+        if (event === "SIGNED_OUT") resetEstadoOnboarding();
         setProfile(null);
         setTela("splash");
         setLoading(false);
@@ -2726,10 +2735,22 @@ export default function App() {
     // C2 passo B: lê o PRÓPRIO perfil via RPC meu_perfil() (perfil completo do
     // dono via SECURITY DEFINER) — continua funcionando após o REVOKE das
     // colunas sensíveis em user_profiles para o role authenticated.
-    const { data: raw, error } = await supabase.rpc("meu_perfil");
+    let { data: raw, error } = await supabase.rpc("meu_perfil");
+    // PR-A: erro de rede no carregamento do perfil não pode ficar mudo (o usuário
+    // fica com profile=null e parece deslogado / telas presas no esqueleto).
+    // Tenta 1x de novo após um instante; se persistir, avisa em vez de falhar
+    // em silêncio.
+    if (error) {
+      await new Promise(r => setTimeout(r, 1200));
+      ({ data: raw, error } = await supabase.rpc("meu_perfil"));
+    }
     const data = raw as UserProfile | null;
 
-    if (error) { setLoading(false); return; }
+    if (error) {
+      setLoading(false);
+      setToastError("Não consegui carregar seu perfil. Verifique sua conexão e tente de novo.");
+      return;
+    }
 
     if (data) {
       // Plano de 30 dias venceu? Reverte pra grátis (não renova sozinho).
@@ -3404,18 +3425,36 @@ export default function App() {
     window.location.href = url;
   };
 
+  // PR-A: zera TODO o estado de onboarding/PII (foto, formulários, passos do
+  // wizard, telefone verificado, chaves diariaja_* do localStorage). O app é SPA
+  // single-`tela` sem reload, então sem isto o estado do usuário ANTERIOR vaza
+  // pro próximo cadastro no mesmo aparelho (foto/nome/tipo antigos aparecendo).
+  // Preserva só `diariaja_dark` (tema é preferência do aparelho, não do usuário).
+  const resetEstadoOnboarding = () => {
+    setForm(FORM_VAZIO);
+    setFormEmp(FORM_EMPRESA_VAZIO);
+    setFotoUrl(null);
+    setPortfolioUrls([]);
+    setAgenda([]);
+    setCategorias([]);
+    setPassoEmpresa(1); setPassoDiarista(1); setPassoEmpregadorPF(1);
+    setTelefoneVerificado(false);
+    setCamposDestravadosEdit(new Set());
+    try {
+      Object.keys(localStorage)
+        .filter(k => k.startsWith("diariaja_") && k !== "diariaja_dark")
+        .forEach(k => localStorage.removeItem(k));
+    } catch { /* ignore */ }
+  };
+
   const handleLogout = async () => {
     // P1-15 auditoria: scope "global" invalida todas as sessões do usuário em
     // todos os dispositivos. Importante pra cenário "perdi o celular" — outras
     // sessões abertas viram inválidas no servidor.
     await supabase.auth.signOut({ scope: "global" });
-    // Limpa TODO o estado local para não vazar dados entre usuários no mesmo dispositivo
-    const keysToRemove = [
-      "diariaja_tela", "diariaja_modo", "diariaja_dark",
-      "diariaja_hidden_chats", "diariaja_portfolio", "diariaja_cancels",
-      "diariaja_chat_ativo",
-    ];
-    keysToRemove.forEach(k => localStorage.removeItem(k));
+    // PR-A: limpeza completa de PII/onboarding (substitui a remoção parcial de
+    // chaves antiga) — evita vazamento de dados entre contas no mesmo aparelho.
+    resetEstadoOnboarding();
     // Reset de estado React
     setProfile(null); setTipo(null); setNegocio(null);
     setModoAtual("empregador");
@@ -3428,6 +3467,17 @@ export default function App() {
     setListaNotif([]); setNotifNaoLidas(0);
     setTela("splash");
   };
+
+  // PR-A: timeout do esqueleto de "Editar perfil". Se o perfil não carregar em
+  // 8s (rede lenta/falha), troca o esqueleto infinito por um aviso com retry.
+  useEffect(() => {
+    if ((tela === "editar-perfil" || tela === "editar-perfil-empregador") && !profile) {
+      setPerfilEdicaoFalhou(false);
+      const t = setTimeout(() => setPerfilEdicaoFalhou(true), 8000);
+      return () => clearTimeout(t);
+    }
+    setPerfilEdicaoFalhou(false);
+  }, [tela, profile]);
 
   const negocio = negocioSelecionado ? CATEGORIAS_NEGOCIO[negocioSelecionado as keyof typeof CATEGORIAS_NEGOCIO] : null;
   const funcoesDoNegocio = negocio ? negocio.funcoes : [];
@@ -9772,32 +9822,39 @@ export default function App() {
     const submitDia = async () => {
       setSubmittingDia(true);
       setAuthError("");
-      const errosF = validarTodoFormDiarista();
-      setErrosDia(errosF);
-      setTocadosDia(Object.fromEntries((Object.keys(errosF) as CampoDia[]).map(k => [k, true])));
-      if (Object.keys(errosF).length > 0) {
+      // PR-A: try/finally — sem isto, se saveProfile lançasse (rede/timeout) o
+      // setSubmittingDia(false) era pulado e o botão travava em "Criando conta…".
+      try {
+        const errosF = validarTodoFormDiarista();
+        setErrosDia(errosF);
+        setTocadosDia(Object.fromEntries((Object.keys(errosF) as CampoDia[]).map(k => [k, true])));
+        if (Object.keys(errosF).length > 0) {
+          setAuthError("Corrija os campos destacados antes de continuar.");
+          return;
+        }
+        // Normaliza valores antes de gravar — banco fica com formato canônico.
+        const telDigitos = form.telefone.replace(/\D/g, "");
+        const ok = await saveProfile({
+          telefone: telDigitos,
+          funcao: categoriasSelecionadas[0] || "",
+          cpf: form.cpf,
+          sexo: form.sexo,
+          data_nascimento: form.dataNasc,
+        });
+        if (ok) {
+          trackEvento("cadastro_concluido", session?.user?.id, "diarista");
+          try { localStorage.removeItem("diariaja_cad_diarista_passo"); } catch { /* ignore */ }
+          setPassoDiarista(1);
+          setErrosDia({});
+          setTocadosDia({});
+          setAceitaTermosDia(false);
+          setTela("pedir-localizacao");
+        }
+      } catch (e) {
+        console.error("[cadastro-diarista] erro inesperado:", e);
+        setAuthError("Não foi possível concluir o cadastro agora. Verifique sua conexão e tente de novo.");
+      } finally {
         setSubmittingDia(false);
-        setAuthError("Corrija os campos destacados antes de continuar.");
-        return;
-      }
-      // Normaliza valores antes de gravar — banco fica com formato canônico.
-      const telDigitos = form.telefone.replace(/\D/g, "");
-      const ok = await saveProfile({
-        telefone: telDigitos,
-        funcao: categoriasSelecionadas[0] || "",
-        cpf: form.cpf,
-        sexo: form.sexo,
-        data_nascimento: form.dataNasc,
-      });
-      setSubmittingDia(false);
-      if (ok) {
-        trackEvento("cadastro_concluido", session?.user?.id, "diarista");
-        try { localStorage.removeItem("diariaja_cad_diarista_passo"); } catch { /* ignore */ }
-        setPassoDiarista(1);
-        setErrosDia({});
-        setTocadosDia({});
-        setAceitaTermosDia(false);
-        setTela("pedir-localizacao");
       }
     };
 
@@ -16569,14 +16626,28 @@ export default function App() {
     <div style={S.page}>
       <button style={S.back} onClick={() => setTela("configuracoes")}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
-      <div style={{ display:"flex", flexDirection:"column" as const, gap:14, marginTop:8 }}>
-        {[...Array(6)].map((_, i) => (
-          <div key={i}>
-            <div style={{ height:12, width:"38%", borderRadius:6, background:"var(--bg-subtle,#f1f5f9)", marginBottom:8, animation:"pulse 1.5s ease-in-out infinite" }} />
-            <div style={{ height:46, borderRadius:12, background:"var(--bg-subtle,#f1f5f9)", animation:"pulse 1.5s ease-in-out infinite" }} />
-          </div>
-        ))}
-      </div>
+      {perfilEdicaoFalhou ? (
+        // PR-A: em vez de esqueleto infinito quando o perfil não carrega.
+        <div style={{ textAlign:"center" as const, marginTop:32 }}>
+          <div style={{ fontSize:40, marginBottom:8 }}>📡</div>
+          <p style={{ color:"var(--text-2,#64748b)", fontSize:14, lineHeight:1.6, marginBottom:20 }}>
+            Não consegui carregar seu perfil. Verifique sua conexão e tente de novo.
+          </p>
+          <button style={S.btnPrimary}
+            onClick={() => { setPerfilEdicaoFalhou(false); if (session?.user) checkProfile(session.user.id); }}>
+            Tentar de novo
+          </button>
+        </div>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column" as const, gap:14, marginTop:8 }}>
+          {[...Array(6)].map((_, i) => (
+            <div key={i}>
+              <div style={{ height:12, width:"38%", borderRadius:6, background:"var(--bg-subtle,#f1f5f9)", marginBottom:8, animation:"pulse 1.5s ease-in-out infinite" }} />
+              <div style={{ height:46, borderRadius:12, background:"var(--bg-subtle,#f1f5f9)", animation:"pulse 1.5s ease-in-out infinite" }} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -17735,10 +17806,13 @@ export default function App() {
         {authError && <p style={S.errorText}>{authError}</p>}
 
         <button
-          style={{ ...S.btnPrimary, background:"#8338EC", marginTop:16 }}
+          disabled={salvandoSetup}
+          style={{ ...S.btnPrimary, background:"#8338EC", marginTop:16, opacity: salvandoSetup ? 0.6 : 1 }}
           onClick={async () => {
-            if (!form.funcao || !form.valor) { setAuthError("Preencha especialidade e valor."); return; }
+            if (salvandoSetup) return;
+            if (!form.funcao || !(Number(form.valor) > 0)) { setAuthError("Preencha a especialidade e um valor maior que zero."); return; }
             setAuthError("");
+            setSalvandoSetup(true);
             // Captura ANTES do save: era a 1ª conclusão do perfil de prestador?
             // (re-salvar/editar depois não é conversão — só o cadastro de qualidade)
             const primeiraConclusao = !profile?.funcao || !profile?.valor_diaria;
@@ -17748,6 +17822,7 @@ export default function App() {
               bio: form.bio || profile?.bio || "",
               user_type: "ambos",
             });
+            setSalvandoSetup(false);
             if (ok) {
               // ── Conversão Google Ads: "cadastro_prestador" ─────────────────
               // Dispara UMA vez por dispositivo, só na 1ª conclusão. Best-effort:
@@ -17808,15 +17883,19 @@ export default function App() {
         {authError && <p style={S.errorText}>{authError}</p>}
 
         <button
-          style={{ ...S.btnPrimary, background:"#3A86FF", marginTop:4 }}
+          disabled={salvandoSetup}
+          style={{ ...S.btnPrimary, background:"#3A86FF", marginTop:4, opacity: salvandoSetup ? 0.6 : 1 }}
           onClick={async () => {
+            if (salvandoSetup) return;
             if (!form.nomeNegocio.trim() || !negocioSelecionado) { setAuthError("Preencha o nome do negócio e selecione o tipo."); return; }
             setAuthError("");
+            setSalvandoSetup(true);
             const ok = await saveProfile({
               nome_negocio: form.nomeNegocio.trim(),
               segmento: negocioSelecionado,
               user_type: "ambos",
             });
+            setSalvandoSetup(false);
             if (ok) {
               setTipo("ambos");
               setModoAtual("empregador");
