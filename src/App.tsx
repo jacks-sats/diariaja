@@ -5293,6 +5293,16 @@ export default function App() {
     setConfirmando(false);
     setModalTermoDiarista(null);
     setTermoDiaristaCheck(false);
+    // Notifica o anunciante (push real via FCM/Web Push) que o profissional
+    // aceitou. Sem isto, o toast abaixo prometia "anunciante foi notificado"
+    // mas nenhuma push saía (o fluxo de CONVITE já notificava; o de
+    // CANDIDATURA não — bug reportado no tablet do anunciante 2026-06-14).
+    enviarPush(
+      [diaria.empregador_id],
+      "Prestador aceitou o serviço ✅",
+      `${profile?.nome?.split(" ")[0] || "O profissional"} aceitou seu anúncio de ${diaria.funcao || diaria.segmento}. Combine os detalhes pelo chat!`,
+      { tipo: "confirmacao", url: "/" },
+    );
     // BUG-4 fix: feedback de sucesso para o diarista após aceitar o serviço
     setToastSuccess("✅ Serviço aceito! O anunciante foi notificado. No dia, confirme sua chegada pelo app.");
   };
