@@ -132,8 +132,14 @@ function QRScannerComponent({ onResult, onError, onClose }: {
           },
           () => {}
         );
-      } catch {
-        onError("Não foi possível acessar a câmera. Verifique as permissões.");
+      } catch (e: any) {
+        // PR-C: diferencia a causa em vez de uma mensagem genérica pra tudo.
+        const nome = String(e?.name || e?.message || "");
+        let msg = "Não foi possível abrir a câmera. Use o código de 4 dígitos abaixo.";
+        if (/NotAllowedError|Permission/i.test(nome)) msg = "Permissão de câmera negada. Libere a câmera nas configurações do app, ou use o código de 4 dígitos.";
+        else if (/NotFoundError|Devices/i.test(nome)) msg = "Nenhuma câmera encontrada. Use o código de 4 dígitos abaixo.";
+        else if (/NotReadableError|TrackStart|in use/i.test(nome)) msg = "A câmera está em uso por outro app. Feche-o e tente, ou use o código de 4 dígitos.";
+        onError(msg);
         onClose();
       }
     })();
@@ -2289,6 +2295,36 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [session?.user?.id]);
+
+  // PR-C: re-busca as diárias quando o app volta ao FOCO (foreground). O canal
+  // realtime é suspenso em 2º plano e perde UPDATEs (ex.: prestador confirmou) —
+  // sem isto o anunciante só via a mudança ao reabrir o app, e o "código de
+  // chegada" dava "não confere" porque o status local ficava velho. Re-busca
+  // leve (só atualiza a lista), sem a lógica pesada de expiração/feedback.
+  useEffect(() => {
+    if (!session?.user) return;
+    const uid = session.user.id;
+    const recarregar = async () => {
+      if (document.hidden) return;
+      if (modoAtual === "empregador") {
+        const { data } = await supabase.from("diarias").select("*")
+          .eq("empregador_id", uid).neq("status", "cancelada")
+          .order("created_at", { ascending: false });
+        if (data) setDiarias(data);
+      } else {
+        const { data } = await supabase.from("diarias").select("*")
+          .eq("diarista_aceite_id", uid)
+          .in("status", ["pendente", "aceita", "em_andamento", "concluida", "cancelada"])
+          .order("data", { ascending: false });
+        if (data) setMinhasDiarias(data);
+        const { data: ints } = await supabase.from("candidaturas").select("diaria_id, status").eq("diarista_id", uid);
+        if (ints) { const m: Record<string, string> = {}; ints.forEach((i: any) => { m[i.diaria_id] = i.status; }); setMeuInteresse(m); }
+      }
+    };
+    const onVis = () => { if (!document.hidden) recarregar(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [session?.user?.id, modoAtual]);
 
   // 11b) Registro de atividade diária: marca presença 1x por dia (histórico
   //      pro painel de retenção). Idempotente no banco (ON CONFLICT), e ainda
@@ -4813,6 +4849,12 @@ export default function App() {
   // Envia mensagem no chat real (empregador ↔ diarista)
   const enviarMensagemReal = async () => {
     if (!msgInputReal.trim() || !session?.user || !chatDiariaAtiva) return;
+    // PR-C: bloqueia envio após a diária encerrar (concluída/cancelada/expirada).
+    // Antes o chat continuava funcionando depois de concluir — bug reportado.
+    if (["concluida", "cancelada", "expirada"].includes(chatDiariaAtiva.status)) {
+      setToastError("Esta conversa foi encerrada — a diária já foi finalizada.");
+      return;
+    }
     // BUG CRÍTICO (teste real): o destinatário era escolhido pelo flag `tipo`
     // (modo do app). Pra conta "ambos" / modo trocado, o EMPREGADOR mandava
     // mensagem com `tipo === "diarista"` → destinatário virava empregador_id =
@@ -12762,15 +12804,31 @@ export default function App() {
               <button
                 disabled={codigoManual.length !== 4}
                 style={{ width:"100%", padding:"12px", background: codigoManual.length === 4 ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: codigoManual.length === 4 ? "pointer" : "default", fontFamily:"Inter, system-ui, sans-serif" }}
-                onClick={() => {
+                onClick={async () => {
                   // Procura uma diária minha em status "aceita" cujo código bata
-                  const alvo = diarias.find(d =>
+                  let alvo = diarias.find(d =>
                     d.empregador_id === session?.user?.id &&
                     d.status === "aceita" &&
                     codigoPresenca(d.id) === codigoManual
                   );
+                  // PR-C: se não achou no estado local, RE-BUSCA no servidor antes
+                  // de falhar — o local pode estar velho (realtime perdeu o
+                  // UPDATE pendente→aceita com o app em 2º plano). Era a causa do
+                  // "código não confere" mesmo com o código certo.
+                  if (!alvo && session?.user) {
+                    const { data } = await supabase.from("diarias").select("*")
+                      .eq("empregador_id", session.user.id).eq("status", "aceita");
+                    if (data && data.length) {
+                      setDiarias(prev => {
+                        const ids = new Set(prev.map(d => d.id));
+                        const novas = (data as Diaria[]).filter(d => !ids.has(d.id));
+                        return novas.length ? [...prev, ...novas] : prev.map(d => (data as Diaria[]).find(x => x.id === d.id) || d);
+                      });
+                      alvo = (data as Diaria[]).find(d => codigoPresenca(d.id) === codigoManual);
+                    }
+                  }
                   if (!alvo) {
-                    setScanMsg({ ok:false, txt:"Código não confere com nenhuma diária aguardando confirmação." });
+                    setScanMsg({ ok:false, txt:"Código não confere. Confira os 4 dígitos com o prestador — e se ele já confirmou a chegada no app dele." });
                     return;
                   }
                   setCodigoManual("");
