@@ -1752,6 +1752,14 @@ export default function App() {
         .order("created_at", { ascending: false });
       if (data) setAvaliacoesDiaristaReal(data);
     })();
+    // PR-D (F): busca a CONTAGEM de diárias concluídas do prestador (RPC aceita
+    // id alvo). Sem isto, perfil aberto pela busca ficava sempre "Bronze" (0),
+    // pois diaristasContagemDiarias só era populado p/ quem já tinha diária/convite.
+    supabase.rpc("contar_diarias_concluidas_diarista", { p_user_id: diaristaSelecionadaReal.id })
+      .then(({ data: qtd }) => {
+        if (typeof qtd === "number")
+          setDiaristasContagemDiarias(prev => ({ ...prev, [diaristaSelecionadaReal.id]: qtd }));
+      }, () => { /* best-effort */ });
     // Recarrega convites para exibir status atualizado no botão
     if (session?.user) carregarConvites(session.user.id, "empregador");
   }, [tela, diaristaSelecionadaReal?.id]);
@@ -2320,6 +2328,10 @@ export default function App() {
         const { data: ints } = await supabase.from("candidaturas").select("diaria_id, status").eq("diarista_id", uid);
         if (ints) { const m: Record<string, string> = {}; ints.forEach((i: any) => { m[i.diaria_id] = i.status; }); setMeuInteresse(m); }
       }
+      // PR-D (B/C): recarrega também os CONVITES. Sem isto, o anunciante só via
+      // "convite aceito → pode pagar" depois de apertar Voltar, e o botão de
+      // pagar R$2,50 (que só existe quando status="aceito") nunca aparecia.
+      void carregarConvites(uid, modoAtual);
     };
     const onVis = () => { if (!document.hidden) recarregar(); };
     document.addEventListener("visibilitychange", onVis);
@@ -3948,6 +3960,14 @@ export default function App() {
       setToastError(traduzirErroBanco(error));
       return;
     }
+    // PR-D (A): avisa o prestador por PUSH. Antes só havia toast/realtime — se o
+    // convite fosse enviado com o app do prestador fechado, nada chegava.
+    enviarPush(
+      [diaristaSelecionadaReal.id],
+      "Novo convite de diária 📨",
+      `${profile?.nome?.split(" ")[0] || "Um anunciante"} te convidou para ${diaristaSelecionadaReal.funcao || "uma diária"}. Abra o app e responda.`,
+      { tipo: "selecionado", url: "/" },
+    );
     setModalConvite(false);
     setFormConvite({ cep: "", rua: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "", endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "" });
     // Recarrega convites enviados e vai direto para aba Diárias
@@ -15109,6 +15129,16 @@ export default function App() {
                                   </button>
                                 </div>
                               </div>
+                              {/* PR-D (E): "Cheguei — registrar chegada" também na Agenda
+                                  (antes só existia no card da lista de diárias) */}
+                              {dia.status === "aceita" && checkinDentroDaJanela(dia) && (
+                                <button
+                                  disabled={checkinGpsId === dia.id}
+                                  style={{ width:"100%", marginTop:10, padding:"10px", background: checkinGpsId === dia.id ? "#86efac" : "#16a34a", color:"#fff", border:"none", borderRadius:10, fontSize:12, fontWeight:800, cursor: checkinGpsId === dia.id ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                                  onClick={() => confirmarChegadaGPS(dia)}>
+                                  {checkinGpsId === dia.id ? "📍 Registrando..." : "📍 Cheguei — registrar chegada"}
+                                </button>
+                              )}
                               {/* Botão Desistir — só para diárias ainda não iniciadas */}
                               {dia.status === "aceita" && (
                                 <button
