@@ -3366,7 +3366,14 @@ export default function App() {
       pessoa_tipo: "fisica",
       ...(fotoGoogle ? { foto_url: fotoGoogle } : {}),
     });
-    if (!ok) { setAuthError("Não foi possível iniciar sua conta. Tente novamente."); return; }
+    if (!ok) {
+      // C1: o setAuthError sozinho ficava INVISÍVEL na tela cadastro-tipo (ela
+      // não renderiza authError), então o botão parecia "mudo". O toast global
+      // aparece em qualquer tela — o usuário vê o que houve em vez de "nada".
+      setAuthError("Não foi possível iniciar sua conta. Tente novamente.");
+      setToastError("Não foi possível criar sua conta agora. Verifique sua conexão e tente de novo.");
+      return;
+    }
     if (fotoGoogle) setFotoUrl(fotoGoogle);
     try { await supabase.rpc("aceitar_termos", { p_versao: TERMOS_VERSAO }); } catch { /* RPC tenta de novo no próximo login */ }
     trackEvento("cadastro_express", session.user.id, tipoEscolhido === "diarista" ? "diarista" : "empregador", { via: "google" });
@@ -6197,7 +6204,12 @@ export default function App() {
         endereco_empregador: endereco,
         pessoa_tipo: "juridica",
       };
-      const { error } = await supabase.from("user_profiles").update(patch).eq("id", uid);
+      // upsert (não update): o usuário PJ via Google ainda NÃO tem perfil — o
+      // update puro atualizaria 0 linhas e o perfil nunca seria criado. Inclui
+      // user_type=empregador pra firmar o papel (e corrigir eventual perfil
+      // "fantasma" diarista que tenha sobrado).
+      const { error } = await supabase.from("user_profiles")
+        .upsert({ id: uid, user_type: "empregador", ...patch }, { onConflict: "id" });
       if (error) {
         const m = (error.message || "").toLowerCase();
         const code = String((error as { code?: string }).code || "");
@@ -7240,7 +7252,10 @@ export default function App() {
             // Se o user já estiver logado (raro nesse ponto), vai pro completar
             // perfil em `cadastro-empregador` com pessoa_tipo = juridica.
             setForm(prev => ({ ...prev, pessoaTipo: "juridica" }));
-            if (session) { setTela("cadastro-empregador"); }
+            // C2: logado (ex.: Google) → tela de CNPJ (`finalizar-empresa`), NÃO
+            // `cadastro-empregador` (que é o form de Pessoa Física e pede CPF —
+            // por isso a PJ "aceitava CPF"). Sem sessão segue o fluxo PJ por e-mail.
+            if (session) { setTela("finalizar-empresa"); }
             else { setTela("cadastro-empresa"); }
           } else if (session) {
             // Já logado (ex.: Google) → cadastro express: perfil mínimo e entra
@@ -17687,6 +17702,19 @@ export default function App() {
           <div style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:14, padding:"12px 14px", marginBottom:16, fontSize:13, color:"#9a3412", lineHeight:1.5 }}>
             📋 <strong>Falta 1 passo</strong> pra você aparecer pros anunciantes: diga sua função e o valor da sua diária.
           </div>
+        )}
+
+        {ehPrestadorPuro && (
+          // Saída da "conta fantasma": perfil de prestador incompleto que caiu
+          // aqui mas, na verdade, queria CONTRATAR. Sem isto, o usuário ficava
+          // preso como prestador sem caminho de volta à escolha de tipo.
+          <p style={{ textAlign:"center" as const, fontSize:13, color:"var(--text-2,#64748b)", margin:"-4px 0 18px" }}>
+            Na verdade você quer{" "}
+            <button onClick={() => { setAuthError(""); setTipo("empregador"); setTela("cadastro-tipo"); }}
+              style={{ background:"none", border:"none", color:"#FF6B35", fontWeight:700, cursor:"pointer", textDecoration:"underline", fontSize:13, padding:0, fontFamily:"inherit" }}>
+              contratar / anunciar
+            </button>?
+          </p>
         )}
 
         <label style={S.label}>Sua especialidade *</label>
