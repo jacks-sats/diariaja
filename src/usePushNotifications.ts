@@ -28,6 +28,14 @@ const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undef
 // true quando rodando dentro do app Capacitor (Android) — usa FCM em vez de VAPID.
 const NATIVO = Capacitor.isNativePlatform();
 
+// ⚠️ KILL SWITCH (emergência 2026-06-14): o registro NATIVO de push (FCM) estava
+// derrubando o app no LOGIN em vários aparelhos — crash nativo do plugin
+// @capacitor/push-notifications, que o try/catch do JS não consegue capturar.
+// Com `false`, o app NÃO chama nenhum método nativo de push (não crasha) e o
+// Web Push do navegador segue normal. Reativar (true) só depois de confirmar a
+// causa pelo stack (Play Console -> Falhas e ANRs) e corrigir.
+const FCM_NATIVO_ATIVO = false;
+
 // Canal de notificação Android (obrigatório no Android 8+). O id tem que bater
 // com o channel_id enviado pelo send-push (android.notification.channel_id).
 const CANAL_GERAL = {
@@ -89,7 +97,7 @@ export function usePushNotifications(userId: string | undefined) {
   // Cria o canal Android, lê a permissão, registra os listeners e — se já houver
   // permissão — registra em silêncio pra refrescar o token a cada abertura.
   useEffect(() => {
-    if (!NATIVO || !userId) return;
+    if (!NATIVO || !userId || !FCM_NATIVO_ATIVO) return;
     let cancelado = false;
     const handles: { remove: () => void }[] = [];
 
@@ -168,6 +176,8 @@ export function usePushNotifications(userId: string | undefined) {
 
     // ── NATIVO: permissão pela API do plugin + register (token → fcm_tokens) ──
     if (NATIVO) {
+      // Kill switch: FCM nativo desligado (estava crashando) — no-op seguro.
+      if (!FCM_NATIVO_ATIVO) return false;
       setEstado(e => ({ ...e, solicitando: true }));
       try {
         const r = await PushNotifications.requestPermissions();
