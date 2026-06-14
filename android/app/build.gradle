@@ -5,7 +5,7 @@ apply plugin: 'com.android.application'
 //  - versionName pode ser sobrescrito via env DIARIAJA_VERSION_NAME.
 // Defaults razoáveis pra build local sem env (mas SEMPRE bumpar antes de
 // subir nova release na Play Console).
-def computedVersionCode = (System.getenv("DIARIAJA_VERSION_CODE") ?: "9").toInteger()
+def computedVersionCode = (System.getenv("DIARIAJA_VERSION_CODE") ?: "12").toInteger()
 def computedVersionName = System.getenv("DIARIAJA_VERSION_NAME") ?: "1.2.0"
 
 android {
@@ -26,10 +26,14 @@ android {
     }
     buildTypes {
         release {
-            // Ofuscação + shrink (Play exige na prática; reduz tamanho do APK
-            // e dificulta engenharia reversa do bundle JS embarcado).
-            minifyEnabled true
-            shrinkResources true
+            // IMPORTANTE: minifyEnabled FICA DESLIGADO.
+            // Com R8 ligado e proguard-rules.pro vazio, o ofuscador removia/renomeava
+            // classes que os plugins Capacitor (@capgo/capacitor-social-login,
+            // @capgo/capacitor-updater) carregam via reflection — causando crash
+            // NATIVO logo após o login (só no AAB release; no debug funcionava).
+            // A Play Store NÃO exige ofuscação. Padrão do Capacitor = false.
+            minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
