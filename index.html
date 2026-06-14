@@ -61,6 +61,15 @@
         --text-primary:   #0f172a;
         --text-secondary: #64748b;
         --border-color:   #e2e8f0;
+        /* Largura máxima do "shell" das telas (app é mobile-first). Em tablets
+           (>=600px) vira uma coluna larga centralizada; modais seguem com
+           largura própria. Responsivo no rotate/resize sem precisar de JS. */
+        --shell-max: 480px;
+      }
+
+      /* Tablet+ : alarga a coluna de conteúdo (NÃO ativa o layout desktop) */
+      @media (min-width: 600px) {
+        :root { --shell-max: 760px; }
       }
 
       /* ── Dark mode — ativado pelo JS via data-dark="1" no body ── */
