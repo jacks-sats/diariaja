@@ -5125,6 +5125,34 @@ export default function App() {
     // seleção pelo wrapper `selecionarCandidato`, não aqui.
   };
 
+  // ── Pagamento Mercado Pago: abertura do checkout ────────────────────────────
+  // No app NATIVO (Android) o checkout abre num navegador interno (Custom Tab via
+  // @capacitor/browser) — o app continua vivo por trás e, quando o usuário fecha
+  // o navegador, o evento `browserFinished` (listener mais abaixo) reconfere o
+  // pagamento no backend e libera, sem o usuário sair/reabrir o app.
+  // Na WEB/desktop nada muda: segue o redirect (window.location.href) de sempre.
+  // Defensivo: se o plugin nativo falhar ao abrir, cai no redirect tradicional.
+  const pagamentoPendenteRef = useRef<"contato" | "vaga" | "assinatura" | null>(null);
+  const abrirCheckoutMP = async (
+    url: string,
+    tipo: "contato" | "vaga" | "assinatura",
+    opts?: { delayWebMs?: number },
+  ) => {
+    if (Capacitor.isNativePlatform()) {
+      pagamentoPendenteRef.current = tipo;
+      try {
+        const { Browser } = await import("@capacitor/browser");
+        await Browser.open({ url });
+      } catch {
+        pagamentoPendenteRef.current = null;
+        window.location.href = url;
+      }
+    } else {
+      if (opts?.delayWebMs) setTimeout(() => { window.location.href = url; }, opts.delayWebMs);
+      else window.location.href = url;
+    }
+  };
+
   // Inicia pagamento de R$ 1 para desbloquear seleção de contato adicional.
   // FIX 2026-05: enviava SUPABASE_ANON_KEY como Bearer — a Edge Function exige
   // o JWT do user (auth.getUser()). Agora manda session.access_token e expõe
@@ -5181,7 +5209,10 @@ export default function App() {
             ts: Date.now(),
           }));
         } catch { /* ignore */ }
-        window.location.href = data.checkout_url;
+        await abrirCheckoutMP(data.checkout_url, "contato");
+        // No app nativo o checkout abre num navegador interno e o app continua
+        // vivo — libera o botão (na web o window.location já levou pra fora).
+        if (Capacitor.isNativePlatform()) setDesbloqueandoContato(false);
         return;
       }
       // Motivo técnico vai pro console (diagnóstico); o usuário vê ação clara.
@@ -5235,7 +5266,8 @@ export default function App() {
       );
       const data = await resp.json().catch(() => ({} as { checkout_url?: string; error?: string }));
       if (resp.ok && data.checkout_url) {
-        window.location.href = data.checkout_url;
+        await abrirCheckoutMP(data.checkout_url, "vaga");
+        if (Capacitor.isNativePlatform()) setDesbloqueandoVagaEmprego(false);
         return;
       }
       const motivo = data.error || `HTTP ${resp.status}`;
@@ -5252,11 +5284,12 @@ export default function App() {
     setDesbloqueandoVagaEmprego(false);
   };
 
-  // Retorno do pagamento de vaga avulsa: espera session+profile prontos (pra não
-  // competir com a navegação do checkProfile), restaura o rascunho salvo e volta
-  // pro form de publicação. O webhook registra o desbloqueio em paralelo.
-  useEffect(() => {
-    if (!session?.user || !profile) return;
+  // Restaura o rascunho de vaga salvo e volta pro form de publicação. Lê o flag
+  // `diariaja_vaga_extra_retorno` (setado no retorno do pagamento) e o rascunho
+  // `diariaja_rascunho_vaga`. Sem dependência de session/profile — só usa setters
+  // estáveis e lê o localStorage na hora. Reusado pelo efeito de retorno (web) e
+  // pelo listener `browserFinished` (app nativo, navegador interno).
+  const restaurarRascunhoVaga = () => {
     let flag = "";
     try { flag = localStorage.getItem("diariaja_vaga_extra_retorno") || ""; } catch { /* ignore */ }
     if (flag !== "1") return;
@@ -5285,8 +5318,47 @@ export default function App() {
         if (c) setCotaVagaEmprego({ postadas_mes: c.postadas_mes ?? 0, limite_efetivo: c.limite_efetivo ?? 3, exige_pagamento: !!c.exige_pagamento, plano: c.plano ?? "gratis" });
       });
     }, 1200);
+  };
+
+  // Retorno do pagamento de vaga avulsa (web): espera session+profile prontos
+  // (pra não competir com a navegação do checkProfile) e então restaura o
+  // rascunho. O webhook registra o desbloqueio em paralelo.
+  useEffect(() => {
+    if (!session?.user || !profile) return;
+    restaurarRascunhoVaga();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user, profile]);
+
+  // Retorno do navegador interno (app nativo): quando o usuário fecha o Custom
+  // Tab do checkout, o `browserFinished` dispara e reconferimos o pagamento por
+  // tipo. Não há URL/status no evento — por isso cada ramo reconfere no backend
+  // (polling/checkProfile/restaura rascunho), o que cobre também o cancelamento.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let sub: { remove: () => void } | undefined;
+    (async () => {
+      try {
+        const { Browser } = await import("@capacitor/browser");
+        sub = await Browser.addListener("browserFinished", () => {
+          const tipo = pagamentoPendenteRef.current;
+          pagamentoPendenteRef.current = null;
+          if (tipo === "contato") {
+            setConfirmandoPagamento("polling");
+          } else if (tipo === "assinatura") {
+            supabase.auth.getSession().then(({ data }) => {
+              const uid = data.session?.user?.id;
+              if (uid) void checkProfile(uid);
+            });
+          } else if (tipo === "vaga") {
+            try { localStorage.setItem("diariaja_vaga_extra_retorno", "1"); } catch { /* ignore */ }
+            restaurarRascunhoVaga();
+          }
+        });
+      } catch { /* plugin ausente — o redirect/fallback cobre */ }
+    })();
+    return () => { try { sub?.remove(); } catch { /* ignore */ } };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Carrega a cota de vagas de emprego ao abrir o formulário de criação, pra
   // mostrar o contador "X/3" antes de o anunciante tentar publicar.
@@ -5626,7 +5698,8 @@ export default function App() {
 
       if (resp.ok && data.checkout_url) {
         setToastSuccess("🏦 Abrindo Mercado Pago…");
-        setTimeout(() => { window.location.href = data.checkout_url!; }, 400);
+        void abrirCheckoutMP(data.checkout_url!, "assinatura", { delayWebMs: 400 });
+        if (Capacitor.isNativePlatform()) setCriandoAssinatura(false);
         return;
       }
       // Falha — mostra a mensagem REAL do MP/server no toast, com trace_id
