@@ -11054,14 +11054,17 @@ export default function App() {
               )}
 
               {/* ── Convites: Aceitos ──
-                  Filtra convites com data_servico no passado — depois da data
-                  combinada, o convite virtualmente expirou (mesmo sem coluna
-                  `expirado` no schema; faremos migration na Fase 2). */}
+                  Convite aceito/confirmado AINDA NÃO PAGO (pago_em null) aparece
+                  SEMPRE — é o estado em que o anunciante precisa liberar o contato;
+                  não pode sumir nem se a data já passou (senão o convite some pro
+                  anunciante e o prestador fica eternamente "aguardando liberar").
+                  O corte por data (data_servico >= hoje) só arquiva os JÁ PAGOS,
+                  pra não inflar a lista com histórico de contato já liberado. */}
               {(() => {
                 const hojeISO = new Date().toISOString().split("T")[0];
                 const convitesAceitosAtivos = convitesEnviados.filter(c =>
                   (c.status === "aceito" || c.status === "confirmado") &&
-                  (!c.data_servico || c.data_servico >= hojeISO),
+                  (!c.pago_em || !c.data_servico || c.data_servico >= hojeISO),
                 );
                 return convitesAceitosAtivos.length > 0 && (
                 <div style={{ marginBottom:20 }}>
