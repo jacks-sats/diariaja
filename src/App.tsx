@@ -6830,6 +6830,63 @@ export default function App() {
     </div>
   ) : null;
 
+  // ── Modal de termo de compromisso (R$ 2,50 → liberar contato) ──────────────
+  // Extraído num elemento reutilizável: o MESMO modal precisa renderizar em TODA
+  // tela que dispara setModalTermoCompromisso. Hoje os gatilhos são a Home do
+  // anunciante e a tela perfil-diarista-real; antes o modal só existia na Home,
+  // então no perfil o clique setava o estado mas nada aparecia até voltar. A
+  // lógica de pagamento (desbloquearContato) NÃO muda — só onde o modal aparece.
+  const modalTermoCompromissoEl = modalTermoCompromisso && (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:530, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
+      onClick={() => { setModalTermoCompromisso(null); setTermoCompromissoCheck(false); }}>
+      <div style={{ background:"#fff", borderRadius:20, padding:"22px 22px", maxWidth:440, width:"100%", boxShadow:"0 24px 64px rgba(0,0,0,.4)", maxHeight:"90vh", overflowY:"auto" as const }}
+        onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize:32, marginBottom:6 }}>🤝</div>
+        <div style={{ fontWeight:900, fontSize:18, color:"#0f172a", marginBottom:10 }}>Termo de compromisso</div>
+        <p style={{ fontSize:13, color:"#475569", lineHeight:1.6, margin:"0 0 10px" }}>
+          Você está prestes a iniciar um compromisso de prestação de serviço autônomo com <strong>{modalTermoCompromisso.nome}</strong>. Leia com atenção:
+        </p>
+        <ul style={{ fontSize:13, color:"#334155", lineHeight:1.7, margin:"0 0 14px 18px", padding:0 }}>
+          <li>É uma <strong>relação autônoma</strong> entre prestador independente e anunciante. NÃO é vínculo de emprego (CLT) nem doméstico (LC 150/2015).</li>
+          <li>O DiáriaJá <strong>NÃO intermedia o valor da diária</strong>. Pagamento é combinado e realizado <strong>direto via PIX entre vocês</strong>, fora da plataforma, após a execução.</li>
+          <li>A plataforma cobra apenas <strong>R$ 2,50</strong> pra liberar o chat — facilitar a conexão.</li>
+          <li>Combinem todas as condições (valor, horário, local, escopo) <strong>antes</strong> da execução.</li>
+          <li>Em caso de problema, use o chat do app pra ter registro. NÃO compartilhe contatos externos antes do match.</li>
+        </ul>
+        <div style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:13, color:"#9a3412", lineHeight:1.6 }}>
+          ⚠️ <strong>O valor da diária NÃO passa pelo app.</strong> Aqui você paga só a taxa de <strong>R$ 2,50</strong> do contato — o pagamento do serviço é combinado direto com o prestador (PIX, dinheiro etc.).
+        </div>
+        <label style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoCompromissoCheck?"#FF6B35":"#e2e8f0"}`, cursor:"pointer", marginBottom:14 }}>
+          <input type="checkbox" checked={termoCompromissoCheck}
+            onChange={e => setTermoCompromissoCheck(e.target.checked)}
+            style={{ width:18, height:18, accentColor:"#FF6B35", flexShrink:0, marginTop:1 }} />
+          <span style={{ fontSize:13, color:"#475569", lineHeight:1.5 }}>
+            Li, entendi e estou de acordo com o termo de compromisso. Sei que sou responsável pelo pagamento direto via PIX e que a relação não é de emprego.
+          </span>
+        </label>
+        <div style={{ display:"flex", gap:10 }}>
+          <button type="button"
+            style={{ flex:1, padding:"12px", background:"#f1f5f9", color:"#0f172a", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => { setModalTermoCompromisso(null); setTermoCompromissoCheck(false); }}>
+            Cancelar
+          </button>
+          <button type="button"
+            disabled={!termoCompromissoCheck || desbloqueandoContato}
+            style={{ flex:1.4, padding:"12px", background: termoCompromissoCheck ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: termoCompromissoCheck ? "pointer" : "not-allowed", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.7 : 1 }}
+            onClick={() => {
+              const conviteId = modalTermoCompromisso?.conviteId;
+              setModalTermoCompromisso(null);
+              setTermoCompromissoCheck(false);
+              trackEvento("termo_compromisso_aceito", session?.user?.id, modoAtual);
+              desbloquearContato(conviteId);
+            }}>
+            {desbloqueandoContato ? "Aguarde..." : "Aceitar e pagar R$ 2,50"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   // ── LANDING DE DESKTOP ───────────────────────────────────────────────────
   // No computador, a entrada vira um site de apresentação (largura cheia) em vez
   // do app mobile centralizado. Os CTAs entram no mesmo fluxo do app. No celular
@@ -12376,56 +12433,7 @@ export default function App() {
                  emprego. Reduz risco de presunção de habitualidade.
               2. Transparência financeira: avisa que a plataforma NÃO intermedia
                  o valor da diária; pagamento é PIX direto entre as partes. */}
-        {modalTermoCompromisso && (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:530, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
-            onClick={() => { setModalTermoCompromisso(null); setTermoCompromissoCheck(false); }}>
-            <div style={{ background:"#fff", borderRadius:20, padding:"22px 22px", maxWidth:440, width:"100%", boxShadow:"0 24px 64px rgba(0,0,0,.4)", maxHeight:"90vh", overflowY:"auto" as const }}
-              onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize:32, marginBottom:6 }}>🤝</div>
-              <div style={{ fontWeight:900, fontSize:18, color:"#0f172a", marginBottom:10 }}>Termo de compromisso</div>
-              <p style={{ fontSize:13, color:"#475569", lineHeight:1.6, margin:"0 0 10px" }}>
-                Você está prestes a iniciar um compromisso de prestação de serviço autônomo com <strong>{modalTermoCompromisso.nome}</strong>. Leia com atenção:
-              </p>
-              <ul style={{ fontSize:13, color:"#334155", lineHeight:1.7, margin:"0 0 14px 18px", padding:0 }}>
-                <li>É uma <strong>relação autônoma</strong> entre prestador independente e anunciante. NÃO é vínculo de emprego (CLT) nem doméstico (LC 150/2015).</li>
-                <li>O DiáriaJá <strong>NÃO intermedia o valor da diária</strong>. Pagamento é combinado e realizado <strong>direto via PIX entre vocês</strong>, fora da plataforma, após a execução.</li>
-                <li>A plataforma cobra apenas <strong>R$ 2,50</strong> pra liberar o chat — facilitar a conexão.</li>
-                <li>Combinem todas as condições (valor, horário, local, escopo) <strong>antes</strong> da execução.</li>
-                <li>Em caso de problema, use o chat do app pra ter registro. NÃO compartilhe contatos externos antes do match.</li>
-              </ul>
-              <div style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:13, color:"#9a3412", lineHeight:1.6 }}>
-                ⚠️ <strong>O valor da diária NÃO passa pelo app.</strong> Aqui você paga só a taxa de <strong>R$ 2,50</strong> do contato — o pagamento do serviço é combinado direto com o prestador (PIX, dinheiro etc.).
-              </div>
-              <label style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoCompromissoCheck?"#FF6B35":"#e2e8f0"}`, cursor:"pointer", marginBottom:14 }}>
-                <input type="checkbox" checked={termoCompromissoCheck}
-                  onChange={e => setTermoCompromissoCheck(e.target.checked)}
-                  style={{ width:18, height:18, accentColor:"#FF6B35", flexShrink:0, marginTop:1 }} />
-                <span style={{ fontSize:13, color:"#475569", lineHeight:1.5 }}>
-                  Li, entendi e estou de acordo com o termo de compromisso. Sei que sou responsável pelo pagamento direto via PIX e que a relação não é de emprego.
-                </span>
-              </label>
-              <div style={{ display:"flex", gap:10 }}>
-                <button type="button"
-                  style={{ flex:1, padding:"12px", background:"#f1f5f9", color:"#0f172a", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                  onClick={() => { setModalTermoCompromisso(null); setTermoCompromissoCheck(false); }}>
-                  Cancelar
-                </button>
-                <button type="button"
-                  disabled={!termoCompromissoCheck || desbloqueandoContato}
-                  style={{ flex:1.4, padding:"12px", background: termoCompromissoCheck ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: termoCompromissoCheck ? "pointer" : "not-allowed", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.7 : 1 }}
-                  onClick={() => {
-                    const conviteId = modalTermoCompromisso?.conviteId;
-                    setModalTermoCompromisso(null);
-                    setTermoCompromissoCheck(false);
-                    trackEvento("termo_compromisso_aceito", session?.user?.id, modoAtual);
-                    desbloquearContato(conviteId);
-                  }}>
-                  {desbloqueandoContato ? "Aguarde..." : "Aceitar e pagar R$ 2,50"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {modalTermoCompromissoEl}
 
         {/* Prompt de notificações (Web Push) — pede a permissão com contexto */}
         {promptNotif && (
@@ -17888,6 +17896,10 @@ export default function App() {
             </div>
           </div>
         )}
+        {/* Modal de termo de compromisso — tem que renderizar aqui também, senão
+            o botão "Pagar R$ 2,50 e liberar chat" desta tela seta o estado mas o
+            modal (que antes só existia na Home) não aparecia. */}
+        {modalTermoCompromissoEl}
       </div>
     );
   }
