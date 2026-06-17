@@ -2740,12 +2740,16 @@ export default function App() {
         sessaoNavegadaRef.current = true;
         (async () => {
           try {
-            const { data } = await supabase
-              .from("user_profiles")
-              .select("user_type")
-              .eq("id", session.user.id)
-              .maybeSingle();
-            if (data?.user_type) {
+            // Otimização de boot: 1 só ida ao banco. Antes fazia um select(user_type)
+            // só pra checar existência E logo depois o checkProfile (meu_perfil) de
+            // novo — dois round-trips em série antes de pintar qualquer tela. Agora
+            // busca o perfil UMA vez aqui e reusa no checkProfile (preBuscado).
+            const { data: perfilRaw, error: perfErr } = await supabase.rpc("meu_perfil");
+            const perfilJa = perfilRaw as UserProfile | null;
+            if (perfilJa?.user_type) {
+              await checkProfile(session.user.id, perfilJa);
+            } else if (perfErr) {
+              // Erro de rede no boot: deixa o checkProfile fazer o retry + o aviso.
               await checkProfile(session.user.id);
             } else {
               // Profile não existe ainda. Pode ser: 1º login via Google OAuth, OU
@@ -2825,18 +2829,25 @@ export default function App() {
     return () => { subscription.unsubscribe(); clearTimeout(safetyTimer); };
   }, []);
 
-  const checkProfile = async (userId: string) => {
+  const checkProfile = async (userId: string, preBuscado?: UserProfile | null) => {
     // C2 passo B: lê o PRÓPRIO perfil via RPC meu_perfil() (perfil completo do
     // dono via SECURITY DEFINER) — continua funcionando após o REVOKE das
     // colunas sensíveis em user_profiles para o role authenticated.
-    let { data: raw, error } = await supabase.rpc("meu_perfil");
-    // PR-A: erro de rede no carregamento do perfil não pode ficar mudo (o usuário
-    // fica com profile=null e parece deslogado / telas presas no esqueleto).
-    // Tenta 1x de novo após um instante; se persistir, avisa em vez de falhar
-    // em silêncio.
-    if (error) {
-      await new Promise(r => setTimeout(r, 1200));
+    // Otimização: se o boot já buscou o perfil (preBuscado), reusa e não vai ao
+    // banco de novo. Demais chamadas (retorno de pagamento etc.) buscam normal.
+    let raw: unknown;
+    let error: unknown = null;
+    if (preBuscado !== undefined) {
+      raw = preBuscado;
+    } else {
       ({ data: raw, error } = await supabase.rpc("meu_perfil"));
+      // PR-A: erro de rede no carregamento do perfil não pode ficar mudo (o usuário
+      // fica com profile=null e parece deslogado / telas presas no esqueleto).
+      // Tenta 1x de novo após um instante; se persistir, avisa em vez de falhar.
+      if (error) {
+        await new Promise(r => setTimeout(r, 400));
+        ({ data: raw, error } = await supabase.rpc("meu_perfil"));
+      }
     }
     const data = raw as UserProfile | null;
 

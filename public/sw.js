@@ -38,24 +38,33 @@ self.addEventListener("fetch", e => {
   // Nunca intercepta chamadas Supabase, analytics, extensões do browser
   if (url.includes("supabase.co") || url.startsWith("chrome-extension")) return;
 
-  // NAVEGAÇÃO (HTML) → sempre busca na rede; cache só como último recurso
+  // NAVEGAÇÃO (HTML) → network-first COM TIMEOUT. Antes era fetch() sem timeout:
+  // em rede lenta-mas-não-offline (3G ruim, captive portal, hotel) o fetch ficava
+  // pendurado dezenas de segundos e TODA abertura travava na splash. Agora corremos
+  // a rede contra um timeout: se a rede não responder a tempo E houver cópia em
+  // cache, servimos o cache na hora (e a rede continua atualizando em background
+  // pro próximo load). Sem cache, esperamos a rede (com fallback offline).
   if (e.request.mode === "navigate") {
-    e.respondWith(
-      fetch(e.request)
-        .then(res => {
-          // Atualiza o cache com a versão mais recente
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE).then(c => c.put(e.request, clone));
-          }
-          return res;
-        })
-        .catch(async () => {
-          // Offline: tenta servir do cache
-          const cached = await caches.match(e.request);
-          return cached || caches.match("/");
-        })
-    );
+    e.respondWith((async () => {
+      const fromNetwork = fetch(e.request).then(res => {
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return res;
+      });
+      const cached = await caches.match(e.request);
+      if (!cached) {
+        // Sem cópia em cache: a rede é obrigatória (com fallback offline).
+        try { return await fromNetwork; }
+        catch { return (await caches.match("/")) || Response.error(); }
+      }
+      // Tem cache: corre a rede contra ~3,5s. Rede rápida ganha (HTML fresco,
+      // sem staleness). Rede lenta → serve o cache e revalida em background.
+      const timeout = new Promise(resolve => setTimeout(() => resolve(null), 3500));
+      const vencedor = await Promise.race([fromNetwork.catch(() => null), timeout]);
+      return vencedor || cached;
+    })());
     return;
   }
 
