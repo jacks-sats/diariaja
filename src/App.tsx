@@ -1513,6 +1513,24 @@ export default function App() {
         comentario:        posComentario.trim() || null,
       });
       if (error) { setToastError(traduzirErroBanco(error)); return; }
+      // Frente 1 (unifica avaliação): o feedback pós-conclusão é a avaliação mais
+      // proeminente (banner obrigatório), então ele TAMBÉM vira a NOTA PÚBLICA do
+      // prestador (avaliacoes_diarista) — a estrela de qualidade + comentário
+      // aparecem no perfil. Antes só o botão separado "Avaliar o diarista" contava,
+      // e o usuário avaliava no banner achando que valia. Best-effort: se falhar,
+      // o feedback interno já foi salvo. Dedup: só grava se ainda não há avaliação
+      // pública desta diária (avaliadosDiarias é hidratado do banco no login).
+      if (diaria.diarista_aceite_id && !avaliadosDiarias.has(diaria.id)) {
+        const { error: avalErr } = await supabase.from("avaliacoes_diarista").insert({
+          empregador_id: session.user.id,
+          diarista_id:   diaria.diarista_aceite_id,
+          diaria_id:     diaria.id,
+          nota:          posNotaQualidade,
+          comentario:    posComentario.trim() || null,
+        });
+        if (!avalErr) setAvaliadosDiarias(prev => new Set([...prev, diaria.id]));
+        else console.warn("[feedbackPos] nota pública não gravou:", avalErr.message);
+      }
       trackEvento("feedback_pos_conclusao", session.user.id, "empregador", {
         diaria_id: diaria.id, nota: posNotaQualidade, recomendaria: posRecomendaria, no_horario: posChegouHorario,
       });
@@ -17544,15 +17562,25 @@ export default function App() {
               </span>
             )}
           </div>
-          {avaliacoesDiaristaReal.length > 0 && (
-            <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}>
-              <span style={{ fontSize:16 }}>⭐</span>
-              <span style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>
-                {(avaliacoesDiaristaReal.reduce((s,a)=>s+a.nota,0)/avaliacoesDiaristaReal.length).toFixed(1)}
-              </span>
-              <span style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>({avaliacoesDiaristaReal.length} avaliação{avaliacoesDiaristaReal.length!==1?"s":""})</span>
-            </div>
-          )}
+          {/* Nota pública + trabalho feito (diárias concluídas). Estado vazio
+              decente quando o prestador ainda não tem avaliação, e o nº de
+              diárias concluídas SEMPRE visível ("o trabalho que ele fez"). */}
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:6, flexWrap:"wrap" as const, justifyContent:"center" }}>
+            {avaliacoesDiaristaReal.length > 0 ? (
+              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <span style={{ fontSize:16 }}>⭐</span>
+                <span style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>
+                  {(avaliacoesDiaristaReal.reduce((s,a)=>s+a.nota,0)/avaliacoesDiaristaReal.length).toFixed(1)}
+                </span>
+                <span style={{ color:"var(--text-3,#94a3b8)", fontSize:13 }}>({avaliacoesDiaristaReal.length} avaliação{avaliacoesDiaristaReal.length!==1?"s":""})</span>
+              </div>
+            ) : (
+              <span style={{ color:"var(--text-3,#94a3b8)", fontSize:13, fontWeight:600 }}>⭐ Sem avaliações ainda</span>
+            )}
+            <span style={{ color:"var(--text-2,#64748b)", fontSize:13, fontWeight:700 }}>
+              💼 {diariasDaPerfilConc} {diariasDaPerfilConc === 1 ? "diária concluída" : "diárias concluídas"}
+            </span>
+          </div>
           <div style={{ ...S.badge, ...(d.disponivel ? S.badgeVerde : S.badgeCinza), fontSize:13, marginTop:8 }}>
             {d.disponivel ? "● Disponível hoje" : "● Indisponível hoje"}
           </div>
