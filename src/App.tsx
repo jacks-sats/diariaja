@@ -32,6 +32,19 @@ const hapticTick = () => { try { navigator.vibrate?.(8); } catch {} };
 // Vibração mais forte para confirmações importantes (verificação, aceite, etc.)
 const hapticConfirm = () => { try { navigator.vibrate?.([100, 50, 200]); } catch {} };
 
+// ── Opções do filtro de raio (distância) ────────────────────────────────────
+// Compartilhadas pelos dois lados (prestador vê vagas / anunciante vê prestadores)
+// pra ficarem idênticas. Infinity = "Qualquer distância" (sem corte de raio):
+// como distKm(d) <= Infinity é sempre true, o sentinela dispensa caso especial
+// no filtro e mantém o fail-open (quem não tem geo cai em distKm === Infinity).
+const OPCOES_RAIO_KM: { v: number; lab: string }[] = [
+  { v: 5,        lab: "até 5 km"   },
+  { v: 20,       lab: "até 20 km"  },
+  { v: 50,       lab: "até 50 km"  },
+  { v: 100,      lab: "até 100 km" },
+  { v: Infinity, lab: "Qualquer distância" },
+];
+
 // ── Wrapper pra disparar push notification via Edge Function send-push ──────
 type PushTipo = "mensagem" | "vaga_proxima" | "candidatura" | "selecionado" | "confirmacao" | "convite_resposta" | "default";
 // Notificação persistida no histórico (sininho). `destino` = tela ao tocar.
@@ -596,7 +609,7 @@ export default function App() {
   // usuário escolher explicitamente no menu de ordenação.
   const [sortVagas, setSortVagas] = useState<"feed"|"recentes"|"proximas"|"menor_valor"|"maior_valor">("feed");
   const [filtroDataVaga, setFiltroDataVaga] = useState<"todas"|"hoje"|"amanha">("todas");
-  const [filtroRaioKm, setFiltroRaioKm] = useState<number>(50); // raio máximo de distância
+  const [filtroRaioKm, setFiltroRaioKm] = useState<number>(20); // raio máximo de distância (Infinity = qualquer)
   const [filtroValorMin, setFiltroValorMin] = useState<number>(0); // R$ mínimo (chip 0/100/150/200)
   // Pull-to-refresh — tracking de gesto e estado de loading
   const [puxando, setPuxando] = useState(0);      // px puxados (0–100)
@@ -10596,6 +10609,12 @@ export default function App() {
     // ('destaque'/'pro' = Plus) porque a migração dual-track pode não ter rodado.
     const pesoPlanoRank = (p?: string): number =>
       (p === "plus" || p === "destaque" || p === "pro") ? 100 : p === "essencial" ? 50 : 0;
+    // Distância anunciante→prestador (km). Infinity se faltar geo de qualquer lado —
+    // espelha o distKm do lado do prestador (App.tsx ~13830) e garante o fail-open.
+    const distKmAnunciante = (d: UserProfile): number => {
+      if (!profile?.lat || !profile?.lng || !d.lat || !d.lng) return Infinity;
+      return haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!);
+    };
     const diaristasReaisVisiveis = diaristasReais
       .filter(d => !(d as UserProfile & { oculto?: boolean }).oculto) // auto-moderação: esconde perfis suspensos por denúncias
       .filter(d => {
@@ -10607,6 +10626,10 @@ export default function App() {
         }
         return true;
       })
+      // Raio escolhido (mesmo seletor do lado do prestador). Fail-open: quem não
+      // tem geo cai em Infinity e continua aparecendo. "Qualquer distância" =
+      // filtroRaioKm Infinity → distKm <= Infinity sempre passa.
+      .filter(d => distKmAnunciante(d) <= filtroRaioKm || distKmAnunciante(d) === Infinity)
       // Ordenação determinística + por relevância. Critérios, em ordem:
       // 1) atende o SEGMENTO do anunciante (o que ele procura vem primeiro)
       // 2) plano PAGO (Plus > Essencial > Grátis)
@@ -10884,6 +10907,20 @@ export default function App() {
                   </div>
                 );
               })()}
+              {/* Linha 3: raio de distância — espelha o seletor do lado do prestador
+                  (OPCOES_RAIO_KM). Só aparece com geo do anunciante; sem geo o filtro
+                  seria no-op (todos caem em Infinity / fail-open). */}
+              {profile?.lat && profile?.lng && (
+                <div style={{ display:"flex", gap:8, padding:"0 16px 8px", overflowX:"auto" }}>
+                  {OPCOES_RAIO_KM.map(opt => (
+                    <button key={`raio${opt.v}`}
+                      style={{ ...S.filtroBtn, whiteSpace:"nowrap", ...(filtroRaioKm===opt.v?{ background:negocio.cor, color:"#fff", borderColor:negocio.cor }:{}) }}
+                      onClick={() => { hapticTick(); setFiltroRaioKm(opt.v); }}>
+                      📍 {opt.lab}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Frase que explica o modelo de duas pontas (aceitar um preço já
@@ -14291,12 +14328,12 @@ export default function App() {
                 );
               })}
               {/* Distância */}
-              {[1, 5, 15, 50].map(km => {
-                const ativo = filtroRaioKm === km;
+              {OPCOES_RAIO_KM.map(opt => {
+                const ativo = filtroRaioKm === opt.v;
                 return (
                   <button
-                    key={`km${km}`}
-                    onClick={() => { hapticTick(); setFiltroRaioKm(km); }}
+                    key={`km${opt.v}`}
+                    onClick={() => { hapticTick(); setFiltroRaioKm(opt.v); }}
                     style={{
                       flexShrink:0, padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer",
                       border: ativo ? "1.5px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
@@ -14304,7 +14341,7 @@ export default function App() {
                       color: ativo ? "#fff" : "var(--text-2,#64748b)",
                       fontFamily:"Inter, system-ui, sans-serif",
                     }}>
-                    até {km} km
+                    {opt.lab}
                   </button>
                 );
               })}
@@ -16787,17 +16824,17 @@ export default function App() {
                   <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
                     <input
                       type="range" min={5} max={100} step={5}
-                      value={filtroRaioKm}
+                      value={Number.isFinite(filtroRaioKm) ? filtroRaioKm : 100}
                       onChange={e => setFiltroRaioKm(Number(e.target.value))}
                       style={{ flex:1, accentColor:"#FF6B35" }}
                     />
-                    <span style={{ fontWeight:800, fontSize:14, color:"#FF6B35", minWidth:48 }}>{filtroRaioKm} km</span>
+                    <span style={{ fontWeight:800, fontSize:14, color:"#FF6B35", minWidth:48 }}>{Number.isFinite(filtroRaioKm) ? `${filtroRaioKm} km` : "Qualquer"}</span>
                   </div>
                 </>
               )}
               <div style={{ display:"flex", gap:10 }}>
                 <button style={{ flex:1, padding:"11px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, fontWeight:700, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                  onClick={() => { setSortVagas("recentes"); setFiltroDataVaga("todas"); setFiltroRaioKm(50); }}>
+                  onClick={() => { setSortVagas("recentes"); setFiltroDataVaga("todas"); setFiltroRaioKm(20); }}>
                   Limpar filtros
                 </button>
                 <button style={{ flex:2, padding:"11px", background:"#FF6B35", border:"none", borderRadius:12, fontSize:13, fontWeight:800, color:"#fff", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
