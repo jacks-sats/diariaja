@@ -400,6 +400,13 @@ export default function App() {
   // concluídos e expirados em pills no topo, evitando que vagas expiradas
   // poluam a lista de oportunidades em aberto.
   const [filtroDiarias, setFiltroDiarias] = useState<"ativas"|"concluidas"|"expiradas">("ativas");
+  // Diárias expiradas que o anunciante ocultou da própria lista (limpeza). Guardado
+  // só no localStorage — NÃO apaga do banco (preserva auditoria/feedback). É por
+  // dispositivo, não-destrutivo: o registro continua existindo no servidor.
+  const [diariasOcultas, setDiariasOcultas] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("diariaja_diarias_ocultas") || "[]")); }
+    catch { return new Set(); }
+  });
   const [authError, setAuthError]         = useState("");
   const [authLoading, setAuthLoading]     = useState(false);
   const [minhasDiarias, setMinhasDiarias] = useState<Diaria[]>([]);
@@ -5600,6 +5607,20 @@ export default function App() {
     setHiddenChats(novo);
     localStorage.setItem("diariaja_hidden_chats", JSON.stringify([...novo]));
     setToastSuccess("🗑️ Conversa excluída.");
+  };
+
+  // Oculta uma diária EXPIRADA da lista do anunciante (limpeza). Não apaga do
+  // banco — só some da visão dele, persistido no localStorage. Diferente do
+  // excluirDiaria (que cancela e notifica): expirada já está morta, não há quem
+  // avisar, então é um "remover da minha lista" simples e reversível por suporte.
+  const ocultarDiariaExpirada = (diaId: string) => {
+    setDiariasOcultas(prev => {
+      const next = new Set(prev);
+      next.add(diaId);
+      try { localStorage.setItem("diariaja_diarias_ocultas", JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+    setToastSuccess("🗑️ Diária expirada removida da sua lista.");
   };
 
   const excluirDiariaLocal = (diaId: string) => {
@@ -11161,7 +11182,7 @@ export default function App() {
           const buckets = {
             ativas:     diariasNaoCanceladas.filter(d => d.status === "aberta" || d.status === "pendente" || d.status === "aceita" || d.status === "em_andamento"),
             concluidas: diariasNaoCanceladas.filter(d => d.status === "concluida"),
-            expiradas:  diariasNaoCanceladas.filter(d => d.status === "expirada"),
+            expiradas:  diariasNaoCanceladas.filter(d => d.status === "expirada" && !diariasOcultas.has(d.id)),
           };
           const diariasFiltradas = buckets[filtroDiarias];
           const vazioPorAba: Record<typeof filtroDiarias, string> = {
@@ -11518,8 +11539,14 @@ export default function App() {
                             {dia.status !== "em_andamento" && dia.status !== "concluida" && (
                               <button
                                 style={{ background:"#fee2e2", color:"#ef4444", border:"none", borderRadius:8, padding:"4px 9px", fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1 }}
-                                title="Excluir diária"
-                                onClick={e => { e.stopPropagation(); setModalExcluir(dia); }}>
+                                title={dia.status === "expirada" ? "Remover da lista" : "Excluir diária"}
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  // Expirada: já está morta — só remove da lista (oculta), sem pedir
+                                  // motivo nem notificar ninguém. Demais status: fluxo de exclusão normal.
+                                  if (dia.status === "expirada") ocultarDiariaExpirada(dia.id);
+                                  else setModalExcluir(dia);
+                                }}>
                                 🗑️
                               </button>
                             )}
