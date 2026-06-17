@@ -3535,6 +3535,27 @@ export default function App() {
     setPerfilEdicaoFalhou(false);
   }, [tela, profile]);
 
+  // Sessão: mantém o token fresco conforme o ciclo de vida NATIVO do app. No
+  // resume (app ativo) liga o auto-refresh (renova na hora se o token expirou em
+  // 2º plano); no background desliga (evita timer à toa). Complementa — NÃO
+  // substitui — o visibilitychange já existente. Só no app nativo; na web o
+  // supabase já cuida e o visibilitychange cobre.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let sub: { remove: () => void } | undefined;
+    (async () => {
+      try {
+        const { App } = await import("@capacitor/app");
+        sub = await App.addListener("appStateChange", ({ isActive }) => {
+          if (isActive) supabase.auth.startAutoRefresh();
+          else supabase.auth.stopAutoRefresh();
+        });
+        supabase.auth.startAutoRefresh(); // o app começa ativo
+      } catch { /* plugin ausente — visibilitychange cobre */ }
+    })();
+    return () => { try { sub?.remove(); } catch { /* ignore */ } };
+  }, []);
+
   const negocio = negocioSelecionado ? CATEGORIAS_NEGOCIO[negocioSelecionado as keyof typeof CATEGORIAS_NEGOCIO] : null;
   const funcoesDoNegocio = negocio ? negocio.funcoes : [];
   const toggleDia = (dia: string) =>
