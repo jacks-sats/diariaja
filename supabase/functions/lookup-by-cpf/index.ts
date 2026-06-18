@@ -145,7 +145,9 @@ Deno.serve(async (req) => {
   const ip = getClientIp(req);
   const supabaseRL = createClient(SUPABASE_URL, SUPABASE_KEY);
   const blocked = await rateLimitOrReject(
-    { key: `lookup-by-cpf:ip:${ip}`, max: 5, windowSeconds: 60, corsHeaders: CORS },
+    // failClosed: endpoint público de busca por CPF/CNPJ — se o rate-limit
+    // falhar, BLOQUEIA (em vez de abrir a porta pra enumeração/brute-force).
+    { key: `lookup-by-cpf:ip:${ip}`, max: 5, windowSeconds: 60, corsHeaders: CORS, failClosed: true },
     supabaseRL,
   );
   if (blocked) return blocked;

@@ -34,6 +34,13 @@ export interface RateLimitOptions {
   windowSeconds: number;
   /** CORS headers da função chamadora — pra incluir na resposta 429 */
   corsHeaders?: Record<string, string>;
+  /**
+   * Fail-CLOSED: se a RPC de rate-limit falhar, BLOQUEIA (429) em vez de deixar
+   * passar. Default false (fail-open, pra não derrubar prod sem a migration).
+   * Use true só em endpoints públicos sensíveis a enumeração/brute-force
+   * (ex.: lookup-by-cpf), onde "deixar passar" abre um buraco de segurança.
+   */
+  failClosed?: boolean;
 }
 
 /**
@@ -44,6 +51,17 @@ export async function rateLimitOrReject(
   opts: RateLimitOptions,
   supabase: SupabaseClient,
 ): Promise<Response | null> {
+  const bloqueio = (): Response => {
+    const headers: Record<string, string> = {
+      "Content-Type":  "application/json",
+      "Retry-After":   String(opts.windowSeconds),
+      ...(opts.corsHeaders ?? {}),
+    };
+    return new Response(
+      JSON.stringify({ error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." }),
+      { status: 429, headers },
+    );
+  };
   try {
     const { data, error } = await supabase.rpc("check_rate_limit", {
       p_key:            opts.key,
@@ -51,24 +69,15 @@ export async function rateLimitOrReject(
       p_window_seconds: opts.windowSeconds,
     });
     if (error) {
-      // Fail-open: deixa passar mas loga (pseudonimizado).
-      console.warn("[rate-limit] RPC error, allowing:", error.message);
-      return null;
+      // Falha da RPC: fail-open por padrão (loga), MAS fail-closed se pedido —
+      // num endpoint anti-enumeração, "deixar passar" é pior que bloquear.
+      console.warn("[rate-limit] RPC error:", error.message);
+      return opts.failClosed ? bloqueio() : null;
     }
-    if (data === false) {
-      const headers: Record<string, string> = {
-        "Content-Type":  "application/json",
-        "Retry-After":   String(opts.windowSeconds),
-        ...(opts.corsHeaders ?? {}),
-      };
-      return new Response(
-        JSON.stringify({ error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." }),
-        { status: 429, headers },
-      );
-    }
+    if (data === false) return bloqueio();
     return null;
   } catch (e) {
-    console.warn("[rate-limit] thrown, allowing:", e instanceof Error ? e.message : String(e));
-    return null;
+    console.warn("[rate-limit] thrown:", e instanceof Error ? e.message : String(e));
+    return opts.failClosed ? bloqueio() : null;
   }
 }
