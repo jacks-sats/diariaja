@@ -23,9 +23,13 @@ AS $$
     'nome_negocio', up.nome_negocio, 'segmento', up.segmento, 'funcao', up.funcao,
     'valor_diaria', up.valor_diaria, 'disponivel', up.disponivel, 'agenda', up.agenda,
     'bio', up.bio, 'foto_url', up.foto_url, 'categorias', up.categorias,
-    'lat', up.lat, 'lng', up.lng, 'pessoa_tipo', up.pessoa_tipo,
+    -- Localização ARREDONDADA a 2 casas (~1,1 km de grade) — não expõe a
+    -- coordenada exata de terceiros. ORDER BY não usa lat/lng, então o corte
+    -- de 200 não muda. Distância/raio seguem ok (calculados contra a coord
+    -- exata do próprio usuário via meu_perfil).
+    'lat', round(up.lat::numeric, 2), 'lng', round(up.lng::numeric, 2), 'pessoa_tipo', up.pessoa_tipo,
     'razao_social', up.razao_social, 'nome_fantasia', up.nome_fantasia,
-    'responsavel_nome', up.responsavel_nome, 'cep', up.cep,
+    -- responsavel_nome e cep REMOVIDOS da projeção pública (PII; não lidos de terceiros).
     'plano_ativo', up.plano_ativo, 'plano_expira_em', up.plano_expira_em,
     'telefone_verificado', up.telefone_verificado, 'documento_status', up.documento_status,
     'tem_documento', ((up.cpf IS NOT NULL AND up.cpf <> '') OR (up.cnpj IS NOT NULL AND up.cnpj <> '')),
