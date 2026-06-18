@@ -54,13 +54,17 @@ AS $$
     'bio',                 up.bio,
     'foto_url',            up.foto_url,
     'categorias',          up.categorias,
-    'lat',                 up.lat,
-    'lng',                 up.lng,
+    -- Localização ARREDONDADA a 2 casas (~1,1 km de grade) — não expõe a
+    -- coordenada exata de terceiros. A distância exibida e o filtro de raio
+    -- (5/20/50/100 km) seguem funcionando: o cálculo usa a coordenada exata
+    -- DO PRÓPRIO usuário (via meu_perfil) contra esta coordenada grosseira.
+    'lat',                 round(up.lat::numeric, 2),
+    'lng',                 round(up.lng::numeric, 2),
     'pessoa_tipo',         up.pessoa_tipo,
     'razao_social',        up.razao_social,
     'nome_fantasia',       up.nome_fantasia,
-    'responsavel_nome',    up.responsavel_nome,
-    'cep',                 up.cep,
+    -- responsavel_nome e cep REMOVIDOS da projeção pública (PII; o cliente
+    -- nunca os lê de terceiros — só do próprio perfil via meu_perfil).
     'plano_ativo',         up.plano_ativo,
     'plano_expira_em',     up.plano_expira_em,
     'telefone_verificado', up.telefone_verificado,
