@@ -3833,6 +3833,28 @@ export default function App() {
     await supabase.from("candidaturas").delete()
       .eq("diaria_id", diariaId)
       .eq("diarista_id", session.user.id);
+    // BUG-FIX: se a diária NASCEU de um convite (convite.diaria_id == diariaId),
+    // marca o convite como "recusado" também. Senão a Agenda re-deriva o item do
+    // convite confirmado (filtro em ~"convitesAgendados") e ele REAPARECE — o
+    // sintoma "desisti e a diária continua aqui". Avisa o anunciante por push.
+    {
+      const { data: convVinc } = await supabase.from("convites")
+        .update({ status: "recusado" })
+        .eq("diaria_id", diariaId)
+        .eq("diarista_id", session.user.id)
+        .select("id, contratante_id, funcao");
+      if (Array.isArray(convVinc) && convVinc.length > 0) {
+        const ids = new Set(convVinc.map((c: { id: string }) => c.id));
+        setConvitesRecebidos(prev => prev.map(c => ids.has(c.id) ? { ...c, status: "recusado" } : c));
+        const conv = convVinc[0] as { contratante_id?: string; funcao?: string };
+        if (conv.contratante_id) {
+          const primeiroNome = profile?.nome?.split(" ")[0] || "O profissional";
+          enviarPush([conv.contratante_id], "Diária cancelada",
+            `${primeiroNome} desistiu da diária de ${conv.funcao || "serviço"}.`,
+            { tipo: "convite_resposta", url: "/" });
+        }
+      }
+    }
     // Remove da lista "minhas diárias"
     setMinhasDiarias(prev => prev.filter(d => d.id !== diariaId));
     // Reseta o interesse local para que a vaga apareça como disponível
@@ -3984,6 +4006,20 @@ export default function App() {
       // 2926). Mensagem específica pra não parecer que "não acontece nada".
       setToastError("Confira a DATA do serviço — use DD/MM/AAAA (ex.: 15/06/2026).");
       return;
+    }
+    // Validação de FAIXA da data (evita o "ano errado" tipo 2029 que trava o
+    // fluxo do dia — check-in/conclusão nunca abrem). data vem como AAAA-MM-DD.
+    {
+      const hojeStr = new Date().toISOString().split("T")[0];
+      const maxStr = (() => { const d = new Date(); d.setMonth(d.getMonth() + 12); return d.toISOString().split("T")[0]; })();
+      if (formConvite.data < hojeStr) {
+        setToastError("A data do serviço não pode ser no passado. Confira o dia/mês/ano.");
+        return;
+      }
+      if (formConvite.data > maxStr) {
+        setToastError("Essa data está muito longe (máx. 12 meses). Confira o ANO.");
+        return;
+      }
     }
     if (!enderecoFinal || !formConvite.horario || !formConvite.cargaHoraria) {
       setToastError("Preencha CEP/endereço, horário e carga horária.");
