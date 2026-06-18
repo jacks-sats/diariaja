@@ -4132,6 +4132,9 @@ export default function App() {
 
   const cancelarConvite = async (conviteId: string) => {
     if (!session?.user) return;
+    // Captura os dados do convite ANTES de apagar — pra avisar o prestador (depois
+    // do DELETE não dá mais pra ler diarista_id/funcao).
+    const conv = convitesEnviados.find(c => c.id === conviteId);
     // Lição C4 em ESCRITA: DELETE barrado por RLS NÃO retorna erro — retorna
     // sucesso com 0 linhas. O .select("id") devolve o que foi deletado de
     // verdade; 0 linhas = falha visível (nunca fingir sucesso). Requer a
@@ -4149,7 +4152,17 @@ export default function App() {
     }
     setConvitesEnviados(prev => prev.filter(c => c.id !== conviteId));
     setConfirmCancelarConvite(null);
-    setToastSuccess("🗑️ Convite cancelado.");
+    // Avisa o prestador (antes era silencioso — ele só via o convite sumir, sem
+    // saber o porquê; era o que o dono apontou no caso da data errada).
+    if (conv?.diarista_id) {
+      enviarPush(
+        [conv.diarista_id],
+        "Convite cancelado",
+        `${profile?.nome?.split(" ")[0] || "O anunciante"} cancelou o convite${conv.funcao ? " de " + conv.funcao : ""}.`,
+        { tipo: "convite_resposta", url: "/" },
+      );
+    }
+    setToastSuccess("🗑️ Convite cancelado. O prestador foi avisado.");
   };
 
   // Fluxo novo do convite: depois que o anunciante paga (webhook marca pago_em),
@@ -16003,6 +16016,16 @@ export default function App() {
                     <div style={{ background:"#fee2e2", border:"1.5px solid #fca5a5", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:13, color:"#dc2626", lineHeight:1.5 }}>
                       <strong>Motivo do cancelamento:</strong> {d.motivo_cancelamento}
                     </div>
+                  )}
+
+                  {/* Desistir — também aqui no detalhe (antes só na Agenda), pra
+                      diária ainda não iniciada. Fecha o detalhe e abre o modal de motivo. */}
+                  {d.status === "aceita" && (
+                    <button
+                      style={{ width:"100%", padding:"12px", background:"var(--bg-card,#fff)", color:"#ef4444", border:"1.5px solid #fca5a5", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
+                      onClick={() => { setDetalhesDiaria(null); setModalDesistir(d); setMotivoDesistencia(""); }}>
+                      🚪 Desistir desta diária
+                    </button>
                   )}
 
                   <button
