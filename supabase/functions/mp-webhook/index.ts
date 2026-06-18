@@ -188,14 +188,28 @@ Deno.serve(async (req) => {
       if (String(idemErr.code) === "23505" || /duplicate key/i.test(idemErr.message)) {
         return new Response("ok", { status: 200 });
       }
-      // Se a tabela não existir ainda (migration não rodou), seguimos sem
-      // bloquear — fail-open na idempotência é menos pior que fail-closed.
-      if (!/relation .* does not exist/i.test(idemErr.message)) {
+      if (/relation .* does not exist/i.test(idemErr.message)) {
+        // Tabela ainda não existe (migration não rodou) — único caso de fail-open:
+        // não dá pra deduplicar, então seguimos (menos pior que travar tudo).
+        console.warn("webhook_eventos_processados ausente — seguindo sem dedupe.");
+      } else {
+        // Erro INESPERADO (timeout/deadlock/RLS): NÃO processa às cegas. Como o
+        // handler concede plano/contato, conceder sem registro de dedupe garantido
+        // arrisca duplicar benefício num retry. Força o MP a reentregar (500).
         console.error("webhook_eventos_processados error:", idemErr);
+        return new Response("erro de idempotencia", { status: 500 });
       }
     } else if (idemCount === 0) {
       // Inserção sem conflito mas count=0 (pouco provável) — segue.
     }
+
+    // Libera a marca de idempotência DESTE evento pra ele poder ser reprocessado
+    // num retry do MP. Usado quando uma dependência externa (API do MP) falha de
+    // forma transitória — senão o evento ficaria "processado" sem conceder nada.
+    const liberarIdempotencia = async () => {
+      try { await supabase.from("webhook_eventos_processados").delete().eq("mp_evento_id", eventoId); }
+      catch { /* best-effort */ }
+    };
 
     const topic    = body.type ?? body.topic ?? "";
 
@@ -208,6 +222,14 @@ Deno.serve(async (req) => {
       const mpResp = await fetch(`https://api.mercadopago.com/preapproval/${subId}`, {
         headers: { "Authorization": `Bearer ${MP_TOKEN}` },
       });
+      if (!mpResp.ok) {
+        // MP indisponível/erro transitório (401/429/5xx): não marca como processado
+        // (já liberamos a idempotência) e força retry — senão a assinatura aprovada
+        // nunca concederia o plano. Antes, o status virava undefined→"pendente".
+        await liberarIdempotencia();
+        console.error(`[mp-webhook] preapproval ${subId}: MP respondeu ${mpResp.status}`);
+        return new Response("MP indisponivel", { status: 500 });
+      }
       const sub = await mpResp.json();
 
       // external_reference = "USER_ID::PLANO"
@@ -284,6 +306,13 @@ Deno.serve(async (req) => {
       const mpResp = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
         headers: { "Authorization": `Bearer ${MP_TOKEN}` },
       });
+      if (!mpResp.ok) {
+        // MP indisponível/erro transitório: não marca processado, força retry —
+        // senão um pagamento aprovado (Pix/cartão) sairia sem conceder contato/plano.
+        await liberarIdempotencia();
+        console.error(`[mp-webhook] payment ${paymentId}: MP respondeu ${mpResp.status}`);
+        return new Response("MP indisponivel", { status: 500 });
+      }
       const payment = await mpResp.json();
 
       // FIX CheckoutPro: o external_reference que setamos na preferência às vezes
