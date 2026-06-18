@@ -121,7 +121,10 @@ const VIBRATE_BY_TYPE = {
 };
 
 self.addEventListener("push", e => {
-  const data = e.data?.json() || {};
+  // try/catch: payload malformado (e.data.json() lança) não pode derrubar o
+  // handler — mostra uma notificação genérica em vez de quebrar.
+  let data = {};
+  try { data = e.data?.json() || {}; } catch { data = {}; }
   const tipo = data.tipo || "default";
   e.waitUntil(
     self.registration.showNotification(data.title || "DiáriaJá", {
