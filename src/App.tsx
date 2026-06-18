@@ -1126,7 +1126,9 @@ export default function App() {
         funcao: conv.funcao ?? "Serviço", data: conv.data_servico, horario_inicio: conv.horario_servico ?? "00:00",
         horario_fim: "", valor: conv.valor ?? 0,
         nome_negocio: modoAtual === "diarista" ? (conv.contratante_nome || "Anunciante") : (conv.diarista_nome || "Prestador"),
-        segmento: "", descricao: conv.observacoes ?? "", status: "aceita", created_at: conv.created_at,
+        // status derivado do convite: recusado/cancelado → bloqueia o chat na
+        // restauração (path 1 acima já usa a diária real quando ela está carregada).
+        segmento: "", descricao: conv.observacoes ?? "", status: (conv.status === "recusado" || conv.status === "cancelado") ? "cancelada" : "aceita", created_at: conv.created_at,
         tipo_oferta: "diaria" as const,
       } as Diaria);
     }
@@ -2740,12 +2742,16 @@ export default function App() {
         sessaoNavegadaRef.current = true;
         (async () => {
           try {
-            const { data } = await supabase
-              .from("user_profiles")
-              .select("user_type")
-              .eq("id", session.user.id)
-              .maybeSingle();
-            if (data?.user_type) {
+            // Otimização de boot: 1 só ida ao banco. Antes fazia um select(user_type)
+            // só pra checar existência E logo depois o checkProfile (meu_perfil) de
+            // novo — dois round-trips em série antes de pintar qualquer tela. Agora
+            // busca o perfil UMA vez aqui e reusa no checkProfile (preBuscado).
+            const { data: perfilRaw, error: perfErr } = await supabase.rpc("meu_perfil");
+            const perfilJa = perfilRaw as UserProfile | null;
+            if (perfilJa?.user_type) {
+              await checkProfile(session.user.id, perfilJa);
+            } else if (perfErr) {
+              // Erro de rede no boot: deixa o checkProfile fazer o retry + o aviso.
               await checkProfile(session.user.id);
             } else {
               // Profile não existe ainda. Pode ser: 1º login via Google OAuth, OU
@@ -2825,18 +2831,25 @@ export default function App() {
     return () => { subscription.unsubscribe(); clearTimeout(safetyTimer); };
   }, []);
 
-  const checkProfile = async (userId: string) => {
+  const checkProfile = async (userId: string, preBuscado?: UserProfile | null) => {
     // C2 passo B: lê o PRÓPRIO perfil via RPC meu_perfil() (perfil completo do
     // dono via SECURITY DEFINER) — continua funcionando após o REVOKE das
     // colunas sensíveis em user_profiles para o role authenticated.
-    let { data: raw, error } = await supabase.rpc("meu_perfil");
-    // PR-A: erro de rede no carregamento do perfil não pode ficar mudo (o usuário
-    // fica com profile=null e parece deslogado / telas presas no esqueleto).
-    // Tenta 1x de novo após um instante; se persistir, avisa em vez de falhar
-    // em silêncio.
-    if (error) {
-      await new Promise(r => setTimeout(r, 1200));
+    // Otimização: se o boot já buscou o perfil (preBuscado), reusa e não vai ao
+    // banco de novo. Demais chamadas (retorno de pagamento etc.) buscam normal.
+    let raw: unknown;
+    let error: unknown = null;
+    if (preBuscado !== undefined) {
+      raw = preBuscado;
+    } else {
       ({ data: raw, error } = await supabase.rpc("meu_perfil"));
+      // PR-A: erro de rede no carregamento do perfil não pode ficar mudo (o usuário
+      // fica com profile=null e parece deslogado / telas presas no esqueleto).
+      // Tenta 1x de novo após um instante; se persistir, avisa em vez de falhar.
+      if (error) {
+        await new Promise(r => setTimeout(r, 400));
+        ({ data: raw, error } = await supabase.rpc("meu_perfil"));
+      }
     }
     const data = raw as UserProfile | null;
 
@@ -3843,6 +3856,28 @@ export default function App() {
     await supabase.from("candidaturas").delete()
       .eq("diaria_id", diariaId)
       .eq("diarista_id", session.user.id);
+    // BUG-FIX: se a diária NASCEU de um convite (convite.diaria_id == diariaId),
+    // marca o convite como "recusado" também. Senão a Agenda re-deriva o item do
+    // convite confirmado (filtro em ~"convitesAgendados") e ele REAPARECE — o
+    // sintoma "desisti e a diária continua aqui". Avisa o anunciante por push.
+    {
+      const { data: convVinc } = await supabase.from("convites")
+        .update({ status: "recusado" })
+        .eq("diaria_id", diariaId)
+        .eq("diarista_id", session.user.id)
+        .select("id, contratante_id, funcao");
+      if (Array.isArray(convVinc) && convVinc.length > 0) {
+        const ids = new Set(convVinc.map((c: { id: string }) => c.id));
+        setConvitesRecebidos(prev => prev.map(c => ids.has(c.id) ? { ...c, status: "recusado" } : c));
+        const conv = convVinc[0] as { contratante_id?: string; funcao?: string };
+        if (conv.contratante_id) {
+          const primeiroNome = profile?.nome?.split(" ")[0] || "O profissional";
+          enviarPush([conv.contratante_id], "Diária cancelada",
+            `${primeiroNome} desistiu da diária de ${conv.funcao || "serviço"}.`,
+            { tipo: "convite_resposta", url: "/" });
+        }
+      }
+    }
     // Remove da lista "minhas diárias"
     setMinhasDiarias(prev => prev.filter(d => d.id !== diariaId));
     // Reseta o interesse local para que a vaga apareça como disponível
@@ -3995,6 +4030,20 @@ export default function App() {
       setToastError("Confira a DATA do serviço — use DD/MM/AAAA (ex.: 15/06/2026).");
       return;
     }
+    // Validação de FAIXA da data (evita o "ano errado" tipo 2029 que trava o
+    // fluxo do dia — check-in/conclusão nunca abrem). data vem como AAAA-MM-DD.
+    {
+      const hojeStr = new Date().toISOString().split("T")[0];
+      const maxStr = (() => { const d = new Date(); d.setMonth(d.getMonth() + 12); return d.toISOString().split("T")[0]; })();
+      if (formConvite.data < hojeStr) {
+        setToastError("A data do serviço não pode ser no passado. Confira o dia/mês/ano.");
+        return;
+      }
+      if (formConvite.data > maxStr) {
+        setToastError("Essa data está muito longe (máx. 12 meses). Confira o ANO.");
+        return;
+      }
+    }
     if (!enderecoFinal || !formConvite.horario || !formConvite.cargaHoraria) {
       setToastError("Preencha CEP/endereço, horário e carga horária.");
       return;
@@ -4104,6 +4153,9 @@ export default function App() {
 
   const cancelarConvite = async (conviteId: string) => {
     if (!session?.user) return;
+    // Captura os dados do convite ANTES de apagar — pra avisar o prestador (depois
+    // do DELETE não dá mais pra ler diarista_id/funcao).
+    const conv = convitesEnviados.find(c => c.id === conviteId);
     // Lição C4 em ESCRITA: DELETE barrado por RLS NÃO retorna erro — retorna
     // sucesso com 0 linhas. O .select("id") devolve o que foi deletado de
     // verdade; 0 linhas = falha visível (nunca fingir sucesso). Requer a
@@ -4121,7 +4173,17 @@ export default function App() {
     }
     setConvitesEnviados(prev => prev.filter(c => c.id !== conviteId));
     setConfirmCancelarConvite(null);
-    setToastSuccess("🗑️ Convite cancelado.");
+    // Avisa o prestador (antes era silencioso — ele só via o convite sumir, sem
+    // saber o porquê; era o que o dono apontou no caso da data errada).
+    if (conv?.diarista_id) {
+      enviarPush(
+        [conv.diarista_id],
+        "Convite cancelado",
+        `${profile?.nome?.split(" ")[0] || "O anunciante"} cancelou o convite${conv.funcao ? " de " + conv.funcao : ""}.`,
+        { tipo: "convite_resposta", url: "/" },
+      );
+    }
+    setToastSuccess("🗑️ Convite cancelado. O prestador foi avisado.");
   };
 
   // Fluxo novo do convite: depois que o anunciante paga (webhook marca pago_em),
@@ -4191,6 +4253,11 @@ export default function App() {
       const dp = (dpArr as unknown as UserProfile[] | null)?.[0];
       if (dp) setDiaristasAceites(prev => ({ ...prev, [conv.diarista_id]: dp }));
     }
+    // status REAL da diária — NÃO hardcode "aceita". Senão o chat de convite nunca
+    // bloqueava depois de concluir/cancelar/desistir (a diária vira concluida/
+    // cancelada — ou "aberta" no desistir — mas o chat seguia "aceita" e mandava msg).
+    const { data: diariaReal } = await supabase.from("diarias").select("status").eq("id", diariaId).maybeSingle();
+    const statusReal = (diariaReal?.status as string) || "aceita";
     // Monta a diária pro chat. O realtime e o envio usam só id/empregador_id/
     // diarista_aceite_id — o resto é cosmético pro cabeçalho do chat.
     const chatComoDiaria = {
@@ -4198,7 +4265,7 @@ export default function App() {
       funcao: conv.funcao ?? "Serviço", data: conv.data_servico, horario_inicio: conv.horario_servico ?? "00:00",
       horario_fim: "", valor: conv.valor ?? 0,
       nome_negocio: comoAba === "diarista" ? (conv.contratante_nome || conv.local_servico || "Anunciante") : (conv.diarista_nome || "Prestador"),
-      segmento: "", descricao: conv.observacoes ?? "", status: "aceita", created_at: conv.created_at,
+      segmento: "", descricao: conv.observacoes ?? "", status: statusReal, created_at: conv.created_at,
       tipo_oferta: "diaria" as const,
     };
     hapticTick();
@@ -4940,10 +5007,12 @@ export default function App() {
   // Envia mensagem no chat real (empregador ↔ diarista)
   const enviarMensagemReal = async () => {
     if (!msgInputReal.trim() || !session?.user || !chatDiariaAtiva) return;
-    // PR-C: bloqueia envio após a diária encerrar (concluída/cancelada/expirada).
-    // Antes o chat continuava funcionando depois de concluir — bug reportado.
-    if (["concluida", "cancelada", "expirada"].includes(chatDiariaAtiva.status)) {
-      setToastError("Esta conversa foi encerrada — a diária já foi finalizada.");
+    // PR-C: bloqueia envio após a diária encerrar. Inclui "aberta" porque o
+    // desistir do prestador devolve a diária pra "aberta" (e marca o convite
+    // recusado) — a conversa daquele match acabou. concluída/cancelada/expirada
+    // cobrem conclusão e cancelamento.
+    if (["concluida", "cancelada", "expirada", "aberta"].includes(chatDiariaAtiva.status)) {
+      setToastError("Esta conversa foi encerrada — a diária não está mais ativa.");
       return;
     }
     // BUG CRÍTICO (teste real): o destinatário era escolhido pelo flag `tipo`
@@ -13158,7 +13227,12 @@ export default function App() {
                   })}
                   <div ref={mensagensEndRef} />
                 </div>
-                {/* Input */}
+                {/* Input — ou aviso de conversa encerrada (diária não mais ativa) */}
+                {["concluida","cancelada","expirada","aberta"].includes(chatDiariaAtiva?.status || "") ? (
+                  <div style={{ background:"var(--bg-subtle,#f1f5f9)", padding:"16px", textAlign:"center", fontSize:13, fontWeight:700, color:"var(--text-2,#64748b)", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
+                    🔒 Conversa encerrada — a diária não está mais ativa.
+                  </div>
+                ) : (
                 <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
                   <input
                     style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
@@ -13175,6 +13249,7 @@ export default function App() {
                     <Send size={18} />
                   </button>
                 </div>
+                )}
                 {/* Anti-exit aviso */}
                 {antiExitAviso && (
                   <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.7)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
@@ -15418,7 +15493,12 @@ export default function App() {
                   })}
                   <div ref={mensagensEndRef} />
                 </div>
-                {/* Input */}
+                {/* Input — ou aviso de conversa encerrada (diária não mais ativa) */}
+                {["concluida","cancelada","expirada","aberta"].includes(chatDiariaAtiva?.status || "") ? (
+                  <div style={{ background:"var(--bg-subtle,#f1f5f9)", padding:"16px", textAlign:"center", fontSize:13, fontWeight:700, color:"var(--text-2,#64748b)", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
+                    🔒 Conversa encerrada — a diária não está mais ativa.
+                  </div>
+                ) : (
                 <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
                   <input
                     style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
@@ -15435,6 +15515,7 @@ export default function App() {
                     <Send size={18} />
                   </button>
                 </div>
+                )}
                 {antiExitAviso && (
                   <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.7)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
                     <div style={{ background:"#fff", borderRadius:"20px 20px 0 0", padding:"28px 24px 32px", width:"100%", maxWidth:480 }}>
@@ -16029,6 +16110,16 @@ export default function App() {
                     <div style={{ background:"#fee2e2", border:"1.5px solid #fca5a5", borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:13, color:"#dc2626", lineHeight:1.5 }}>
                       <strong>Motivo do cancelamento:</strong> {d.motivo_cancelamento}
                     </div>
+                  )}
+
+                  {/* Desistir — também aqui no detalhe (antes só na Agenda), pra
+                      diária ainda não iniciada. Fecha o detalhe e abre o modal de motivo. */}
+                  {d.status === "aceita" && (
+                    <button
+                      style={{ width:"100%", padding:"12px", background:"var(--bg-card,#fff)", color:"#ef4444", border:"1.5px solid #fca5a5", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
+                      onClick={() => { setDetalhesDiaria(null); setModalDesistir(d); setMotivoDesistencia(""); }}>
+                      🚪 Desistir desta diária
+                    </button>
                   )}
 
                   <button
