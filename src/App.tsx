@@ -1126,7 +1126,9 @@ export default function App() {
         funcao: conv.funcao ?? "Serviço", data: conv.data_servico, horario_inicio: conv.horario_servico ?? "00:00",
         horario_fim: "", valor: conv.valor ?? 0,
         nome_negocio: modoAtual === "diarista" ? (conv.contratante_nome || "Anunciante") : (conv.diarista_nome || "Prestador"),
-        segmento: "", descricao: conv.observacoes ?? "", status: "aceita", created_at: conv.created_at,
+        // status derivado do convite: recusado/cancelado → bloqueia o chat na
+        // restauração (path 1 acima já usa a diária real quando ela está carregada).
+        segmento: "", descricao: conv.observacoes ?? "", status: (conv.status === "recusado" || conv.status === "cancelado") ? "cancelada" : "aceita", created_at: conv.created_at,
         tipo_oferta: "diaria" as const,
       } as Diaria);
     }
@@ -4181,6 +4183,11 @@ export default function App() {
       const dp = (dpArr as unknown as UserProfile[] | null)?.[0];
       if (dp) setDiaristasAceites(prev => ({ ...prev, [conv.diarista_id]: dp }));
     }
+    // status REAL da diária — NÃO hardcode "aceita". Senão o chat de convite nunca
+    // bloqueava depois de concluir/cancelar/desistir (a diária vira concluida/
+    // cancelada — ou "aberta" no desistir — mas o chat seguia "aceita" e mandava msg).
+    const { data: diariaReal } = await supabase.from("diarias").select("status").eq("id", diariaId).maybeSingle();
+    const statusReal = (diariaReal?.status as string) || "aceita";
     // Monta a diária pro chat. O realtime e o envio usam só id/empregador_id/
     // diarista_aceite_id — o resto é cosmético pro cabeçalho do chat.
     const chatComoDiaria = {
@@ -4188,7 +4195,7 @@ export default function App() {
       funcao: conv.funcao ?? "Serviço", data: conv.data_servico, horario_inicio: conv.horario_servico ?? "00:00",
       horario_fim: "", valor: conv.valor ?? 0,
       nome_negocio: comoAba === "diarista" ? (conv.contratante_nome || conv.local_servico || "Anunciante") : (conv.diarista_nome || "Prestador"),
-      segmento: "", descricao: conv.observacoes ?? "", status: "aceita", created_at: conv.created_at,
+      segmento: "", descricao: conv.observacoes ?? "", status: statusReal, created_at: conv.created_at,
       tipo_oferta: "diaria" as const,
     };
     hapticTick();
@@ -4930,10 +4937,12 @@ export default function App() {
   // Envia mensagem no chat real (empregador ↔ diarista)
   const enviarMensagemReal = async () => {
     if (!msgInputReal.trim() || !session?.user || !chatDiariaAtiva) return;
-    // PR-C: bloqueia envio após a diária encerrar (concluída/cancelada/expirada).
-    // Antes o chat continuava funcionando depois de concluir — bug reportado.
-    if (["concluida", "cancelada", "expirada"].includes(chatDiariaAtiva.status)) {
-      setToastError("Esta conversa foi encerrada — a diária já foi finalizada.");
+    // PR-C: bloqueia envio após a diária encerrar. Inclui "aberta" porque o
+    // desistir do prestador devolve a diária pra "aberta" (e marca o convite
+    // recusado) — a conversa daquele match acabou. concluída/cancelada/expirada
+    // cobrem conclusão e cancelamento.
+    if (["concluida", "cancelada", "expirada", "aberta"].includes(chatDiariaAtiva.status)) {
+      setToastError("Esta conversa foi encerrada — a diária não está mais ativa.");
       return;
     }
     // BUG CRÍTICO (teste real): o destinatário era escolhido pelo flag `tipo`
@@ -13075,7 +13084,12 @@ export default function App() {
                   })}
                   <div ref={mensagensEndRef} />
                 </div>
-                {/* Input */}
+                {/* Input — ou aviso de conversa encerrada (diária não mais ativa) */}
+                {["concluida","cancelada","expirada","aberta"].includes(chatDiariaAtiva?.status || "") ? (
+                  <div style={{ background:"var(--bg-subtle,#f1f5f9)", padding:"16px", textAlign:"center", fontSize:13, fontWeight:700, color:"var(--text-2,#64748b)", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
+                    🔒 Conversa encerrada — a diária não está mais ativa.
+                  </div>
+                ) : (
                 <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
                   <input
                     style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
@@ -13092,6 +13106,7 @@ export default function App() {
                     <Send size={18} />
                   </button>
                 </div>
+                )}
                 {/* Anti-exit aviso */}
                 {antiExitAviso && (
                   <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.7)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
@@ -15335,7 +15350,12 @@ export default function App() {
                   })}
                   <div ref={mensagensEndRef} />
                 </div>
-                {/* Input */}
+                {/* Input — ou aviso de conversa encerrada (diária não mais ativa) */}
+                {["concluida","cancelada","expirada","aberta"].includes(chatDiariaAtiva?.status || "") ? (
+                  <div style={{ background:"var(--bg-subtle,#f1f5f9)", padding:"16px", textAlign:"center", fontSize:13, fontWeight:700, color:"var(--text-2,#64748b)", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
+                    🔒 Conversa encerrada — a diária não está mais ativa.
+                  </div>
+                ) : (
                 <div style={{ background:"var(--bg-card,#fff)", padding:"12px 16px", display:"flex", gap:10, alignItems:"center", borderTop:"1px solid var(--border,#e2e8f0)", flexShrink:0 }}>
                   <input
                     style={{ flex:1, padding:"12px 16px", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:24, fontSize:14, fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
@@ -15352,6 +15372,7 @@ export default function App() {
                     <Send size={18} />
                   </button>
                 </div>
+                )}
                 {antiExitAviso && (
                   <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.7)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
                     <div style={{ background:"#fff", borderRadius:"20px 20px 0 0", padding:"28px 24px 32px", width:"100%", maxWidth:480 }}>
