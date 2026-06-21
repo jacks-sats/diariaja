@@ -10,10 +10,11 @@
 --   1. Adiciona `diarias.geo_preciso` — true SÓ quando lat/lng foi geocodificado
 --      pelo ENDEREÇO COMPLETO (rua+nº+bairro+cidade), não pelo CEP/cidade.
 --   2. Atualiza `registrar_checkin`: o bloqueio de distância só vale quando
---      geo_preciso = true, e com raio TOLERANTE de 1000 m (antes 300 m).
+--      geo_preciso = true, e com raio de 100 m (proximidade real; antes 300 m).
 --      Coordenada imprecisa (CEP/cidade) ou ausente → NÃO bloqueia. A presença
 --      segue validada por status + janela; e QR/código continuam ignorando a
---      distância (entram com metodo <> 'gps') — caminho presencial confiável.
+--      distância (entram com metodo <> 'gps') — caminho presencial confiável
+--      pra quem o GPS marcar fora do raio (prédio/área coberta).
 --
 -- A distância continua sendo CALCULADA e gravada em checkin_distancia_m para
 -- auditoria mesmo quando não bloqueia (quando há GPS + coordenada da diária).
@@ -47,7 +48,7 @@ DECLARE
   v_fim    TIMESTAMP;
   v_dist   INTEGER := NULL;
   v_uid    UUID := auth.uid();
-  c_raio_m CONSTANT INTEGER := 1000;   -- raio tolerante (erro normal de GPS + geocode)
+  c_raio_m CONSTANT INTEGER := 100;    -- raio de proximidade (m); fora dele → usar QR/código
 BEGIN
   IF v_uid IS NULL THEN
     RETURN jsonb_build_object('ok', false, 'erro', 'nao_autenticado');
@@ -118,4 +119,4 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.registrar_checkin(UUID, TEXT, DOUBLE PRECISION, DOUBLE PRECISION) TO authenticated;
 
-SELECT 'Check-in: bloqueio de distância só com geo_preciso + raio 1000m instalado.' AS resultado;
+SELECT 'Check-in: bloqueio de distância só com geo_preciso + raio 100m instalado.' AS resultado;
