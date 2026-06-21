@@ -6977,6 +6977,31 @@ export default function App() {
     );
   })();
 
+  // Variante do countdown pro topo do cadastro de prestador (tela com padding,
+  // por isso arredondada estilo banner MEI). Reusa a MESMA contagem/alvo e o
+  // MESMO dismiss (diariaja_banner_lancamento_fechado) do banner da landing.
+  const bannerLancamentoCadastro = (restanteLanc <= 0 || bannerLancFechado) ? null : (() => {
+    const dias = Math.ceil(restanteLanc / 86400000); // ceil → "10 dias" hoje, não "9"
+    const fechar = () => {
+      setBannerLancFechado(true);
+      try { localStorage.setItem("diariaja_banner_lancamento_fechado", "1"); } catch {}
+    };
+    return (
+      <div style={{ margin:"12px 0 0", background:"#0A1733", borderRadius:16, padding:"12px 14px", display:"flex", alignItems:"center", gap:10, color:"#FBF6EF", boxShadow:"0 4px 16px rgba(10,23,51,.28)" }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden style={{ flexShrink:0 }}>
+          <path d="M12 1.5C7.5 1.5 4 5 4 9.3c0 5.6 8 13.2 8 13.2s8-7.6 8-13.2C20 5 16.5 1.5 12 1.5z" fill="#FF6B35"/>
+          <circle cx="12" cy="9.2" r="5" fill="#0A1733"/>
+        </svg>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:13, fontWeight:900, lineHeight:1.3 }}>Lançamento oficial em {dias} {dias === 1 ? "dia" : "dias"}</div>
+          <div style={{ fontSize:12, color:"rgba(255,255,255,.8)", marginTop:2 }}>DiáriaJá chega em Campo Grande · garanta seu lugar</div>
+        </div>
+        <button aria-label="Fechar aviso" onClick={fechar}
+          style={{ background:"rgba(255,255,255,.18)", border:"none", color:"#fff", borderRadius:8, width:26, height:26, fontSize:14, fontWeight:900, cursor:"pointer", flexShrink:0, fontFamily:"Inter, system-ui, sans-serif" }}>✕</button>
+      </div>
+    );
+  })();
+
   const modalConfirmLogout = confirmLogout ? (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:9000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmLogout(false)}>
       <div role="dialog" aria-modal="true" aria-label="Sair da conta" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
@@ -10251,6 +10276,7 @@ export default function App() {
 
     return (
       <div style={S.page}>
+        {bannerLancamentoCadastro}
         <button style={S.back} onClick={() => {
           if (passoDiarista === 1) { setAuthError(""); setTela("cadastro-tipo"); }
           else { setAuthError(""); setPassoDiarista(p => (Math.max(1, p - 1) as 1 | 2 | 3 | 4)); window.scrollTo({ top: 0, behavior: "smooth" }); }
