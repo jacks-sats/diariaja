@@ -484,6 +484,15 @@ export default function App() {
     );
   }, []);
 
+  // ── Contagem regressiva do lançamento (alimenta o texto do bannerBeta) ────
+  // Alvo: 1º/07/2026 00:00 em Campo Grande-MS (UTC−4). Atualiza 1x/min.
+  const ALVO_LANCAMENTO = new Date("2026-07-01T00:00:00-04:00").getTime();
+  const [agoraBanner, setAgoraBanner] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setAgoraBanner(Date.now()), 60000); // sem segundos
+    return () => clearInterval(id);
+  }, []);
+
   // Notificações in-app (painel do sino)
   // Notificações persistidas (localStorage diariaja_notifs) — sobrevivem ao
   // recarregar. `destino` (opcional) define a tela ao tocar; `lida` marca lida.
@@ -6927,9 +6936,16 @@ export default function App() {
   // clicar em "Sair" nas homes mudava state mas modal nunca aparecia.
   // Banner do Modo Beta — mostrado no topo das homes pra quem está gated.
   const betaBloqueado = modoBeta && !profile?.acesso_total && !profile?.is_admin;
+  // "1º de julho" vira contagem ao vivo: "em X dias (1º de julho)".
+  // ceil → conta o dia corrente como 1; sempre >= 1 dia até o lançamento.
+  const restanteLanc = ALVO_LANCAMENTO - agoraBanner;
+  const diasLanc = Math.ceil(restanteLanc / 86400000);
+  const prazoLanc = restanteLanc <= 0
+    ? "1º de julho"
+    : `${diasLanc} ${diasLanc === 1 ? "dia" : "dias"} (1º de julho)`;
   const bannerBeta = betaBloqueado ? (
     <div style={{ background:"linear-gradient(135deg,#FF6B35,#fb923c)", color:"#fff", padding:"11px 16px", fontSize:13, fontWeight:600, lineHeight:1.5, textAlign:"center" as const }}>
-      🚀 <strong>Versão beta</strong> — as conexões (selecionar candidato e convites) abrem em <strong>1º de julho</strong>. Crie vagas, candidate-se e complete seu perfil pra largar na frente!
+      🚀 <strong>Versão beta</strong> — as conexões (selecionar candidato e convites) abrem em <strong>{prazoLanc}</strong>. Crie vagas, candidate-se e complete seu perfil pra largar na frente!
     </div>
   ) : null;
 
