@@ -4580,30 +4580,31 @@ export default function App() {
   // dimensão e qualidade até caber. PDF ou erro → devolve o original.
   const comprimirImagemDoc = async (file: File, maxBytes = 4 * 1024 * 1024, maxDim = 1600): Promise<File> => {
     if (!file.type.startsWith("image/")) return file;
+    let objectUrl: string | null = null;
+    let canvas: HTMLCanvasElement | null = null;
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(String(r.result));
-        r.onerror = reject;
-        r.readAsDataURL(file);
-      });
+      // createObjectURL em vez de readAsDataURL: evita materializar uma string
+      // base64 gigante (~+33% do arquivo) na memória — principal alívio pro
+      // WebView não estourar e recarregar o app ao processar foto grande.
+      objectUrl = URL.createObjectURL(file);
       const img = await new Promise<HTMLImageElement>((resolve, reject) => {
         const i = new Image();
         i.onload = () => resolve(i);
-        i.onerror = reject;
-        i.src = dataUrl;
+        i.onerror = () => reject(new Error("decode"));
+        i.src = objectUrl as string;
       });
       // Garante que o bitmap está realmente decodificado antes de desenhar —
       // em alguns WebViews Android o onload dispara antes do decode e o
       // drawImage sai PRETO. decode() pode não existir em browsers antigos.
       try { await (img as any).decode?.(); } catch {}
       let width = img.width, height = img.height;
+      if (!width || !height) return file;   // imagem inválida/corrompida → original
       if (width > maxDim || height > maxDim) {
         const escala = Math.min(maxDim / width, maxDim / height);
         width = Math.round(width * escala);
         height = Math.round(height * escala);
       }
-      const canvas = document.createElement("canvas");
+      canvas = document.createElement("canvas");
       canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext("2d");
       if (!ctx) return file;
@@ -4614,10 +4615,10 @@ export default function App() {
       // foto grande sem sair preto em alguns aparelhos.
       ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, width, height);
       let q = 0.9;
-      let blob: Blob | null = await new Promise(res => canvas.toBlob(res, "image/jpeg", q));
+      let blob: Blob | null = await new Promise(res => canvas!.toBlob(res, "image/jpeg", q));
       while (blob && blob.size > maxBytes && q > 0.4) {
         q -= 0.15;
-        blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", q));
+        blob = await new Promise(res => canvas!.toBlob(res, "image/jpeg", q));
       }
       if (!blob) return file;
       // Guarda anti-preto: um canvas que falhou sai como JPEG minúsculo (poucos
@@ -4625,19 +4626,30 @@ export default function App() {
       if (blob.size < 3000 && file.size > 3000) return file;
       return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
     } catch {
-      return file;
+      return file;   // qualquer falha (decode/canvas/memória) → devolve o original
+    } finally {
+      // Libera memória: revoga o object URL e zera o canvas (alguns WebViews
+      // seguram o buffer do canvas e acumulam memória entre tentativas).
+      if (objectUrl) { try { URL.revokeObjectURL(objectUrl); } catch {} }
+      if (canvas) { canvas.width = 0; canvas.height = 0; }
     }
   };
 
   // User escolhe arquivo — comprime imagem grande automaticamente e seta preview.
   // NÃO faz upload ainda (isso é no enviarDocumentoKYC).
   const onDocFileSelected = async (file: File) => {
-    // Foto de celular costuma passar de 5 MB → comprime antes (resolve o travamento)
-    const arquivo = await comprimirImagemDoc(file);
-    setDocFile(arquivo);
-    // Revoga preview anterior pra evitar memory leak em mobile (fotos de 5 MB)
-    if (docPreview) { try { URL.revokeObjectURL(docPreview); } catch {} }
-    setDocPreview(URL.createObjectURL(arquivo));
+    // À prova de crash: qualquer falha (compressão/preview) mostra mensagem
+    // amigável e NUNCA derruba/recarrega o app.
+    try {
+      // Foto de celular costuma passar de 5 MB → comprime antes (resolve o travamento)
+      const arquivo = await comprimirImagemDoc(file);
+      // Revoga preview anterior pra evitar memory leak em mobile (fotos de 5 MB)
+      if (docPreview) { try { URL.revokeObjectURL(docPreview); } catch {} }
+      setDocFile(arquivo);
+      setDocPreview(URL.createObjectURL(arquivo));
+    } catch {
+      setToastError("Não consegui processar essa foto. Tente uma imagem menor ou outra (ou envie em PDF).");
+    }
   };
 
   // User envia o documento — upload pro bucket privado + UPDATE no profile
@@ -4655,40 +4667,40 @@ export default function App() {
     }
 
     setEnviandoDoc(true);
-    const userId = session.user.id;
-    const ext = docFile.name.split(".").pop()?.toLowerCase() || "jpg";
-    const path = `${userId}/${docTipo}_${Date.now()}.${ext}`;
+    // À prova de crash: exceção de rede/Storage vira mensagem amigável e o
+    // finally sempre libera o estado (sem botão "Enviando..." preso).
+    try {
+      const userId = session.user.id;
+      const ext = docFile.name.split(".").pop()?.toLowerCase() || "jpg";
+      const path = `${userId}/${docTipo}_${Date.now()}.${ext}`;
 
-    const { error: uploadErr } = await supabase.storage
-      .from("documentos")
-      .upload(path, docFile, { contentType: docFile.type, upsert: false });
-    if (uploadErr) {
+      const { error: uploadErr } = await supabase.storage
+        .from("documentos")
+        .upload(path, docFile, { contentType: docFile.type, upsert: false });
+      if (uploadErr) { setToastError("Falha no envio: " + uploadErr.message); return; }
+
+      // Atualiza o profile: status enviado + URL (path no bucket privado)
+      // O trigger anti-escalada permite essa transição (nao_enviado/rejeitado → enviado).
+      const { error: updErr } = await supabase
+        .from("user_profiles")
+        .update({
+          documento_status:   "enviado",
+          documento_url:      path,
+          documento_enviado_em: new Date().toISOString(),
+        })
+        .eq("id", userId);
+      if (updErr) { setToastError("Documento subiu mas o status não foi salvo. Tente reenviar."); return; }
+
+      setProfile(prev => prev ? { ...prev, documento_status: "enviado", documento_url: path } : prev);
+      setDocFile(null);
+      if (docPreview) { try { URL.revokeObjectURL(docPreview); } catch {} setDocPreview(null); }
+      setToastSuccess("✅ Documento enviado! Aguarde a equipe revisar (até 24h).");
+      trackEvento("documento_enviado", userId, modoAtual, { tipo: docTipo });
+    } catch {
+      setToastError("Não consegui enviar agora. Verifique a conexão e tente de novo.");
+    } finally {
       setEnviandoDoc(false);
-      setToastError("Falha no envio: " + uploadErr.message);
-      return;
     }
-
-    // Atualiza o profile: status enviado + URL (path no bucket privado)
-    // O trigger anti-escalada permite essa transição (nao_enviado/rejeitado → enviado).
-    const { error: updErr } = await supabase
-      .from("user_profiles")
-      .update({
-        documento_status:   "enviado",
-        documento_url:      path,
-        documento_enviado_em: new Date().toISOString(),
-      })
-      .eq("id", userId);
-
-    setEnviandoDoc(false);
-    if (updErr) {
-      setToastError("Documento subiu mas o status não foi salvo. Tente reenviar.");
-      return;
-    }
-    setProfile(prev => prev ? { ...prev, documento_status: "enviado", documento_url: path } : prev);
-    setDocFile(null);
-    if (docPreview) { URL.revokeObjectURL(docPreview); setDocPreview(null); }
-    setToastSuccess("✅ Documento enviado! Aguarde a equipe revisar (até 24h).");
-    trackEvento("documento_enviado", userId, modoAtual, { tipo: docTipo });
   };
 
   // ── Antecedentes criminais (certidão negativa em PDF) ─────────────────────
