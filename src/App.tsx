@@ -6943,11 +6943,9 @@ export default function App() {
   // Banner fino de countdown — mesmo padrão do bannerBeta (const + {injeção}).
   const restanteLanc = ALVO_LANCAMENTO - agoraBanner;
   const bannerLancamento = (restanteLanc <= 0 || bannerLancFechado) ? null : (() => {
-    const dias = Math.floor(restanteLanc / 86400000);
-    const horas = Math.floor((restanteLanc % 86400000) / 3600000);
-    const texto = dias > 0
-      ? `Lançamento oficial em ${dias} ${dias === 1 ? "dia" : "dias"}`
-      : `Lançamento oficial em ${horas} ${horas === 1 ? "hora" : "horas"}`;
+    // ceil → conta o dia corrente como 1; sempre >= 1 dia até o lançamento.
+    const dias = Math.ceil(restanteLanc / 86400000);
+    const texto = `Lançamento oficial em ${dias} ${dias === 1 ? "dia" : "dias"}`;
     const fechar = () => {
       setBannerLancFechado(true);
       try { localStorage.setItem("diariaja_banner_lancamento_fechado", "1"); } catch {}
