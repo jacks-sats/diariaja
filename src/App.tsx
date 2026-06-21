@@ -3709,6 +3709,25 @@ export default function App() {
     setToastSuccess("⭐ Avaliação enviada! Obrigado pelo feedback.");
   };
 
+  // Converte um id de check-in (vindo do QR escaneado OU resolvido do código de
+  // 4 dígitos) no id REAL da diária. Convites antigos confirmados que ainda não
+  // viraram diária trazem o id do CONVITE (o card sintético da agenda usa
+  // `c.diaria_id || c.id`) — materializa a diária agora (criar_diaria_de_convite
+  // é idempotente) pra que prestador e anunciante caiam no MESMO id. Sempre
+  // devolve um id pro RPC validar/recusar.
+  const resolverDiariaId = async (idAlvo: string): Promise<string> => {
+    if (!session?.user) return idAlvo;
+    const conv = convitesEnviados.find(c => c.id === idAlvo);
+    if (!conv) return idAlvo;                       // é id de diária — deixa o RPC validar
+    if (conv.diaria_id) return conv.diaria_id;      // convite já virou diária
+    const { data: did } = await supabase.rpc("criar_diaria_de_convite", { p_convite_id: conv.id });
+    if (did) {
+      setConvitesEnviados(prev => prev.map(x => x.id === conv.id ? { ...x, diaria_id: did as string } : x));
+      return did as string;
+    }
+    return idAlvo;
+  };
+
   // Empregador escaneia QR → confirma início da diária
   // Check-in: passa pelo RPC `registrar_checkin` (autoritativo no servidor —
   // valida status + janela de horário). `metodo`: 'qr' (scan) ou 'codigo'.
@@ -12971,7 +12990,7 @@ export default function App() {
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4, textAlign:"center" as const }}>📷 Escanear QR Code</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:16 }}>Aponte a câmera traseira para o QR Code do prestador</div>
               <QRScannerComponent
-                onResult={(id) => { setCodigoManual(""); confirmarInicio(id); }}
+                onResult={(id) => { setCodigoManual(""); void resolverDiariaId(id).then(real => confirmarInicio(real)); }}
                 onError={(msg) => setScanMsg({ ok:false, txt:msg })}
                 onClose={() => setScannerAberto(false)}
               />
@@ -12999,35 +13018,51 @@ export default function App() {
                 disabled={codigoManual.length !== 4}
                 style={{ width:"100%", padding:"12px", background: codigoManual.length === 4 ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: codigoManual.length === 4 ? "pointer" : "default", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={async () => {
-                  // Procura uma diária minha em status "aceita" cujo código bata
-                  let alvo = diarias.find(d =>
+                  // Espelha o caminho do QR: resolve a diária a partir do código e
+                  // deixa o SERVIDOR decidir (RPC registrar_checkin). NÃO filtra
+                  // mais por "aceita" no cliente — o RPC é a fonte da verdade
+                  // (aceita só quando 'aceita', é idempotente se já feito e devolve
+                  // o erro certo). Antes, o filtro local "aceita" dava "não confere"
+                  // quando a diária já estava "em_andamento" (check-in já feito); o
+                  // QR não tinha esse filtro e funcionava — agora ficam consistentes.
+                  const cod = codigoManual;
+                  const checavel = (d: Diaria) =>
                     d.empregador_id === session?.user?.id &&
-                    d.status === "aceita" &&
-                    codigoPresenca(d.id) === codigoManual
-                  );
-                  // PR-C: se não achou no estado local, RE-BUSCA no servidor antes
-                  // de falhar — o local pode estar velho (realtime perdeu o
-                  // UPDATE pendente→aceita com o app em 2º plano). Era a causa do
-                  // "código não confere" mesmo com o código certo.
-                  if (!alvo && session?.user) {
+                    (d.status === "aceita" || d.status === "em_andamento");
+                  // 1) Diárias em memória
+                  let rawId = diarias.find(d => checavel(d) && codigoPresenca(d.id) === cod)?.id;
+                  // 2) Re-busca no servidor — o estado local pode estar velho
+                  //    (realtime perde o UPDATE pendente→aceita com o app em 2º plano).
+                  if (!rawId && session?.user) {
                     const { data } = await supabase.from("diarias").select("*")
-                      .eq("empregador_id", session.user.id).eq("status", "aceita");
+                      .eq("empregador_id", session.user.id)
+                      .in("status", ["aceita", "em_andamento"]);
                     if (data && data.length) {
                       setDiarias(prev => {
                         const ids = new Set(prev.map(d => d.id));
                         const novas = (data as Diaria[]).filter(d => !ids.has(d.id));
                         return novas.length ? [...prev, ...novas] : prev.map(d => (data as Diaria[]).find(x => x.id === d.id) || d);
                       });
-                      alvo = (data as Diaria[]).find(d => codigoPresenca(d.id) === codigoManual);
+                      rawId = (data as Diaria[]).find(d => codigoPresenca(d.id) === cod)?.id;
                     }
                   }
-                  if (!alvo) {
+                  // 3) Convite confirmado: o prestador deriva o código de
+                  //    (c.diaria_id || c.id) — a MESMA fórmula do card da agenda.
+                  //    Casamos por ela pros DOIS lados baterem no mesmo id (convite
+                  //    legado sem diária é materializado em resolverDiariaId).
+                  if (!rawId && session?.user) {
+                    const conv = convitesEnviados.find(c =>
+                      c.status === "confirmado" && !!c.presenca_confirmada_em &&
+                      codigoPresenca(c.diaria_id || c.id) === cod);
+                    if (conv) rawId = conv.diaria_id || conv.id;
+                  }
+                  if (!rawId) {
                     setScanMsg({ ok:false, txt:"Código não confere. Confira os 4 dígitos com o prestador — e se ele já confirmou a chegada no app dele." });
                     return;
                   }
                   setCodigoManual("");
                   setScannerAberto(false);
-                  confirmarInicio(alvo.id, "codigo");
+                  confirmarInicio(await resolverDiariaId(rawId), "codigo");
                 }}>
                 ✅ Confirmar chegada
               </button>
