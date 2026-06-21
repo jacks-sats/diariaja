@@ -484,6 +484,19 @@ export default function App() {
     );
   }, []);
 
+  // ── Banner de contagem regressiva do lançamento oficial ──────────────────
+  // Alvo: 1º/07/2026 00:00 em Campo Grande-MS (UTC−4). Some sozinho depois.
+  // Dismissível e persistido (diariaja_banner_lancamento_fechado).
+  const ALVO_LANCAMENTO = new Date("2026-07-01T00:00:00-04:00").getTime();
+  const [agoraBanner, setAgoraBanner] = useState(() => Date.now());
+  const [bannerLancFechado, setBannerLancFechado] = useState(
+    () => { try { return localStorage.getItem("diariaja_banner_lancamento_fechado") === "1"; } catch { return false; } }
+  );
+  useEffect(() => {
+    const id = setInterval(() => setAgoraBanner(Date.now()), 60000); // 1x/min — banner não mostra segundos
+    return () => clearInterval(id);
+  }, []);
+
   // Notificações in-app (painel do sino)
   // Notificações persistidas (localStorage diariaja_notifs) — sobrevivem ao
   // recarregar. `destino` (opcional) define a tela ao tocar; `lida` marca lida.
@@ -6927,6 +6940,31 @@ export default function App() {
     </div>
   ) : null;
 
+  // Banner fino de countdown — mesmo padrão do bannerBeta (const + {injeção}).
+  const restanteLanc = ALVO_LANCAMENTO - agoraBanner;
+  const bannerLancamento = (restanteLanc <= 0 || bannerLancFechado) ? null : (() => {
+    // ceil → conta o dia corrente como 1; sempre >= 1 dia até o lançamento.
+    const dias = Math.ceil(restanteLanc / 86400000);
+    const texto = `Lançamento oficial em ${dias} ${dias === 1 ? "dia" : "dias"}`;
+    const fechar = () => {
+      setBannerLancFechado(true);
+      try { localStorage.setItem("diariaja_banner_lancamento_fechado", "1"); } catch {}
+    };
+    return (
+      <div style={{ display:"flex", alignItems:"center", gap:10, background:"#0A1733", color:"#FBF6EF", padding:"10px 14px", fontSize:14, fontWeight:700, borderBottom:"2px solid #FF6B35" }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden style={{ flexShrink:0 }}>
+          <path d="M12 1.5C7.5 1.5 4 5 4 9.3c0 5.6 8 13.2 8 13.2s8-7.6 8-13.2C20 5 16.5 1.5 12 1.5z" fill="#FF6B35"/>
+          <circle cx="12" cy="9.2" r="5" fill="#0A1733"/>
+        </svg>
+        <span style={{ flex:1 }}>
+          {texto} <span style={{ color:"#FF6B35" }}>· DiáriaJá chega em Campo Grande</span>
+        </span>
+        <button onClick={fechar} aria-label="Fechar aviso"
+          style={{ background:"transparent", border:0, color:"#8595BE", fontSize:18, lineHeight:1, cursor:"pointer", padding:4 }}>×</button>
+      </div>
+    );
+  })();
+
   const modalConfirmLogout = confirmLogout ? (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:9000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmLogout(false)}>
       <div role="dialog" aria-modal="true" aria-label="Sair da conta" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
@@ -7114,6 +7152,7 @@ export default function App() {
     const btnGhost: React.CSSProperties = { padding:"14px 26px", background:"#fff", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" };
     return (
       <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", color:"#0f172a" }}>
+        {bannerLancamento}
         {/* Top nav */}
         <header style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"22px 48px", maxWidth:1180, margin:"0 auto" }}>
           <div style={{ fontSize:26, fontWeight:900, letterSpacing:-1 }}>
@@ -7213,7 +7252,7 @@ export default function App() {
   // SPLASH
   if (tela === "splash") return (
     <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:480, margin:"0 auto", position:"relative" as const }}>
-
+      {bannerLancamento}
       {/* ── Topo: logo + badge local ── */}
       <div style={{ padding:"26px 24px 0", display:"flex", alignItems:"center", justifyContent:"space-between", animation:"spl-fadein .6s ease-out both" }}>
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-1, lineHeight:1 }}>
