@@ -1,0 +1,121 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Check-in por distância: só bloqueia contra coordenada PRECISA + raio tolerante
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Item 3 da investigação do check-in: o "📍 Você está longe do local (~8161m)"
+-- vinha da coordenada da diária ser o centroide do CEP (no pior caso, o
+-- centroide da CIDADE inteira) comparada ao GPS real do prestador com raio
+-- FIXO de 300 m. Em Campo Grande, o centroide do município fica a vários km de
+-- um bairro periférico → os ~8 km. Esta migração:
+--
+--   1. Adiciona `diarias.geo_preciso` — true SÓ quando lat/lng foi geocodificado
+--      pelo ENDEREÇO COMPLETO (rua+nº+bairro+cidade), não pelo CEP/cidade.
+--   2. Atualiza `registrar_checkin`: o bloqueio de distância só vale quando
+--      geo_preciso = true, e com raio TOLERANTE de 1000 m (antes 300 m).
+--      Coordenada imprecisa (CEP/cidade) ou ausente → NÃO bloqueia. A presença
+--      segue validada por status + janela; e QR/código continuam ignorando a
+--      distância (entram com metodo <> 'gps') — caminho presencial confiável.
+--
+-- A distância continua sendo CALCULADA e gravada em checkin_distancia_m para
+-- auditoria mesmo quando não bloqueia (quando há GPS + coordenada da diária).
+--
+-- Aplicar manualmente: Supabase Dashboard → SQL Editor → New Query → Run.
+-- Idempotente / re-executável (IF NOT EXISTS / CREATE OR REPLACE).
+--
+-- ⚠️ ORDEM DE DEPLOY: rode esta migração ANTES de publicar o frontend novo.
+--    O insert da diária passa a gravar `geo_preciso`; sem a coluna o insert
+--    falharia. (O frontend tem fallback que reinsere sem a coluna, mas o ideal
+--    é aplicar o SQL primeiro pra já valer o bloqueio correto.)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+ALTER TABLE diarias
+  ADD COLUMN IF NOT EXISTS geo_preciso BOOLEAN;   -- true = lat/lng do endereço completo
+
+CREATE OR REPLACE FUNCTION public.registrar_checkin(
+  p_diaria_id UUID,
+  p_metodo    TEXT,
+  p_lat       DOUBLE PRECISION DEFAULT NULL,
+  p_lng       DOUBLE PRECISION DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  d        diarias%ROWTYPE;
+  v_inicio TIMESTAMP;
+  v_fim    TIMESTAMP;
+  v_dist   INTEGER := NULL;
+  v_uid    UUID := auth.uid();
+  c_raio_m CONSTANT INTEGER := 1000;   -- raio tolerante (erro normal de GPS + geocode)
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'nao_autenticado');
+  END IF;
+  IF p_metodo IS NULL OR p_metodo NOT IN ('qr','gps','codigo') THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'metodo_invalido');
+  END IF;
+
+  SELECT * INTO d FROM diarias WHERE id = p_diaria_id;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'nao_encontrada');
+  END IF;
+
+  -- Quem chama precisa ser parte da diária (empregador OU diarista aceito)
+  IF v_uid <> d.empregador_id
+     AND (d.diarista_aceite_id IS NULL OR v_uid <> d.diarista_aceite_id) THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'sem_permissao');
+  END IF;
+
+  -- Idempotente: se já houve check-in, não sobrescreve
+  IF d.checkin_em IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', true, 'ja_feito', true, 'checkin_em', d.checkin_em);
+  END IF;
+
+  -- Precisa estar 'aceita' (diarista confirmado, ainda não iniciada)
+  IF d.status <> 'aceita' THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'status_invalido', 'status', d.status);
+  END IF;
+
+  -- Janela de check-in: [horario_inicio − 30min, horario_fim + 2h]
+  v_inicio := (d.data || ' ' || COALESCE(NULLIF(d.horario_inicio, ''), '00:00'))::timestamp;
+  v_fim    := (d.data || ' ' || COALESCE(NULLIF(d.horario_fim, ''), d.horario_inicio))::timestamp;
+  IF now() < (v_inicio - interval '30 minutes')
+     OR now() > (v_fim + interval '2 hours') THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'fora_da_janela');
+  END IF;
+
+  -- Anti-fraude leve por GPS. Calcula a distância (auditoria) quando há GPS +
+  -- coordenada da diária. SÓ BLOQUEIA quando a coordenada é PRECISA
+  -- (geo_preciso = endereço completo) e acima do raio tolerante — NUNCA contra
+  -- centroide de CEP/cidade. QR/código entram com metodo <> 'gps' e não passam aqui.
+  IF p_metodo = 'gps' AND p_lat IS NOT NULL AND p_lng IS NOT NULL
+     AND d.lat IS NOT NULL AND d.lng IS NOT NULL THEN
+    v_dist := round(
+      6371000 * 2 * asin(sqrt(
+        power(sin(radians(p_lat - d.lat) / 2), 2) +
+        cos(radians(d.lat)) * cos(radians(p_lat)) *
+        power(sin(radians(p_lng - d.lng) / 2), 2)
+      ))
+    );
+    IF COALESCE(d.geo_preciso, false) AND v_dist > c_raio_m THEN
+      RETURN jsonb_build_object('ok', false, 'erro', 'muito_longe', 'distancia_m', v_dist);
+    END IF;
+  END IF;
+
+  UPDATE diarias
+     SET status              = 'em_andamento',
+         checkin_em          = now(),
+         checkin_metodo      = p_metodo,
+         checkin_lat         = p_lat,
+         checkin_lng         = p_lng,
+         checkin_distancia_m = v_dist
+   WHERE id = p_diaria_id;
+
+  RETURN jsonb_build_object('ok', true, 'checkin_em', now(), 'distancia_m', v_dist);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.registrar_checkin(UUID, TEXT, DOUBLE PRECISION, DOUBLE PRECISION) TO authenticated;
+
+SELECT 'Check-in: bloqueio de distância só com geo_preciso + raio 1000m instalado.' AS resultado;

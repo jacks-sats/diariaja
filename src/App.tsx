@@ -3739,6 +3739,25 @@ export default function App() {
     setToastSuccess("⭐ Avaliação enviada! Obrigado pelo feedback.");
   };
 
+  // Converte um id de check-in (vindo do QR escaneado OU resolvido do código de
+  // 4 dígitos) no id REAL da diária. Convites antigos confirmados que ainda não
+  // viraram diária trazem o id do CONVITE (o card sintético da agenda usa
+  // `c.diaria_id || c.id`) — materializa a diária agora (criar_diaria_de_convite
+  // é idempotente) pra que prestador e anunciante caiam no MESMO id. Sempre
+  // devolve um id pro RPC validar/recusar.
+  const resolverDiariaId = async (idAlvo: string): Promise<string> => {
+    if (!session?.user) return idAlvo;
+    const conv = convitesEnviados.find(c => c.id === idAlvo);
+    if (!conv) return idAlvo;                       // é id de diária — deixa o RPC validar
+    if (conv.diaria_id) return conv.diaria_id;      // convite já virou diária
+    const { data: did } = await supabase.rpc("criar_diaria_de_convite", { p_convite_id: conv.id });
+    if (did) {
+      setConvitesEnviados(prev => prev.map(x => x.id === conv.id ? { ...x, diaria_id: did as string } : x));
+      return did as string;
+    }
+    return idAlvo;
+  };
+
   // Empregador escaneia QR → confirma início da diária
   // Check-in: passa pelo RPC `registrar_checkin` (autoritativo no servidor —
   // valida status + janela de horário). `metodo`: 'qr' (scan) ou 'codigo'.
@@ -4578,30 +4597,31 @@ export default function App() {
   // dimensão e qualidade até caber. PDF ou erro → devolve o original.
   const comprimirImagemDoc = async (file: File, maxBytes = 4 * 1024 * 1024, maxDim = 1600): Promise<File> => {
     if (!file.type.startsWith("image/")) return file;
+    let objectUrl: string | null = null;
+    let canvas: HTMLCanvasElement | null = null;
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(String(r.result));
-        r.onerror = reject;
-        r.readAsDataURL(file);
-      });
+      // createObjectURL em vez de readAsDataURL: evita materializar uma string
+      // base64 gigante (~+33% do arquivo) na memória — principal alívio pro
+      // WebView não estourar e recarregar o app ao processar foto grande.
+      objectUrl = URL.createObjectURL(file);
       const img = await new Promise<HTMLImageElement>((resolve, reject) => {
         const i = new Image();
         i.onload = () => resolve(i);
-        i.onerror = reject;
-        i.src = dataUrl;
+        i.onerror = () => reject(new Error("decode"));
+        i.src = objectUrl as string;
       });
       // Garante que o bitmap está realmente decodificado antes de desenhar —
       // em alguns WebViews Android o onload dispara antes do decode e o
       // drawImage sai PRETO. decode() pode não existir em browsers antigos.
       try { await (img as any).decode?.(); } catch {}
       let width = img.width, height = img.height;
+      if (!width || !height) return file;   // imagem inválida/corrompida → original
       if (width > maxDim || height > maxDim) {
         const escala = Math.min(maxDim / width, maxDim / height);
         width = Math.round(width * escala);
         height = Math.round(height * escala);
       }
-      const canvas = document.createElement("canvas");
+      canvas = document.createElement("canvas");
       canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext("2d");
       if (!ctx) return file;
@@ -4612,10 +4632,10 @@ export default function App() {
       // foto grande sem sair preto em alguns aparelhos.
       ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, width, height);
       let q = 0.9;
-      let blob: Blob | null = await new Promise(res => canvas.toBlob(res, "image/jpeg", q));
+      let blob: Blob | null = await new Promise(res => canvas!.toBlob(res, "image/jpeg", q));
       while (blob && blob.size > maxBytes && q > 0.4) {
         q -= 0.15;
-        blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", q));
+        blob = await new Promise(res => canvas!.toBlob(res, "image/jpeg", q));
       }
       if (!blob) return file;
       // Guarda anti-preto: um canvas que falhou sai como JPEG minúsculo (poucos
@@ -4623,19 +4643,30 @@ export default function App() {
       if (blob.size < 3000 && file.size > 3000) return file;
       return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
     } catch {
-      return file;
+      return file;   // qualquer falha (decode/canvas/memória) → devolve o original
+    } finally {
+      // Libera memória: revoga o object URL e zera o canvas (alguns WebViews
+      // seguram o buffer do canvas e acumulam memória entre tentativas).
+      if (objectUrl) { try { URL.revokeObjectURL(objectUrl); } catch {} }
+      if (canvas) { canvas.width = 0; canvas.height = 0; }
     }
   };
 
   // User escolhe arquivo — comprime imagem grande automaticamente e seta preview.
   // NÃO faz upload ainda (isso é no enviarDocumentoKYC).
   const onDocFileSelected = async (file: File) => {
-    // Foto de celular costuma passar de 5 MB → comprime antes (resolve o travamento)
-    const arquivo = await comprimirImagemDoc(file);
-    setDocFile(arquivo);
-    // Revoga preview anterior pra evitar memory leak em mobile (fotos de 5 MB)
-    if (docPreview) { try { URL.revokeObjectURL(docPreview); } catch {} }
-    setDocPreview(URL.createObjectURL(arquivo));
+    // À prova de crash: qualquer falha (compressão/preview) mostra mensagem
+    // amigável e NUNCA derruba/recarrega o app.
+    try {
+      // Foto de celular costuma passar de 5 MB → comprime antes (resolve o travamento)
+      const arquivo = await comprimirImagemDoc(file);
+      // Revoga preview anterior pra evitar memory leak em mobile (fotos de 5 MB)
+      if (docPreview) { try { URL.revokeObjectURL(docPreview); } catch {} }
+      setDocFile(arquivo);
+      setDocPreview(URL.createObjectURL(arquivo));
+    } catch {
+      setToastError("Não consegui processar essa foto. Tente uma imagem menor ou outra (ou envie em PDF).");
+    }
   };
 
   // User envia o documento — upload pro bucket privado + UPDATE no profile
@@ -4653,40 +4684,40 @@ export default function App() {
     }
 
     setEnviandoDoc(true);
-    const userId = session.user.id;
-    const ext = docFile.name.split(".").pop()?.toLowerCase() || "jpg";
-    const path = `${userId}/${docTipo}_${Date.now()}.${ext}`;
+    // À prova de crash: exceção de rede/Storage vira mensagem amigável e o
+    // finally sempre libera o estado (sem botão "Enviando..." preso).
+    try {
+      const userId = session.user.id;
+      const ext = docFile.name.split(".").pop()?.toLowerCase() || "jpg";
+      const path = `${userId}/${docTipo}_${Date.now()}.${ext}`;
 
-    const { error: uploadErr } = await supabase.storage
-      .from("documentos")
-      .upload(path, docFile, { contentType: docFile.type, upsert: false });
-    if (uploadErr) {
+      const { error: uploadErr } = await supabase.storage
+        .from("documentos")
+        .upload(path, docFile, { contentType: docFile.type, upsert: false });
+      if (uploadErr) { setToastError("Falha no envio: " + uploadErr.message); return; }
+
+      // Atualiza o profile: status enviado + URL (path no bucket privado)
+      // O trigger anti-escalada permite essa transição (nao_enviado/rejeitado → enviado).
+      const { error: updErr } = await supabase
+        .from("user_profiles")
+        .update({
+          documento_status:   "enviado",
+          documento_url:      path,
+          documento_enviado_em: new Date().toISOString(),
+        })
+        .eq("id", userId);
+      if (updErr) { setToastError("Documento subiu mas o status não foi salvo. Tente reenviar."); return; }
+
+      setProfile(prev => prev ? { ...prev, documento_status: "enviado", documento_url: path } : prev);
+      setDocFile(null);
+      if (docPreview) { try { URL.revokeObjectURL(docPreview); } catch {} setDocPreview(null); }
+      setToastSuccess("✅ Documento enviado! Aguarde a equipe revisar (até 24h).");
+      trackEvento("documento_enviado", userId, modoAtual, { tipo: docTipo });
+    } catch {
+      setToastError("Não consegui enviar agora. Verifique a conexão e tente de novo.");
+    } finally {
       setEnviandoDoc(false);
-      setToastError("Falha no envio: " + uploadErr.message);
-      return;
     }
-
-    // Atualiza o profile: status enviado + URL (path no bucket privado)
-    // O trigger anti-escalada permite essa transição (nao_enviado/rejeitado → enviado).
-    const { error: updErr } = await supabase
-      .from("user_profiles")
-      .update({
-        documento_status:   "enviado",
-        documento_url:      path,
-        documento_enviado_em: new Date().toISOString(),
-      })
-      .eq("id", userId);
-
-    setEnviandoDoc(false);
-    if (updErr) {
-      setToastError("Documento subiu mas o status não foi salvo. Tente reenviar.");
-      return;
-    }
-    setProfile(prev => prev ? { ...prev, documento_status: "enviado", documento_url: path } : prev);
-    setDocFile(null);
-    if (docPreview) { URL.revokeObjectURL(docPreview); setDocPreview(null); }
-    setToastSuccess("✅ Documento enviado! Aguarde a equipe revisar (até 24h).");
-    trackEvento("documento_enviado", userId, modoAtual, { tipo: docTipo });
   };
 
   // ── Antecedentes criminais (certidão negativa em PDF) ─────────────────────
@@ -5948,6 +5979,25 @@ export default function App() {
       } catch { /* RPC ausente (migration não aplicada) → não bloqueia o fluxo */ }
     }
     setSalvandoDiaria(true);
+    // ── Geolocalização da diária: tenta o ENDEREÇO COMPLETO (preciso) ────────
+    // O bloqueio de distância no check-in (RPC registrar_checkin) só vale contra
+    // coordenada PRECISA (geo_preciso=true). Aqui geocodifica rua+nº+bairro+
+    // cidade/UF; se falhar, cai no CEP (aproximado, NÃO bloqueia) e NUNCA no
+    // centroide da cidade (era a origem do falso "~8km").
+    let latFinal: number | null = latDiaria;
+    let lngFinal: number | null = lngDiaria;
+    let geoPreciso = false;
+    {
+      const geoEnd = await geocodificarEndereco(
+        formDiaria.rua, formDiaria.numero, formDiaria.bairro, formDiaria.cidade, formDiaria.estado,
+      );
+      if (geoEnd) {
+        latFinal = geoEnd.lat; lngFinal = geoEnd.lng; geoPreciso = true;
+      } else {
+        const geoCep = await geocodificarCEP(formDiaria.cep, formDiaria.cidade, formDiaria.estado, false);
+        latFinal = geoCep?.lat ?? null; lngFinal = geoCep?.lng ?? null;
+      }
+    }
     const isDelivery = FUNCOES_DELIVERY.includes(formDiaria.funcao);
     const nova = {
       empregador_id: session.user.id,
@@ -5967,8 +6017,9 @@ export default function App() {
       vagas: ehEmprego ? 1 : vagasDiaria,
       endereco: enderecoComposto,
       bairro: formDiaria.bairro.trim() || null,
-      lat: latDiaria,
-      lng: lngDiaria,
+      lat: latFinal,
+      lng: lngFinal,
+      geo_preciso: geoPreciso,
       tipo_oferta: formDiaria.tipo_oferta,
       ...(ehServico && {
         tempo_estimado_min: Number(formDiaria.tempo_estimado_min) || 0,
@@ -5985,7 +6036,18 @@ export default function App() {
         ganho_estimado_dia: formDiaria.ganho_estimado_dia ? Number(formDiaria.ganho_estimado_dia) : null,
       }),
     };
-    const { data, error } = await supabase.from("diarias").insert(nova).select().single();
+    // Insert com fallback de ORDEM DE DEPLOY: se a coluna geo_preciso ainda não
+    // existir (migração não aplicada), reinsere sem ela em vez de quebrar a criação.
+    const colGeoAusente = (e: { code?: string; message?: string } | null) =>
+      !!e && (e.code === "PGRST204" || e.code === "42703" || /geo_preciso/i.test(e.message || ""));
+    let novaInsert: Record<string, unknown> = nova;
+    let { data, error } = await supabase.from("diarias").insert(nova).select().single();
+    if (error && colGeoAusente(error)) {
+      const semGeo: Record<string, unknown> = { ...nova };
+      delete semGeo.geo_preciso;
+      novaInsert = semGeo;
+      ({ data, error } = await supabase.from("diarias").insert(semGeo).select().single());
+    }
     if (error) { setAuthError(traduzirErroBanco(error)); setSalvandoDiaria(false); return; }
     const novasDiarias = data ? [data] : [];
 
@@ -5996,7 +6058,7 @@ export default function App() {
       for (let i = 1; i <= 3; i++) { // 3 repetições futuras
         const dt = new Date(formDiaria.data + "T12:00:00");
         dt.setDate(dt.getDate() + intervalo * i);
-        extras.push({ ...nova, data: dt.toISOString().split("T")[0] });
+        extras.push({ ...novaInsert, data: dt.toISOString().split("T")[0] });
       }
       const { data: extData } = await supabase.from("diarias").insert(extras).select();
       if (extData) novasDiarias.push(...extData);
@@ -6046,7 +6108,7 @@ export default function App() {
     } catch { /* localStorage cheio — ignora */ }
   };
 
-  const geocodificarCEP = async (cep: string, cidade?: string, uf?: string): Promise<{lat:number, lng:number}|null> => {
+  const geocodificarCEP = async (cep: string, cidade?: string, uf?: string, permitirCidade = true): Promise<{lat:number, lng:number}|null> => {
     const cepNorm = cep.replace(/\D/g, "");
     if (cepNorm.length !== 8) return null;
 
@@ -6101,7 +6163,9 @@ export default function App() {
     // 4. Último fallback: geocodifica só a CIDADE (centróide). Evita prender o
     //    usuário no loop "informe seu CEP" quando o CEP não tem coordenada
     //    precisa na base. Aproximado, mas o feed por distância continua útil.
-    if (cidade && uf) {
+    //    ⚠️ NÃO usar pro check-in da diária (permitirCidade=false): centroide de
+    //    cidade gerava falso "muito longe (~8km)". Ver geocodificarEndereco.
+    if (permitirCidade && cidade && uf) {
       try {
         const q = encodeURIComponent(`${cidade}, ${uf}, Brasil`);
         const r = await fetch(
@@ -6119,6 +6183,42 @@ export default function App() {
         }
       } catch { /* desiste */ }
     }
+    return null;
+  };
+
+  // Geocodifica o ENDEREÇO COMPLETO (rua+número+bairro+cidade/UF) — precisão de
+  // rua/porta, MUITO melhor que o centroide do CEP. É o que permite travar o
+  // check-in por GPS contra o ponto real da diária. Retorna null se não achar —
+  // NUNCA chuta a cidade (quem precisa de fallback aproximado usa o CEP, e o CEP
+  // não bloqueia o check-in). Cache local compartilhado com o de CEP (por chave).
+  const geocodificarEndereco = async (
+    rua: string, numero: string, bairro: string, cidade: string, uf: string,
+  ): Promise<{ lat: number; lng: number } | null> => {
+    const ruaT = (rua || "").trim();
+    const cidadeT = (cidade || "").trim();
+    if (!ruaT || !cidadeT) return null;
+    const partes = [ruaT, (numero || "").trim(), (bairro || "").trim(), cidadeT, (uf || "").trim()]
+      .filter(Boolean).join(", ");
+    const chave = `end:${partes}`.toLowerCase();
+    const cache = lerGeoCache();
+    const hit = cache[chave];
+    if (hit && Date.now() - hit.ts < GEOCACHE_TTL_MS) return { lat: hit.lat, lng: hit.lng };
+    try {
+      const q = encodeURIComponent(`${partes}, Brasil`);
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=br&addressdetails=0`,
+        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
+      );
+      const data = await res.json();
+      if (data?.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lng = parseFloat(data[0].lon);
+        if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+          escreverGeoCache(chave, lat, lng);
+          return { lat, lng };
+        }
+      }
+    } catch { /* sem internet / erro — segue sem coordenada precisa */ }
     return null;
   };
 
@@ -13081,7 +13181,7 @@ export default function App() {
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:4, textAlign:"center" as const }}>📷 Escanear QR Code</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", textAlign:"center" as const, marginBottom:16 }}>Aponte a câmera traseira para o QR Code do prestador</div>
               <QRScannerComponent
-                onResult={(id) => { setCodigoManual(""); confirmarInicio(id); }}
+                onResult={(id) => { setCodigoManual(""); void resolverDiariaId(id).then(real => confirmarInicio(real)); }}
                 onError={(msg) => setScanMsg({ ok:false, txt:msg })}
                 onClose={() => setScannerAberto(false)}
               />
@@ -13109,35 +13209,51 @@ export default function App() {
                 disabled={codigoManual.length !== 4}
                 style={{ width:"100%", padding:"12px", background: codigoManual.length === 4 ? "#FF6B35" : "#cbd5e1", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: codigoManual.length === 4 ? "pointer" : "default", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={async () => {
-                  // Procura uma diária minha em status "aceita" cujo código bata
-                  let alvo = diarias.find(d =>
+                  // Espelha o caminho do QR: resolve a diária a partir do código e
+                  // deixa o SERVIDOR decidir (RPC registrar_checkin). NÃO filtra
+                  // mais por "aceita" no cliente — o RPC é a fonte da verdade
+                  // (aceita só quando 'aceita', é idempotente se já feito e devolve
+                  // o erro certo). Antes, o filtro local "aceita" dava "não confere"
+                  // quando a diária já estava "em_andamento" (check-in já feito); o
+                  // QR não tinha esse filtro e funcionava — agora ficam consistentes.
+                  const cod = codigoManual;
+                  const checavel = (d: Diaria) =>
                     d.empregador_id === session?.user?.id &&
-                    d.status === "aceita" &&
-                    codigoPresenca(d.id) === codigoManual
-                  );
-                  // PR-C: se não achou no estado local, RE-BUSCA no servidor antes
-                  // de falhar — o local pode estar velho (realtime perdeu o
-                  // UPDATE pendente→aceita com o app em 2º plano). Era a causa do
-                  // "código não confere" mesmo com o código certo.
-                  if (!alvo && session?.user) {
+                    (d.status === "aceita" || d.status === "em_andamento");
+                  // 1) Diárias em memória
+                  let rawId = diarias.find(d => checavel(d) && codigoPresenca(d.id) === cod)?.id;
+                  // 2) Re-busca no servidor — o estado local pode estar velho
+                  //    (realtime perde o UPDATE pendente→aceita com o app em 2º plano).
+                  if (!rawId && session?.user) {
                     const { data } = await supabase.from("diarias").select("*")
-                      .eq("empregador_id", session.user.id).eq("status", "aceita");
+                      .eq("empregador_id", session.user.id)
+                      .in("status", ["aceita", "em_andamento"]);
                     if (data && data.length) {
                       setDiarias(prev => {
                         const ids = new Set(prev.map(d => d.id));
                         const novas = (data as Diaria[]).filter(d => !ids.has(d.id));
                         return novas.length ? [...prev, ...novas] : prev.map(d => (data as Diaria[]).find(x => x.id === d.id) || d);
                       });
-                      alvo = (data as Diaria[]).find(d => codigoPresenca(d.id) === codigoManual);
+                      rawId = (data as Diaria[]).find(d => codigoPresenca(d.id) === cod)?.id;
                     }
                   }
-                  if (!alvo) {
+                  // 3) Convite confirmado: o prestador deriva o código de
+                  //    (c.diaria_id || c.id) — a MESMA fórmula do card da agenda.
+                  //    Casamos por ela pros DOIS lados baterem no mesmo id (convite
+                  //    legado sem diária é materializado em resolverDiariaId).
+                  if (!rawId && session?.user) {
+                    const conv = convitesEnviados.find(c =>
+                      c.status === "confirmado" && !!c.presenca_confirmada_em &&
+                      codigoPresenca(c.diaria_id || c.id) === cod);
+                    if (conv) rawId = conv.diaria_id || conv.id;
+                  }
+                  if (!rawId) {
                     setScanMsg({ ok:false, txt:"Código não confere. Confira os 4 dígitos com o prestador — e se ele já confirmou a chegada no app dele." });
                     return;
                   }
                   setCodigoManual("");
                   setScannerAberto(false);
-                  confirmarInicio(alvo.id, "codigo");
+                  confirmarInicio(await resolverDiariaId(rawId), "codigo");
                 }}>
                 ✅ Confirmar chegada
               </button>
