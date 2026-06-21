@@ -40,6 +40,7 @@ export interface Diaria {
   endereco?: string;
   lat?: number | null;
   lng?: number | null;
+  geo_preciso?: boolean | null;       // true = lat/lng geocodificado pelo endereço completo (trava distância no check-in)
   // Campos especiais para Delivery/Motoboy
   valor_encostada?: number | null;
   valor_por_entrega?: number | null;
