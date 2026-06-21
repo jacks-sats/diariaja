@@ -5967,6 +5967,25 @@ export default function App() {
       } catch { /* RPC ausente (migration não aplicada) → não bloqueia o fluxo */ }
     }
     setSalvandoDiaria(true);
+    // ── Geolocalização da diária: tenta o ENDEREÇO COMPLETO (preciso) ────────
+    // O bloqueio de distância no check-in (RPC registrar_checkin) só vale contra
+    // coordenada PRECISA (geo_preciso=true). Aqui geocodifica rua+nº+bairro+
+    // cidade/UF; se falhar, cai no CEP (aproximado, NÃO bloqueia) e NUNCA no
+    // centroide da cidade (era a origem do falso "~8km").
+    let latFinal: number | null = latDiaria;
+    let lngFinal: number | null = lngDiaria;
+    let geoPreciso = false;
+    {
+      const geoEnd = await geocodificarEndereco(
+        formDiaria.rua, formDiaria.numero, formDiaria.bairro, formDiaria.cidade, formDiaria.estado,
+      );
+      if (geoEnd) {
+        latFinal = geoEnd.lat; lngFinal = geoEnd.lng; geoPreciso = true;
+      } else {
+        const geoCep = await geocodificarCEP(formDiaria.cep, formDiaria.cidade, formDiaria.estado, false);
+        latFinal = geoCep?.lat ?? null; lngFinal = geoCep?.lng ?? null;
+      }
+    }
     const isDelivery = FUNCOES_DELIVERY.includes(formDiaria.funcao);
     const nova = {
       empregador_id: session.user.id,
@@ -5986,8 +6005,9 @@ export default function App() {
       vagas: ehEmprego ? 1 : vagasDiaria,
       endereco: enderecoComposto,
       bairro: formDiaria.bairro.trim() || null,
-      lat: latDiaria,
-      lng: lngDiaria,
+      lat: latFinal,
+      lng: lngFinal,
+      geo_preciso: geoPreciso,
       tipo_oferta: formDiaria.tipo_oferta,
       ...(ehServico && {
         tempo_estimado_min: Number(formDiaria.tempo_estimado_min) || 0,
@@ -6004,7 +6024,18 @@ export default function App() {
         ganho_estimado_dia: formDiaria.ganho_estimado_dia ? Number(formDiaria.ganho_estimado_dia) : null,
       }),
     };
-    const { data, error } = await supabase.from("diarias").insert(nova).select().single();
+    // Insert com fallback de ORDEM DE DEPLOY: se a coluna geo_preciso ainda não
+    // existir (migração não aplicada), reinsere sem ela em vez de quebrar a criação.
+    const colGeoAusente = (e: { code?: string; message?: string } | null) =>
+      !!e && (e.code === "PGRST204" || e.code === "42703" || /geo_preciso/i.test(e.message || ""));
+    let novaInsert: Record<string, unknown> = nova;
+    let { data, error } = await supabase.from("diarias").insert(nova).select().single();
+    if (error && colGeoAusente(error)) {
+      const semGeo: Record<string, unknown> = { ...nova };
+      delete semGeo.geo_preciso;
+      novaInsert = semGeo;
+      ({ data, error } = await supabase.from("diarias").insert(semGeo).select().single());
+    }
     if (error) { setAuthError(traduzirErroBanco(error)); setSalvandoDiaria(false); return; }
     const novasDiarias = data ? [data] : [];
 
@@ -6015,7 +6046,7 @@ export default function App() {
       for (let i = 1; i <= 3; i++) { // 3 repetições futuras
         const dt = new Date(formDiaria.data + "T12:00:00");
         dt.setDate(dt.getDate() + intervalo * i);
-        extras.push({ ...nova, data: dt.toISOString().split("T")[0] });
+        extras.push({ ...novaInsert, data: dt.toISOString().split("T")[0] });
       }
       const { data: extData } = await supabase.from("diarias").insert(extras).select();
       if (extData) novasDiarias.push(...extData);
@@ -6065,7 +6096,7 @@ export default function App() {
     } catch { /* localStorage cheio — ignora */ }
   };
 
-  const geocodificarCEP = async (cep: string, cidade?: string, uf?: string): Promise<{lat:number, lng:number}|null> => {
+  const geocodificarCEP = async (cep: string, cidade?: string, uf?: string, permitirCidade = true): Promise<{lat:number, lng:number}|null> => {
     const cepNorm = cep.replace(/\D/g, "");
     if (cepNorm.length !== 8) return null;
 
@@ -6120,7 +6151,9 @@ export default function App() {
     // 4. Último fallback: geocodifica só a CIDADE (centróide). Evita prender o
     //    usuário no loop "informe seu CEP" quando o CEP não tem coordenada
     //    precisa na base. Aproximado, mas o feed por distância continua útil.
-    if (cidade && uf) {
+    //    ⚠️ NÃO usar pro check-in da diária (permitirCidade=false): centroide de
+    //    cidade gerava falso "muito longe (~8km)". Ver geocodificarEndereco.
+    if (permitirCidade && cidade && uf) {
       try {
         const q = encodeURIComponent(`${cidade}, ${uf}, Brasil`);
         const r = await fetch(
@@ -6138,6 +6171,42 @@ export default function App() {
         }
       } catch { /* desiste */ }
     }
+    return null;
+  };
+
+  // Geocodifica o ENDEREÇO COMPLETO (rua+número+bairro+cidade/UF) — precisão de
+  // rua/porta, MUITO melhor que o centroide do CEP. É o que permite travar o
+  // check-in por GPS contra o ponto real da diária. Retorna null se não achar —
+  // NUNCA chuta a cidade (quem precisa de fallback aproximado usa o CEP, e o CEP
+  // não bloqueia o check-in). Cache local compartilhado com o de CEP (por chave).
+  const geocodificarEndereco = async (
+    rua: string, numero: string, bairro: string, cidade: string, uf: string,
+  ): Promise<{ lat: number; lng: number } | null> => {
+    const ruaT = (rua || "").trim();
+    const cidadeT = (cidade || "").trim();
+    if (!ruaT || !cidadeT) return null;
+    const partes = [ruaT, (numero || "").trim(), (bairro || "").trim(), cidadeT, (uf || "").trim()]
+      .filter(Boolean).join(", ");
+    const chave = `end:${partes}`.toLowerCase();
+    const cache = lerGeoCache();
+    const hit = cache[chave];
+    if (hit && Date.now() - hit.ts < GEOCACHE_TTL_MS) return { lat: hit.lat, lng: hit.lng };
+    try {
+      const q = encodeURIComponent(`${partes}, Brasil`);
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=br&addressdetails=0`,
+        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
+      );
+      const data = await res.json();
+      if (data?.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lng = parseFloat(data[0].lon);
+        if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+          escreverGeoCache(chave, lat, lng);
+          return { lat, lng };
+        }
+      }
+    } catch { /* sem internet / erro — segue sem coordenada precisa */ }
     return null;
   };
 
