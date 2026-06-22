@@ -104,21 +104,25 @@ async function filtrarDestinatariosAutorizados(
   candAlvos.data?.forEach((c: any) => { if (c.diarista_id) autorizados.add(c.diarista_id); });
   vagasCallerAlvos.data?.forEach((c: any) => { if (c.diarias?.empregador_id) autorizados.add(c.diarias.empregador_id); });
 
-  // 5. Convites trocados (caller é empregador ou diarista_id no convite)
+  // 5. Convites trocados (caller é contratante ou diarista_id no convite)
+  // FIX (auditoria P1-1): a tabela convites usa `contratante_id`, NÃO `empregador_id`
+  // (essa coluna não existe — ver convites.sql:6 e delete-user/index.ts:96). O nome
+  // errado fazia a query falhar em silêncio e o push de convite/resposta não chegar
+  // quando o convite era a única relação entre as partes (o caso normal).
   const [convitesEmp, convitesDia] = await Promise.all([
     supabaseAdmin
       .from("convites")
       .select("diarista_id")
-      .eq("empregador_id", callerId)
+      .eq("contratante_id", callerId)
       .in("diarista_id", alvosArr),
     supabaseAdmin
       .from("convites")
-      .select("empregador_id")
+      .select("contratante_id")
       .eq("diarista_id", callerId)
-      .in("empregador_id", alvosArr),
+      .in("contratante_id", alvosArr),
   ]);
   convitesEmp.data?.forEach((c: any) => { if (c.diarista_id) autorizados.add(c.diarista_id); });
-  convitesDia.data?.forEach((c: any) => { if (c.empregador_id) autorizados.add(c.empregador_id); });
+  convitesDia.data?.forEach((c: any) => { if (c.contratante_id) autorizados.add(c.contratante_id); });
 
   // Mantém só os que estavam na lista original
   return userIds.filter(id => autorizados.has(id));
