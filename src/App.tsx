@@ -20978,7 +20978,11 @@ export default function App() {
   // ── TELA DE PLANOS ──────────────────────────────────────────────────────────
   if (tela === "planos") {
     const isEmp = modoAtual === "empregador";
-    const planos = isEmp ? PLANOS_EMPREGADOR : PLANOS_DIARISTA;
+    // Lançamento: esconde o plano Plus dos DOIS lados. O Plus não entrega
+    // nenhum benefício funcional além do Essencial (permissions.*.plus não é
+    // consumido em parte alguma). Os objetos seguem em constants.ts pra NÃO
+    // quebrar quem por acaso já tenha 'plus' ativo (o "Plano atual" ainda resolve).
+    const planos = (isEmp ? PLANOS_EMPREGADOR : PLANOS_DIARISTA).filter(p => p.id !== "plus");
     // Dual track: cada papel tem sua própria assinatura.
     const planoAtivo = isEmp ? plans.empregador : plans.diarista;
 
