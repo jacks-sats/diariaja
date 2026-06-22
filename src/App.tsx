@@ -18738,11 +18738,14 @@ export default function App() {
 
         {/* ── Toggle DIÁRIA vs SERVIÇO ── */}
         <label style={{ ...S.label, marginBottom:6 }}>Tipo de oportunidade *</label>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
           {([
             { v:"diaria",  emoji:"🌞", label:"Diária",  sub:"Várias horas" },
             { v:"servico", emoji:"⚡", label:"Serviço", sub:"Tarefa pontual" },
-            { v:"emprego", emoji:"💼", label:"Emprego", sub:"Vaga c/ seleção" },
+            // Lançamento: "Vaga de emprego" avulsa REMOVIDA do seletor — o anunciante
+            // não acessa mais o fluxo de emprego (nem a cobrança R$1 da vaga extra).
+            // O backend (create-vaga-payment / tipo_oferta="emprego") fica dormente,
+            // sem ponto de entrada. Grid passou a 2 colunas (sobravam 3).
           ] as const).map(opt => {
             const sel = formDiaria.tipo_oferta === opt.v;
             return (
