@@ -21,6 +21,59 @@ const MP_TOKEN         = Deno.env.get("MP_ACCESS_TOKEN")!;
 const WEBHOOK_SECRET   = (Deno.env.get("MP_WEBHOOK_SECRET") ?? "").trim();
 const INTERNAL_SECRET  = (Deno.env.get("INTERNAL_PUSH_SECRET") ?? "").trim();
 
+// ── P0-1: validação do VALOR pago ──────────────────────────────────────────
+// Antes, o webhook concedia o benefício só com status === "approved", sem nunca
+// comparar o transaction_amount. Um pagamento aprovado de QUALQUER valor (ex.:
+// R$0,01) liberava contato/vaga/plano. Aqui definimos os valores canônicos NO
+// SERVIDOR (espelham create-*/constants.ts) e conferimos com tolerância de
+// centavos, cruzando também com a intenção gravada em pagamentos_intencao.
+const EPS_VALOR = 0.005; // tolerância de arredondamento do MP
+const PRECO_CONTATO = 2.50;
+const PRECO_VAGA    = 1.00;
+const PRECO_PLANO: Record<string, number> = {
+  "diarista:essencial":   9.90,
+  "diarista:plus":        19.90,
+  "empregador:essencial": 24.90,
+  "empregador:plus":      49.90,
+};
+
+// Valor canônico esperado para a referência (null = não reconhecida; ex.: a
+// diária legada é validada pelo próprio valor da diária, fora desta função).
+function valorCanonico(ref: string, userType?: string, planoId?: string): number | null {
+  if (ref.startsWith("contact_unlock::"))      return PRECO_CONTATO;
+  if (ref.startsWith("vaga_emprego_unlock::")) return PRECO_VAGA;
+  if (ref.startsWith("plano::"))               return PRECO_PLANO[`${userType}:${planoId}`] ?? null;
+  return null;
+}
+
+// Confere o valor pago contra (1) o valor canônico esperado e (2) a intenção
+// registrada pela create-* (defesa em profundidade). Os dois precisam bater.
+async function valorConfere(
+  supabase: ReturnType<typeof createClient>,
+  ref: string,
+  pago: number,
+  esperadoCanonico: number | null,
+): Promise<{ ok: boolean; motivo: string }> {
+  if (esperadoCanonico === null) {
+    return { ok: false, motivo: "referência/plano não reconhecido para validação de valor" };
+  }
+  if (!Number.isFinite(pago) || Math.abs(Number(pago) - esperadoCanonico) > EPS_VALOR) {
+    return { ok: false, motivo: `pago=${pago} != canônico=${esperadoCanonico}` };
+  }
+  // Cruza com a intenção registrada (se houver) — pega a mais recente.
+  const { data: intencao } = await supabase
+    .from("pagamentos_intencao")
+    .select("valor_esperado")
+    .eq("external_reference", ref)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (intencao && Math.abs(Number(intencao.valor_esperado) - Number(pago)) > EPS_VALOR) {
+    return { ok: false, motivo: `pago=${pago} != intenção=${intencao.valor_esperado}` };
+  }
+  return { ok: true, motivo: "ok" };
+}
+
 // Notifica um usuário via send-push em modo interno (reusa toda a cripto Web Push
 // num lugar só). Best-effort: nunca quebra o webhook se o push falhar.
 async function notificarUsuario(
@@ -343,6 +396,12 @@ Deno.serve(async (req) => {
         const conviteId = refParts[2] ?? "";  // presente só no fluxo de convite
         const ehRefund = payment.status === "refunded" || payment.status === "charged_back";
         if (payment.status === "approved" && userId) {
+          // P0-1: confere o VALOR pago antes de liberar o contato.
+          const vc = await valorConfere(supabase, ref, Number(payment.transaction_amount), valorCanonico(ref));
+          if (!vc.ok) {
+            console.warn(`[mp-webhook] contato: valor divergente (${vc.motivo}) — NÃO concede. payment=${await pseudo(String(paymentId))}`);
+            return new Response("ok", { status: 200 });
+          }
           const { error: insErr } = await supabase
             .from("contatos_desbloqueios")
             .insert({
@@ -402,6 +461,12 @@ Deno.serve(async (req) => {
         const userId = refParts[1] ?? "";
         const ehRefund = payment.status === "refunded" || payment.status === "charged_back";
         if (payment.status === "approved" && userId) {
+          // P0-1: confere o VALOR pago antes de liberar a vaga.
+          const vc = await valorConfere(supabase, ref, Number(payment.transaction_amount), valorCanonico(ref));
+          if (!vc.ok) {
+            console.warn(`[mp-webhook] vaga: valor divergente (${vc.motivo}) — NÃO concede. payment=${await pseudo(String(paymentId))}`);
+            return new Response("ok", { status: 200 });
+          }
           const { error: insErr } = await supabase
             .from("vagas_emprego_desbloqueios")
             .insert({
@@ -430,11 +495,25 @@ Deno.serve(async (req) => {
       // preapproval: aqui é avulso (aceita Pix) e não renova sozinho —
       // grava plano_ativo + plano_expira_em (30 dias). O app avisa ao vencer.
       if (String(payment.external_reference).startsWith("plano::")) {
+        // Formato novo: plano::USER::USER_TYPE::PLANO. Legado: plano::USER::PLANO.
         const parts = String(payment.external_reference).split("::");
         const userId = parts[1] ?? "";
-        const planoId = parts[2] ?? "";
+        let userType: string | undefined = parts.length >= 4 ? parts[2] : undefined;
+        const planoId = (parts.length >= 4 ? parts[3] : parts[2]) ?? "";
         const ehRefund = payment.status === "refunded" || payment.status === "charged_back";
         if (payment.status === "approved" && userId && planoId) {
+          // P0-1: o preço do plano depende do user_type (diarista vs empregador).
+          // Se o ref for legado (sem user_type), busca no perfil pra validar o valor.
+          if (!userType) {
+            const { data: prof } = await supabase
+              .from("user_profiles").select("user_type").eq("id", userId).single();
+            userType = (prof?.user_type as string | undefined) ?? undefined;
+          }
+          const vc = await valorConfere(supabase, ref, Number(payment.transaction_amount), valorCanonico(ref, userType, planoId));
+          if (!vc.ok) {
+            console.warn(`[mp-webhook] plano: valor divergente (${vc.motivo}) user_type=${userType} plano=${planoId} — NÃO concede. payment=${await pseudo(String(paymentId))}`);
+            return new Response("ok", { status: 200 });
+          }
           const expira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
           const { error: upErr } = await supabase
             .from("user_profiles")
@@ -459,6 +538,16 @@ Deno.serve(async (req) => {
       }
 
       const diariaId = payment.external_reference;
+
+      // P0-1: na diária legada o valor esperado é o valor da própria diária.
+      if (payment.status === "approved") {
+        const { data: dval } = await supabase
+          .from("diarias").select("valor").eq("id", diariaId).single();
+        if (dval && Math.abs(Number(dval.valor) - Number(payment.transaction_amount)) > EPS_VALOR) {
+          console.warn(`[mp-webhook] diaria: valor divergente (pago=${payment.transaction_amount} != diaria=${dval.valor}) — NÃO marca pago. payment=${await pseudo(String(paymentId))}`);
+          return new Response("ok", { status: 200 });
+        }
+      }
 
       const statusMap: Record<string, string> = {
         approved:   "pago",

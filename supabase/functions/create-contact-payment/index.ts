@@ -132,6 +132,7 @@ Deno.serve(async (req) => {
       external_reference: convite_id
         ? `contact_unlock::${empregador_id}::${convite_id}`
         : `contact_unlock::${empregador_id}`,
+      // (intenção P0-1 gravada logo abaixo, após montar a preferência)
       back_urls: {
         success: `${APP_URL}/?contato_desbloqueado=sucesso`,
         failure: `${APP_URL}/?contato_desbloqueado=falha`,
@@ -153,6 +154,15 @@ Deno.serve(async (req) => {
       },
       payer: { name: "Anunciante DiáriaJá" },
     };
+
+    // P0-1: grava a intenção (valor esperado ↔ ref ↔ user) pro webhook validar.
+    // Best-effort: não bloqueia o pagamento se falhar (webhook valida pelo canônico).
+    await supabaseUser.from("pagamentos_intencao").insert({
+      external_reference: preferencia.external_reference,
+      user_id:            empregador_id,
+      tipo:               "contato",
+      valor_esperado:     2.50,
+    }).then(({ error }) => { if (error) log(traceId, "pag_intencao_falhou", { msg: error.message }); });
 
     log(traceId, "06_mp_request_iniciada", {
       url:               "https://api.mercadopago.com/checkout/preferences",

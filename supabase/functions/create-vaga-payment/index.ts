@@ -145,6 +145,15 @@ Deno.serve(async (req) => {
       payer: { name: "Anunciante DiáriaJá" },
     };
 
+    // P0-1: grava a intenção (valor esperado ↔ ref ↔ user) pro webhook validar.
+    // Best-effort: não bloqueia o pagamento se falhar (webhook valida pelo canônico).
+    await supabaseUser.from("pagamentos_intencao").insert({
+      external_reference: preferencia.external_reference,
+      user_id:            empregador_id,
+      tipo:               "vaga",
+      valor_esperado:     VALOR_VAGA_EXTRA,
+    }).then(({ error }) => { if (error) log(traceId, "pag_intencao_falhou", { msg: error.message }); });
+
     log(traceId, "06_mp_request_iniciada", {
       notification_url: preferencia.notification_url,
       valor:            VALOR_VAGA_EXTRA,
