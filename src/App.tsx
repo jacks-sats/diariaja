@@ -7389,7 +7389,7 @@ export default function App() {
 
   // SPLASH
   if (tela === "splash") return (
-    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:480, margin:"0 auto", position:"relative" as const }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:480, margin:"0 auto", position:"relative" as const, paddingBottom:150 }}>
       {bannerLancamento}
       {/* ── Topo: logo + badge local ── */}
       <div style={{ padding:"26px 24px 0", display:"flex", alignItems:"center", justifyContent:"space-between", animation:"spl-fadein .6s ease-out both" }}>
@@ -7470,9 +7470,58 @@ export default function App() {
         ))}
       </div>
 
-      {/* ── CTAs — sticky no rodapé (sempre visível na rolagem) com degradê
-          branco atrás pra descolar do conteúdo. Handlers INALTERADOS. ── */}
-      <div style={{ position:"sticky" as const, bottom:0, marginTop:"auto", padding:"30px 24px 22px", display:"flex", flexDirection:"column" as const, gap:10, background:"linear-gradient(to top, #f8fafc 62%, rgba(248,250,252,0))", animation:"spl-fadein .7s ease-out 1s both" }}>
+      {/* ── Como funciona — 3 passos numerados ── */}
+      <div style={{ padding:"24px 24px 0", animation:"spl-fadein .7s ease-out .95s both" }}>
+        <div style={{ fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:12 }}>Como funciona</div>
+        <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+          {[
+            { n:1, t:"Busque perto de você", d:"Veja diaristas e profissionais disponíveis hoje na sua região." },
+            { n:2, t:"Compare na tela",      d:"Preço, avaliação e CPF verificado, sem precisar ligar pra ninguém." },
+            { n:3, t:"Chame e combine",      d:"Desbloqueie o contato e feche direto com o profissional." },
+          ].map(p => (
+            <div key={p.n} style={{ background:"#fff", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"flex-start", gap:13 }}>
+              <div style={{ width:30, height:30, borderRadius:9, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:15, flexShrink:0 }}>{p.n}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:800, fontSize:14, color:"#0f172a" }}>{p.t}</div>
+                <div style={{ fontSize:12.5, color:"#64748b", lineHeight:1.5, marginTop:2 }}>{p.d}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Por que DiáriaJá — bloco azul-marinho ── */}
+      <div style={{ padding:"24px 24px 0", animation:"spl-fadein .7s ease-out 1s both" }}>
+        <div style={{ background:"#0A1733", borderRadius:18, padding:"20px", color:"#fff" }}>
+          <div style={{ fontSize:16, fontWeight:900, marginBottom:14 }}>Por que <span style={{ color:"#FF6B35" }}>DiáriaJá</span></div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"12px 14px" }}>
+            {[
+              { ic:"✅", l:"CPF verificado" },
+              { ic:"⭐", l:"Avaliações reais" },
+              { ic:"🏷️", l:"Preço na tela" },
+              { ic:"🆓", l:"Grátis pra começar" },
+            ].map(i => (
+              <div key={i.l} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:16 }}>{i.ic}</span>
+                <span style={{ fontSize:13, fontWeight:700, color:"#FBF6EF" }}>{i.l}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Linha discreta pro profissional ── */}
+      <div style={{ padding:"16px 24px 0", textAlign:"center" as const, animation:"spl-fadein .7s ease-out 1.05s both" }}>
+        <span style={{ fontSize:13, color:"#64748b" }}>É profissional? </span>
+        <span style={{ fontSize:13, fontWeight:800, color:"#FF6B35", cursor:"pointer", textDecoration:"underline" }}
+          onClick={() => { setTipo("diarista"); setTela("cadastro-tipo"); }}>
+          Cadastre-se grátis · Quero trabalhar
+        </span>
+      </div>
+
+      {/* ── CTAs — BARRA FIXA no rodapé: o conteúdo rola por trás (maxWidth 480
+          centralizado). Handlers INALTERADOS. ── */}
+      <div style={{ position:"fixed" as const, bottom:0, left:0, right:0, maxWidth:480, margin:"0 auto", padding:"14px 24px calc(14px + env(safe-area-inset-bottom))", display:"flex", flexDirection:"column" as const, gap:8, background:"linear-gradient(to top, #f8fafc 80%, rgba(248,250,252,0))", zIndex:50 }}>
 
         {/* CTA primário */}
         <button
@@ -7481,14 +7530,13 @@ export default function App() {
           Ver profissionais agora <span style={{ fontSize:18 }}>→</span>
         </button>
 
-        {/* CTA secundário — Já tenho conta */}
-        <button
-          style={{ width:"100%", padding:"13px", background:"transparent", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:16, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:46 }}
-          onClick={() => setTela("login")}>
-          Já tenho conta · <span style={{ color:"#FF6B35", fontWeight:800 }}>Entrar</span>
-        </button>
+        {/* Secundário — agora LINK menor, não botão */}
+        <div style={{ textAlign:"center" as const }}>
+          <span style={{ fontSize:13, color:"#64748b" }}>Já tenho conta · </span>
+          <span style={{ fontSize:13, fontWeight:800, color:"#FF6B35", cursor:"pointer" }} onClick={() => setTela("login")}>Entrar</span>
+        </div>
 
-        <p style={{ textAlign:"center" as const, color:"#94a3b8", fontSize:11, margin:"6px 0 0", lineHeight:1.7 }}>
+        <p style={{ textAlign:"center" as const, color:"#94a3b8", fontSize:11, margin:"2px 0 0", lineHeight:1.6 }}>
           Ao continuar você aceita os{" "}
           <span style={{ color:"#64748b", cursor:"pointer", textDecoration:"underline" }} onClick={() => setMostrarTermos(true)}>Termos</span>
           {" · "}
