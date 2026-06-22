@@ -5656,6 +5656,15 @@ export default function App() {
   // Executa confirmação real após aceite do modal
   const executarConfirmarPresenca = async (diaria: Diaria) => {
     if (!session?.user) return;
+    // P0-2: trava da cota grátis do diarista (3 diárias concluídas). UX: evita o
+    // erro cru do banco — o trigger trg_enforce_cota_gratis_diarista é a autoridade.
+    if (limits.diarista.passouCotaGratis) {
+      setModalTermoDiarista(null);
+      setTermoDiaristaCheck(false);
+      setToastError("Você já concluiu suas 3 diárias grátis. Assine o Essencial (R$ 9,90) pra aceitar novas diárias.");
+      setTela("planos");
+      return;
+    }
     setConfirmando(true);
     const { error } = await supabase.from("diarias").update({ status: "aceita" }).eq("id", diaria.id);
     if (error) { setAuthError(traduzirErroBanco(error)); setConfirmando(false); return; }
@@ -20969,7 +20978,11 @@ export default function App() {
   // ── TELA DE PLANOS ──────────────────────────────────────────────────────────
   if (tela === "planos") {
     const isEmp = modoAtual === "empregador";
-    const planos = isEmp ? PLANOS_EMPREGADOR : PLANOS_DIARISTA;
+    // Lançamento: esconde o plano Plus dos DOIS lados. O Plus não entrega
+    // nenhum benefício funcional além do Essencial (permissions.*.plus não é
+    // consumido em parte alguma). Os objetos seguem em constants.ts pra NÃO
+    // quebrar quem por acaso já tenha 'plus' ativo (o "Plano atual" ainda resolve).
+    const planos = (isEmp ? PLANOS_EMPREGADOR : PLANOS_DIARISTA).filter(p => p.id !== "plus");
     // Dual track: cada papel tem sua própria assinatura.
     const planoAtivo = isEmp ? plans.empregador : plans.diarista;
 
