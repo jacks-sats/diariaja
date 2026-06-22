@@ -102,8 +102,10 @@ Deno.serve(async (req) => {
           unit_price:  info.valor,
         },
       ],
-      // Webhook lê isto pra conceder o plano: "plano::USER_ID::PLANO_ID"
-      external_reference: `plano::${user.id}::${plano}`,
+      // Webhook lê isto pra conceder o plano: "plano::USER_ID::USER_TYPE::PLANO_ID".
+      // P0-1: o user_type entra no ref pois o preço difere por papel (diarista vs
+      // empregador) e o webhook precisa dele pra validar o valor pago.
+      external_reference: `plano::${user.id}::${tipo}::${plano}`,
       back_urls: {
         success: `${APP_URL}/?plano=ativado`,
         failure: `${APP_URL}/?plano=falha`,
@@ -121,6 +123,18 @@ Deno.serve(async (req) => {
       },
       payer: { name: "Assinante DiáriaJá" },
     };
+
+    // P0-1: grava a intenção (valor esperado ↔ ref ↔ user) pro webhook validar.
+    // Best-effort: não bloqueia a criação da preferência se o insert falhar
+    // (o webhook ainda valida pelo valor canônico hardcoded).
+    await supabaseUser.from("pagamentos_intencao").insert({
+      external_reference: preferencia.external_reference,
+      user_id:            user.id,
+      tipo:               "plano",
+      valor_esperado:     info.valor,
+      user_type:          tipo,
+      plano_id:           plano,
+    }).then(({ error }) => { if (error) console.warn(`[create-plano-payment][${traceId}] pag_intencao_falhou`, error.message); });
 
     const mpResp = await fetch("https://api.mercadopago.com/checkout/preferences", {
       method:  "POST",
