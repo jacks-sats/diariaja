@@ -177,12 +177,15 @@ export const PLANOS_EMPREGADOR = [
   {
     id: "gratis", nome: "Grátis", valor: 0, cor: "#64748b",
     vagas_mes: Infinity,
-    matches_gratis_mes: 0,                 // sem cota grátis: R$ 2,50 por contato liberado
+    // Cota grátis = 3 contatos/mês (alinhado ao servidor — cota_3_gratis_contato.sql
+    // — e ao useLimits.ts). Acima disso, R$ 2,50 por contato. (Campo informativo;
+    // o limite real é enforçado no banco + useLimits, não por este número.)
+    matches_gratis_mes: 3,
     descricao: "Pra começar a publicar anúncios sem custo",
     recursos: [
       "Anúncios ilimitados",
       "Até 5 interessados por anúncio",
-      "R$ 2,50 por contato liberado",
+      "3 contatos grátis por mês — depois R$ 2,50 por contato",
       "Chat liberado só após conexão confirmada",
     ],
     destaque: false, badge: false,
