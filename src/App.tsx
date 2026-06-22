@@ -5656,6 +5656,15 @@ export default function App() {
   // Executa confirmação real após aceite do modal
   const executarConfirmarPresenca = async (diaria: Diaria) => {
     if (!session?.user) return;
+    // P0-2: trava da cota grátis do diarista (3 diárias concluídas). UX: evita o
+    // erro cru do banco — o trigger trg_enforce_cota_gratis_diarista é a autoridade.
+    if (limits.diarista.passouCotaGratis) {
+      setModalTermoDiarista(null);
+      setTermoDiaristaCheck(false);
+      setToastError("Você já concluiu suas 3 diárias grátis. Assine o Essencial (R$ 9,90) pra aceitar novas diárias.");
+      setTela("planos");
+      return;
+    }
     setConfirmando(true);
     const { error } = await supabase.from("diarias").update({ status: "aceita" }).eq("id", diaria.id);
     if (error) { setAuthError(traduzirErroBanco(error)); setConfirmando(false); return; }

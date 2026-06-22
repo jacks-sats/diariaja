@@ -238,28 +238,29 @@ export const PLANOS_DIARISTA = [
   },
   {
     id: "essencial", nome: "Essencial", valor: 9.90, cor: "#3A86FF",
-    descricao: "Pra continuar recebendo oportunidades depois das primeiras diárias",
+    descricao: "Pra continuar aceitando diárias depois das 3 primeiras",
+    // P0-2: a tela só lista o que o código ENTREGA hoje. "Diárias ilimitadas"
+    // virou real com a trava da cota grátis (enforce_cota_gratis_diarista).
+    // Os recursos antes prometidos (prioridade/selo/IA/boost/notificações
+    // antecipadas) NÃO estão ligados em lugar nenhum (permissions.diarista.*
+    // não é consumido) — removidos até serem implementados de verdade.
     recursos: [
-      "Diárias ilimitadas",
-      "Prioridade moderada nas buscas",
-      "Selo Profissional no perfil",
-      "IA assistente pra montar bio e respostas",
-      "Boost semanal de visibilidade",
-      "Notificações antecipadas de anúncios",
+      "Diárias ilimitadas — aceite quantas quiser, sem o limite de 3 grátis",
+      "Tudo do plano Grátis incluído",
     ],
     destaque: false, badge: true, popular: true,
   },
   {
     id: "plus", nome: "Plus", valor: 19.90, cor: "#FF6B35",
     descricao: "Pra quem quer aparecer primeiro e fechar mais diárias",
+    // P0-2 ⚠️: NENHUM diferencial do Plus está implementado (topo da lista,
+    // boost, destaque, IA avançada, prioridade em convites, selo) — todos
+    // dependem de permissions.diarista.*, que não é consumido. Removidos por
+    // honestidade. CONSEQUÊNCIA: hoje o Plus não entrega nada além do Essencial.
+    // Decisão de produto pendente: esconder o Plus OU implementar os recursos.
     recursos: [
       "Tudo do Essencial",
-      "Topo da lista nas buscas",
-      "Boost diário de visibilidade",
-      "Destaque Premium no perfil",
-      "IA avançada (sugestões personalizadas)",
-      "Prioridade máxima em convites",
-      "Selo Alta Confiabilidade",
+      "Diárias ilimitadas",
     ],
     destaque: true, popular: false,
   },
