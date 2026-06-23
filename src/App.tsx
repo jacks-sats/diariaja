@@ -1612,15 +1612,16 @@ export default function App() {
         // Conta candidaturas pendentes por vaga para ocultar vagas lotadas
         let lotadas = new Set<string>();
         if (ids.length > 0) {
-          const { data: conts } = await supabase
-            .from("candidaturas")
-            .select("diaria_id")
-            .in("diaria_id", ids)
-            .eq("status", "pendente");
+          // Via RPC SECURITY DEFINER: a policy de SELECT de `candidaturas` só deixa
+          // o dono/anunciante ler as linhas (anti-vazamento). A contagem do feed
+          // (vagas de terceiros) vem por aqui — devolve só {diaria_id, total}, sem PII.
+          const { data: conts } = await supabase.rpc("contagem_candidaturas_pendentes", { p_diaria_ids: ids });
           if (conts) {
-            const contMap: Record<string, number> = {};
-            conts.forEach((c: any) => { contMap[c.diaria_id] = (contMap[c.diaria_id] || 0) + 1; });
-            lotadas = new Set(Object.entries(contMap).filter(([, n]) => n >= MAX_INTERESSADOS).map(([id]) => id));
+            lotadas = new Set(
+              (conts as { diaria_id: string; total: number }[])
+                .filter(c => Number(c.total) >= MAX_INTERESSADOS)
+                .map(c => c.diaria_id)
+            );
           }
         }
         // Filtra vagas: remove as lotadas E as de contratantes que o user bloqueou
