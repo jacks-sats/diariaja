@@ -83,39 +83,14 @@ $$;
 REVOKE ALL ON FUNCTION perfis_publicos(UUID[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION perfis_publicos(UUID[]) TO authenticated;
 
--- ── 2b. prestadores_publicos(limit) — feed da home (lista por papel) ─────────
--- O feed não tem a lista de ids de antemão (filtra por user_type), então
--- perfis_publicos(ids[]) não serve aqui. Mesma projeção pública + derivados.
-CREATE OR REPLACE FUNCTION prestadores_publicos(p_limit INT DEFAULT 200)
-RETURNS SETOF JSONB
-LANGUAGE sql STABLE SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT jsonb_build_object(
-    'id', up.id, 'oculto', up.oculto, 'user_type', up.user_type, 'nome', up.nome,
-    'nome_negocio', up.nome_negocio, 'segmento', up.segmento, 'funcao', up.funcao,
-    'valor_diaria', up.valor_diaria, 'disponivel', up.disponivel, 'agenda', up.agenda,
-    'bio', up.bio, 'foto_url', up.foto_url, 'categorias', up.categorias,
-    'lat', up.lat, 'lng', up.lng, 'pessoa_tipo', up.pessoa_tipo,
-    'razao_social', up.razao_social, 'nome_fantasia', up.nome_fantasia,
-    'responsavel_nome', up.responsavel_nome, 'cep', up.cep,
-    'plano_ativo', up.plano_ativo, 'plano_expira_em', up.plano_expira_em,
-    'telefone_verificado', up.telefone_verificado, 'documento_status', up.documento_status,
-    'tem_documento', ((up.cpf IS NOT NULL AND up.cpf <> '') OR (up.cnpj IS NOT NULL AND up.cnpj <> '')),
-    'nivel', CASE
-               WHEN ((up.cpf IS NOT NULL AND up.cpf <> '') OR (up.cnpj IS NOT NULL AND up.cnpj <> ''))
-                    AND up.documento_status = 'aprovado' THEN 3
-               WHEN ((up.cpf IS NOT NULL AND up.cpf <> '') OR (up.cnpj IS NOT NULL AND up.cnpj <> '')) THEN 2
-               ELSE 1
-             END
-  )
-  FROM user_profiles up
-  WHERE up.user_type IN ('diarista','ambos')
-    AND up.id <> COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::uuid)
-  LIMIT GREATEST(1, LEAST(p_limit, 500));
-$$;
-REVOKE ALL ON FUNCTION prestadores_publicos(INT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION prestadores_publicos(INT) TO authenticated;
+-- ── 2b. prestadores_publicos(limit) — DEFINIÇÃO REMOVIDA DAQUI ───────────────
+-- ⚠️ P1-2 (auditoria de lançamento): esta versão VAZAVA lat/lng EXATA +
+-- responsavel_nome + cep de terceiros no feed da home. Foi removida deste
+-- arquivo pra ninguém reaplicá-la por engano (CREATE OR REPLACE reintroduziria
+-- o vazamento). A definição CANÔNICA e SEGURA — lat/lng arredondada a 2 casas
+-- (~1,1 km), sem responsavel_nome/cep, e com ORDER BY determinístico — vive em:
+--     supabase/migrations/prestadores_publicos_ordenado.sql
+-- (já aplicada em produção em 2026-06-22). Sempre use aquele arquivo.
 
 -- ── 3. (REMOVIDA) contato_prestador ──────────────────────────────────────────
 -- Decisão de produto/privacidade: o app NÃO revela mais chave PIX/CPF/telefone
