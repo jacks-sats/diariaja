@@ -89,6 +89,19 @@ export const TEMPOS_ESTIMADOS_SERVICO: Array<{ valor: number; label: string }> =
   { valor: 0,   label: "A combinar" },
 ];
 
+// Benefícios oferecidos numa VAGA DE EMPREGO (seleção por chips no criar-vaga).
+// O anunciante marca os que oferece + pode escrever extras no campo "Outros".
+export const BENEFICIOS_VAGA: readonly string[] = [
+  "Vale-transporte",
+  "Vale-refeição",
+  "Vale-alimentação",
+  "Plano de saúde",
+  "Plano odontológico",
+  "Auxílio-creche",
+  "Comissão",
+  "Bônus",
+];
+
 // Sugestão de default pro toggle no form de criar anúncio.
 // Categoria selecionada PRE-SELECIONA o tipo (usuário pode trocar).
 // TI, Beleza, Pet, Delivery → serviço pontual.
