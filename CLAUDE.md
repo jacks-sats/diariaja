@@ -173,7 +173,7 @@ User-facing tables (all under RLS):
 - `analytics_eventos` — generic event stream
 - `assinaturas` — Mercado Pago subscriptions (dual-track: `UNIQUE(user_id, user_type)`)
 - `push_subscriptions` — Web Push VAPID subscriptions
-- `contatos_desbloqueios` — R$ 1 contact unlocks (idempotent on `mp_payment_id`)
+- `contatos_desbloqueios` — R$ 2,50 contact unlocks (idempotent on `mp_payment_id`)
 - `usuarios_bloqueados` — user-to-user blocks (chat moderation)
 - `auditoria_acoes` — generic audit log (LGPD); fed by triggers
 - `kyc_documentos` / `user_profiles.documento_*` / `antecedentes_*` — KYC + criminal-record
@@ -196,7 +196,7 @@ SQL editor. When adding schema changes:
 | Function                  | Purpose                                             |
 | ------------------------- | --------------------------------------------------- |
 | `ai-support`              | "Jájá" support chatbot — Groq LLaMA-3.1-8b-instant (sanitiza PII) |
-| `create-contact-payment`  | R$ 1 contact-unlock flow (free tier overflow)       |
+| `create-contact-payment`  | R$ 2,50 contact-unlock flow (free tier overflow)    |
 | `create-plano-payment`    | MP CheckoutPro — plano avulso 30 dias (aceita Pix)  |
 | `create-subscription`     | MP Preapproval (assinatura recorrente — só cartão)  |
 | `mp-oauth`                | MP OAuth onboarding for diarista (nonce one-time anti-CSRF) |
@@ -242,10 +242,11 @@ O frontend **não chama mais** `create-payment` (veja o comentário em
 também já foi **removida do repositório** (não está mais em `supabase/functions/`).
 
 A monetização da plataforma vem de:
-1. **R$ 1 por contato extra** — quando o anunciante no plano grátis estoura a
-   cota de seleções/contatos do mês, paga R$ 1 para liberar aquele contato
+1. **R$ 2,50 por contato extra** — quando o anunciante no plano grátis estoura a
+   cota de seleções/contatos do mês, paga R$ 2,50 para liberar aquele contato
    (`create-contact-payment`, RPC `pode_selecionar_candidato`/`exige_cobranca_r1`,
-   estado `contatosLiberados`). É o "pagar para liberar".
+   estado `contatosLiberados`). É o "pagar para liberar". (O nome `r1`/`R1` no
+   código é histórico — o preço real é R$ 2,50.)
 2. **Assinaturas** (Mercado Pago Preapproval / CheckoutPro) — planos pagos.
 
 `diarias.pagamento_status` e os campos MP de `diarias` são legado do modelo
@@ -253,7 +254,7 @@ antigo de intermediação — mantidos por compatibilidade, mas não dirigem o f
 atual. O `mp-webhook` ainda mapeia status do MP (incl. `refunded → reembolsado`)
 para os fluxos de contato/assinatura.
 
-> ⚠️ Não existe **estorno automático** no app hoje (nem do R$ 1 nem de diária).
+> ⚠️ Não existe **estorno automático** no app hoje (nem do R$ 2,50 nem de diária).
 > Qualquer reembolso é tratado pelo lado do Mercado Pago.
 
 Subscriptions (Preapproval): `assinaturas.status` tracks
