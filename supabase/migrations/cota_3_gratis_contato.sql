@@ -2,21 +2,21 @@
 -- Cota grátis de CONTATO/SELEÇÃO: volta de 0 → 3 por mês (plano grátis)
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Decisão do dono: anunciante no plano grátis ganha as 3 PRIMEIRAS seleções
--- de candidato do mês SEM pagar o R$1. Da 4ª em diante (no mês), R$1 por
+-- de candidato do mês SEM pagar o R$ 2,50. Da 4ª em diante (no mês), R$ 2,50 por
 -- contato — ou assina um plano (essencial/plus = ilimitado).
 --
--- Isto REVERTE a migration `cobranca_r1_sempre_contato.sql` (que tinha zerado a
--- cota), voltando ao comportamento original de 3 grátis/mês. O frontend
--- (useLimits.ts) já usa 3 — então isto também REALINHA servidor e app.
+-- Esta é a definição CANÔNICA da cota (3 grátis/mês). O frontend (useLimits.ts)
+-- e o constants.ts também usam 3 — servidor e app alinhados. A migration antiga
+-- que zerava a cota (cobranca_r1_sempre_contato.sql) foi REMOVIDA do repo no
+-- P0-3 pra ninguém reaplicar o 0 por engano.
 --
 -- Mantém: crédito interno (no-show 'expirada' NÃO consome a cota) e o
--- enforcement server-side (trigger). Reversível: rode cobranca_r1_sempre_contato
--- de novo pra voltar a 0.
+-- enforcement server-side (trigger).
 --
 -- Aplicar: Supabase Dashboard → SQL Editor → Run. Idempotente.
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- 1. RPC consultiva (client decide se abre o modal de R$1)
+-- 1. RPC consultiva (client decide se abre o modal de R$ 2,50)
 CREATE OR REPLACE FUNCTION pode_selecionar_candidato(
   p_diaria_id UUID
 )
@@ -66,7 +66,7 @@ BEGIN
     v_limite_gratis  := 2147483647;  -- "ilimitado" (int max)
     v_limite_efetivo := 2147483647;
   ELSE
-    -- Cota grátis = 3/mês. Acima disso, cada contato exige R$1 (+ extras já pagos).
+    -- Cota grátis = 3/mês. Acima disso, cada contato exige R$ 2,50 (+ extras já pagos).
     v_limite_gratis  := 3;
     v_limite_efetivo := 3 + COALESCE(v_extras, 0);
   END IF;
@@ -128,11 +128,11 @@ BEGIN
    WHERE empregador_id = NEW.empregador_id
      AND created_at >= date_trunc('month', NOW());
 
-  -- Cota grátis = 3/mês. Limite = 3 + os R$1 pagos no mês.
+  -- Cota grátis = 3/mês. Limite = 3 + os contatos avulsos (R$ 2,50) pagos no mês.
   v_limite := 3 + COALESCE(v_extras, 0);
 
   IF v_selecoes >= v_limite THEN
-    RAISE EXCEPTION 'Pague o desbloqueio (R$1) para liberar o contato, ou assine um plano para contatos ilimitados.'
+    RAISE EXCEPTION 'Pague o desbloqueio (R$ 2,50) para liberar o contato, ou assine um plano para contatos ilimitados.'
       USING ERRCODE = 'check_violation';
   END IF;
 
