@@ -37,7 +37,7 @@ BEGIN
      AND column_name NOT IN (
        'telefone','cpf','cnpj','responsavel_cpf','mp_access_token','mp_user_id',
        'pix_chave','pix_tipo','documento_url','antecedentes_url',
-       'data_nascimento','sexo'
+       'data_nascimento','sexo','cep'  -- cep: P2 — era lido por anon/authenticated (location PII)
      );
   EXECUTE format('GRANT SELECT (%s) ON user_profiles TO authenticated, anon', cols);
 END $$;
