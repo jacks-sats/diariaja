@@ -5074,6 +5074,13 @@ export default function App() {
       setToastError("Chat ainda não disponível — falta a outra parte confirmar. Você será avisado por notificação assim que liberar.");
       return;
     }
+    // P1-3: bloqueio. Se EU bloqueei o destinatário, nem tenta (UX imediata).
+    // A direção inversa (ele me bloqueou) é barrada no servidor pelo trigger
+    // trg_enforce_bloqueio_mensagem — o erro vem traduzido no catch abaixo.
+    if (usuariosBloqueados.has(destinatario)) {
+      setToastError("Você bloqueou este usuário. Desbloqueie nas opções da conversa pra voltar a conversar.");
+      return;
+    }
     // Anti-exit filter: detecta tentativa de sair do app
     if (detectarContatoExterno(msgInputReal)) {
       setAntiExitAviso(true);
