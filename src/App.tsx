@@ -389,6 +389,11 @@ export default function App() {
   // preenchidos no modal "Confirmar interesse". Só usados quando tipo_oferta='emprego'.
   const [cartaVaga, setCartaVaga]                 = useState("");
   const [curriculoFile, setCurriculoFile]         = useState<File | null>(null);
+  // Criar-oportunidade: o seletor de tipo agora é a 1ª seção. Se o usuário escolher
+  // o tipo manualmente, a escolha VENCE — selecionar uma habilidade não troca mais
+  // o tipo. A sugestão automática (por categoria da função) só age enquanto ele NÃO
+  // tocou no seletor.
+  const [tipoOfertaManual, setTipoOfertaManual]   = useState(false);
   const [diaristasReais, setDiaristasReais]       = useState<UserProfile[]>([]);
   const [diaristaSelecionadaReal, setDiaristaSelecionadaReal] = useState<UserProfile | null>(null);
   const [convitesRecebidos, setConvitesRecebidos] = useState<Convite[]>([]);
@@ -4204,7 +4209,7 @@ export default function App() {
   // home do contratante (busca x publicar a própria oferta).
   const irPublicarOferta = () => {
     setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" });
-    setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria");
+    setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria");
   };
 
   const cancelarConvite = async (conviteId: string) => {
@@ -6078,7 +6083,10 @@ export default function App() {
       setAuthError("");
       // Rola até o 1º campo com erro (ordem visual do formulário) e avisa — pra o
       // clique nunca mais parecer "mudo".
-      const ordem = ["local","descricao","tipo_contrato","regime","salario","data","horario_inicio","horario_fim","valor","cep","rua","numero","bairro","cidade"];
+      // Ordem visual do formulário (tipo no topo; depois O serviço; depois o bloco
+      // do tipo — data/hora pra diária/serviço OU contrato/regime pra emprego; depois
+      // pagamento (valor/salário) e endereço). Rola pro erro mais ALTO.
+      const ordem = ["local","descricao","data","horario_inicio","horario_fim","tipo_contrato","regime","valor","salario","cep","rua","numero","bairro","cidade"];
       const primeiro = ordem.find(c => erros[c]) || Object.keys(erros)[0];
       setToastError("Confira os campos destacados em vermelho.");
       setTimeout(() => {
@@ -11080,7 +11088,7 @@ export default function App() {
     // Abrir o fluxo de publicar diária — mesma ação do FAB "Publicar" da bottom
     // nav, extraída pra ser reusada também pelo top nav do desktop (sem duplicar
     // o reset do formulário e sem mudar nada do comportamento).
-    const abrirCriarDiaria = () => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); };
+    const abrirCriarDiaria = () => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria"); };
     const hora = new Date().getHours();
     const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
     const primeiroNome = profile?.nome?.split(" ")[0] || "você";
@@ -12341,7 +12349,7 @@ export default function App() {
 
               <button
                 style={{ ...S.btnPrimary, background:negocio.cor, marginTop:16 }}
-                onClick={() => { setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); }}>
+                onClick={() => { setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria"); }}>
                 + Nova diária
               </button>
             </div>
@@ -18802,7 +18810,38 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── SEÇÃO 1: O serviço ── */}
+        {/* ── SEÇÃO 1: Tipo de oportunidade (escolha primeiro — o resto se adapta) ── */}
+        <Secao icone="📌" titulo="O que você quer publicar?" />
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:14 }}>
+          {([
+            { v:"diaria",  emoji:"🌞", label:"Diária",  sub:"Várias horas" },
+            { v:"servico", emoji:"⚡", label:"Serviço", sub:"Tarefa pontual" },
+            // Vaga de emprego: publicar é GRÁTIS e ilimitado (igual diária/serviço).
+            // O antigo R$1/publicação morreu. A monetização da vaga é no CONTATO:
+            // selecionar candidato de vaga exige plano Essencial (trava no servidor).
+            { v:"emprego", emoji:"💼", label:"Emprego", sub:"Vaga fixa" },
+          ] as const).map(opt => {
+            const sel = formDiaria.tipo_oferta === opt.v;
+            return (
+              <button key={opt.v} type="button"
+                // Escolha MANUAL: marca a flag pra a sugestão automática por habilidade
+                // não sobrescrever o que o usuário escolheu aqui.
+                onClick={() => { setTipoOfertaManual(true); setFormDiaria({ ...formDiaria, tipo_oferta: opt.v }); }}
+                style={{
+                  padding:"12px 8px", textAlign:"center" as const, borderRadius:12,
+                  background: sel ? `${cor}14` : "var(--bg-2,#fff)",
+                  border: sel ? `2px solid ${cor}` : "1.5px solid var(--border,#e2e8f0)",
+                  cursor:"pointer",
+                }}>
+                <div style={{ fontSize:22 }}>{opt.emoji}</div>
+                <div style={{ fontSize:14, fontWeight: sel ? 800 : 600, color: sel ? cor : "var(--text-1,#0f172a)" }}>{opt.label}</div>
+                <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", marginTop:2 }}>{opt.sub}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── SEÇÃO 2: O serviço ── */}
         <Secao icone="📋" titulo="O serviço" />
 
         <label {...anchorCampo("local")} style={S.label}>Nome do local *</label>
@@ -18834,7 +18873,10 @@ export default function App() {
               break;
             }
           }
-          setFormDiaria({ ...formDiaria, funcao: novaFuncao, ...(tipoSugerido ? { tipo_oferta: tipoSugerido } : {}) });
+          // A escolha MANUAL do tipo vence: só auto-sugere enquanto o usuário não
+          // tocou no seletor (que agora é a 1ª seção do formulário).
+          const aplicaSugestao = tipoSugerido && !tipoOfertaManual;
+          setFormDiaria({ ...formDiaria, funcao: novaFuncao, ...(aplicaSugestao ? { tipo_oferta: tipoSugerido } : {}) });
         }}>
           <option value="">— Selecione uma habilidade —</option>
           {funcoesDisponiveis.map(([categoria, info]) => (
@@ -18955,35 +18997,6 @@ export default function App() {
         )}
         </>
         )}
-
-        {/* ── Toggle DIÁRIA vs SERVIÇO vs EMPREGO ── */}
-        <label style={{ ...S.label, marginBottom:6 }}>Tipo de oportunidade *</label>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:14 }}>
-          {([
-            { v:"diaria",  emoji:"🌞", label:"Diária",  sub:"Várias horas" },
-            { v:"servico", emoji:"⚡", label:"Serviço", sub:"Tarefa pontual" },
-            // Vaga de emprego: publicar é GRÁTIS e ilimitado (igual diária/serviço).
-            // O antigo R$1/publicação morreu. A monetização da vaga é no CONTATO:
-            // selecionar candidato de vaga exige plano Essencial (trava no servidor).
-            { v:"emprego", emoji:"💼", label:"Emprego", sub:"Vaga fixa" },
-          ] as const).map(opt => {
-            const sel = formDiaria.tipo_oferta === opt.v;
-            return (
-              <button key={opt.v} type="button"
-                onClick={() => setFormDiaria({ ...formDiaria, tipo_oferta: opt.v })}
-                style={{
-                  padding:"12px 8px", textAlign:"center" as const, borderRadius:12,
-                  background: sel ? `${cor}14` : "var(--bg-2,#fff)",
-                  border: sel ? `2px solid ${cor}` : "1.5px solid var(--border,#e2e8f0)",
-                  cursor:"pointer",
-                }}>
-                <div style={{ fontSize:22 }}>{opt.emoji}</div>
-                <div style={{ fontSize:14, fontWeight: sel ? 800 : 600, color: sel ? cor : "var(--text-1,#0f172a)" }}>{opt.label}</div>
-                <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", marginTop:2 }}>{opt.sub}</div>
-              </button>
-            );
-          })}
-        </div>
 
         {formDiaria.tipo_oferta === "emprego" ? (
           <>
