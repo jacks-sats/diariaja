@@ -15,13 +15,13 @@ export const CATEGORIAS_NEGOCIO = {
   "Supermercado / Varejo": {
     icone: "🛒",
     cor: "#3A86FF",
-    funcoes: ["Repositor de Prateleiras", "Operador de Caixa", "Açougueiro", "Padeiro", "Auxiliar de Limpeza"],
+    funcoes: ["Repositor de Prateleiras", "Operador de Caixa", "Açougueiro", "Padeiro", "Auxiliar de Limpeza", "Estoquista", "Conferente", "Fiscal de Loja / Prevenção de Perdas", "Empacotador"],
     destaque: "⭐ Muito procurado",
   },
   "Gastronomia": {
     icone: "🍽️",
     cor: "#E71D36",
-    funcoes: ["Garçom", "Bartender", "Ajudante de Cozinha", "Lavador de Louças", "Pizzaiolo", "Churrasqueiro"],
+    funcoes: ["Garçom", "Bartender", "Ajudante de Cozinha", "Lavador de Louças", "Pizzaiolo", "Churrasqueiro", "Copeiro(a)", "Chapeiro", "Atendente de Lanchonete"],
     destaque: "⭐ Muito procurado",
   },
   "Doméstico": {
@@ -33,7 +33,7 @@ export const CATEGORIAS_NEGOCIO = {
   "Construção Civil": {
     icone: "🔨",
     cor: "#FF9F1C",
-    funcoes: ["Pedreiro", "Servente de Obra", "Pintor", "Eletricista", "Encanador", "Gesseiro", "Montador de Móveis"],
+    funcoes: ["Pedreiro", "Servente de Obra", "Pintor", "Eletricista", "Encanador", "Gesseiro", "Montador de Móveis", "Azulejista", "Carpinteiro", "Soldador", "Serralheiro", "Vidraceiro"],
   },
   "Eventos & Festas": {
     icone: "🎉",
@@ -48,7 +48,7 @@ export const CATEGORIAS_NEGOCIO = {
   "Logística & Armazém": {
     icone: "📦",
     cor: "#118ab2",
-    funcoes: ["Ajudante de Carga e Descarga", "Separador de Pedidos", "Operador de Empilhadeira", "Auxiliar Logístico"],
+    funcoes: ["Ajudante de Carga e Descarga", "Separador de Pedidos", "Operador de Empilhadeira", "Auxiliar Logístico", "Motorista de Caminhão / Carreteiro", "Motorista de Van / Furgão", "Conferente de Carga", "Auxiliar de Expedição"],
   },
   "Pet & Animais": {
     icone: "🐾",
@@ -70,6 +70,31 @@ export const CATEGORIAS_NEGOCIO = {
       "Esteticista",
     ],
     destaque: "💅 Para ele e ela",
+  },
+  "Limpeza Especializada": {
+    icone: "🧹",
+    cor: "#0d9488",
+    funcoes: ["Limpeza Pós-Obra", "Auxiliar de Limpeza Predial/Comercial", "Limpeza de Vidros/Fachada"],
+  },
+  "Portaria & Segurança": {
+    icone: "🛡️",
+    cor: "#475569",
+    funcoes: ["Porteiro", "Vigia", "Controlador de Acesso", "Segurança de Evento"],
+  },
+  "Administrativo & Escritório": {
+    icone: "💼",
+    cor: "#6366f1",
+    funcoes: ["Auxiliar Administrativo", "Auxiliar de RH / Departamento Pessoal", "Auxiliar Financeiro", "Recepcionista (comércio/clínica)", "Telefonista"],
+  },
+  "Agro & Rural": {
+    icone: "🌾",
+    cor: "#65a30d",
+    funcoes: ["Trabalhador Rural", "Tratorista", "Ordenhador"],
+  },
+  "Comercial & Vendas": {
+    icone: "🛍️",
+    cor: "#db2777",
+    funcoes: ["Vendedor Interno", "Vendedor Externo", "Representante Comercial", "Promotor de Vendas", "Demonstrador / Degustação", "Consultor de Vendas", "Panfleteiro / Captador", "Operador de Telemarketing"],
   },
 } as const;
 
