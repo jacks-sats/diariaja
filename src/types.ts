@@ -61,6 +61,7 @@ export interface Diaria {
   tipo_contrato?: string | null;      // só se tipo_oferta='emprego' (CLT/PJ/Temporário/Estágio/Freelance)
   regime?: string | null;             // só se tipo_oferta='emprego' (Presencial/Híbrido/Remoto)
   salario_texto?: string | null;      // só se tipo_oferta='emprego' ("R$ 1.800" ou "A combinar")
+  beneficios?: string[] | null;       // só se tipo_oferta='emprego' (chips: VT/VR/plano de saúde… + "Outros")
   // ── Presença / ciclo de vida (Fase A) ────────────────────────────────────
   checkin_em?: string | null;         // quando o diarista bateu ponto de chegada
   checkin_metodo?: string | null;     // 'qr' | 'gps' | 'codigo'

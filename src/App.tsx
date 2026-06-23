@@ -80,7 +80,7 @@ import {
   PLANOS_EMPREGADOR, PLANOS_DIARISTA,
   DIAS, DIAS_LABEL, MAX_INTERESSADOS, avatarColors, TODAS_AS_FUNCOES,
   MOTIVOS_VAGA_EXPIRADA, MOTIVOS_NO_SHOW, TEMPOS_ESTIMADOS_SERVICO, TIPO_OFERTA_PADRAO_POR_CATEGORIA,
-  GOOGLE_ADS_ID, GOOGLE_ADS_LABEL_CADASTRO_PRESTADOR,
+  GOOGLE_ADS_ID, GOOGLE_ADS_LABEL_CADASTRO_PRESTADOR, BENEFICIOS_VAGA,
 } from "./constants";
 import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
@@ -365,7 +365,7 @@ export default function App() {
   const [filtroFuncao, setFiltroFuncao]   = useState("Todos");
   const [filtroDisp, setFiltroDisp]       = useState(false);
   const [diarias, setDiarias]                     = useState<Diaria[]>([]);
-  const [formDiaria, setFormDiaria]               = useState({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"" });
+  const [formDiaria, setFormDiaria]               = useState({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" });
   const [buscandoCEP, setBuscandoCEP]             = useState(false);
   const [buscandoCEPPerfil, setBuscandoCEPPerfil] = useState(false);  // diarista profile CEP
   const [latPerfilCEP, setLatPerfilCEP]           = useState<number | null>(null); // geocoded from profile CEP
@@ -689,6 +689,8 @@ export default function App() {
   // Permite mostrar "Aguarde..." só no botão clicado, não nos 2.
   const [criandoAssinatura, setCriandoAssinatura] = useState<false | string>(false);
   const [modalLimiteContato, setModalLimiteContato] = useState(false);
+  // Modal "Assine o Essencial pra contatar candidatos de vaga de emprego".
+  const [modalPlanoVaga, setModalPlanoVaga] = useState(false);
   // ── Onda 1 (dinheiro): retorno robusto do MP + retomada de seleção ────────
   // confirmandoPagamento dirige o banner pós-retorno do Mercado Pago:
   //   "polling"  = voltou com ?sucesso → re-consulta a contagem a cada 5s (≤60s)
@@ -1588,7 +1590,7 @@ export default function App() {
       // Não trafega `endereco` no feed de vagas abertas: o card só usa bairro/lat/lng,
       // e o endereço completo só deve aparecer após o contato ser liberado (status
       // aceita+). Defesa em profundidade contra vazamento do endereço pré-pagamento.
-      .select("id,oculto,empregador_id,nome_negocio,segmento,funcao,descricao,data,horario_inicio,horario_fim,valor,status,diarista_aceite_id,created_at,lat,lng,valor_encostada,valor_por_entrega,ganho_estimado_dia,bairro,tipo_oferta,tempo_estimado_min,tipo_preco,tipo_contrato,regime,salario_texto,vagas,vagas_preenchidas")
+      .select("id,oculto,empregador_id,nome_negocio,segmento,funcao,descricao,data,horario_inicio,horario_fim,valor,status,diarista_aceite_id,created_at,lat,lng,valor_encostada,valor_por_entrega,ganho_estimado_dia,bairro,tipo_oferta,tempo_estimado_min,tipo_preco,tipo_contrato,regime,salario_texto,beneficios,vagas,vagas_preenchidas")
       .eq("status", "aberta")
       .neq("empregador_id", session.user.id) // BUG-M8 fix: usuário "ambos" não vê suas próprias vagas
       .order("created_at", { ascending: false })
@@ -4197,7 +4199,7 @@ export default function App() {
   // existe, começando com o formulário limpo. Reutilizado pelos atalhos da
   // home do contratante (busca x publicar a própria oferta).
   const irPublicarOferta = () => {
-    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"" });
+    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" });
     setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria");
   };
 
@@ -5645,7 +5647,15 @@ export default function App() {
         selecoes_mes: number;
         limite_efetivo: number;
         exige_cobranca_r1: boolean;
+        exige_plano_vaga?: boolean;
       } | null;
+      // Vaga de emprego: contatar candidato exige plano Essencial (sem 3 grátis,
+      // sem R$ 2,50 avulso). O servidor é a autoridade (RPC + trigger); aqui só a UX.
+      if (dec?.exige_plano_vaga) {
+        setModalPlanoVaga(true);
+        trackEvento("contato_vaga_exige_plano", session?.user?.id, "empregador", { plano: dec.plano });
+        return;
+      }
       if (dec?.exige_cobranca_r1) {
         // Guarda o contexto pra retomar a seleção automaticamente após o R$1.
         setSelecaoPendente({ diariaId: diaria.id, diaristaId });
@@ -6024,29 +6034,11 @@ export default function App() {
     }
     setErrosDiaria({});
     const enderecoComposto = `${formDiaria.rua}, ${formDiaria.numero}${formDiaria.complemento.trim() ? ` — ${formDiaria.complemento.trim()}` : ""}, ${formDiaria.bairro}, ${formDiaria.cidade}/${formDiaria.estado} — CEP ${formDiaria.cep}`;
-    // ── Cota de VAGAS DE EMPREGO (plano grátis: 3/mês) ───────────────────────
-    // Autoridade real é o servidor (trigger enforce_limite_vaga_emprego). Aqui é
-    // UX: se a cota do mês estourou, persiste o rascunho e abre o modal de
-    // pagamento avulso em vez de inserir e tomar o erro do trigger.
-    if (ehEmprego) {
-      try {
-        const { data: cota } = await supabase.rpc("pode_postar_vaga_emprego");
-        const c = cota as { exige_pagamento?: boolean; postadas_mes?: number; limite_efetivo?: number; plano?: string } | null;
-        if (c) {
-          setCotaVagaEmprego({
-            postadas_mes:    c.postadas_mes ?? 0,
-            limite_efetivo:  c.limite_efetivo ?? 3,
-            exige_pagamento: !!c.exige_pagamento,
-            plano:           c.plano ?? "gratis",
-          });
-          if (c.exige_pagamento) {
-            try { localStorage.setItem("diariaja_rascunho_vaga", JSON.stringify({ formDiaria, negocioSelecionado, vagasDiaria, latDiaria, lngDiaria })); } catch { /* ignore */ }
-            setModalLimiteVagaEmprego(true);
-            return;
-          }
-        }
-      } catch { /* RPC ausente (migration não aplicada) → não bloqueia o fluxo */ }
-    }
+    // PUBLICAR vaga de emprego agora é GRÁTIS e ILIMITADO (igual diária/serviço).
+    // O antigo gate de cota (3/mês → R$1 avulso via pode_postar_vaga_emprego /
+    // modalLimiteVagaEmprego) foi REMOVIDO. A monetização da vaga passou pro CONTATO
+    // (selecionar candidato exige plano Essencial — travado no servidor: RPC
+    // pode_selecionar_candidato + trigger enforce_limite_selecao_candidato).
     setSalvandoDiaria(true);
     // ── Geolocalização da diária: tenta o ENDEREÇO COMPLETO (preciso) ────────
     // O bloqueio de distância no check-in (RPC registrar_checkin) só vale contra
@@ -6098,6 +6090,11 @@ export default function App() {
         tipo_contrato: formDiaria.tipo_contrato,
         regime: formDiaria.regime,
         salario_texto: formDiaria.salario.trim(),
+        // Benefícios = chips marcados + o texto "Outros" (se houver), num array só.
+        beneficios: [
+          ...formDiaria.beneficios,
+          ...(formDiaria.beneficios_outros.trim() ? [formDiaria.beneficios_outros.trim()] : []),
+        ],
       }),
       ...(isDelivery && {
         valor_encostada: formDiaria.valor_encostada ? Number(formDiaria.valor_encostada) : null,
@@ -6105,17 +6102,19 @@ export default function App() {
         ganho_estimado_dia: formDiaria.ganho_estimado_dia ? Number(formDiaria.ganho_estimado_dia) : null,
       }),
     };
-    // Insert com fallback de ORDEM DE DEPLOY: se a coluna geo_preciso ainda não
-    // existir (migração não aplicada), reinsere sem ela em vez de quebrar a criação.
-    const colGeoAusente = (e: { code?: string; message?: string } | null) =>
-      !!e && (e.code === "PGRST204" || e.code === "42703" || /geo_preciso/i.test(e.message || ""));
+    // Insert com fallback de ORDEM DE DEPLOY: se uma coluna nova ainda não existir
+    // (migração não aplicada), reinsere sem ela em vez de quebrar a criação.
+    // Cobre geo_preciso E beneficios (vaga de emprego) — degrada sem salvá-las.
+    const colNovaAusente = (e: { code?: string; message?: string } | null) =>
+      !!e && (e.code === "PGRST204" || e.code === "42703" || /geo_preciso|beneficios/i.test(e.message || ""));
     let novaInsert: Record<string, unknown> = nova;
     let { data, error } = await supabase.from("diarias").insert(nova).select().single();
-    if (error && colGeoAusente(error)) {
-      const semGeo: Record<string, unknown> = { ...nova };
-      delete semGeo.geo_preciso;
-      novaInsert = semGeo;
-      ({ data, error } = await supabase.from("diarias").insert(semGeo).select().single());
+    if (error && colNovaAusente(error)) {
+      const semCols: Record<string, unknown> = { ...nova };
+      delete semCols.geo_preciso;
+      delete semCols.beneficios;
+      novaInsert = semCols;
+      ({ data, error } = await supabase.from("diarias").insert(semCols).select().single());
     }
     if (error) { setAuthError(traduzirErroBanco(error)); setSalvandoDiaria(false); return; }
     const novasDiarias = data ? [data] : [];
@@ -6140,7 +6139,7 @@ export default function App() {
       recorrente: dirariaRepetir !== "nao",
       total_criadas: novasDiarias.length,
     });
-    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"" });
+    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" });
     setDiariaRepetir("nao");
     setVagasDiaria(1);
     setLatDiaria(null); setLngDiaria(null);
@@ -11027,7 +11026,7 @@ export default function App() {
     // Abrir o fluxo de publicar diária — mesma ação do FAB "Publicar" da bottom
     // nav, extraída pra ser reusada também pelo top nav do desktop (sem duplicar
     // o reset do formulário e sem mudar nada do comportamento).
-    const abrirCriarDiaria = () => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); };
+    const abrirCriarDiaria = () => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); };
     const hora = new Date().getHours();
     const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
     const primeiroNome = profile?.nome?.split(" ")[0] || "você";
@@ -12288,7 +12287,7 @@ export default function App() {
 
               <button
                 style={{ ...S.btnPrimary, background:negocio.cor, marginTop:16 }}
-                onClick={() => { setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); }}>
+                onClick={() => { setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTela("criar-diaria"); }}>
                 + Nova diária
               </button>
             </div>
@@ -13077,6 +13076,39 @@ export default function App() {
               <button
                 style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => setModalLimiteVagaEmprego(false)}>
+                Agora não
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal: contatar candidato de VAGA DE EMPREGO exige plano Essencial ── */}
+        {modalPlanoVaga && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}
+            onClick={() => setModalPlanoVaga(false)}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:28, padding:"32px 24px", maxWidth:380, width:"100%", textAlign:"center" }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize:48, marginBottom:10 }}>💼</div>
+              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:6 }}>
+                Assine o Essencial para contatar candidatos
+              </div>
+              <div style={{ fontSize:13.5, color:"var(--text-2,#64748b)", lineHeight:1.7, marginBottom:20 }}>
+                Publicar vagas de emprego é <strong>grátis e ilimitado</strong>. Para <strong>falar com os candidatos</strong> de uma vaga (selecionar quem chamar), é preciso o plano <strong>Essencial</strong>.
+              </div>
+              {(() => {
+                const ess = PLANOS_EMPREGADOR.find(p => p.id === "essencial");
+                const valor = ess?.valor ?? 24.90;
+                return (
+                  <button
+                    style={{ width:"100%", padding:"13px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
+                    onClick={() => { setModalPlanoVaga(false); setTela("planos"); }}>
+                    🚀 Assinar Essencial — R$ {valor.toFixed(2).replace(".", ",")} / 30 dias
+                  </button>
+                );
+              })()}
+              <button
+                style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => setModalPlanoVaga(false)}>
                 Agora não
               </button>
             </div>
@@ -15010,6 +15042,7 @@ export default function App() {
                             <div style={{ marginTop:8, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
                               {dia.tipo_contrato && <span style={{ background:"#eef2ff", color:"#4338ca", padding:"3px 9px", borderRadius:10, fontSize:11, fontWeight:700 }}>📄 {dia.tipo_contrato}</span>}
                               {dia.regime && <span style={{ background:"#ecfeff", color:"#0e7490", padding:"3px 9px", borderRadius:10, fontSize:11, fontWeight:700 }}>🏢 {dia.regime}</span>}
+                              {(dia.beneficios || []).map(b => <span key={b} style={{ background:"#f0fdf4", color:"#166534", padding:"3px 9px", borderRadius:10, fontSize:11, fontWeight:700 }}>🎁 {b}</span>)}
                             </div>
                           ) : (
                             <div style={{ color:"var(--text-2,#64748b)", fontSize:12, marginTop:8, display:"flex", alignItems:"center", gap:4 }}>
@@ -16619,6 +16652,14 @@ export default function App() {
                         <>
                           {vagaConfirm.tipo_contrato && <div style={S.modalRow}><span>Contrato</span><strong>{vagaConfirm.tipo_contrato}</strong></div>}
                           {vagaConfirm.regime && <div style={S.modalRow}><span>Regime</span><strong>{vagaConfirm.regime}</strong></div>}
+                          {(vagaConfirm.beneficios || []).length > 0 && (
+                            <div style={{ background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:10, padding:"10px 12px", margin:"10px 0" }}>
+                              <div style={{ fontSize:11, fontWeight:800, color:"#166534", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:6 }}>🎁 Benefícios</div>
+                              <div style={{ display:"flex", flexWrap:"wrap" as const, gap:6 }}>
+                                {(vagaConfirm.beneficios || []).map(b => <span key={b} style={{ background:"#dcfce7", color:"#166534", padding:"3px 9px", borderRadius:999, fontSize:12, fontWeight:700 }}>{b}</span>)}
+                              </div>
+                            </div>
+                          )}
                         </>
                       ) : (
                         <>
@@ -18814,16 +18855,16 @@ export default function App() {
         </>
         )}
 
-        {/* ── Toggle DIÁRIA vs SERVIÇO ── */}
+        {/* ── Toggle DIÁRIA vs SERVIÇO vs EMPREGO ── */}
         <label style={{ ...S.label, marginBottom:6 }}>Tipo de oportunidade *</label>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:14 }}>
           {([
             { v:"diaria",  emoji:"🌞", label:"Diária",  sub:"Várias horas" },
             { v:"servico", emoji:"⚡", label:"Serviço", sub:"Tarefa pontual" },
-            // Lançamento: "Vaga de emprego" avulsa REMOVIDA do seletor — o anunciante
-            // não acessa mais o fluxo de emprego (nem a cobrança R$1 da vaga extra).
-            // O backend (create-vaga-payment / tipo_oferta="emprego") fica dormente,
-            // sem ponto de entrada. Grid passou a 2 colunas (sobravam 3).
+            // Vaga de emprego: publicar é GRÁTIS e ilimitado (igual diária/serviço).
+            // O antigo R$1/publicação morreu. A monetização da vaga é no CONTATO:
+            // selecionar candidato de vaga exige plano Essencial (trava no servidor).
+            { v:"emprego", emoji:"💼", label:"Emprego", sub:"Vaga fixa" },
           ] as const).map(opt => {
             const sel = formDiaria.tipo_oferta === opt.v;
             return (
@@ -18863,8 +18904,43 @@ export default function App() {
                 </select>
               </div>
             </div>
-            <div style={{ background:`${cor}10`, border:`1.5px solid ${cor}30`, borderRadius:12, padding:"10px 14px", marginTop:6, fontSize:12, color:"var(--text-2,#64748b)" }}>
+            {/* Benefícios (opcional) — chips + campo "Outros" */}
+            <label style={{ ...S.label, marginTop:12 }}>Benefícios <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:600 }}>(opcional)</span></label>
+            <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, marginBottom:8 }}>
+              {BENEFICIOS_VAGA.map(b => {
+                const marcado = formDiaria.beneficios.includes(b);
+                return (
+                  <button key={b} type="button"
+                    onClick={() => setFormDiaria(prev => ({
+                      ...prev,
+                      beneficios: marcado ? prev.beneficios.filter(x => x !== b) : [...prev.beneficios, b],
+                    }))}
+                    style={{
+                      padding:"8px 12px", borderRadius:999, fontSize:12.5, fontWeight:700, cursor:"pointer",
+                      fontFamily:"Inter, system-ui, sans-serif",
+                      border: marcado ? `2px solid ${cor}` : "1.5px solid var(--border,#e2e8f0)",
+                      background: marcado ? `${cor}14` : "var(--bg-2,#fff)",
+                      color: marcado ? cor : "var(--text-2,#64748b)",
+                    }}>
+                    {marcado ? "✓ " : ""}{b}
+                  </button>
+                );
+              })}
+            </div>
+            <input
+              style={S.input}
+              placeholder="Outros benefícios (ex.: Gympass, day off no aniversário)"
+              value={formDiaria.beneficios_outros}
+              onChange={e => setFormDiaria({ ...formDiaria, beneficios_outros: e.target.value })}
+            />
+
+            <div style={{ background:`${cor}10`, border:`1.5px solid ${cor}30`, borderRadius:12, padding:"10px 14px", marginTop:12, fontSize:12, color:"var(--text-2,#64748b)" }}>
               💼 Vaga de emprego — os candidatos se candidatam e você escolhe quem chamar pra entrevista. A contratação é feita diretamente entre vocês.
+            </div>
+            {/* Aviso de monetização: publicar é grátis, contato exige plano */}
+            <div style={{ background:"#fffbeb", border:"1.5px solid #fde68a", borderRadius:12, padding:"10px 14px", marginTop:8, fontSize:12, color:"#92400e", lineHeight:1.5, display:"flex", gap:8, alignItems:"flex-start" }}>
+              <span style={{ fontSize:15, flexShrink:0 }}>💡</span>
+              <span><strong>Publicar a vaga é grátis.</strong> Para <strong>falar com os candidatos</strong> (selecionar quem chamar), é preciso o plano <strong>Essencial</strong>.</span>
             </div>
           </>
         ) : formDiaria.tipo_oferta === "diaria" ? (
@@ -18925,7 +19001,7 @@ export default function App() {
         <Secao icone="💰" titulo="Pagamento" />
 
         <label style={S.label}>
-          {formDiaria.tipo_oferta === "emprego" ? "Salário" : formDiaria.tipo_oferta === "servico" ? "Valor do serviço (R$) *" : "Valor a pagar pelo dia (R$) *"}
+          {formDiaria.tipo_oferta === "emprego" ? "Salário *" : formDiaria.tipo_oferta === "servico" ? "Valor do serviço (R$) *" : "Valor a pagar pelo dia (R$) *"}
         </label>
         {formDiaria.tipo_oferta !== "emprego" && (
         <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px", display:"flex", alignItems:"center", gap:4 }}>
@@ -18938,17 +19014,33 @@ export default function App() {
           </strong>
         </p>
         )}
-        <div {...anchorCampo("valor")} style={{ position:"relative" }}>
-          <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
-          <input
-            style={{ ...S.input, paddingLeft:40, ...estiloErro("valor") }}
-            type="number"
-            placeholder="0,00"
-            value={formDiaria.valor}
-            onChange={e => setFormDiaria({ ...formDiaria, valor: e.target.value })}
-          />
-        </div>
-        {erroCampo("valor")}
+        {formDiaria.tipo_oferta === "emprego" ? (
+          // Emprego: salário é TEXTO (aceita "R$ 1.800", "A combinar", faixa…), gravado em salario_texto.
+          <>
+            <input
+              {...anchorCampo("salario")}
+              style={{ ...S.input, ...estiloErro("salario") }}
+              placeholder="Ex.: R$ 1.800,00 · ou 'A combinar'"
+              value={formDiaria.salario}
+              onChange={e => setFormDiaria({ ...formDiaria, salario: e.target.value })}
+            />
+            {erroCampo("salario")}
+          </>
+        ) : (
+          <>
+            <div {...anchorCampo("valor")} style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
+              <input
+                style={{ ...S.input, paddingLeft:40, ...estiloErro("valor") }}
+                type="number"
+                placeholder="0,00"
+                value={formDiaria.valor}
+                onChange={e => setFormDiaria({ ...formDiaria, valor: e.target.value })}
+              />
+            </div>
+            {erroCampo("valor")}
+          </>
+        )}
         {formDiaria.valor && duracao && (() => {
           const minsTot = (parseInt(formDiaria.horario_fim?.split(":")[0]||"0")*60+parseInt(formDiaria.horario_fim?.split(":")[1]||"0"))-(parseInt(formDiaria.horario_inicio?.split(":")[0]||"0")*60+parseInt(formDiaria.horario_inicio?.split(":")[1]||"0"));
           const vlrHora = minsTot > 0 ? Number(formDiaria.valor) / (minsTot/60) : 0;
@@ -19121,19 +19213,8 @@ export default function App() {
           );
         })()}
 
-        {/* Contador de cota de vagas de emprego (plano grátis: 3/mês) */}
-        {formDiaria.tipo_oferta === "emprego" && cotaVagaEmprego && cotaVagaEmprego.plano === "gratis" && (
-          <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:12, padding:"10px 14px", marginTop:14, fontSize:12.5, color:"var(--text-2,#64748b)", display:"flex", alignItems:"center", gap:8 }}>
-            <span style={{ fontSize:18 }}>💼</span>
-            <span>
-              Vagas de emprego grátis:{" "}
-              <strong style={{ color: cotaVagaEmprego.postadas_mes >= cotaVagaEmprego.limite_efetivo ? "#dc2626" : "var(--text-1,#0f172a)" }}>
-                {Math.min(cotaVagaEmprego.postadas_mes, cotaVagaEmprego.limite_efetivo)}/{cotaVagaEmprego.limite_efetivo}
-              </strong>{" "}este mês.
-              {cotaVagaEmprego.postadas_mes >= cotaVagaEmprego.limite_efetivo ? " A próxima é paga (R$ 1) ou assine um plano." : ""}
-            </span>
-          </div>
-        )}
+        {/* Cota de publicação de vaga REMOVIDA: publicar vaga é grátis/ilimitado.
+            A monetização migrou pro contato (selecionar candidato de vaga = plano). */}
 
         {authError && <p style={S.errorText}>{authError}</p>}
 
