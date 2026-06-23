@@ -165,24 +165,35 @@ function QRScannerComponent({ onResult, onError, onClose }: {
 // Guarda/emite no formato ISO (yyyy-mm-dd) que o app já usa. O usuário leigo se
 // perde no calendário do Android — aqui é só digitar como ele já escreve datas.
 // `inputMode="numeric"` abre o teclado numérico no celular.
-function CampoData({ valorISO, onChangeISO, estilo, placeholder = "DD/MM/AAAA", disabled }: {
+function CampoData({ valorISO, onChangeISO, estilo, placeholder = "DD/MM/AAAA", disabled, erro }: {
   valorISO: string;
   onChangeISO: (iso: string) => void;
   estilo?: React.CSSProperties;
   placeholder?: string;
   disabled?: boolean;
+  erro?: string; // erro externo (validação do submit) — exibido se não houver um mais específico
 }) {
   // Texto digitado (BR). Semeado do ISO; re-sincroniza se o ISO mudar por fora.
   const [txt, setTxt] = useState<string>(isoParaBR(valorISO));
+  const [tocado, setTocado] = useState(false); // virou true ao sair do campo (blur)
   const ultimoISO = useRef(valorISO);
   useEffect(() => {
     if (valorISO !== ultimoISO.current) { setTxt(isoParaBR(valorISO)); ultimoISO.current = valorISO; }
   }, [valorISO]);
   // Data com 8 dígitos digitados mas que NÃO converte pra ISO = inválida (ex.:
-  // ano 2926, 31/02, etc.). Mostra aviso inline — antes ficava vazia em silêncio
-  // e o botão de enviar não fazia nada sem explicar.
-  const digitada = txt.replace(/\D/g, "").length === 8;
-  const invalida = digitada && !brParaIso(txt);
+  // ano 2926, 31/02, etc.). Com 1–7 dígitos ao sair do campo = INCOMPLETA — era o
+  // caso que falhava em silêncio (digitar o ano "26" parecia preenchido, mas a
+  // data ia vazia e o botão não explicava nada).
+  const digitos = txt.replace(/\D/g, "").length;
+  const invalida = digitos === 8 && !brParaIso(txt);
+  const incompleta = tocado && digitos > 0 && digitos < 8;
+  const aviso = invalida
+    ? "⚠ Data inválida. Use DD/MM/AAAA (ex.: 15/06/2026)."
+    : incompleta
+    ? "⚠ Data incompleta — use o ano com 4 dígitos (ex.: 15/06/2026)."
+    : erro
+    ? "⚠ " + erro
+    : "";
   return (
     <>
       <input
@@ -192,8 +203,10 @@ function CampoData({ valorISO, onChangeISO, estilo, placeholder = "DD/MM/AAAA", 
         placeholder={placeholder}
         value={txt}
         disabled={disabled}
-        style={{ ...estilo, ...(invalida ? { borderColor: "#ef4444" } : {}) }}
+        style={{ ...estilo, ...(aviso ? { borderColor: "#ef4444" } : {}) }}
+        onBlur={() => setTocado(true)}
         onChange={e => {
+          setTocado(false); // enquanto digita, não fica acusando incompleta
           const masked = maskData(e.target.value);
           setTxt(masked);
           // Só emite ISO quando a data está completa E é válida (senão "").
@@ -202,9 +215,9 @@ function CampoData({ valorISO, onChangeISO, estilo, placeholder = "DD/MM/AAAA", 
           onChangeISO(iso);
         }}
       />
-      {invalida && (
-        <p style={{ fontSize: 11, color: "#ef4444", fontWeight: 700, margin: "2px 0 0" }}>
-          ⚠ Data inválida. Use DD/MM/AAAA (ex.: 15/06/2026).
+      {aviso && (
+        <p style={{ fontSize: 11.5, color: "#ef4444", fontWeight: 700, margin: "3px 0 0" }}>
+          {aviso}
         </p>
       )}
     </>
@@ -408,6 +421,11 @@ export default function App() {
     catch { return new Set(); }
   });
   const [authError, setAuthError]         = useState("");
+  // Erros de validação POR CAMPO no formulário de criar diária. Antes a validação
+  // só setava um authError único, exibido lá no rodapé (longe do campo errado) e o
+  // clique parecia "mudo". Agora cada campo mostra seu erro inline + borda vermelha,
+  // e o submit rola até o 1º campo com erro. Limpado a cada edição (useEffect abaixo).
+  const [errosDiaria, setErrosDiaria]     = useState<Record<string, string>>({});
   const [authLoading, setAuthLoading]     = useState(false);
   const [minhasDiarias, setMinhasDiarias] = useState<Diaria[]>([]);
   // Lembrete "vaga pra vencer": ids dispensados pelo anunciante ("manter no ar") nesta sessão
@@ -5925,6 +5943,12 @@ export default function App() {
   // A Edge Function `create-payment` (intermediação antiga) foi removida do
   // repositório — não é mais usada. A receita vem do R$1 de contato + assinaturas.
 
+  // Assim que o usuário mexe em QUALQUER campo do formulário, limpa os erros
+  // inline (eles voltam no próximo submit se o campo ainda estiver inválido).
+  useEffect(() => {
+    setErrosDiaria(e => (Object.keys(e).length ? {} : e));
+  }, [formDiaria]);
+
   const salvarDiaria = async () => {
     if (!session?.user) return;
     // Modo Beta: CRIAR VAGA é liberado (popula o feed e o anunciante testa o fluxo).
@@ -5936,44 +5960,69 @@ export default function App() {
     const [h1v, m1v] = (formDiaria.horario_inicio || "0:0").split(":").map(Number);
     const [h2v, m2v] = (formDiaria.horario_fim || "0:0").split(":").map(Number);
     const minTot = (h2v * 60 + m2v) - (h1v * 60 + m1v);
-    const erroTitulo = validarTituloDiaria(formDiaria.local);
-    if (erroTitulo) { setAuthError(erroTitulo); return; }
-    if (!formDiaria.descricao.trim()) { setAuthError("Descreva o que precisa ser feito."); return; }
+    // Coleta TODOS os erros de uma vez (em vez de parar no 1º) — cada campo mostra
+    // o seu inline + borda vermelha, e o submit rola até o primeiro na ordem visual.
+    const erros: Record<string, string> = {};
     const ehServico = formDiaria.tipo_oferta === "servico";
     const ehEmprego = formDiaria.tipo_oferta === "emprego";
+
+    const erroTitulo = validarTituloDiaria(formDiaria.local);
+    if (erroTitulo) erros.local = erroTitulo;
+    if (!formDiaria.descricao.trim()) erros.descricao = "Descreva o que precisa ser feito.";
+
     if (ehEmprego) {
       // VAGA DE EMPREGO: sem data/horário; precisa contrato + regime + salário.
-      if (!formDiaria.tipo_contrato) { setAuthError("Escolha o tipo de contrato."); return; }
-      if (!formDiaria.regime) { setAuthError("Escolha o regime (presencial/híbrido/remoto)."); return; }
-      if (!formDiaria.salario.trim()) { setAuthError("Informe o salário (ou escreva 'A combinar')."); return; }
+      if (!formDiaria.tipo_contrato) erros.tipo_contrato = "Escolha o tipo de contrato.";
+      if (!formDiaria.regime) erros.regime = "Escolha o regime (presencial/híbrido/remoto).";
+      if (!formDiaria.salario.trim()) erros.salario = "Informe o salário (ou escreva 'A combinar').";
     } else {
-      if (!formDiaria.data) { setAuthError("Selecione a data."); return; }
-      { const _hojeZero = new Date(); _hojeZero.setHours(0, 0, 0, 0);
-        if (new Date(formDiaria.data + "T12:00:00") < _hojeZero) { setAuthError("A data não pode ser no passado."); return; } }
+      if (!formDiaria.data) {
+        erros.data = "Selecione a data completa — use o ano com 4 dígitos (ex.: 2026).";
+      } else {
+        const _hojeZero = new Date(); _hojeZero.setHours(0, 0, 0, 0);
+        if (new Date(formDiaria.data + "T12:00:00") < _hojeZero) erros.data = "A data não pode ser no passado.";
+      }
       if (!ehServico) {
         // DIÁRIA: precisa início + término
-        if (!formDiaria.horario_inicio || !formDiaria.horario_fim) { setAuthError("Informe o horário de início e término."); return; }
-        if (minTot <= 0) { setAuthError("O horário de término deve ser após o início."); return; }
+        if (!formDiaria.horario_inicio) erros.horario_inicio = "Informe o horário de início.";
+        if (!formDiaria.horario_fim) erros.horario_fim = "Informe o horário de término.";
+        if (formDiaria.horario_inicio && formDiaria.horario_fim && minTot <= 0) erros.horario_fim = "O término deve ser após o início.";
       } else {
         // SERVIÇO: precisa só início (quando ir) + tempo estimado já tem default
-        if (!formDiaria.horario_inicio) { setAuthError("Informe o horário previsto pra chegada."); return; }
+        if (!formDiaria.horario_inicio) erros.horario_inicio = "Informe o horário previsto pra chegada.";
       }
-      if (!formDiaria.valor || isNaN(Number(formDiaria.valor)) || Number(formDiaria.valor) <= 0) { setAuthError("Informe um valor numérico válido."); return; }
+      if (!formDiaria.valor || isNaN(Number(formDiaria.valor)) || Number(formDiaria.valor) <= 0) erros.valor = "Informe um valor numérico válido.";
     }
-    if (!formDiaria.cep.trim() || formDiaria.cep.replace(/\D/g,"").length < 8) { setAuthError("Informe um CEP válido (8 dígitos)."); return; }
-    if (!formDiaria.rua.trim()) { setAuthError("Informe o logradouro (rua/avenida)."); return; }
-    if (!formDiaria.numero.trim()) { setAuthError("Informe o número do local."); return; }
-    if (!formDiaria.bairro.trim() || !formDiaria.cidade.trim()) { setAuthError("Bairro e cidade são obrigatórios."); return; }
-    // Verificação anti-fraude
-    const fraudeAviso = verificarFraudeDescricao(formDiaria.descricao);
-    if (fraudeAviso) { setAuthError(fraudeAviso); return; }
-    // Moderação de conteúdo — BANE termos ilegais / que ferem a dignidade.
-    // Cobre título (local), descrição e função do anúncio.
-    const conteudoProibido = verificarConteudoProibido(`${formDiaria.local} ${formDiaria.descricao} ${formDiaria.funcao}`);
-    if (conteudoProibido) { setAuthError(conteudoProibido); return; }
-    // Antidiscriminação (Lei 9.029/95): bloqueia exigência de idade/sexo/aparência/estado civil.
-    const discrim = verificarDiscriminacao(`${formDiaria.local} ${formDiaria.descricao}`);
-    if (discrim) { setAuthError(discrim); return; }
+    if (!formDiaria.cep.trim() || formDiaria.cep.replace(/\D/g,"").length < 8) erros.cep = "Informe um CEP válido (8 dígitos).";
+    if (!formDiaria.rua.trim()) erros.rua = "Informe o logradouro (rua/avenida).";
+    if (!formDiaria.numero.trim()) erros.numero = "Informe o número do local.";
+    if (!formDiaria.bairro.trim()) erros.bairro = "Informe o bairro.";
+    if (!formDiaria.cidade.trim()) erros.cidade = "Informe a cidade.";
+
+    // Moderação de conteúdo (anti-fraude + termos proibidos + antidiscriminação,
+    // Lei 9.029/95) — mapeada ao campo de descrição, mas continua BLOQUEANDO o envio.
+    if (!erros.descricao) {
+      const fraudeAviso = verificarFraudeDescricao(formDiaria.descricao);
+      const conteudoProibido = verificarConteudoProibido(`${formDiaria.local} ${formDiaria.descricao} ${formDiaria.funcao}`);
+      const discrim = verificarDiscriminacao(`${formDiaria.local} ${formDiaria.descricao}`);
+      const aviso = fraudeAviso || conteudoProibido || discrim;
+      if (aviso) erros.descricao = aviso;
+    }
+
+    if (Object.keys(erros).length > 0) {
+      setErrosDiaria(erros);
+      setAuthError("");
+      // Rola até o 1º campo com erro (ordem visual do formulário) e avisa — pra o
+      // clique nunca mais parecer "mudo".
+      const ordem = ["local","descricao","tipo_contrato","regime","salario","data","horario_inicio","horario_fim","valor","cep","rua","numero","bairro","cidade"];
+      const primeiro = ordem.find(c => erros[c]) || Object.keys(erros)[0];
+      setToastError("Confira os campos destacados em vermelho.");
+      setTimeout(() => {
+        try { document.getElementById("campo-anchor-" + primeiro)?.scrollIntoView({ behavior: "smooth", block: "center" }); } catch { /* ignore */ }
+      }, 50);
+      return;
+    }
+    setErrosDiaria({});
     const enderecoComposto = `${formDiaria.rua}, ${formDiaria.numero}${formDiaria.complemento.trim() ? ` — ${formDiaria.complemento.trim()}` : ""}, ${formDiaria.bairro}, ${formDiaria.cidade}/${formDiaria.estado} — CEP ${formDiaria.cep}`;
     // ── Cota de VAGAS DE EMPREGO (plano grátis: 3/mês) ───────────────────────
     // Autoridade real é o servidor (trigger enforce_limite_vaga_emprego). Aqui é
@@ -18558,6 +18607,16 @@ export default function App() {
     // Sempre mostra TODAS as habilidades do app, organizadas por categoria
     const funcoesDisponiveis = Object.entries(CATEGORIAS_NEGOCIO);
 
+    // Helpers de feedback inline por campo (ver errosDiaria + salvarDiaria).
+    //   anchorCampo: âncora pra rolagem (id no label) + borda vermelha quando há erro.
+    //   estiloErro:  injeta borda vermelha no input quando o campo está com erro.
+    //   erroCampo:   renderiza a mensagem vermelha logo abaixo do campo.
+    const anchorCampo = (campo: string) => ({ id: "campo-anchor-" + campo });
+    const estiloErro = (campo: string): React.CSSProperties => (errosDiaria[campo] ? { borderColor: "#ef4444" } : {});
+    const erroCampo = (campo: string) => errosDiaria[campo]
+      ? <p style={{ fontSize: 11.5, color: "#ef4444", fontWeight: 700, margin: "3px 0 0" }}>⚠ {errosDiaria[campo]}</p>
+      : null;
+
     // Calcula duração automaticamente
     const calcHoras = () => {
       if (!formDiaria.horario_inicio || !formDiaria.horario_fim) return null;
@@ -18604,21 +18663,23 @@ export default function App() {
         {/* ── SEÇÃO 1: O serviço ── */}
         <Secao icone="📋" titulo="O serviço" />
 
-        <label style={S.label}>Nome do local *</label>
+        <label {...anchorCampo("local")} style={S.label}>Nome do local *</label>
         <input
-          style={S.input}
+          style={{ ...S.input, ...estiloErro("local") }}
           placeholder="Ex: Minha residência, Restaurante do João, Fazenda São Paulo…"
           value={formDiaria.local}
           onChange={e => setFormDiaria({ ...formDiaria, local: e.target.value })}
         />
+        {erroCampo("local")}
 
-        <label style={S.label}>O que precisa ser feito *</label>
+        <label {...anchorCampo("descricao")} style={S.label}>O que precisa ser feito *</label>
         <textarea
-          style={{ ...S.input, height:96, resize:"none" as const, lineHeight:1.6 }}
+          style={{ ...S.input, height:96, resize:"none" as const, lineHeight:1.6, ...estiloErro("descricao") }}
           placeholder="Ex: Organizar prateleiras do setor de laticínios, reposição de estoque..."
           value={formDiaria.descricao}
           onChange={e => setFormDiaria({ ...formDiaria, descricao: e.target.value })}
         />
+        {erroCampo("descricao")}
 
         <label style={S.label}>Habilidade necessária</label>
         <select style={S.input} value={formDiaria.funcao} onChange={e => {
@@ -18710,10 +18771,11 @@ export default function App() {
         {/* ── SEÇÃO 2: Data e carga horária ── */}
         <Secao icone="📅" titulo="Data e carga horária" />
 
-        <label style={S.label}>Data *</label>
+        <label {...anchorCampo("data")} style={S.label}>Data *</label>
         <CampoData estilo={S.input}
           valorISO={formDiaria.data}
           onChangeISO={iso => setFormDiaria({ ...formDiaria, data: iso })}
+          erro={errosDiaria.data}
         />
 
         <label style={S.label}>Repetição</label>
@@ -18809,14 +18871,16 @@ export default function App() {
           <>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
               <div>
-                <label style={S.label}>Início *</label>
-                <CampoHora estilo={S.input} valor={formDiaria.horario_inicio}
+                <label {...anchorCampo("horario_inicio")} style={S.label}>Início *</label>
+                <CampoHora estilo={{ ...S.input, ...estiloErro("horario_inicio") }} valor={formDiaria.horario_inicio}
                   onChange={v => setFormDiaria({ ...formDiaria, horario_inicio: v })} />
+                {erroCampo("horario_inicio")}
               </div>
               <div>
-                <label style={S.label}>Término *</label>
-                <CampoHora estilo={S.input} valor={formDiaria.horario_fim}
+                <label {...anchorCampo("horario_fim")} style={S.label}>Término *</label>
+                <CampoHora estilo={{ ...S.input, ...estiloErro("horario_fim") }} valor={formDiaria.horario_fim}
                   onChange={v => setFormDiaria({ ...formDiaria, horario_fim: v })} />
+                {erroCampo("horario_fim")}
               </div>
             </div>
 
@@ -18836,9 +18900,10 @@ export default function App() {
             {/* SERVIÇO: só horário de chegada + tempo estimado */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
               <div>
-                <label style={S.label}>Horário previsto *</label>
-                <CampoHora estilo={S.input} valor={formDiaria.horario_inicio}
+                <label {...anchorCampo("horario_inicio")} style={S.label}>Horário previsto *</label>
+                <CampoHora estilo={{ ...S.input, ...estiloErro("horario_inicio") }} valor={formDiaria.horario_inicio}
                   onChange={v => setFormDiaria({ ...formDiaria, horario_inicio: v })} />
+                {erroCampo("horario_inicio")}
               </div>
               <div>
                 <label style={S.label}>Tempo estimado *</label>
@@ -18873,16 +18938,17 @@ export default function App() {
           </strong>
         </p>
         )}
-        <div style={{ position:"relative" }}>
+        <div {...anchorCampo("valor")} style={{ position:"relative" }}>
           <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
           <input
-            style={{ ...S.input, paddingLeft:40 }}
+            style={{ ...S.input, paddingLeft:40, ...estiloErro("valor") }}
             type="number"
             placeholder="0,00"
             value={formDiaria.valor}
             onChange={e => setFormDiaria({ ...formDiaria, valor: e.target.value })}
           />
         </div>
+        {erroCampo("valor")}
         {formDiaria.valor && duracao && (() => {
           const minsTot = (parseInt(formDiaria.horario_fim?.split(":")[0]||"0")*60+parseInt(formDiaria.horario_fim?.split(":")[1]||"0"))-(parseInt(formDiaria.horario_inicio?.split(":")[0]||"0")*60+parseInt(formDiaria.horario_inicio?.split(":")[1]||"0"));
           const vlrHora = minsTot > 0 ? Number(formDiaria.valor) / (minsTot/60) : 0;
@@ -18913,10 +18979,10 @@ export default function App() {
         </div>
 
         {/* CEP */}
-        <label style={S.label}>CEP *</label>
+        <label {...anchorCampo("cep")} style={S.label}>CEP *</label>
         <div style={{ position:"relative" }}>
           <input
-            style={{ ...S.input, paddingRight: buscandoCEP ? 110 : 14, letterSpacing:1 }}
+            style={{ ...S.input, paddingRight: buscandoCEP ? 110 : 14, letterSpacing:1, ...estiloErro("cep") }}
             placeholder="00000-000"
             maxLength={9}
             inputMode="numeric"
@@ -18936,25 +19002,29 @@ export default function App() {
           )}
         </div>
 
+        {erroCampo("cep")}
+
         {/* Rua */}
-        <label style={{ ...S.label, marginTop:10 }}>Logradouro (rua/avenida) *</label>
+        <label {...anchorCampo("rua")} style={{ ...S.label, marginTop:10 }}>Logradouro (rua/avenida) *</label>
         <input
-          style={S.input}
+          style={{ ...S.input, ...estiloErro("rua") }}
           placeholder="Ex: Rua das Flores"
           value={formDiaria.rua}
           onChange={e => setFormDiaria(prev => ({ ...prev, rua: e.target.value }))}
         />
+        {erroCampo("rua")}
 
         {/* Número e Complemento lado a lado */}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr", gap:12 }}>
-          <div>
+          <div {...anchorCampo("numero")}>
             <label style={{ ...S.label, marginTop:10 }}>Número *</label>
             <input
-              style={S.input}
+              style={{ ...S.input, ...estiloErro("numero") }}
               placeholder="Ex: 123"
               value={formDiaria.numero}
               onChange={e => setFormDiaria(prev => ({ ...prev, numero: e.target.value }))}
             />
+            {erroCampo("numero")}
           </div>
           <div>
             <label style={{ ...S.label, marginTop:10 }}>Complemento</label>
@@ -18968,24 +19038,26 @@ export default function App() {
         </div>
 
         {/* Bairro */}
-        <label style={{ ...S.label, marginTop:10 }}>Bairro *</label>
+        <label {...anchorCampo("bairro")} style={{ ...S.label, marginTop:10 }}>Bairro *</label>
         <input
-          style={S.input}
+          style={{ ...S.input, ...estiloErro("bairro") }}
           placeholder="Ex: Centro"
           value={formDiaria.bairro}
           onChange={e => setFormDiaria(prev => ({ ...prev, bairro: e.target.value }))}
         />
+        {erroCampo("bairro")}
 
         {/* Cidade e Estado lado a lado */}
         <div style={{ display:"grid", gridTemplateColumns:"1.5fr 0.8fr", gap:12 }}>
-          <div>
+          <div {...anchorCampo("cidade")}>
             <label style={{ ...S.label, marginTop:10 }}>Cidade *</label>
             <input
-              style={S.input}
+              style={{ ...S.input, ...estiloErro("cidade") }}
               placeholder="Ex: Campo Grande"
               value={formDiaria.cidade}
               onChange={e => setFormDiaria(prev => ({ ...prev, cidade: e.target.value }))}
             />
+            {erroCampo("cidade")}
           </div>
           <div>
             <label style={{ ...S.label, marginTop:10 }}>UF *</label>
