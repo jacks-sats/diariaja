@@ -385,6 +385,10 @@ export default function App() {
   const [vagaConfirm, setVagaConfirm]             = useState<Diaria | null>(null);
   const [vagaConfirmada, setVagaConfirmada]       = useState(false);
   const [enviandoInteresse, setEnviandoInteresse] = useState(false); // guard anti duplo-clique na candidatura
+  // Vaga de emprego: carta de apresentação (opcional) + currículo PDF (opcional),
+  // preenchidos no modal "Confirmar interesse". Só usados quando tipo_oferta='emprego'.
+  const [cartaVaga, setCartaVaga]                 = useState("");
+  const [curriculoFile, setCurriculoFile]         = useState<File | null>(null);
   const [diaristasReais, setDiaristasReais]       = useState<UserProfile[]>([]);
   const [diaristaSelecionadaReal, setDiaristaSelecionadaReal] = useState<UserProfile | null>(null);
   const [convitesRecebidos, setConvitesRecebidos] = useState<Convite[]>([]);
@@ -4816,6 +4820,21 @@ export default function App() {
     else if (data) setAdminDocsVerificados(data as any);
   };
 
+  // Anunciante: abre o currículo (PDF) de um candidato de vaga via URL assinada.
+  // A RLS do bucket `curriculos` só deixa o dono e o anunciante DAQUELA vaga lerem,
+  // então o createSignedUrl só funciona pra quem tem direito (defesa no servidor).
+  const abrirCurriculo = async (path: string) => {
+    const { data, error } = await supabase.storage
+      .from("curriculos")
+      .createSignedUrl(path, 300);
+    if (data?.signedUrl) {
+      try { window.open(data.signedUrl, "_blank", "noopener,noreferrer"); }
+      catch { setToastError("Não consegui abrir o currículo."); }
+    } else {
+      setToastError("Não foi possível abrir o currículo: " + (error?.message || "arquivo não encontrado."));
+    }
+  };
+
   // Admin: abre um doc específico — gera signed URL pra visualizar
   const abrirDocParaRevisao = async (d: {user_id:string; nome:string; documento_url:string}) => {
     setDocRevisao({ user_id: d.user_id, nome: d.nome, url: d.documento_url });
@@ -5200,6 +5219,37 @@ export default function App() {
     }
 
     setEnviandoInteresse(true);
+
+    // ── Vaga de emprego: carta (opcional) + currículo PDF (opcional) ──────────
+    // Carta vai no diarista_info (jsonb). Currículo sobe pro bucket PRIVADO
+    // `curriculos` (mesmo padrão do KYC) — o anunciante abre por URL assinada.
+    // Caminho: {diaria_id}/{diarista_id}/cv.pdf → a RLS do bucket libera só o
+    // dono (folder do diarista) e o anunciante DAQUELA vaga (folder da diária).
+    let curriculoPath: string | null = null;
+    const ehVagaEmprego = diaria.tipo_oferta === "emprego";
+    if (ehVagaEmprego && curriculoFile) {
+      if (curriculoFile.type !== "application/pdf") {
+        setEnviandoInteresse(false);
+        setToastError("O currículo precisa ser um arquivo PDF.");
+        return;
+      }
+      if (curriculoFile.size > 5 * 1024 * 1024) {
+        setEnviandoInteresse(false);
+        setToastError("Currículo muito grande (máx. 5 MB). Envie um PDF menor.");
+        return;
+      }
+      const path = `${diaria.id}/${session.user.id}/cv.pdf`;
+      const { error: upErr } = await supabase.storage
+        .from("curriculos")
+        .upload(path, curriculoFile, { contentType: "application/pdf", upsert: true });
+      if (upErr) {
+        setEnviandoInteresse(false);
+        setToastError("Falha ao enviar o currículo: " + upErr.message);
+        return;
+      }
+      curriculoPath = path;
+    }
+
     const { error } = await supabase.from("candidaturas").insert({
       diaria_id: diaria.id,
       diarista_id: session.user.id,
@@ -5211,10 +5261,14 @@ export default function App() {
         lat: profile?.lat || null,
         lng: profile?.lng || null,
         categorias: profile?.categorias || [],
+        // Só pra vaga de emprego — diária/serviço seguem com 1 clique.
+        ...(ehVagaEmprego && cartaVaga.trim() ? { carta: cartaVaga.trim() } : {}),
+        ...(curriculoPath ? { curriculo_path: curriculoPath } : {}),
       }
     });
     setEnviandoInteresse(false);
     if (error) { setAuthError(traduzirErroBanco(error)); return; }
+    setCartaVaga(""); setCurriculoFile(null);
     trackEvento("candidatura_enviada", session?.user?.id, "diarista", { diaria_id: diaria.id, funcao: diaria.funcao });
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "pendente" }));
     setVagaConfirmada(true);
@@ -12390,7 +12444,7 @@ export default function App() {
                   .map(c => {
                     const dp = candidatosProfiles[c.diarista_id];
                     // diarista_info: dados embutidos na candidatura (independe de RLS)
-                    const info = (c as any).diarista_info as { nome?:string; funcao?:string; foto_url?:string; lat?:number; lng?:number } | undefined;
+                    const info = (c as any).diarista_info as { nome?:string; funcao?:string; foto_url?:string; lat?:number; lng?:number; carta?:string; curriculo_path?:string } | undefined;
                     const nome = dp?.nome || info?.nome || "Profissional";
                     const funcao = dp?.funcao || info?.funcao || "";
                     const latD = dp?.lat ?? info?.lat ?? null;
@@ -12437,6 +12491,23 @@ export default function App() {
                             ? <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>📍 {distCandTxt}</div>
                             : <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Toque para ver perfil completo →</div>
                           }
+                          {/* Vaga de emprego: carta de apresentação + botão de currículo */}
+                          {modalCandidatos.tipo_oferta === "emprego" && (info?.carta || info?.curriculo_path) && (
+                            <div style={{ marginTop:8 }}>
+                              {info?.carta && (
+                                <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:"8px 10px", fontSize:12, color:"var(--text-1,#0f172a)", lineHeight:1.5, whiteSpace:"pre-wrap" as const }}>
+                                  📝 {info.carta}
+                                </div>
+                              )}
+                              {info?.curriculo_path && (
+                                <button
+                                  onClick={e => { e.stopPropagation(); abrirCurriculo(info.curriculo_path!); }}
+                                  style={{ marginTop:6, background:"#eef2ff", color:"#4338ca", border:"none", borderRadius:10, padding:"7px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                                  📄 Ver currículo (PDF)
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <button
                           style={{ background: betaBloqueado ? "#cbd5e1" : "#22c55e", color:"#fff", border:"none", borderRadius:12, padding:"10px 16px", fontSize:13, fontWeight:800, cursor: selecionando ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0, opacity:selecionando?0.6:1 }}
@@ -14924,7 +14995,7 @@ export default function App() {
                     <React.Fragment key={dia.id}>
                     <div
                       style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer", position:"relative" as const }}
-                      onClick={() => { setVagaConfirm(dia); setVagaConfirmada(false); }}>
+                      onClick={() => { setVagaConfirm(dia); setVagaConfirmada(false); setCartaVaga(""); setCurriculoFile(null); }}>
                       {/* Selos de urgência — no canto superior esquerdo pra não
                           colidir com o valor da diária que mora no canto direito */}
                       {vagaRecente && (
@@ -15123,7 +15194,7 @@ export default function App() {
                               if (st === "selecionado") return (
                                 <button
                                   style={{ width:"100%", background:"linear-gradient(135deg,#FF6B35,#f59e0b)", color:"#fff", border:"none", borderRadius:12, padding:"12px 18px", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
-                                  onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); }}>
+                                  onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); setCartaVaga(""); setCurriculoFile(null); }}>
                                   🎯 Aceitar o serviço!
                                 </button>
                               );
@@ -15142,7 +15213,7 @@ export default function App() {
                                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                                   <button
                                     style={{ width:"100%", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"12px 22px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
-                                    onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); }}>
+                                    onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); setCartaVaga(""); setCurriculoFile(null); }}>
                                     ✋ Tenho interesse
                                   </button>
                                   <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
@@ -16682,6 +16753,36 @@ export default function App() {
                       <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", marginTop:12 }}>
                         💡 O endereço completo aparece pra você depois que o anunciante te selecionar e você aceitar o serviço.
                       </div>
+
+                      {/* Vaga de emprego: carta de apresentação + currículo (opcionais) */}
+                      {vagaConfirm.tipo_oferta === "emprego" && (
+                        <div style={{ marginTop:14, paddingTop:14, borderTop:"1.5px dashed var(--border,#e2e8f0)" }}>
+                          <label style={{ ...S.label, marginBottom:6 }}>Carta de apresentação <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:600 }}>(opcional)</span></label>
+                          <textarea
+                            style={{ ...S.input, height:84, resize:"none" as const, lineHeight:1.5 }}
+                            placeholder="Conte em poucas linhas por que você se encaixa nesta vaga…"
+                            maxLength={600}
+                            value={cartaVaga}
+                            onChange={e => setCartaVaga(e.target.value)}
+                          />
+                          <label style={{ ...S.label, marginTop:10, marginBottom:6 }}>Currículo (PDF) <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:600 }}>(opcional, máx. 5 MB)</span></label>
+                          <input
+                            type="file"
+                            accept="application/pdf"
+                            onChange={e => {
+                              const f = e.target.files?.[0] || null;
+                              if (f && f.type !== "application/pdf") { setToastError("O currículo precisa ser um PDF."); return; }
+                              if (f && f.size > 5 * 1024 * 1024) { setToastError("Currículo muito grande (máx. 5 MB)."); return; }
+                              setCurriculoFile(f);
+                            }}
+                            style={{ fontSize:13, color:"var(--text-2,#64748b)" }}
+                          />
+                          {curriculoFile && (
+                            <div style={{ fontSize:12, color:"#16a34a", fontWeight:700, marginTop:6 }}>📄 {curriculoFile.name} pronto pra enviar</div>
+                          )}
+                        </div>
+                      )}
+
                       {authError && <p style={S.errorText}>{authError}</p>}
                       {/* Trava de maioridade: só libera candidatura com documento (RG/CNH) APROVADO */}
                       {profile?.documento_status === "aprovado" ? (
