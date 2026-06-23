@@ -6062,11 +6062,16 @@ export default function App() {
       }
       if (!formDiaria.valor || isNaN(Number(formDiaria.valor)) || Number(formDiaria.valor) <= 0) erros.valor = "Informe um valor numérico válido.";
     }
-    if (!formDiaria.cep.trim() || formDiaria.cep.replace(/\D/g,"").length < 8) erros.cep = "Informe um CEP válido (8 dígitos).";
-    if (!formDiaria.rua.trim()) erros.rua = "Informe o logradouro (rua/avenida).";
-    if (!formDiaria.numero.trim()) erros.numero = "Informe o número do local.";
-    if (!formDiaria.bairro.trim()) erros.bairro = "Informe o bairro.";
-    if (!formDiaria.cidade.trim()) erros.cidade = "Informe a cidade.";
+    // Endereço: obrigatório p/ diária/serviço e p/ vaga presencial/híbrida.
+    // VAGA REMOTA (emprego + regime "Remoto"): endereço é OPCIONAL — não bloqueia.
+    const enderecoOpcional = ehEmprego && formDiaria.regime === "Remoto";
+    if (!enderecoOpcional) {
+      if (!formDiaria.cep.trim() || formDiaria.cep.replace(/\D/g,"").length < 8) erros.cep = "Informe um CEP válido (8 dígitos).";
+      if (!formDiaria.rua.trim()) erros.rua = "Informe o logradouro (rua/avenida).";
+      if (!formDiaria.numero.trim()) erros.numero = "Informe o número do local.";
+      if (!formDiaria.bairro.trim()) erros.bairro = "Informe o bairro.";
+      if (!formDiaria.cidade.trim()) erros.cidade = "Informe a cidade.";
+    }
 
     // Moderação de conteúdo (anti-fraude + termos proibidos + antidiscriminação,
     // Lei 9.029/95) — mapeada ao campo de descrição, mas continua BLOQUEANDO o envio.
@@ -6095,7 +6100,12 @@ export default function App() {
       return;
     }
     setErrosDiaria({});
-    const enderecoComposto = `${formDiaria.rua}, ${formDiaria.numero}${formDiaria.complemento.trim() ? ` — ${formDiaria.complemento.trim()}` : ""}, ${formDiaria.bairro}, ${formDiaria.cidade}/${formDiaria.estado} — CEP ${formDiaria.cep}`;
+    // Vaga remota sem endereço preenchido: guarda algo limpo (cidade/UF se houver,
+    // senão "Remoto") em vez da string com campos vazios.
+    const enderecoOpcionalSalvar = ehEmprego && formDiaria.regime === "Remoto";
+    const enderecoComposto = (enderecoOpcionalSalvar && !formDiaria.rua.trim() && !formDiaria.cep.trim())
+      ? (formDiaria.cidade.trim() ? `Remoto — ${formDiaria.cidade.trim()}${formDiaria.estado ? "/" + formDiaria.estado : ""}` : "Remoto")
+      : `${formDiaria.rua}, ${formDiaria.numero}${formDiaria.complemento.trim() ? ` — ${formDiaria.complemento.trim()}` : ""}, ${formDiaria.bairro}, ${formDiaria.cidade}/${formDiaria.estado} — CEP ${formDiaria.cep}`;
     // PUBLICAR vaga de emprego agora é GRÁTIS e ILIMITADO (igual diária/serviço).
     // O antigo gate de cota (3/mês → R$1 avulso via pode_postar_vaga_emprego /
     // modalLimiteVagaEmprego) foi REMOVIDO. A monetização da vaga passou pro CONTATO
@@ -18757,6 +18767,13 @@ export default function App() {
     // Sempre mostra TODAS as habilidades do app, organizadas por categoria
     const funcoesDisponiveis = Object.entries(CATEGORIAS_NEGOCIO);
 
+    // Tipo atual + textos que se adaptam (vaga de emprego ≠ diária/serviço).
+    const ehEmp  = formDiaria.tipo_oferta === "emprego";
+    const ehServ = formDiaria.tipo_oferta === "servico";
+    // Vaga REMOTA: endereço da empresa é OPCIONAL (não bloqueia publicar).
+    const endOpcional = ehEmp && formDiaria.regime === "Remoto";
+    const reqEnd = endOpcional ? "" : " *";  // sufixo "*" dos campos de endereço
+
     // Helpers de feedback inline por campo (ver errosDiaria + salvarDiaria).
     //   anchorCampo: âncora pra rolagem (id no label) + borda vermelha quando há erro.
     //   estiloErro:  injeta borda vermelha no input quando o campo está com erro.
@@ -18804,9 +18821,11 @@ export default function App() {
           <div style={{ fontSize:11, fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.8, opacity:0.8, marginBottom:4 }}>
             {negocio?.icone} {negocioSelecionado}
           </div>
-          <div style={{ fontSize:22, fontWeight:900, lineHeight:1.2 }}>Nova Diária</div>
+          <div style={{ fontSize:22, fontWeight:900, lineHeight:1.2 }}>{ehEmp ? "Nova vaga de emprego" : ehServ ? "Novo serviço" : "Nova diária"}</div>
           <div style={{ fontSize:13, opacity:0.85, marginTop:4 }}>
-            Preencha todos os campos — o endereço completo só é mostrado ao prestador depois que você o selecionar e ele aceitar o serviço.
+            {ehEmp
+              ? "Preencha os dados da vaga. O endereço da empresa aparece na vaga para os candidatos."
+              : "Preencha todos os campos — o endereço completo só é mostrado ao prestador depois que você o selecionar e ele aceitar o serviço."}
           </div>
         </div>
 
@@ -18841,28 +18860,28 @@ export default function App() {
           })}
         </div>
 
-        {/* ── SEÇÃO 2: O serviço ── */}
-        <Secao icone="📋" titulo="O serviço" />
+        {/* ── SEÇÃO 2: A diária / O serviço / A vaga ── */}
+        <Secao icone="📋" titulo={ehEmp ? "A vaga" : ehServ ? "O serviço" : "A diária"} />
 
-        <label {...anchorCampo("local")} style={S.label}>Nome do local *</label>
+        <label {...anchorCampo("local")} style={S.label}>{ehEmp ? "Nome da empresa *" : "Nome do local *"}</label>
         <input
           style={{ ...S.input, ...estiloErro("local") }}
-          placeholder="Ex: Minha residência, Restaurante do João, Fazenda São Paulo…"
+          placeholder={ehEmp ? "Ex: Restaurante do João, Mercado Silva Ltda…" : "Ex: Minha residência, Restaurante do João, Fazenda São Paulo…"}
           value={formDiaria.local}
           onChange={e => setFormDiaria({ ...formDiaria, local: e.target.value })}
         />
         {erroCampo("local")}
 
-        <label {...anchorCampo("descricao")} style={S.label}>O que precisa ser feito *</label>
+        <label {...anchorCampo("descricao")} style={S.label}>{ehEmp ? "Descrição da vaga *" : "O que precisa ser feito *"}</label>
         <textarea
           style={{ ...S.input, height:96, resize:"none" as const, lineHeight:1.6, ...estiloErro("descricao") }}
-          placeholder="Ex: Organizar prateleiras do setor de laticínios, reposição de estoque..."
+          placeholder={ehEmp ? "Ex: Responsabilidades, requisitos, horário de trabalho, diferenciais…" : "Ex: Organizar prateleiras do setor de laticínios, reposição de estoque..."}
           value={formDiaria.descricao}
           onChange={e => setFormDiaria({ ...formDiaria, descricao: e.target.value })}
         />
         {erroCampo("descricao")}
 
-        <label style={S.label}>Habilidade necessária</label>
+        <label style={S.label}>{ehEmp ? "Área / cargo" : "Habilidade necessária"}</label>
         <select style={S.input} value={formDiaria.funcao} onChange={e => {
           const novaFuncao = e.target.value;
           // Sugere tipo_oferta default conforme categoria da função escolhida (TI/Beleza/Pet → serviço; Doméstico/Construção/Eventos → diária).
@@ -18953,7 +18972,7 @@ export default function App() {
         {formDiaria.tipo_oferta !== "emprego" && (
         <>
         {/* ── SEÇÃO 2: Data e carga horária ── */}
-        <Secao icone="📅" titulo="Data e carga horária" />
+        <Secao icone="📅" titulo={ehServ ? "Data e horário" : "Data e carga horária"} />
 
         <label {...anchorCampo("data")} style={S.label}>Data *</label>
         <CampoData estilo={S.input}
@@ -19173,19 +19192,27 @@ export default function App() {
           );
         })()}
 
-        {/* ── SEÇÃO 4: Local (privado até aceitar) ── */}
-        <Secao icone="🔒" titulo="Local da diária" sub="Só revelado ao prestador após ele aceitar" />
+        {/* ── SEÇÃO 4: Local — em diária/serviço é privado até aceitar; em vaga aparece ── */}
+        <Secao
+          icone={ehEmp ? "📍" : "🔒"}
+          titulo={ehEmp ? "Local de trabalho" : "Local da diária"}
+          sub={ehEmp
+            ? (endOpcional ? "Vaga remota — endereço opcional" : "Endereço da empresa — aparece na vaga")
+            : "Só revelado ao prestador após ele aceitar"}
+        />
 
-        {/* Aviso de privacidade */}
-        <div style={{ background:"#fef3c7", border:"1.5px solid #fde68a", borderRadius:12, padding:"10px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"flex-start" }}>
-          <span style={{ fontSize:16, flexShrink:0 }}>🔒</span>
-          <div style={{ fontSize:12, color:"#92400e", lineHeight:1.5 }}>
-            <strong>Endereço privado:</strong> o prestador só verá o endereço completo e a localização no mapa depois de aceitar o anúncio. Na listagem pública aparece apenas <em>"Endereço liberado após aceitar"</em>.
+        {/* Aviso de privacidade — só diária/serviço (na vaga o endereço é público) */}
+        {!ehEmp && (
+          <div style={{ background:"#fef3c7", border:"1.5px solid #fde68a", borderRadius:12, padding:"10px 14px", marginBottom:12, display:"flex", gap:10, alignItems:"flex-start" }}>
+            <span style={{ fontSize:16, flexShrink:0 }}>🔒</span>
+            <div style={{ fontSize:12, color:"#92400e", lineHeight:1.5 }}>
+              <strong>Endereço privado:</strong> o prestador só verá o endereço completo e a localização no mapa depois de aceitar o anúncio. Na listagem pública aparece apenas <em>"Endereço liberado após aceitar"</em>.
+            </div>
           </div>
-        </div>
+        )}
 
         {/* CEP */}
-        <label {...anchorCampo("cep")} style={S.label}>CEP *</label>
+        <label {...anchorCampo("cep")} style={S.label}>CEP{reqEnd}</label>
         <div style={{ position:"relative" }}>
           <input
             style={{ ...S.input, paddingRight: buscandoCEP ? 110 : 14, letterSpacing:1, ...estiloErro("cep") }}
@@ -19211,7 +19238,7 @@ export default function App() {
         {erroCampo("cep")}
 
         {/* Rua */}
-        <label {...anchorCampo("rua")} style={{ ...S.label, marginTop:10 }}>Logradouro (rua/avenida) *</label>
+        <label {...anchorCampo("rua")} style={{ ...S.label, marginTop:10 }}>Logradouro (rua/avenida){reqEnd}</label>
         <input
           style={{ ...S.input, ...estiloErro("rua") }}
           placeholder="Ex: Rua das Flores"
@@ -19223,7 +19250,7 @@ export default function App() {
         {/* Número e Complemento lado a lado */}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1.4fr", gap:12 }}>
           <div {...anchorCampo("numero")}>
-            <label style={{ ...S.label, marginTop:10 }}>Número *</label>
+            <label style={{ ...S.label, marginTop:10 }}>Número{reqEnd}</label>
             <input
               style={{ ...S.input, ...estiloErro("numero") }}
               placeholder="Ex: 123"
@@ -19244,7 +19271,7 @@ export default function App() {
         </div>
 
         {/* Bairro */}
-        <label {...anchorCampo("bairro")} style={{ ...S.label, marginTop:10 }}>Bairro *</label>
+        <label {...anchorCampo("bairro")} style={{ ...S.label, marginTop:10 }}>Bairro{reqEnd}</label>
         <input
           style={{ ...S.input, ...estiloErro("bairro") }}
           placeholder="Ex: Centro"
@@ -19256,7 +19283,7 @@ export default function App() {
         {/* Cidade e Estado lado a lado */}
         <div style={{ display:"grid", gridTemplateColumns:"1.5fr 0.8fr", gap:12 }}>
           <div {...anchorCampo("cidade")}>
-            <label style={{ ...S.label, marginTop:10 }}>Cidade *</label>
+            <label style={{ ...S.label, marginTop:10 }}>Cidade{reqEnd}</label>
             <input
               style={{ ...S.input, ...estiloErro("cidade") }}
               placeholder="Ex: Campo Grande"
@@ -19266,7 +19293,7 @@ export default function App() {
             {erroCampo("cidade")}
           </div>
           <div>
-            <label style={{ ...S.label, marginTop:10 }}>UF *</label>
+            <label style={{ ...S.label, marginTop:10 }}>UF{reqEnd}</label>
             <input
               style={S.input}
               placeholder="MS"
@@ -19283,7 +19310,7 @@ export default function App() {
             <span style={{ fontSize:18 }}>✅</span>
             <div>
               <span style={{ fontSize:13, fontWeight:700, color:"#16a34a" }}>Localização obtida pelo CEP</span>
-              <p style={{ fontSize:11, color:"#15803d", margin:"2px 0 0" }}>O prestador poderá abrir o endereço no mapa</p>
+              <p style={{ fontSize:11, color:"#15803d", margin:"2px 0 0" }}>{ehEmp ? "O candidato poderá ver a localização da vaga" : "O prestador poderá abrir o endereço no mapa"}</p>
             </div>
           </div>
         ) : buscandoCEP ? (
@@ -19336,7 +19363,7 @@ export default function App() {
           style={{ ...S.btnPrimary, background:cor, marginTop:16, opacity:salvandoDiaria?0.6:1, fontSize:16 }}
           disabled={salvandoDiaria}
           onClick={salvarDiaria}>
-          {salvandoDiaria ? "Publicando..." : (formDiaria.tipo_oferta === "emprego" ? "💼 Publicar vaga de emprego" : "📋 Publicar diária")}
+          {salvandoDiaria ? "Publicando..." : (ehEmp ? "💼 Publicar vaga de emprego" : ehServ ? "⚡ Publicar serviço" : "📋 Publicar diária")}
         </button>
         <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", textAlign:"center", marginTop:8 }}>
           Campos com * são obrigatórios
