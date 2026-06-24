@@ -553,6 +553,19 @@ export function validarTelefone(telefone: string): boolean {
   return true;
 }
 
+// Erro de telefone para um SAVE de perfil (saveProfile). Só valida quando o próprio
+// save está ALTERANDO o telefone (updatesTelefone definido). Saves parciais que não
+// tocam no campo — ex.: { categorias }, { bio }, { disponivel } — recebem `undefined`
+// e retornam null: não são bloqueados por um telefone legado fora do formato. Não
+// afrouxa o fluxo que edita o telefone (lá updatesTelefone vem definido e é validado).
+export function erroTelefoneSave(updatesTelefone: string | undefined): string | null {
+  if (updatesTelefone === undefined) return null;
+  if (updatesTelefone.trim() && !validarTelefone(updatesTelefone)) {
+    return "Telefone inválido. Use o formato (XX) 9XXXX-XXXX.";
+  }
+  return null;
+}
+
 // ── Calcula idade a partir de uma data de nascimento (ISO YYYY-MM-DD) ────────
 // Usado para bloquear menores de 18 no cadastro de diarista (CLT/LC 150).
 // Considera o dia/mês exato — não basta diff de ano.
