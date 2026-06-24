@@ -14122,8 +14122,12 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                /* Menu de ações (anunciante): só Trocar foto + Editar apresentação */
+                /* Apresentação (preview) + menu de ações (anunciante) */
                 <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                  <div style={{ marginBottom:2 }}>
+                    <div style={{ fontWeight:800, fontSize:12, color:"#0A1A33", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
+                    <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
+                  </div>
                   {([
                     { emoji:"📷", label:"Trocar foto",         onClick: () => fotoInputModalRef.current?.click() },
                     { emoji:"✏️", label:"Editar apresentação", onClick: () => { setBioDraft(profile?.bio || ""); setEditandoBio(true); } },
@@ -17114,20 +17118,10 @@ export default function App() {
                   const cats = (profile?.categorias && profile.categorias.length > 0)
                     ? profile.categorias
                     : (profile?.funcao ? [profile.funcao] : []);
-                  const principal = cats[0] || profile?.funcao || "";
-                  const demais = cats.slice(1);
-                  return (
-                    <>
-                      <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:2, fontWeight:700 }}>{principal}</div>
-                      {demais.length > 0 && (
-                        <div style={{ display:"flex", flexWrap:"wrap" as const, gap:5, justifyContent:"center", marginTop:6 }}>
-                          {demais.map(c => (
-                            <span key={c} style={{ fontSize:11, fontWeight:700, color:"#FF6B35", background:"#FF6B3514", border:"1px solid #FF6B3530", borderRadius:20, padding:"2px 9px" }}>{c}</span>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  );
+                  // Linha única, principal primeiro, separadas por " · " (mesmo estilo
+                  // do subtítulo cinza). Com 1 função, fica igual ao de antes.
+                  const texto = cats.length > 0 ? cats.join(" · ") : (profile?.funcao || "");
+                  return <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:2 }}>{texto}</div>;
                 })()}
                 {avaliacoesDiaristaReal.length > 0 && (
                   <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:8 }}>
@@ -17208,8 +17202,12 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                /* Menu de ações rápidas (navy #0A1A33 + laranja #FF6B35) */
+                /* Apresentação (preview) + menu de ações rápidas (navy #0A1A33 + laranja #FF6B35) */
                 <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                  <div style={{ marginBottom:2 }}>
+                    <div style={{ fontWeight:800, fontSize:12, color:"#0A1A33", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
+                    <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
+                  </div>
                   {([
                     { emoji:"📷", label:"Trocar foto",             onClick: () => fotoInputModalRef.current?.click() },
                     { emoji:"🧰", label:"Função e especialidades",  onClick: () => { setCategorias(profile?.categorias && profile.categorias.length > 0 ? [...profile.categorias] : (profile?.funcao ? [profile.funcao] : [])); setEditandoFuncoes(true); } },
