@@ -518,6 +518,21 @@ export const gerarHorarios = (passoMin = 30): string[] => {
   return out;
 };
 
+// ── Duração de um turno em minutos, tratando VIRADA DE MEIA-NOITE ────────────
+// REGRA "VIRA O DIA": se horario_fim < horario_inicio, o término é no DIA
+// SEGUINTE (+24h). Ex.: 18:00 → 02:00 = 480min (8h). fim == início devolve 0
+// (turno de duração zero — quem chama trata como inválido). Devolve null se
+// faltar algum horário ou se não for "HH:MM"/"HH:MM:SS" válido.
+export function duracaoTurnoMin(horarioInicio?: string, horarioFim?: string): number | null {
+  if (!horarioInicio || !horarioFim) return null;
+  const [h1, m1] = horarioInicio.split(":").map(Number);
+  const [h2, m2] = horarioFim.split(":").map(Number);
+  if ([h1, m1, h2, m2].some(v => v == null || Number.isNaN(v))) return null;
+  let min = (h2 * 60 + m2) - (h1 * 60 + m1);
+  if (min < 0) min += 1440; // virou o dia: o fim cai no dia seguinte
+  return min;
+}
+
 // ── Validação de e-mail (formato básico, espelha a checagem do Supabase) ─────
 export function validarEmail(email: string): boolean {
   const e = email.trim();
@@ -843,7 +858,7 @@ export function respostaConviteValida(resposta: string): boolean {
 // ── Vaga expirada: data + horario_fim já passou e nada foi confirmado ────────
 // Recebe os campos crus do banco; retorna true se a vaga deveria sair do feed.
 export function vagaExpirou(
-  diaria: { data: string; horario_fim: string; status: string },
+  diaria: { data: string; horario_inicio?: string; horario_fim: string; status: string },
   agora: Date = new Date(),
 ): boolean {
   if (!diaria.data || !diaria.horario_fim) return false;
@@ -855,6 +870,16 @@ export function vagaExpirou(
   if (h == null || m == null || Number.isNaN(h) || Number.isNaN(m)) return false;
   // Trata como horário local (sem timezone) — vagas são locais ao usuário
   const fim = new Date(`${diaria.data}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+  // REGRA "VIRA O DIA": turno que cruza a meia-noite (fim < início) termina no
+  // dia seguinte — adia o `fim` em 24h pra vaga não "expirar" antes da hora.
+  const ini = diaria.horario_inicio && diaria.horario_inicio.trim();
+  if (ini) {
+    const [hi, mi] = ini.split(":").map(Number);
+    if (hi != null && mi != null && !Number.isNaN(hi) && !Number.isNaN(mi)
+        && (h * 60 + m) < (hi * 60 + mi)) {
+      fim.setTime(fim.getTime() + 24 * 60 * 60 * 1000);
+    }
+  }
   return agora.getTime() > fim.getTime();
 }
 
@@ -872,9 +897,15 @@ export function diariaNoShow(
   if (!diaria.data) return false;
   const ini = (diaria.horario_inicio && diaria.horario_inicio.trim()) || "00:00";
   const fimRaw = (diaria.horario_fim && diaria.horario_fim.trim()) || ini;
+  const [hi, mi] = ini.split(":").map(Number);
   const [hf, mf] = fimRaw.split(":").map(Number);
   if (hf == null || mf == null || Number.isNaN(hf) || Number.isNaN(mf)) return false;
   const fim = new Date(`${diaria.data}T${String(hf).padStart(2, "0")}:${String(mf).padStart(2, "0")}:00`);
+  // REGRA "VIRA O DIA": fim < início ⇒ turno cruza a meia-noite (fim no dia seguinte).
+  if (hi != null && mi != null && !Number.isNaN(hi) && !Number.isNaN(mi)
+      && (hf * 60 + mf) < (hi * 60 + mi)) {
+    fim.setTime(fim.getTime() + 24 * 60 * 60 * 1000);
+  }
   return agora.getTime() > fim.getTime() + 2 * 60 * 60 * 1000;
 }
 
@@ -896,6 +927,9 @@ export function checkinDentroDaJanela(
   if ([hi, mi, hf, mf].some(v => v == null || Number.isNaN(v))) return false;
   const inicio = new Date(`${diaria.data}T${String(hi).padStart(2, "0")}:${String(mi).padStart(2, "0")}:00`);
   const fim = new Date(`${diaria.data}T${String(hf).padStart(2, "0")}:${String(mf).padStart(2, "0")}:00`);
+  // REGRA "VIRA O DIA": fim < início ⇒ turno cruza a meia-noite (fim no dia seguinte),
+  // pra a janela de check-in/check-out abrir certo na virada (ex.: 18:00 → 02:00).
+  if ((hf * 60 + mf) < (hi * 60 + mi)) fim.setTime(fim.getTime() + 24 * 60 * 60 * 1000);
   const abre = inicio.getTime() - 30 * 60 * 1000;       // 30min antes do início
   const fecha = fim.getTime() + 2 * 60 * 60 * 1000;     // 2h depois do fim
   const t = agora.getTime();

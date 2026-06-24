@@ -86,7 +86,7 @@ import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
-  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou,
+  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
@@ -5883,9 +5883,9 @@ export default function App() {
   // Salva edição de diária aberta (empregador)
   const salvarEdicaoDiaria = async () => {
     if (!modalEditarDiaria) return;
-    const [h1, m1] = (formEditarDiaria.horario_inicio || "0:0").split(":").map(Number);
-    const [h2, m2] = (formEditarDiaria.horario_fim || "0:0").split(":").map(Number);
-    if ((h2 * 60 + m2) - (h1 * 60 + m1) <= 0) { setAuthError("Horário inválido."); return; }
+    // Regra "vira o dia": 18:00→02:00 = 8h (válido). fim == início = 0 (inválido).
+    const minEdit = duracaoTurnoMin(formEditarDiaria.horario_inicio, formEditarDiaria.horario_fim);
+    if (minEdit == null || minEdit <= 0) { setAuthError("Horário inválido."); return; }
     if (!formEditarDiaria.valor || Number(formEditarDiaria.valor) <= 0) { setAuthError("Informe um valor válido."); return; }
     if (!formEditarDiaria.funcao.trim()) { setAuthError("Selecione a função."); return; }
     if (!formEditarDiaria.data) { setAuthError("Informe a data."); return; }
@@ -6031,9 +6031,9 @@ export default function App() {
     // O limite passou a ser em seleções de candidato (R$ 1/contato extra no grátis)
     // Verificado em selecionarCandidato()
 
-    const [h1v, m1v] = (formDiaria.horario_inicio || "0:0").split(":").map(Number);
-    const [h2v, m2v] = (formDiaria.horario_fim || "0:0").split(":").map(Number);
-    const minTot = (h2v * 60 + m2v) - (h1v * 60 + m1v);
+    // minTot já aplica a regra "vira o dia" (turno que cruza a meia-noite):
+    // 18:00→02:00 = 480min. fim == início devolve 0 (continua inválido abaixo).
+    const minTot = duracaoTurnoMin(formDiaria.horario_inicio, formDiaria.horario_fim) ?? 0;
     // Coleta TODOS os erros de uma vez (em vez de parar no 1º) — cada campo mostra
     // o seu inline + borda vermelha, e o submit rola até o primeiro na ordem visual.
     const erros: Record<string, string> = {};
@@ -11026,7 +11026,8 @@ export default function App() {
     const d = modalReciboDiarista;
     const [h1r, m1r] = d.horario_inicio.split(":").map(Number);
     const [h2r, m2r] = d.horario_fim.split(":").map(Number);
-    const totalMinR = (h2r * 60 + m2r) - (h1r * 60 + m1r);
+    let totalMinR = (h2r * 60 + m2r) - (h1r * 60 + m1r);
+    if (totalMinR < 0) totalMinR += 1440; // vira o dia (turno cruza a meia-noite)
     const horasR = totalMinR > 0 ? `${Math.floor(totalMinR/60)}h${totalMinR%60>0?String(totalMinR%60).padStart(2,"0")+"min":""}` : "";
     return (
       <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.85)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"Inter, system-ui, sans-serif" }}>
@@ -11989,7 +11990,8 @@ export default function App() {
                     const sl = statusLabel[dia.status] ?? statusLabel.aberta;
                     const [h1s, m1s] = dia.horario_inicio.split(":");
                     const [h2s, m2s] = dia.horario_fim.split(":");
-                    const min = (parseInt(h2s)*60+parseInt(m2s)) - (parseInt(h1s)*60+parseInt(m1s));
+                    let min = (parseInt(h2s)*60+parseInt(m2s)) - (parseInt(h1s)*60+parseInt(m1s));
+                    if (min < 0) min += 1440; // vira o dia (turno cruza a meia-noite)
                     const dur = min > 0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
                     const bordaCor = dia.status==="em_andamento" ? "#f59e0b" : dia.status==="aceita" ? "#3A86FF" : dia.status==="concluida" ? "#22c55e" : dia.status==="cancelada" ? "#ef4444" : dia.status==="expirada" ? "#f59e0b" : "#e2e8f0";
                     const estaExpandida = detalhesDiaria?.id === dia.id;
@@ -12868,7 +12870,8 @@ export default function App() {
           const dp = modalRecibo.diarista_aceite_id ? diaristasAceites[modalRecibo.diarista_aceite_id] : null;
           const [h1, m1] = modalRecibo.horario_inicio.split(":").map(Number);
           const [h2, m2] = modalRecibo.horario_fim.split(":").map(Number);
-          const minutos = (h2 * 60 + m2) - (h1 * 60 + m1);
+          let minutos = (h2 * 60 + m2) - (h1 * 60 + m1);
+          if (minutos < 0) minutos += 1440; // vira o dia (turno cruza a meia-noite)
           const horas = minutos > 0 ? `${Math.floor(minutos/60)}h${minutos%60>0?String(minutos%60).padStart(2,"0")+"min":""}` : "";
           return (
             <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.8)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
@@ -15017,7 +15020,8 @@ export default function App() {
                   const dataFmt = formatData(dia.data);
                   const [h1, m1] = dia.horario_inicio.split(":");
                   const [h2, m2] = dia.horario_fim.split(":");
-                  const minTotal = (parseInt(h2)*60+parseInt(m2)) - (parseInt(h1)*60+parseInt(m1));
+                  let minTotal = (parseInt(h2)*60+parseInt(m2)) - (parseInt(h1)*60+parseInt(m1));
+                  if (minTotal < 0) minTotal += 1440; // vira o dia (turno cruza a meia-noite)
                   const duracao = minTotal > 0 ? ` · ${Math.floor(minTotal/60)}h${minTotal%60>0?String(minTotal%60).padStart(2,"0")+"min":""}` : "";
                   const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(dia.funcao));
                   const funcCor = funcCatEntry ? funcCatEntry[1].cor : "#64748b";
@@ -15408,7 +15412,8 @@ export default function App() {
             if (!ehServ && dia.horario_inicio && dia.horario_fim) {
               const [h1,m1] = dia.horario_inicio.split(":");
               const [h2,m2] = dia.horario_fim.split(":");
-              const min = (parseInt(h2)*60+parseInt(m2))-(parseInt(h1)*60+parseInt(m1));
+              let min = (parseInt(h2)*60+parseInt(m2))-(parseInt(h1)*60+parseInt(m1));
+              if (min < 0) min += 1440; // vira o dia (turno cruza a meia-noite)
               dur = min>0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
             }
             const tempoServ = ehServ && dia.tempo_estimado_min
@@ -15759,7 +15764,8 @@ export default function App() {
                         const isHoje = new Date(dia.data + "T12:00:00").toDateString() === hoje.toDateString();
                         const [h1,m1] = dia.horario_inicio.split(":");
                         const [h2,m2] = dia.horario_fim.split(":");
-                        const min = (parseInt(h2)*60+parseInt(m2))-(parseInt(h1)*60+parseInt(m1));
+                        let min = (parseInt(h2)*60+parseInt(m2))-(parseInt(h1)*60+parseInt(m1));
+                        if (min < 0) min += 1440; // vira o dia (turno cruza a meia-noite)
                         const dur = min>0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
                         return (
                           <div key={dia.id} style={{ background:"var(--bg-card,#fff)", borderRadius:18, overflow:"hidden", boxShadow:"0 2px 10px rgba(0,0,0,.07)", display:"flex" }}>
@@ -16444,7 +16450,8 @@ export default function App() {
           const corD = segInfo?.cor || "#FF6B35";
           const [dh1,,dm1] = [d.horario_inicio.split(":")[0], "", d.horario_inicio.split(":")[1]];
           const [dh2,,dm2] = [d.horario_fim.split(":")[0], "", d.horario_fim.split(":")[1]];
-          const minD = (parseInt(dh2)*60+parseInt(dm2))-(parseInt(dh1)*60+parseInt(dm1));
+          let minD = (parseInt(dh2)*60+parseInt(dm2))-(parseInt(dh1)*60+parseInt(dm1));
+          if (minD < 0) minD += 1440; // vira o dia (turno cruza a meia-noite)
           const durD = minD>0 ? `${Math.floor(minD/60)}h${minD%60>0?String(minD%60).padStart(2,"0")+"min":""}` : "";
           const dataFmtD = new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
           const valorHora = minD > 0 ? (d.valor / (minD/60)).toFixed(2) : null;
@@ -18871,11 +18878,9 @@ export default function App() {
 
     // Calcula duração automaticamente
     const calcHoras = () => {
-      if (!formDiaria.horario_inicio || !formDiaria.horario_fim) return null;
-      const [h1, m1] = formDiaria.horario_inicio.split(":").map(Number);
-      const [h2, m2] = formDiaria.horario_fim.split(":").map(Number);
-      const min = (h2 * 60 + m2) - (h1 * 60 + m1);
-      if (min <= 0) return null;
+      // duracaoTurnoMin aplica a regra "vira o dia" (18:00→02:00 = 8h).
+      const min = duracaoTurnoMin(formDiaria.horario_inicio, formDiaria.horario_fim);
+      if (min == null || min <= 0) return null;
       const h = Math.floor(min / 60);
       const m = min % 60;
       return m > 0 ? `${h}h${String(m).padStart(2,"0")}min` : `${h}h`;
@@ -19260,7 +19265,8 @@ export default function App() {
           </>
         )}
         {formDiaria.valor && duracao && (() => {
-          const minsTot = (parseInt(formDiaria.horario_fim?.split(":")[0]||"0")*60+parseInt(formDiaria.horario_fim?.split(":")[1]||"0"))-(parseInt(formDiaria.horario_inicio?.split(":")[0]||"0")*60+parseInt(formDiaria.horario_inicio?.split(":")[1]||"0"));
+          let minsTot = (parseInt(formDiaria.horario_fim?.split(":")[0]||"0")*60+parseInt(formDiaria.horario_fim?.split(":")[1]||"0"))-(parseInt(formDiaria.horario_inicio?.split(":")[0]||"0")*60+parseInt(formDiaria.horario_inicio?.split(":")[1]||"0"));
+          if (minsTot < 0) minsTot += 1440; // vira o dia: usa a duração corrigida no preço/hora
           const vlrHora = minsTot > 0 ? Number(formDiaria.valor) / (minsTot/60) : 0;
           const baixo = vlrHora > 0 && vlrHora < 15;
           return (
