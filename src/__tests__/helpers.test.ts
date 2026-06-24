@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   erroTelefoneSave,
+  rotuloDistanciaFeed,
   protocoloContato,
   maskData,
   isoParaBR,
@@ -1481,5 +1482,28 @@ describe("erroTelefoneSave (saveProfile não revalida telefone em update parcial
   });
   it("telefone vazio no update não bloqueia (limpar campo) → null", () => {
     expect(erroTelefoneSave("")).toBeNull();
+  });
+});
+
+// ── rotuloDistanciaFeed: distância honesta no feed (não mente "0,2 km") ──
+describe("rotuloDistanciaFeed", () => {
+  it("coord compartilhada por 3+ perfis (centroide) → null (esconde número)", () => {
+    expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 12 })).toBeNull();
+    expect(rotuloDistanciaFeed(6.0, { perfisNaMesmaCoord: 3 })).toBeNull();
+  });
+  it("distância abaixo do ruído do arredondamento (~1,1 km) → null", () => {
+    expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 1 })).toBeNull();
+    expect(rotuloDistanciaFeed(1.4, { perfisNaMesmaCoord: 1 })).toBeNull();
+  });
+  it("coord única e distância acima da grade → mostra '~X km'", () => {
+    expect(rotuloDistanciaFeed(3.2, { perfisNaMesmaCoord: 1 })).toBe("~3,2 km");
+    expect(rotuloDistanciaFeed(2.0, { perfisNaMesmaCoord: 2 })).toBe("~2,0 km");
+  });
+  it("Infinity (sem geo de um lado) → null", () => {
+    expect(rotuloDistanciaFeed(Infinity, { perfisNaMesmaCoord: 1 })).toBeNull();
+  });
+  it("limiar da grade é configurável", () => {
+    // gridKm 0 → some o piso de ruído; só o filtro de cluster vale.
+    expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 1, gridKm: 0 })).toBe("~0,2 km");
   });
 });

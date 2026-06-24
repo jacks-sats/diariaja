@@ -87,7 +87,7 @@ import {
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
-  formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
+  formatarDistancia, rotuloDistanciaFeed, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
@@ -504,6 +504,8 @@ export default function App() {
   // Última mensagem de falha do saveProfile — ref (síncrona) para o handler poder
   // exibi-la num toast logo após o await, sem depender do re-render do authError.
   const erroSalvarPerfilRef = useRef<string>("");
+  // Captura de GPS na tela pedir-localizacao (alternativa ao CEP).
+  const [capturandoGPS, setCapturandoGPS] = useState(false);
 
   // ── Modo Beta (lançamento controlado) ───────────────────────────────────────
   // Enquanto `modoBeta` ligado no servidor, quem NÃO é tester (acesso_total) nem
@@ -11195,6 +11197,17 @@ export default function App() {
         return String(A.id).localeCompare(String(B.id));
       });
 
+    // Quantos prestadores compartilham CADA coordenada (já arredondada a 2 casas
+    // pela RPC #226). Coord compartilhada por vários = artefato do fallback de
+    // centroide → o card não mostra distância falsa (ver rotuloDistanciaFeed).
+    const contagemCoord: Record<string, number> = {};
+    for (const d of diaristasReaisVisiveis) {
+      if (d.lat != null && d.lng != null) {
+        const k = `${d.lat},${d.lng}`;
+        contagemCoord[k] = (contagemCoord[k] || 0) + 1;
+      }
+    }
+
     return (
       <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
 
@@ -11580,11 +11593,17 @@ export default function App() {
                                 <span style={{ ...S.badge, ...(d.disponivel ? S.badgeVerde : S.badgeCinza), fontSize:11 }}>
                                   {d.disponivel ? "● Disponível hoje" : "● Ocupado"}
                                 </span>
-                                {profile?.lat && profile?.lng && d.lat && d.lng && (
-                                  <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:600 }}>
-                                    📍 {haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!).toFixed(1)} km
-                                  </span>
-                                )}
+                                {profile?.lat && profile?.lng && d.lat && d.lng && (() => {
+                                  // Distância honesta: esconde o número quando a coord do prestador
+                                  // é centroide-compartilhada ou está abaixo do ruído do arredondamento.
+                                  const km = haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!);
+                                  const lbl = rotuloDistanciaFeed(km, { perfisNaMesmaCoord: contagemCoord[`${d.lat},${d.lng}`] || 1 });
+                                  return (
+                                    <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:600 }}>
+                                      {lbl ? `📍 ${lbl}` : "📍 distância aproximada"}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                               <button
                                 style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"9px 18px", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 10px ${negocio.cor}44` }}
@@ -18064,6 +18083,31 @@ export default function App() {
       irParaDestino();  // entra SEMPRE
     };
 
+    // Alternativa ao CEP: captura a posição REAL via GPS (mesma API do check-in,
+    // :5813). É precisa (≠ centroide do CEP) — corrige a "minha localização" do
+    // feed. Grava lat/lng no perfil. (Marcar geo_preciso=true depende da coluna
+    // em user_profiles — ver MIGRAÇÃO no relatório; sem ela, só grava lat/lng.)
+    const handleUsarGPS = () => {
+      if (!("geolocation" in navigator)) {
+        setToastError("📍 Seu aparelho não permite localização. Use o CEP.");
+        return;
+      }
+      setCapturandoGPS(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setCapturandoGPS(false);
+          void saveProfile({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setToastSuccess("✅ Localização capturada com precisão!");
+          irParaDestino();
+        },
+        () => {
+          setCapturandoGPS(false);
+          setToastError("📍 Não consegui acessar sua localização. Permita o acesso ou use o CEP.");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+      );
+    };
+
     return (
       <div style={{ ...S.splash, background:"#f8fafc" }}>
         <div style={{ ...S.splashInner, maxWidth: 360, width:"100%" }}>
@@ -18095,6 +18139,19 @@ export default function App() {
               {buscandoCEPPerfil ? "..." : "Buscar"}
             </button>
           </div>
+
+          {/* Alternativa: GPS (posição real e precisa — corrige o feed de distância) */}
+          <div style={{ display:"flex", alignItems:"center", gap:10, width:"100%", margin:"6px 0" }}>
+            <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+            <span style={{ color:"#94a3b8", fontSize:12, fontWeight:600 }}>ou</span>
+            <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+          </div>
+          <button
+            style={{ width:"100%", padding:"13px", background:"#fff", color: corTela, border:`1.5px solid ${corTela}`, borderRadius:12, fontSize:14, fontWeight:800, cursor: capturandoGPS ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: capturandoGPS ? 0.6 : 1, marginBottom:4 }}
+            disabled={capturandoGPS}
+            onClick={handleUsarGPS}>
+            {capturandoGPS ? "📍 Capturando..." : "📍 Usar minha localização atual"}
+          </button>
 
           {/* Feedback */}
           {geocodOk && (
