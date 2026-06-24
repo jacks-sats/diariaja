@@ -50,7 +50,10 @@ import {
   vagaEmpregoExcedeuCota,
   limiteVagasEmpregoMes,
   LIMITE_VAGAS_EMPREGO_GRATIS_MES,
+  rotuloPrecoVaga,
+  precoDiariaParaSalvar,
 } from "../helpers";
+import { FUNCOES_DELIVERY } from "../constants";
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
 describe("validarCPF", () => {
@@ -1528,5 +1531,47 @@ describe("distanciaParaFiltroRaio", () => {
     expect(distanciaParaFiltroRaio(7.5, false)).toBe(Infinity);
     // 7,5 km > "até 5 km", mas com geo não confiável o perfil PASSA (Infinity).
     expect(distanciaParaFiltroRaio(7.5, false) <= 5).toBe(false);
+  });
+});
+
+// ── Preço de delivery: estimativa = valor (fonte única) + rótulo "estimado" ───
+describe("delivery: estimativa é o preço oficial", () => {
+  // (a) delivery grava a estimativa em valor E espelha ganho_estimado_dia
+  it("delivery: estimativa vira valor e espelha ganho_estimado_dia (fonte única)", () => {
+    expect(precoDiariaParaSalvar({ ehDelivery: true, ehEmprego: false, valorForm: "180" }))
+      .toEqual({ valor: 180, ganho_estimado_dia: 180 });
+  });
+  it("delivery: valor e ganho_estimado_dia nunca divergem (saem do mesmo input)", () => {
+    const r = precoDiariaParaSalvar({ ehDelivery: true, ehEmprego: false, valorForm: 95 });
+    expect(r.valor).toBe(r.ganho_estimado_dia);
+  });
+  it("delivery sem valor preenchido: valor 0 e ganho_estimado_dia null", () => {
+    expect(precoDiariaParaSalvar({ ehDelivery: true, ehEmprego: false, valorForm: "" }))
+      .toEqual({ valor: 0, ganho_estimado_dia: null });
+  });
+  it("não-delivery: ganho_estimado_dia não se aplica (null)", () => {
+    expect(precoDiariaParaSalvar({ ehDelivery: false, ehEmprego: false, valorForm: "150" }))
+      .toEqual({ valor: 150, ganho_estimado_dia: null });
+  });
+  it("emprego: valor zera (vai no salário) e sem ganho_estimado_dia", () => {
+    expect(precoDiariaParaSalvar({ ehDelivery: false, ehEmprego: true, valorForm: "150" }))
+      .toEqual({ valor: 0, ganho_estimado_dia: null });
+  });
+
+  // (b — indireto) as 3 funções de delivery, e só elas, acionam a regra
+  it("FUNCOES_DELIVERY identifica exatamente motoboy/entregador (gate do campo)", () => {
+    expect(FUNCOES_DELIVERY).toEqual(["Motoboy", "Entregador de Bicicleta", "Entregador de Carro"]);
+    expect(FUNCOES_DELIVERY.includes("Diarista")).toBe(false);
+  });
+
+  // (c) card de delivery mostra que o preço é estimado
+  it("card delivery: rótulo mostra ~ e '(estimado)'", () => {
+    expect(rotuloPrecoVaga(180, { ehDelivery: true })).toBe("~R$ 180/dia (estimado)");
+  });
+  it("card não-delivery (diária): mantém 'R$ X/dia' seco", () => {
+    expect(rotuloPrecoVaga(150, { ehDelivery: false })).toBe("R$ 150/dia");
+  });
+  it("card não-delivery (serviço): 'R$ X' sem /dia", () => {
+    expect(rotuloPrecoVaga(80, { ehDelivery: false, ehServico: true })).toBe("R$ 80");
   });
 });

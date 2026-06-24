@@ -1253,3 +1253,30 @@ export function conviteExpirou(
   if (Number.isNaN(inicio.getTime())) return false;
   return agora.getTime() > inicio.getTime();
 }
+
+// ── Preço de anúncio de DELIVERY (motoboy/entregador) ────────────────────────
+// Regra: no delivery o anunciante digita UM número só — a "estimativa de ganho
+// no dia" — e ele É o preço oficial (diarias.valor). Não há campo "Valor a pagar
+// pelo dia" separado. Estes helpers centralizam a regra pra a UI e os testes.
+
+// Rótulo do preço no card. Delivery deixa explícito que o valor é uma estimativa
+// (ex.: "~R$ 180/dia (estimado)"); as demais categorias seguem "R$ X/dia"
+// (ou "R$ X" pra serviço pontual).
+export function rotuloPrecoVaga(
+  valor: number | string,
+  opts: { ehDelivery: boolean; ehServico?: boolean },
+): string {
+  if (opts.ehDelivery) return `~R$ ${valor}/dia (estimado)`;
+  return `R$ ${valor}${opts.ehServico ? "" : "/dia"}`;
+}
+
+// Mapeia o que vai pro banco a partir do valor do formulário. Para delivery, a
+// estimativa (formDiaria.valor) também ESPELHA ganho_estimado_dia — FONTE ÚNICA:
+// os dois nunca divergem porque saem do mesmo input. Para as demais categorias,
+// ganho_estimado_dia não se aplica (null) e emprego zera o valor (vai em salário).
+export function precoDiariaParaSalvar(opts: {
+  ehDelivery: boolean; ehEmprego: boolean; valorForm: number | string;
+}): { valor: number; ganho_estimado_dia: number | null } {
+  const valor = opts.ehEmprego ? 0 : (Number(opts.valorForm) || 0);
+  return { valor, ganho_estimado_dia: opts.ehDelivery ? (valor || null) : null };
+}
