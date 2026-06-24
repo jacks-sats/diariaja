@@ -92,7 +92,7 @@ import {
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo,
-  montarTextoVaga,
+  montarTextoVaga, rotuloPrecoVaga, precoDiariaParaSalvar,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -6154,6 +6154,9 @@ export default function App() {
       }
     }
     const isDelivery = FUNCOES_DELIVERY.includes(formDiaria.funcao);
+    // Delivery: a estimativa (formDiaria.valor) é o preço E espelha ganho_estimado_dia
+    // — fonte única, nunca divergem. (helpers.precoDiariaParaSalvar)
+    const precoSalvar = precoDiariaParaSalvar({ ehDelivery: isDelivery, ehEmprego, valorForm: formDiaria.valor });
     const nova = {
       empregador_id: session.user.id,
       nome_negocio: formDiaria.local.trim() || profile?.nome_negocio || "",
@@ -6166,7 +6169,7 @@ export default function App() {
       horario_inicio: ehEmprego ? "00:00" : formDiaria.horario_inicio,
       // Pra serviço, horário fim fica vazio (não definido).
       horario_fim: ehEmprego ? "23:59" : ehServico ? "" : formDiaria.horario_fim,
-      valor: ehEmprego ? 0 : Number(formDiaria.valor),
+      valor: precoSalvar.valor,
       status: "aberta",
       // Multi-vagas: emprego é vaga única (seleção); diária/serviço usam o stepper (1–5).
       vagas: ehEmprego ? 1 : vagasDiaria,
@@ -6193,7 +6196,7 @@ export default function App() {
       ...(isDelivery && {
         valor_encostada: formDiaria.valor_encostada ? Number(formDiaria.valor_encostada) : null,
         valor_por_entrega: formDiaria.valor_por_entrega ? Number(formDiaria.valor_por_entrega) : null,
-        ganho_estimado_dia: formDiaria.ganho_estimado_dia ? Number(formDiaria.ganho_estimado_dia) : null,
+        ganho_estimado_dia: precoSalvar.ganho_estimado_dia,
       }),
     };
     // Insert com fallback de ORDEM DE DEPLOY: se uma coluna nova ainda não existir
@@ -11005,7 +11008,7 @@ export default function App() {
             <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>{d.nome_negocio || d.segmento}</div>
             <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:4 }}>👷 {d.funcao}</div>
             <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:4 }}>📅 {new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {d.horario_inicio.slice(0,5)}–{d.horario_fim.slice(0,5)}</div>
-            <div style={{ fontSize:15, fontWeight:900, color:"#FF6B35", marginTop:6 }}>R$ {d.valor}/dia</div>
+            <div style={{ fontSize:15, fontWeight:900, color:"#FF6B35", marginTop:6 }}>{rotuloPrecoVaga(d.valor, { ehDelivery: FUNCOES_DELIVERY.includes(d.funcao), ehServico: d.tipo_oferta === "servico" })}</div>
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
             {[
@@ -12189,11 +12192,10 @@ export default function App() {
                           </div>
                         )}
                         {/* Delivery info para empregador */}
-                        {FUNCOES_DELIVERY.includes(dia.funcao) && (dia.valor_encostada || dia.valor_por_entrega || dia.ganho_estimado_dia) && (
+                        {FUNCOES_DELIVERY.includes(dia.funcao) && (dia.valor_encostada || dia.valor_por_entrega) && (
                           <div style={{ display:"flex", gap:10, flexWrap:"wrap", background:"#fff7ed", border:"1px solid #fed7aa", borderRadius:10, padding:"7px 10px", marginBottom: (dia.status==="aceita"||dia.status==="em_andamento") ? 12 : 4 }}>
                             {dia.valor_encostada && <span style={{ fontSize:11, color:"#92400e" }}>🏍️ Encostada: <strong>R$ {dia.valor_encostada}</strong></span>}
                             {dia.valor_por_entrega && <span style={{ fontSize:11, color:"#92400e" }}>📦 /entrega: <strong>R$ {dia.valor_por_entrega}</strong></span>}
-                            {dia.ganho_estimado_dia && <span style={{ fontSize:11, color:"#92400e" }}>💰 Estimativa: <strong>R$ {dia.ganho_estimado_dia}</strong></span>}
                           </div>
                         )}
                         {/* Botão "Pagar via Mercado Pago" do valor total removido —
@@ -15203,8 +15205,8 @@ export default function App() {
                                 </>
                               ) : (
                                 <>
-                                  <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>R$ {dia.valor}</div>
-                                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{dia.tipo_oferta === "servico" ? "/serviço" : "/dia"}</div>
+                                  <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>{FUNCOES_DELIVERY.includes(dia.funcao) ? "~" : ""}R$ {dia.valor}</div>
+                                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{FUNCOES_DELIVERY.includes(dia.funcao) ? "/dia (estimado)" : dia.tipo_oferta === "servico" ? "/serviço" : "/dia"}</div>
                                 </>
                               )}
                             </div>
@@ -15252,20 +15254,12 @@ export default function App() {
                           )}
 
                           {/* Delivery info block */}
-                          {FUNCOES_DELIVERY.includes(dia.funcao) && (dia.valor_encostada || dia.valor_por_entrega || dia.ganho_estimado_dia) && (
+                          {FUNCOES_DELIVERY.includes(dia.funcao) && dia.valor_por_entrega && (
                             <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:12, padding:"9px 12px", marginTop:10, display:"flex", gap:12, flexWrap:"wrap" }}>
-                              {dia.valor_por_entrega && (
-                                <div style={{ textAlign:"center" }}>
-                                  <div style={{ fontSize:11, color:"#92400e", fontWeight:600 }}>Por entrega</div>
-                                  <div style={{ fontSize:15, fontWeight:900, color:"#ea580c" }}>R$ {dia.valor_por_entrega}</div>
-                                </div>
-                              )}
-                              {dia.ganho_estimado_dia && (
-                                <div style={{ textAlign:"center" }}>
-                                  <div style={{ fontSize:11, color:"#92400e", fontWeight:600 }}>Estimativa/dia</div>
-                                  <div style={{ fontSize:15, fontWeight:900, color:"#ea580c" }}>R$ {dia.ganho_estimado_dia}</div>
-                                </div>
-                              )}
+                              <div style={{ textAlign:"center" }}>
+                                <div style={{ fontSize:11, color:"#92400e", fontWeight:600 }}>Por entrega</div>
+                                <div style={{ fontSize:15, fontWeight:900, color:"#ea580c" }}>R$ {dia.valor_por_entrega}</div>
+                              </div>
                             </div>
                           )}
 
@@ -19114,7 +19108,7 @@ export default function App() {
               <strong>💡 Como funciona:</strong> O <em>valor por encostada</em> é a taxa de conexão paga à DiáriaJá por cada entregador alocado. Os demais valores são informativos para o entregador estimar o ganho do dia.
             </div>
 
-            <label style={S.label}>Valor por encostada (R$) *</label>
+            <label style={S.label}>Valor por encostada (R$)</label>
             <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px" }}>
               Taxa de alocação cobrada pela DiáriaJá por entregador alocado.
             </p>
@@ -19144,25 +19138,26 @@ export default function App() {
               />
             </div>
 
-            <label style={{ ...S.label, marginTop:12 }}>Estimativa de ganho no dia (R$)</label>
+            <label {...anchorCampo("valor")} style={{ ...S.label, marginTop:12 }}>Estimativa de ganho no dia (R$) *</label>
             <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px" }}>
-              Média de ganho total do entregador (ajuda a atrair bons profissionais).
+              Média de ganho total do entregador no dia. É o <strong>preço que aparece no anúncio</strong> (exibido como estimativa).
             </p>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
               <input
-                style={{ ...S.input, paddingLeft:40 }}
+                style={{ ...S.input, paddingLeft:40, ...estiloErro("valor") }}
                 type="number"
                 placeholder="Ex: 180,00"
-                value={formDiaria.ganho_estimado_dia}
-                onChange={e => setFormDiaria(prev => ({ ...prev, ganho_estimado_dia: e.target.value }))}
+                value={formDiaria.valor}
+                onChange={e => setFormDiaria(prev => ({ ...prev, valor: e.target.value }))}
               />
             </div>
+            {erroCampo("valor")}
 
             {formDiaria.valor_encostada && formDiaria.valor_por_entrega && (
               <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"10px 14px", marginTop:8, fontSize:13, color:"#166534" }}>
                 🏍️ <strong>Resumo delivery:</strong> Encostada R$ {formDiaria.valor_encostada} · Por entrega R$ {formDiaria.valor_por_entrega}
-                {formDiaria.ganho_estimado_dia && ` · Estimativa/dia R$ ${formDiaria.ganho_estimado_dia}`}
+                {formDiaria.valor && ` · Estimativa/dia R$ ${formDiaria.valor}`}
               </div>
             )}
           </>
@@ -19331,6 +19326,11 @@ export default function App() {
         )}
 
         {/* ── SEÇÃO 3: Pagamento ── */}
+        {/* Delivery (diária/serviço) NÃO mostra este bloco: o preço é a "Estimativa
+            de ganho no dia" do bloco de Delivery acima (grava em formDiaria.valor).
+            Exceção: delivery + Emprego (ex.: motoboy CLT) mantém o campo de salário. */}
+        {(!FUNCOES_DELIVERY.includes(formDiaria.funcao) || formDiaria.tipo_oferta === "emprego") && (
+        <>
         <Secao icone="💰" titulo="Pagamento" />
 
         <label style={S.label}>
@@ -19392,6 +19392,8 @@ export default function App() {
             </div>
           );
         })()}
+        </>
+        )}
 
         {/* ── SEÇÃO 4: Local — em diária/serviço é privado até aceitar; em vaga aparece ── */}
         <Secao
