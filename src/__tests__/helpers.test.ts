@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  erroTelefoneSave,
   protocoloContato,
   maskData,
   isoParaBR,
@@ -1455,5 +1456,30 @@ describe("conviteExpirou", () => {
   });
   it("sem data_servico nunca expira", () => {
     expect(conviteExpirou({ data_servico: null, horario_servico: "06:00", status: "pendente" }, agora)).toBe(false);
+  });
+});
+
+// ── erroTelefoneSave: telefone só bloqueia o save quando o save ALTERA o telefone ──
+describe("erroTelefoneSave (saveProfile não revalida telefone em update parcial)", () => {
+  it("update parcial { categorias } (sem telefone) NÃO revalida → null", () => {
+    // saveProfile({ categorias }) => updates.telefone === undefined
+    expect(erroTelefoneSave(undefined)).toBeNull();
+  });
+  it("update parcial { bio } (sem telefone) NÃO revalida → null", () => {
+    expect(erroTelefoneSave(undefined)).toBeNull();
+  });
+  it("perfil com telefone legado fora de formato NÃO bloqueia save que não toca no campo", () => {
+    // O legado mora em profile.telefone; como o update não passa telefone, é undefined.
+    expect(erroTelefoneSave(undefined)).toBeNull();
+  });
+  it("quando o save edita o telefone com valor inválido → mensagem (regra mantida)", () => {
+    expect(erroTelefoneSave("123")).toBe("Telefone inválido. Use o formato (XX) 9XXXX-XXXX.");
+  });
+  it("quando o save edita o telefone com valor válido → null", () => {
+    expect(erroTelefoneSave("(67) 99999-9999")).toBeNull();
+    expect(erroTelefoneSave("67999999999")).toBeNull();
+  });
+  it("telefone vazio no update não bloqueia (limpar campo) → null", () => {
+    expect(erroTelefoneSave("")).toBeNull();
   });
 });

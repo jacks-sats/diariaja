@@ -86,7 +86,7 @@ import {
   nivelDiarista, calcScore, validarNome, verificarFraudeDescricao,
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
-  validarTituloDiaria, validarEmail, validarTelefone, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
+  validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
   formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
@@ -501,6 +501,9 @@ export default function App() {
   const [loadingPerfil, setLoadingPerfil]             = useState(false);
   const [toastSuccess, setToastSuccess]               = useState("");  // toast verde auto-dismiss 3s
   const [toastError, setToastError]                   = useState("");  // toast vermelho auto-dismiss 4s
+  // Última mensagem de falha do saveProfile — ref (síncrona) para o handler poder
+  // exibi-la num toast logo após o await, sem depender do re-render do authError.
+  const erroSalvarPerfilRef = useRef<string>("");
 
   // ── Modo Beta (lançamento controlado) ───────────────────────────────────────
   // Enquanto `modoBeta` ligado no servidor, quem NÃO é tester (acesso_total) nem
@@ -3001,12 +3004,15 @@ export default function App() {
     const { data: sessFresca } = await supabase.auth.getSession();
     const userAtivo = sessFresca?.session?.user ?? session?.user;
     if (!userAtivo) return false;
+    erroSalvarPerfilRef.current = "";
     const telefoneFinal = updates.telefone ?? profile?.telefone ?? form.telefone;
-    // Telefone só é validado se foi preenchido (alguns fluxos salvam sem ele)
-    if (telefoneFinal && telefoneFinal.trim() && !validarTelefone(telefoneFinal)) {
-      setAuthError("Telefone inválido. Use o formato (XX) 9XXXX-XXXX.");
-      return false;
-    }
+    // Telefone só é revalidado quando ESTE save está alterando o telefone
+    // (updates.telefone definido). Saves que não tocam no campo — ex.: { categorias },
+    // { bio }, { disponivel } — NÃO podem ser bloqueados por um telefone legado fora
+    // do formato (era a causa do "Salvar" silencioso no modalInfoPerfil). O fluxo que
+    // edita o telefone passa updates.telefone e segue validado igual. (erroTelefoneSave)
+    const erroTel = erroTelefoneSave(updates.telefone);
+    if (erroTel) { setAuthError(erroTel); erroSalvarPerfilRef.current = erroTel; return false; }
     setSalvandoPerfil(true);
     const full: UserProfile = {
       id: userAtivo.id,
@@ -3064,12 +3070,16 @@ export default function App() {
         const m = (error.message || "").toLowerCase();
         const code = String((error as { code?: string }).code || "");
         if (code === "23505" || m.includes("duplicate") || m.includes("unique")) {
-          if (m.includes("cpf")) setAuthError("⚠️ Este CPF já possui cadastro. Cada CPF só pode ter uma conta — faça login na conta existente.");
-          else if (m.includes("cnpj")) setAuthError("⚠️ Este CNPJ já possui cadastro. Faça login na conta existente.");
-          else setAuthError("⚠️ Esses dados já estão cadastrados em outra conta.");
+          const msgDup = m.includes("cpf")
+            ? "⚠️ Este CPF já possui cadastro. Cada CPF só pode ter uma conta — faça login na conta existente."
+            : m.includes("cnpj")
+            ? "⚠️ Este CNPJ já possui cadastro. Faça login na conta existente."
+            : "⚠️ Esses dados já estão cadastrados em outra conta.";
+          setAuthError(msgDup); erroSalvarPerfilRef.current = msgDup;
           return false;
         }
-        setAuthError(traduzirErroBanco(error));
+        const msgErro = traduzirErroBanco(error);
+        setAuthError(msgErro); erroSalvarPerfilRef.current = msgErro;
         return false;
       }
       setProfile(full);
@@ -14119,7 +14129,15 @@ export default function App() {
                   <div style={{ display:"flex", gap:8, marginTop:8 }}>
                     <button
                       style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                      onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); setModalInfoPerfil(false); } }}>
+                      onClick={async () => {
+                        try {
+                          const ok = await saveProfile({ bio: bioDraft });
+                          if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); setModalInfoPerfil(false); }
+                          else setToastError(erroSalvarPerfilRef.current || "Não foi possível salvar. Tente novamente.");
+                        } catch (e) {
+                          setToastError((e as Error)?.message || "Erro ao salvar. Verifique sua conexão e tente de novo.");
+                        }
+                      }}>
                       Salvar
                     </button>
                     <button
@@ -17182,8 +17200,13 @@ export default function App() {
                       style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                       onClick={async () => {
                         // MESMA regra do cadastro (src/App.tsx): funcao = categorias[0].
-                        const ok = await saveProfile({ categorias: categoriasSelecionadas, funcao: categoriasSelecionadas[0] || "" });
-                        if (ok) { setToastSuccess("✅ Função e especialidades salvas!"); setEditandoFuncoes(false); setModalInfoPerfil(false); }
+                        try {
+                          const ok = await saveProfile({ categorias: categoriasSelecionadas, funcao: categoriasSelecionadas[0] || "" });
+                          if (ok) { setToastSuccess("✅ Função e especialidades salvas!"); setEditandoFuncoes(false); setModalInfoPerfil(false); }
+                          else setToastError(erroSalvarPerfilRef.current || "Não foi possível salvar. Tente novamente.");
+                        } catch (e) {
+                          setToastError((e as Error)?.message || "Erro ao salvar. Verifique sua conexão e tente de novo.");
+                        }
                       }}>
                       Salvar
                     </button>
@@ -17208,7 +17231,15 @@ export default function App() {
                   <div style={{ display:"flex", gap:8, marginTop:8 }}>
                     <button
                       style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                      onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); setModalInfoPerfil(false); } }}>
+                      onClick={async () => {
+                        try {
+                          const ok = await saveProfile({ bio: bioDraft });
+                          if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); setModalInfoPerfil(false); }
+                          else setToastError(erroSalvarPerfilRef.current || "Não foi possível salvar. Tente novamente.");
+                        } catch (e) {
+                          setToastError((e as Error)?.message || "Erro ao salvar. Verifique sua conexão e tente de novo.");
+                        }
+                      }}>
                       Salvar
                     </button>
                     <button
