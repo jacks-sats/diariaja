@@ -36,6 +36,7 @@ import {
   vagaProximaDeVencer,
   checkinDentroDaJanela,
   diariaNoShow,
+  duracaoTurnoMin,
   calcularNivelAcademy,
   faseCiclo,
   vezDoCiclo,
@@ -461,6 +462,44 @@ describe("vagaExpirou", () => {
 
   it("retorna false se data está vazia", () => {
     expect(vagaExpirou({ data: "", horario_fim: "18:00", status: "aberta" }, agora)).toBe(false);
+  });
+
+  it("turno que cruza a meia-noite: NÃO expira durante a madrugada do dia seguinte", () => {
+    // Diária 23/06 18:00 → 02:00. Às 01:00 do dia 24 ainda está rolando.
+    expect(vagaExpirou(
+      { data: "2026-06-23", horario_inicio: "18:00", horario_fim: "02:00", status: "aberta" },
+      new Date("2026-06-24T01:00:00"),
+    )).toBe(false);
+  });
+  it("turno que cruza a meia-noite: expira após o fim real (02:00 do dia seguinte)", () => {
+    expect(vagaExpirou(
+      { data: "2026-06-23", horario_inicio: "18:00", horario_fim: "02:00", status: "aberta" },
+      new Date("2026-06-24T02:30:00"),
+    )).toBe(true);
+  });
+});
+
+// ── duracaoTurnoMin (regra "vira o dia") ─────────────────────────────────────
+describe("duracaoTurnoMin", () => {
+  it("turno normal: 08:00 → 17:00 = 540min (9h)", () => {
+    expect(duracaoTurnoMin("08:00", "17:00")).toBe(540);
+  });
+  it("turno que CRUZA A MEIA-NOITE: 18:00 → 02:00 = 480min (8h)", () => {
+    expect(duracaoTurnoMin("18:00", "02:00")).toBe(480);
+  });
+  it("virada extrema: 23:30 → 00:00 = 30min", () => {
+    expect(duracaoTurnoMin("23:30", "00:00")).toBe(30);
+  });
+  it("fim == início = 0 (turno de duração zero — inválido pra quem chama)", () => {
+    expect(duracaoTurnoMin("18:00", "18:00")).toBe(0);
+  });
+  it("aceita HH:MM:SS", () => {
+    expect(duracaoTurnoMin("18:00:00", "02:00:00")).toBe(480);
+  });
+  it("null quando falta horário ou é malformado", () => {
+    expect(duracaoTurnoMin("", "02:00")).toBeNull();
+    expect(duracaoTurnoMin("18:00", "")).toBeNull();
+    expect(duracaoTurnoMin("18:00", "ab")).toBeNull();
   });
 });
 
@@ -1043,6 +1082,12 @@ describe("checkinDentroDaJanela", () => {
   it("false sem data", () => {
     expect(checkinDentroDaJanela({ data: "", horario_inicio: "14:00" }, new Date("2026-05-29T15:00:00"))).toBe(false);
   });
+  it("turno que cruza a meia-noite (18:00→02:00): janela abre até 04:00 do dia seguinte", () => {
+    const noturna = { data: "2026-06-23", horario_inicio: "18:00", horario_fim: "02:00" };
+    expect(checkinDentroDaJanela(noturna, new Date("2026-06-24T01:00:00"))).toBe(true);  // durante a madrugada
+    expect(checkinDentroDaJanela(noturna, new Date("2026-06-24T03:30:00"))).toBe(true);  // até fim+2h (04:00)
+    expect(checkinDentroDaJanela(noturna, new Date("2026-06-24T05:00:00"))).toBe(false); // depois de fim+2h
+  });
 });
 
 describe("diariaNoShow", () => {
@@ -1063,6 +1108,11 @@ describe("diariaNoShow", () => {
   });
   it("false: sem data", () => {
     expect(diariaNoShow({ ...base, data: "", status: "aceita" }, new Date("2026-05-29T20:30:00"))).toBe(false);
+  });
+  it("turno que cruza a meia-noite: no-show só após o fim real + 2h (04:00 do dia seguinte)", () => {
+    const noturna = { data: "2026-06-23", horario_inicio: "18:00", horario_fim: "02:00", diarista_aceite_id: "x", status: "aceita" };
+    expect(diariaNoShow(noturna, new Date("2026-06-24T01:00:00"))).toBe(false); // ainda durante o turno
+    expect(diariaNoShow(noturna, new Date("2026-06-24T04:30:00"))).toBe(true);  // passou de fim+2h
   });
 });
 
