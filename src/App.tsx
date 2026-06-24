@@ -11289,9 +11289,14 @@ export default function App() {
               {/* Instagram oficial @diariaja.free */}
               <button
                 aria-label="Instagram @diariaja.free"
-                style={{ background:"linear-gradient(45deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5)", border:"none", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer", padding:0, fontFamily:"Inter, system-ui, sans-serif" }}
+                style={{ background:"#0A1A33", border:"none", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => window.open("https://instagram.com/diariaja.free","_blank","noopener,noreferrer")}>
-                📷
+                {/* Glifo do Instagram (SVG inline, branco) — lucide-react não exporta mais o ícone */}
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+                </svg>
               </button>
               {/* Botão "trocar perfil" agora mora dentro do menu ⋮ (header limpo) */}
               <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
@@ -14501,9 +14506,14 @@ export default function App() {
               {/* Instagram oficial @diariaja.free */}
               <button
                 aria-label="Instagram @diariaja.free"
-                style={{ background:"linear-gradient(45deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5)", border:"none", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer", padding:0, fontFamily:"Inter, system-ui, sans-serif" }}
+                style={{ background:"#0A1A33", border:"none", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => window.open("https://instagram.com/diariaja.free","_blank","noopener,noreferrer")}>
-                📷
+                {/* Glifo do Instagram (SVG inline, branco) — lucide-react não exporta mais o ícone */}
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+                </svg>
               </button>
               {/* Botão "trocar perfil" agora mora dentro do menu ⋮ (header limpo) */}
               <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
