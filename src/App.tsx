@@ -87,7 +87,7 @@ import {
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
-  formatarDistancia, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
+  formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
@@ -504,6 +504,12 @@ export default function App() {
   // Última mensagem de falha do saveProfile — ref (síncrona) para o handler poder
   // exibi-la num toast logo após o await, sem depender do re-render do authError.
   const erroSalvarPerfilRef = useRef<string>("");
+  // Captura de GPS na tela pedir-localizacao (alternativa ao CEP).
+  const [capturandoGPS, setCapturandoGPS] = useState(false);
+  // Precisão do último geocodificarCEP: false = caiu no fallback de centroide de
+  // cidade (passo 4); true = CEP/endereço com coordenada real. Vira geo_preciso.
+  const ultimoGeoCepPrecisoRef = useRef<boolean>(true);
+  const [cepPerfilPreciso, setCepPerfilPreciso] = useState(true);
 
   // ── Modo Beta (lançamento controlado) ───────────────────────────────────────
   // Enquanto `modoBeta` ligado no servidor, quem NÃO é tester (acesso_total) nem
@@ -3029,6 +3035,7 @@ export default function App() {
       bio: updates.bio ?? profile?.bio ?? form.bio ?? "",
       foto_url: updates.foto_url ?? profile?.foto_url ?? fotoUrl ?? "",
       categorias: updates.categorias ?? profile?.categorias ?? categoriasSelecionadas ?? [],
+      geo_preciso: updates.geo_preciso ?? profile?.geo_preciso ?? null,
       lat: updates.lat !== undefined ? updates.lat : (profile?.lat ?? null),
       lng: updates.lng !== undefined ? updates.lng : (profile?.lng ?? null),
       cpf: updates.cpf ?? profile?.cpf ?? form.cpf ?? "",
@@ -6266,6 +6273,7 @@ export default function App() {
   const geocodificarCEP = async (cep: string, cidade?: string, uf?: string, permitirCidade = true): Promise<{lat:number, lng:number}|null> => {
     const cepNorm = cep.replace(/\D/g, "");
     if (cepNorm.length !== 8) return null;
+    ultimoGeoCepPrecisoRef.current = true;  // assume preciso; só o passo 4 (centroide) marca false
 
     // 1. Cache local (instantâneo)
     const cache = lerGeoCache();
@@ -6321,6 +6329,7 @@ export default function App() {
     //    ⚠️ NÃO usar pro check-in da diária (permitirCidade=false): centroide de
     //    cidade gerava falso "muito longe (~8km)". Ver geocodificarEndereco.
     if (permitirCidade && cidade && uf) {
+      ultimoGeoCepPrecisoRef.current = false;  // centroide de cidade = posição IMPRECISA
       try {
         const q = encodeURIComponent(`${cidade}, ${uf}, Brasil`);
         const r = await fetch(
@@ -6845,7 +6854,7 @@ export default function App() {
       if (json.erro) { setAuthError("CEP não encontrado. Verifique o CEP digitado."); setBuscandoCEPPerfil(false); return; }
       setForm(prev => ({ ...prev, bairro: json.bairro || prev.bairro, cidade: json.localidade || prev.cidade }));
       const coords = await geocodificarCEP(cep, json.localidade, json.uf);
-      if (coords) { setLatPerfilCEP(coords.lat); setLngPerfilCEP(coords.lng); }
+      if (coords) { setLatPerfilCEP(coords.lat); setLngPerfilCEP(coords.lng); setCepPerfilPreciso(ultimoGeoCepPrecisoRef.current); }
       else setAuthError("CEP encontrado, mas não foi possível obter as coordenadas. Tente novamente.");
     } catch { setAuthError("Erro ao buscar CEP. Verifique sua conexão."); }
     setBuscandoCEPPerfil(false);
@@ -11150,7 +11159,10 @@ export default function App() {
     // espelha o distKm do lado do prestador (App.tsx ~13830) e garante o fail-open.
     const distKmAnunciante = (d: UserProfile): number => {
       if (!profile?.lat || !profile?.lng || !d.lat || !d.lng) return Infinity;
-      return haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!);
+      // Fail-open: só corta por raio quando AMBOS têm geo preciso. Sem isso, a
+      // distância é falsa (centroide/null) → não esconde ninguém. Coerente com o card.
+      const ambos = profile.geo_preciso === true && d.geo_preciso === true;
+      return distanciaParaFiltroRaio(haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!), ambos);
     };
     const diaristasReaisVisiveis = diaristasReais
       .filter(d => !(d as UserProfile & { oculto?: boolean }).oculto) // auto-moderação: esconde perfis suspensos por denúncias
@@ -11194,6 +11206,17 @@ export default function App() {
         if (distA !== distB) return distA - distB;
         return String(A.id).localeCompare(String(B.id));
       });
+
+    // Quantos prestadores compartilham CADA coordenada (já arredondada a 2 casas
+    // pela RPC #226). Coord compartilhada por vários = artefato do fallback de
+    // centroide → o card não mostra distância falsa (ver rotuloDistanciaFeed).
+    const contagemCoord: Record<string, number> = {};
+    for (const d of diaristasReaisVisiveis) {
+      if (d.lat != null && d.lng != null) {
+        const k = `${d.lat},${d.lng}`;
+        contagemCoord[k] = (contagemCoord[k] || 0) + 1;
+      }
+    }
 
     return (
       <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
@@ -11580,11 +11603,19 @@ export default function App() {
                                 <span style={{ ...S.badge, ...(d.disponivel ? S.badgeVerde : S.badgeCinza), fontSize:11 }}>
                                   {d.disponivel ? "● Disponível hoje" : "● Ocupado"}
                                 </span>
-                                {profile?.lat && profile?.lng && d.lat && d.lng && (
-                                  <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:600 }}>
-                                    📍 {haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!).toFixed(1)} km
-                                  </span>
-                                )}
+                                {profile?.lat && profile?.lng && d.lat && d.lng && (() => {
+                                  // Distância honesta: só mostra o número quando AMBOS os lados têm geo
+                                  // preciso E a coord não é centroide-compartilhada nem abaixo do ruído
+                                  // do arredondamento. Senão, "distância aproximada".
+                                  const km = haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!);
+                                  const ambosPrecisos = profile?.geo_preciso === true && (d as UserProfile).geo_preciso === true;
+                                  const lbl = rotuloDistanciaFeed(km, { perfisNaMesmaCoord: contagemCoord[`${d.lat},${d.lng}`] || 1, ambosGeoPrecisos: ambosPrecisos });
+                                  return (
+                                    <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:600 }}>
+                                      {lbl ? `📍 ${lbl}` : "📍 distância aproximada"}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                               <button
                                 style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"9px 18px", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 10px ${negocio.cor}44` }}
@@ -18056,12 +18087,37 @@ export default function App() {
       const cepNorm = form.cep.replace(/\D/g, "");
       const updates: Partial<UserProfile> = {};
       if (cepNorm.length === 8) updates.cep = cepNorm;
-      if (latPerfilCEP) { updates.lat = latPerfilCEP; updates.lng = lngPerfilCEP; }
+      if (latPerfilCEP) { updates.lat = latPerfilCEP; updates.lng = lngPerfilCEP; updates.geo_preciso = cepPerfilPreciso; }
       if (Object.keys(updates).length > 0) {
         void saveProfile(updates);  // não await — não trava a navegação
         setLatPerfilCEP(null); setLngPerfilCEP(null);
       }
       irParaDestino();  // entra SEMPRE
+    };
+
+    // Alternativa ao CEP: captura a posição REAL via GPS (mesma API do check-in,
+    // :5813). É precisa (≠ centroide do CEP) — corrige a "minha localização" do
+    // feed. Grava lat/lng no perfil. (Marcar geo_preciso=true depende da coluna
+    // em user_profiles — ver MIGRAÇÃO no relatório; sem ela, só grava lat/lng.)
+    const handleUsarGPS = () => {
+      if (!("geolocation" in navigator)) {
+        setToastError("📍 Seu aparelho não permite localização. Use o CEP.");
+        return;
+      }
+      setCapturandoGPS(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setCapturandoGPS(false);
+          void saveProfile({ lat: pos.coords.latitude, lng: pos.coords.longitude, geo_preciso: true });
+          setToastSuccess("✅ Localização capturada com precisão!");
+          irParaDestino();
+        },
+        () => {
+          setCapturandoGPS(false);
+          setToastError("📍 Não consegui acessar sua localização. Permita o acesso ou use o CEP.");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+      );
     };
 
     return (
@@ -18095,6 +18151,19 @@ export default function App() {
               {buscandoCEPPerfil ? "..." : "Buscar"}
             </button>
           </div>
+
+          {/* Alternativa: GPS (posição real e precisa — corrige o feed de distância) */}
+          <div style={{ display:"flex", alignItems:"center", gap:10, width:"100%", margin:"6px 0" }}>
+            <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+            <span style={{ color:"#94a3b8", fontSize:12, fontWeight:600 }}>ou</span>
+            <div style={{ flex:1, height:1, background:"#e2e8f0" }} />
+          </div>
+          <button
+            style={{ width:"100%", padding:"13px", background:"#fff", color: corTela, border:`1.5px solid ${corTela}`, borderRadius:12, fontSize:14, fontWeight:800, cursor: capturandoGPS ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: capturandoGPS ? 0.6 : 1, marginBottom:4 }}
+            disabled={capturandoGPS}
+            onClick={handleUsarGPS}>
+            {capturandoGPS ? "📍 Capturando..." : "📍 Usar minha localização atual"}
+          </button>
 
           {/* Feedback */}
           {geocodOk && (

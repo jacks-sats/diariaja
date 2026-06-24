@@ -650,6 +650,33 @@ export function formatarDistancia(km: number | null | undefined): string {
   return `${Math.round(km)} km`;
 }
 
+// ── Distância no FEED de prestadores: honesta apesar de dois ruídos conhecidos ──
+//  1) #226 arredonda lat/lng dos prestadores a 2 casas (~1,1 km de grade) — então
+//     distâncias abaixo da resolução da grade são RUÍDO, não dá pra cravar "0,2 km".
+//  2) o fallback de centroide de cidade (geocodificarCEP) colapsa VÁRIOS perfis na
+//     MESMA coordenada — quando muitos compartilham a coord, o número é enganoso.
+// Retorna o rótulo ("~X km") só quando confiável; senão null → a UI mostra algo
+// neutro ("distância aproximada"). Distância falsa é pior que nenhuma.
+// Distância usada pra CORTAR por raio. Só corta quando é confiável (ambos os
+// lados com geo preciso); senão retorna Infinity = fail-open (não esconde
+// ninguém por uma distância falsa). Coerência com rotuloDistanciaFeed: se a
+// distância não é confiável pra MOSTRAR, também não é pra FILTRAR.
+export function distanciaParaFiltroRaio(km: number, ambosGeoPrecisos: boolean): number {
+  return ambosGeoPrecisos ? km : Infinity;
+}
+
+export function rotuloDistanciaFeed(
+  km: number,
+  opts: { perfisNaMesmaCoord: number; ambosGeoPrecisos?: boolean; gridKm?: number },
+): string | null {
+  const grid = opts.gridKm ?? 1.1;
+  if (!Number.isFinite(km)) return null;
+  if (opts.ambosGeoPrecisos === false) return null; // algum lado sem geo preciso (centroide/null)
+  if (opts.perfisNaMesmaCoord >= 3) return null;    // coord de centroide compartilhada → não confiável
+  if (km < grid * 1.5) return null;                 // dentro do ruído do arredondamento (#226)
+  return `~${km.toFixed(1).replace(".", ",")} km`;
+}
+
 // ── Tempo estimado de moto/carro (rota terrestre ~30% maior + 30km/h média) ──
 // Heurística simples: não consulta serviço de roteamento, só estima a partir
 // da distância em linha reta. Bom o suficiente pra "10 min", "1h" no card.

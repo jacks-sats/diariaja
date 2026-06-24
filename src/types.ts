@@ -93,6 +93,10 @@ export interface UserProfile {
   categorias: string[];
   lat: number | null;
   lng: number | null;
+  // true = posição precisa (GPS ou CEP geocodificado); false = fallback de
+  // centroide de cidade; null = desconhecido. O feed só mostra distância quando
+  // ambos os lados são precisos (senão "distância aproximada").
+  geo_preciso?: boolean | null;
   cpf?: string;
   cnpj?: string;
   pessoa_tipo?: string;       // "fisica" | "juridica"

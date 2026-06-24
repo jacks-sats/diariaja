@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   erroTelefoneSave,
+  rotuloDistanciaFeed,
+  distanciaParaFiltroRaio,
   protocoloContato,
   maskData,
   isoParaBR,
@@ -1481,5 +1483,50 @@ describe("erroTelefoneSave (saveProfile não revalida telefone em update parcial
   });
   it("telefone vazio no update não bloqueia (limpar campo) → null", () => {
     expect(erroTelefoneSave("")).toBeNull();
+  });
+});
+
+// ── rotuloDistanciaFeed: distância honesta no feed (não mente "0,2 km") ──
+describe("rotuloDistanciaFeed", () => {
+  it("coord compartilhada por 3+ perfis (centroide) → null (esconde número)", () => {
+    expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 12 })).toBeNull();
+    expect(rotuloDistanciaFeed(6.0, { perfisNaMesmaCoord: 3 })).toBeNull();
+  });
+  it("distância abaixo do ruído do arredondamento (~1,1 km) → null", () => {
+    expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 1 })).toBeNull();
+    expect(rotuloDistanciaFeed(1.4, { perfisNaMesmaCoord: 1 })).toBeNull();
+  });
+  it("coord única e distância acima da grade → mostra '~X km'", () => {
+    expect(rotuloDistanciaFeed(3.2, { perfisNaMesmaCoord: 1 })).toBe("~3,2 km");
+    expect(rotuloDistanciaFeed(2.0, { perfisNaMesmaCoord: 2 })).toBe("~2,0 km");
+  });
+  it("Infinity (sem geo de um lado) → null", () => {
+    expect(rotuloDistanciaFeed(Infinity, { perfisNaMesmaCoord: 1 })).toBeNull();
+  });
+  it("limiar da grade é configurável", () => {
+    // gridKm 0 → some o piso de ruído; só o filtro de cluster vale.
+    expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 1, gridKm: 0 })).toBe("~0,2 km");
+  });
+  it("ambosGeoPrecisos=false (algum lado centroide/null) → null", () => {
+    expect(rotuloDistanciaFeed(3.2, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: false })).toBeNull();
+  });
+  it("ambosGeoPrecisos=true + coord única + acima da grade → mostra '~X km'", () => {
+    expect(rotuloDistanciaFeed(3.2, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: true })).toBe("~3,2 km");
+  });
+  it("ambosGeoPrecisos=true NÃO fura o piso de ruído nem o cluster", () => {
+    expect(rotuloDistanciaFeed(0.5, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: true })).toBeNull();
+    expect(rotuloDistanciaFeed(4.0, { perfisNaMesmaCoord: 3, ambosGeoPrecisos: true })).toBeNull();
+  });
+});
+
+// ── distanciaParaFiltroRaio: filtro de raio fail-open sem geo confiável ──
+describe("distanciaParaFiltroRaio", () => {
+  it("ambos precisos → corta pela distância real", () => {
+    expect(distanciaParaFiltroRaio(7.5, true)).toBe(7.5);
+  });
+  it("algum lado impreciso → Infinity (fail-open, não corta ninguém)", () => {
+    expect(distanciaParaFiltroRaio(7.5, false)).toBe(Infinity);
+    // 7,5 km > "até 5 km", mas com geo não confiável o perfil PASSA (Infinity).
+    expect(distanciaParaFiltroRaio(7.5, false) <= 5).toBe(false);
   });
 });
