@@ -659,12 +659,13 @@ export function formatarDistancia(km: number | null | undefined): string {
 // neutro ("distância aproximada"). Distância falsa é pior que nenhuma.
 export function rotuloDistanciaFeed(
   km: number,
-  opts: { perfisNaMesmaCoord: number; gridKm?: number },
+  opts: { perfisNaMesmaCoord: number; ambosGeoPrecisos?: boolean; gridKm?: number },
 ): string | null {
   const grid = opts.gridKm ?? 1.1;
   if (!Number.isFinite(km)) return null;
-  if (opts.perfisNaMesmaCoord >= 3) return null;   // coord de centroide compartilhada → não confiável
-  if (km < grid * 1.5) return null;                // dentro do ruído do arredondamento (#226)
+  if (opts.ambosGeoPrecisos === false) return null; // algum lado sem geo preciso (centroide/null)
+  if (opts.perfisNaMesmaCoord >= 3) return null;    // coord de centroide compartilhada → não confiável
+  if (km < grid * 1.5) return null;                 // dentro do ruído do arredondamento (#226)
   return `~${km.toFixed(1).replace(".", ",")} km`;
 }
 

@@ -1506,4 +1506,14 @@ describe("rotuloDistanciaFeed", () => {
     // gridKm 0 → some o piso de ruído; só o filtro de cluster vale.
     expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 1, gridKm: 0 })).toBe("~0,2 km");
   });
+  it("ambosGeoPrecisos=false (algum lado centroide/null) → null", () => {
+    expect(rotuloDistanciaFeed(3.2, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: false })).toBeNull();
+  });
+  it("ambosGeoPrecisos=true + coord única + acima da grade → mostra '~X km'", () => {
+    expect(rotuloDistanciaFeed(3.2, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: true })).toBe("~3,2 km");
+  });
+  it("ambosGeoPrecisos=true NÃO fura o piso de ruído nem o cluster", () => {
+    expect(rotuloDistanciaFeed(0.5, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: true })).toBeNull();
+    expect(rotuloDistanciaFeed(4.0, { perfisNaMesmaCoord: 3, ambosGeoPrecisos: true })).toBeNull();
+  });
 });

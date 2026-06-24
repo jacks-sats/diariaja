@@ -506,6 +506,10 @@ export default function App() {
   const erroSalvarPerfilRef = useRef<string>("");
   // Captura de GPS na tela pedir-localizacao (alternativa ao CEP).
   const [capturandoGPS, setCapturandoGPS] = useState(false);
+  // Precisão do último geocodificarCEP: false = caiu no fallback de centroide de
+  // cidade (passo 4); true = CEP/endereço com coordenada real. Vira geo_preciso.
+  const ultimoGeoCepPrecisoRef = useRef<boolean>(true);
+  const [cepPerfilPreciso, setCepPerfilPreciso] = useState(true);
 
   // ── Modo Beta (lançamento controlado) ───────────────────────────────────────
   // Enquanto `modoBeta` ligado no servidor, quem NÃO é tester (acesso_total) nem
@@ -3031,6 +3035,7 @@ export default function App() {
       bio: updates.bio ?? profile?.bio ?? form.bio ?? "",
       foto_url: updates.foto_url ?? profile?.foto_url ?? fotoUrl ?? "",
       categorias: updates.categorias ?? profile?.categorias ?? categoriasSelecionadas ?? [],
+      geo_preciso: updates.geo_preciso ?? profile?.geo_preciso ?? null,
       lat: updates.lat !== undefined ? updates.lat : (profile?.lat ?? null),
       lng: updates.lng !== undefined ? updates.lng : (profile?.lng ?? null),
       cpf: updates.cpf ?? profile?.cpf ?? form.cpf ?? "",
@@ -6268,6 +6273,7 @@ export default function App() {
   const geocodificarCEP = async (cep: string, cidade?: string, uf?: string, permitirCidade = true): Promise<{lat:number, lng:number}|null> => {
     const cepNorm = cep.replace(/\D/g, "");
     if (cepNorm.length !== 8) return null;
+    ultimoGeoCepPrecisoRef.current = true;  // assume preciso; só o passo 4 (centroide) marca false
 
     // 1. Cache local (instantâneo)
     const cache = lerGeoCache();
@@ -6323,6 +6329,7 @@ export default function App() {
     //    ⚠️ NÃO usar pro check-in da diária (permitirCidade=false): centroide de
     //    cidade gerava falso "muito longe (~8km)". Ver geocodificarEndereco.
     if (permitirCidade && cidade && uf) {
+      ultimoGeoCepPrecisoRef.current = false;  // centroide de cidade = posição IMPRECISA
       try {
         const q = encodeURIComponent(`${cidade}, ${uf}, Brasil`);
         const r = await fetch(
@@ -6847,7 +6854,7 @@ export default function App() {
       if (json.erro) { setAuthError("CEP não encontrado. Verifique o CEP digitado."); setBuscandoCEPPerfil(false); return; }
       setForm(prev => ({ ...prev, bairro: json.bairro || prev.bairro, cidade: json.localidade || prev.cidade }));
       const coords = await geocodificarCEP(cep, json.localidade, json.uf);
-      if (coords) { setLatPerfilCEP(coords.lat); setLngPerfilCEP(coords.lng); }
+      if (coords) { setLatPerfilCEP(coords.lat); setLngPerfilCEP(coords.lng); setCepPerfilPreciso(ultimoGeoCepPrecisoRef.current); }
       else setAuthError("CEP encontrado, mas não foi possível obter as coordenadas. Tente novamente.");
     } catch { setAuthError("Erro ao buscar CEP. Verifique sua conexão."); }
     setBuscandoCEPPerfil(false);
@@ -11594,10 +11601,12 @@ export default function App() {
                                   {d.disponivel ? "● Disponível hoje" : "● Ocupado"}
                                 </span>
                                 {profile?.lat && profile?.lng && d.lat && d.lng && (() => {
-                                  // Distância honesta: esconde o número quando a coord do prestador
-                                  // é centroide-compartilhada ou está abaixo do ruído do arredondamento.
+                                  // Distância honesta: só mostra o número quando AMBOS os lados têm geo
+                                  // preciso E a coord não é centroide-compartilhada nem abaixo do ruído
+                                  // do arredondamento. Senão, "distância aproximada".
                                   const km = haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!);
-                                  const lbl = rotuloDistanciaFeed(km, { perfisNaMesmaCoord: contagemCoord[`${d.lat},${d.lng}`] || 1 });
+                                  const ambosPrecisos = profile?.geo_preciso === true && (d as UserProfile).geo_preciso === true;
+                                  const lbl = rotuloDistanciaFeed(km, { perfisNaMesmaCoord: contagemCoord[`${d.lat},${d.lng}`] || 1, ambosGeoPrecisos: ambosPrecisos });
                                   return (
                                     <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:600 }}>
                                       {lbl ? `📍 ${lbl}` : "📍 distância aproximada"}
@@ -18075,7 +18084,7 @@ export default function App() {
       const cepNorm = form.cep.replace(/\D/g, "");
       const updates: Partial<UserProfile> = {};
       if (cepNorm.length === 8) updates.cep = cepNorm;
-      if (latPerfilCEP) { updates.lat = latPerfilCEP; updates.lng = lngPerfilCEP; }
+      if (latPerfilCEP) { updates.lat = latPerfilCEP; updates.lng = lngPerfilCEP; updates.geo_preciso = cepPerfilPreciso; }
       if (Object.keys(updates).length > 0) {
         void saveProfile(updates);  // não await — não trava a navegação
         setLatPerfilCEP(null); setLngPerfilCEP(null);
@@ -18096,7 +18105,7 @@ export default function App() {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           setCapturandoGPS(false);
-          void saveProfile({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          void saveProfile({ lat: pos.coords.latitude, lng: pos.coords.longitude, geo_preciso: true });
           setToastSuccess("✅ Localização capturada com precisão!");
           irParaDestino();
         },
