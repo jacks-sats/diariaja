@@ -478,6 +478,9 @@ export default function App() {
   // Modal de informações do perfil (ao clicar no nome)
   const [modalInfoPerfil, setModalInfoPerfil] = useState(false);
   const [editandoBio, setEditandoBio] = useState(false);
+  // Edição rápida de função/especialidades dentro do modalInfoPerfil (prestador).
+  // Reaproveita categoriasSelecionadas/setCategorias (mesmo estado do cadastro).
+  const [editandoFuncoes, setEditandoFuncoes] = useState(false);
   const [bioDraft, setBioDraft] = useState("");
   // Excluir diária (empregador)
   const [modalExcluir, setModalExcluir] = useState<Diaria | null>(null);
@@ -1053,6 +1056,7 @@ export default function App() {
   const [enviandoMsgReal, setEnviandoMsgReal] = useState(false);
   const mensagensEndRef = useRef<HTMLDivElement>(null);
   const fotoInputRef = useRef<HTMLInputElement>(null); // ref para o input de foto de perfil
+  const fotoInputModalRef = useRef<HTMLInputElement>(null); // input de foto dentro do modalInfoPerfil (só 1 home renderiza por vez)
 
   // ── Chat v2: digitando + não-lidas por conversa ────────────────────────────
   // outroDigitando: true se o outro lado está digitando agora (broadcast)
@@ -14076,7 +14080,7 @@ export default function App() {
 
         {/* ── Modal info do perfil (empregador) ── */}
         {modalInfoPerfil && (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:350, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => { setModalInfoPerfil(false); setEditandoBio(false); }}>
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:350, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => { setModalInfoPerfil(false); setEditandoBio(false); setEditandoFuncoes(false); }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginBottom:20 }}>
@@ -14093,41 +14097,56 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div style={{ marginBottom:16 }}>
-                <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
-                {editandoBio ? (
-                  <>
-                    <textarea
-                      style={{ width:"100%", border:"1.5px solid #FF6B35", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, minHeight:80 }}
-                      value={bioDraft}
-                      onChange={e => setBioDraft(e.target.value)}
-                      placeholder="Escreva uma apresentação..."
-                      autoFocus
-                    />
-                    <div style={{ display:"flex", gap:8, marginTop:8 }}>
-                      <button
-                        style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                        onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); setModalInfoPerfil(false); } }}>
-                        Salvar
-                      </button>
-                      <button
-                        style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                        onClick={() => setEditandoBio(false)}>
-                        Cancelar
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
-                    <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0, flex:1 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
+
+              {/* Input de foto — reaproveita handleFotoUpload (sem lógica nova de upload) */}
+              <input ref={fotoInputModalRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
+                onChange={e => e.target.files?.[0] && handleFotoUpload(e.target.files[0])} />
+
+              {editandoBio ? (
+                /* Editar apresentação — textarea + saveProfile({ bio }) (mantido) */
+                <div style={{ marginBottom:8 }}>
+                  <div style={{ fontWeight:800, fontSize:12, color:"#0A1A33", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
+                  <textarea
+                    style={{ width:"100%", border:"1.5px solid #FF6B35", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, minHeight:80 }}
+                    value={bioDraft}
+                    onChange={e => setBioDraft(e.target.value)}
+                    placeholder="Escreva uma apresentação..."
+                    autoFocus
+                  />
+                  <div style={{ display:"flex", gap:8, marginTop:8 }}>
                     <button
-                      style={{ background:"none", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, color:"#FF6B35", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
-                      onClick={() => setEditandoBio(true)}>
-                      ✏️ Editar
+                      style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                      onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); setModalInfoPerfil(false); } }}>
+                      Salvar
+                    </button>
+                    <button
+                      style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                      onClick={() => setEditandoBio(false)}>
+                      Cancelar
                     </button>
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                /* Apresentação (preview) + menu de ações (anunciante) */
+                <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                  <div style={{ marginBottom:2 }}>
+                    <div style={{ fontWeight:800, fontSize:12, color:"#0A1A33", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
+                    <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
+                  </div>
+                  {([
+                    { emoji:"📷", label:"Trocar foto",         onClick: () => fotoInputModalRef.current?.click() },
+                    { emoji:"✏️", label:"Editar apresentação", onClick: () => { setBioDraft(profile?.bio || ""); setEditandoBio(true); } },
+                  ]).map(a => (
+                    <button key={a.label} type="button"
+                      style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"13px 14px", borderRadius:12, border:"1.5px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)", color:"#0A1A33", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                      onClick={a.onClick}>
+                      <span style={{ fontSize:18, width:30, height:30, borderRadius:8, background:"#FF6B3514", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{a.emoji}</span>
+                      <span style={{ flex:1 }}>{a.label}</span>
+                      <span style={{ color:"#FF6B35", fontWeight:900 }}>›</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -17096,7 +17115,7 @@ export default function App() {
 
         {/* ── Modal info do perfil (diarista) ── */}
         {modalInfoPerfil && (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:350, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => { setModalInfoPerfil(false); setEditandoBio(false); }}>
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:350, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => { setModalInfoPerfil(false); setEditandoBio(false); setEditandoFuncoes(false); }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginBottom:20 }}>
@@ -17105,7 +17124,15 @@ export default function App() {
                   : <div style={{ width:72, height:72, borderRadius:36, background:"#0f172a", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:24, border:"3px solid #FF6B35", marginBottom:12 }}>{iniciaisNome}</div>
                 }
                 <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)" }}>{profile?.nome}</div>
-                <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:2 }}>{profile?.funcao}</div>
+                {(() => {
+                  const cats = (profile?.categorias && profile.categorias.length > 0)
+                    ? profile.categorias
+                    : (profile?.funcao ? [profile.funcao] : []);
+                  // Linha única, principal primeiro, separadas por " · " (mesmo estilo
+                  // do subtítulo cinza). Com 1 função, fica igual ao de antes.
+                  const texto = cats.length > 0 ? cats.join(" · ") : (profile?.funcao || "");
+                  return <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginTop:2 }}>{texto}</div>;
+                })()}
                 {avaliacoesDiaristaReal.length > 0 && (
                   <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:8 }}>
                     <span style={{ fontSize:16 }}>⭐</span>
@@ -17114,41 +17141,98 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div style={{ marginBottom:16 }}>
-                <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
-                {editandoBio ? (
-                  <>
-                    <textarea
-                      style={{ width:"100%", border:"1.5px solid #FF6B35", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, minHeight:80 }}
-                      value={bioDraft}
-                      onChange={e => setBioDraft(e.target.value)}
-                      placeholder="Escreva uma apresentação..."
-                      autoFocus
-                    />
-                    <div style={{ display:"flex", gap:8, marginTop:8 }}>
-                      <button
-                        style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                        onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); setModalInfoPerfil(false); } }}>
-                        Salvar
-                      </button>
-                      <button
-                        style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                        onClick={() => setEditandoBio(false)}>
-                        Cancelar
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
-                    <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0, flex:1 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
+
+              {/* Input de foto — reaproveita handleFotoUpload (sem lógica nova de upload) */}
+              <input ref={fotoInputModalRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
+                onChange={e => e.target.files?.[0] && handleFotoUpload(e.target.files[0])} />
+
+              {editandoFuncoes ? (
+                /* Função e especialidades — mesmo seletor de chips do cadastro */
+                <div style={{ marginBottom:8 }}>
+                  <div style={{ fontWeight:800, fontSize:12, color:"#0A1A33", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Função e especialidades</div>
+                  {categoriasSelecionadas.length > 0 && (
+                    <p style={{ color:"#FF6B35", fontSize:12, margin:"0 0 8px", fontWeight:700 }}>
+                      {categoriasSelecionadas.length} selecionada{categoriasSelecionadas.length > 1 ? "s" : ""} · Principal: ⭐ {categoriasSelecionadas[0]}
+                    </p>
+                  )}
+                  <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, marginBottom:12, maxHeight:240, overflowY:"auto" as const }}>
+                    {Object.entries(CATEGORIAS_NEGOCIO).flatMap(([, info]) =>
+                      info.funcoes.map(f => {
+                        const sel = categoriasSelecionadas.includes(f);
+                        const idx = categoriasSelecionadas.indexOf(f);
+                        return (
+                          <button key={f} type="button"
+                            style={{ padding:"7px 14px", borderRadius:20, border:`2px solid ${sel ? "#FF6B35" : "#e2e8f0"}`, background: sel ? "#FF6B35" : "#fff", color: sel ? "#fff" : "#475569", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                            onClick={() => setCategorias(prev => sel ? prev.filter(x => x !== f) : [...prev, f])}>
+                            {f}{sel && idx === 0 ? " ⭐" : ""}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
                     <button
-                      style={{ background:"none", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:700, color:"#FF6B35", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
-                      onClick={() => setEditandoBio(true)}>
-                      ✏️ Editar
+                      style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                      onClick={async () => {
+                        // MESMA regra do cadastro (src/App.tsx): funcao = categorias[0].
+                        const ok = await saveProfile({ categorias: categoriasSelecionadas, funcao: categoriasSelecionadas[0] || "" });
+                        if (ok) { setToastSuccess("✅ Função e especialidades salvas!"); setEditandoFuncoes(false); setModalInfoPerfil(false); }
+                      }}>
+                      Salvar
+                    </button>
+                    <button
+                      style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                      onClick={() => setEditandoFuncoes(false)}>
+                      Cancelar
                     </button>
                   </div>
-                )}
-              </div>
+                </div>
+              ) : editandoBio ? (
+                /* Editar apresentação — textarea + saveProfile({ bio }) (mantido) */
+                <div style={{ marginBottom:8 }}>
+                  <div style={{ fontWeight:800, fontSize:12, color:"#0A1A33", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
+                  <textarea
+                    style={{ width:"100%", border:"1.5px solid #FF6B35", borderRadius:10, padding:"10px 12px", fontSize:13, lineHeight:1.6, resize:"none" as const, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, minHeight:80 }}
+                    value={bioDraft}
+                    onChange={e => setBioDraft(e.target.value)}
+                    placeholder="Escreva uma apresentação..."
+                    autoFocus
+                  />
+                  <div style={{ display:"flex", gap:8, marginTop:8 }}>
+                    <button
+                      style={{ flex:1, background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"9px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                      onClick={async () => { const ok = await saveProfile({ bio: bioDraft }); if (ok) { setToastSuccess("✅ Bio salva!"); setEditandoBio(false); setModalInfoPerfil(false); } }}>
+                      Salvar
+                    </button>
+                    <button
+                      style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:10, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                      onClick={() => setEditandoBio(false)}>
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Apresentação (preview) + menu de ações rápidas (navy #0A1A33 + laranja #FF6B35) */
+                <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                  <div style={{ marginBottom:2 }}>
+                    <div style={{ fontWeight:800, fontSize:12, color:"#0A1A33", marginBottom:6, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Apresentação</div>
+                    <p style={{ color:"var(--text-label,#475569)", fontSize:13, lineHeight:1.6, margin:0 }}>{profile?.bio || "Nenhuma apresentação adicionada."}</p>
+                  </div>
+                  {([
+                    { emoji:"📷", label:"Trocar foto",             onClick: () => fotoInputModalRef.current?.click() },
+                    { emoji:"🧰", label:"Função e especialidades",  onClick: () => { setCategorias(profile?.categorias && profile.categorias.length > 0 ? [...profile.categorias] : (profile?.funcao ? [profile.funcao] : [])); setEditandoFuncoes(true); } },
+                    { emoji:"✏️", label:"Editar apresentação",      onClick: () => { setBioDraft(profile?.bio || ""); setEditandoBio(true); } },
+                  ]).map(a => (
+                    <button key={a.label} type="button"
+                      style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"13px 14px", borderRadius:12, border:"1.5px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)", color:"#0A1A33", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}
+                      onClick={a.onClick}>
+                      <span style={{ fontSize:18, width:30, height:30, borderRadius:8, background:"#FF6B3514", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{a.emoji}</span>
+                      <span style={{ flex:1 }}>{a.label}</span>
+                      <span style={{ color:"#FF6B35", fontWeight:900 }}>›</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
