@@ -1,6 +1,6 @@
 {
   "name": "diariaja",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -24,6 +24,7 @@
     "@capgo/capacitor-social-login": "^6.0.1",
     "@capgo/capacitor-updater": "^6.45.10",
     "@fontsource/inter": "^5.2.8",
+    "@sentry/react": "^10.58.0",
     "@supabase/supabase-js": "^2.39.0",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^1.16.0",
