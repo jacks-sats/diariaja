@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   erroTelefoneSave,
   rotuloDistanciaFeed,
+  distanciaParaFiltroRaio,
   protocoloContato,
   maskData,
   isoParaBR,
@@ -1515,5 +1516,17 @@ describe("rotuloDistanciaFeed", () => {
   it("ambosGeoPrecisos=true NÃO fura o piso de ruído nem o cluster", () => {
     expect(rotuloDistanciaFeed(0.5, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: true })).toBeNull();
     expect(rotuloDistanciaFeed(4.0, { perfisNaMesmaCoord: 3, ambosGeoPrecisos: true })).toBeNull();
+  });
+});
+
+// ── distanciaParaFiltroRaio: filtro de raio fail-open sem geo confiável ──
+describe("distanciaParaFiltroRaio", () => {
+  it("ambos precisos → corta pela distância real", () => {
+    expect(distanciaParaFiltroRaio(7.5, true)).toBe(7.5);
+  });
+  it("algum lado impreciso → Infinity (fail-open, não corta ninguém)", () => {
+    expect(distanciaParaFiltroRaio(7.5, false)).toBe(Infinity);
+    // 7,5 km > "até 5 km", mas com geo não confiável o perfil PASSA (Infinity).
+    expect(distanciaParaFiltroRaio(7.5, false) <= 5).toBe(false);
   });
 });

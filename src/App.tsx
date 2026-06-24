@@ -87,7 +87,7 @@ import {
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
-  formatarDistancia, rotuloDistanciaFeed, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
+  formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
@@ -11159,7 +11159,10 @@ export default function App() {
     // espelha o distKm do lado do prestador (App.tsx ~13830) e garante o fail-open.
     const distKmAnunciante = (d: UserProfile): number => {
       if (!profile?.lat || !profile?.lng || !d.lat || !d.lng) return Infinity;
-      return haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!);
+      // Fail-open: só corta por raio quando AMBOS têm geo preciso. Sem isso, a
+      // distância é falsa (centroide/null) → não esconde ninguém. Coerente com o card.
+      const ambos = profile.geo_preciso === true && d.geo_preciso === true;
+      return distanciaParaFiltroRaio(haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!), ambos);
     };
     const diaristasReaisVisiveis = diaristasReais
       .filter(d => !(d as UserProfile & { oculto?: boolean }).oculto) // auto-moderação: esconde perfis suspensos por denúncias

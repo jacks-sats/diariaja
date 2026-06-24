@@ -657,6 +657,14 @@ export function formatarDistancia(km: number | null | undefined): string {
 //     MESMA coordenada — quando muitos compartilham a coord, o número é enganoso.
 // Retorna o rótulo ("~X km") só quando confiável; senão null → a UI mostra algo
 // neutro ("distância aproximada"). Distância falsa é pior que nenhuma.
+// Distância usada pra CORTAR por raio. Só corta quando é confiável (ambos os
+// lados com geo preciso); senão retorna Infinity = fail-open (não esconde
+// ninguém por uma distância falsa). Coerência com rotuloDistanciaFeed: se a
+// distância não é confiável pra MOSTRAR, também não é pra FILTRAR.
+export function distanciaParaFiltroRaio(km: number, ambosGeoPrecisos: boolean): number {
+  return ambosGeoPrecisos ? km : Infinity;
+}
+
 export function rotuloDistanciaFeed(
   km: number,
   opts: { perfisNaMesmaCoord: number; ambosGeoPrecisos?: boolean; gridKm?: number },
