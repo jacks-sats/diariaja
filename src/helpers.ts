@@ -665,6 +665,32 @@ export function distanciaParaFiltroRaio(km: number, ambosGeoPrecisos: boolean): 
   return ambosGeoPrecisos ? km : Infinity;
 }
 
+// Precisão a gravar (geo_preciso) conforme a ORIGEM da localização:
+//  - GPS (getCurrentPosition): SEMPRE preciso (posição real do aparelho).
+//  - CEP: preciso só quando o geocode NÃO caiu no centroide de cidade
+//    (geocodificarCEP marca isso; aqui recebemos esse resultado em cepPreciso).
+// Mesma regra usada no pedir-localizacao e nas telas de editar perfil.
+export function geoPrecisoParaSalvar(origem: "gps" | "cep", cepPreciso = false): boolean {
+  return origem === "gps" ? true : cepPreciso;
+}
+
+// Extrai CEP/bairro/cidade/UF da resposta de reverse-geocoding (Nominatim
+// `address`). Usado quando o usuário captura por GPS: sincroniza o campo de CEP
+// com a posição real (CEP e coordenadas viram "um só"). CEP só volta preenchido
+// se vier com 8 dígitos; senão "" (o GPS continua sendo a verdade da distância).
+export function parseEnderecoReverso(
+  address: Record<string, string> | null | undefined,
+): { cep: string; bairro: string; cidade: string; uf: string } {
+  const a = address || {};
+  const cepRaw = (a.postcode || "").replace(/\D/g, "");
+  return {
+    cep: cepRaw.length === 8 ? `${cepRaw.slice(0, 5)}-${cepRaw.slice(5)}` : "",
+    bairro: a.suburb || a.neighbourhood || a.quarter || "",
+    cidade: a.city || a.town || a.municipality || a.village || "",
+    uf: a.state || "",
+  };
+}
+
 export function rotuloDistanciaFeed(
   km: number,
   opts: { perfisNaMesmaCoord: number; ambosGeoPrecisos?: boolean; gridKm?: number },
