@@ -674,6 +674,13 @@ export function geoPrecisoParaSalvar(origem: "gps" | "cep", cepPreciso = false):
   return origem === "gps" ? true : cepPreciso;
 }
 
+// Mostra o lembrete (1x) de atualizar a localização? Só pra quem NÃO está com geo
+// preciso (geo_preciso !== true: null/false) e ainda não dispensou. Some sozinho
+// quando a pessoa recaptura (geo_preciso = true).
+export function deveMostrarLembreteGeo(geoPreciso: boolean | null | undefined, dispensado: boolean): boolean {
+  return geoPreciso !== true && !dispensado;
+}
+
 // Extrai CEP/bairro/cidade/UF da resposta de reverse-geocoding (Nominatim
 // `address`). Usado quando o usuário captura por GPS: sincroniza o campo de CEP
 // com a posição real (CEP e coordenadas viram "um só"). CEP só volta preenchido

@@ -4,6 +4,7 @@ import {
   rotuloDistanciaFeed,
   distanciaParaFiltroRaio,
   geoPrecisoParaSalvar,
+  deveMostrarLembreteGeo,
   parseEnderecoReverso,
   protocoloContato,
   maskData,
@@ -1611,5 +1612,21 @@ describe("delivery: estimativa é o preço oficial", () => {
   });
   it("card não-delivery (serviço): 'R$ X' sem /dia", () => {
     expect(rotuloPrecoVaga(80, { ehDelivery: false, ehServico: true })).toBe("R$ 80");
+  });
+});
+
+// ── deveMostrarLembreteGeo: lembrete (1x) de atualizar localização ──
+describe("deveMostrarLembreteGeo", () => {
+  it("geo_preciso null e não dispensado → mostra (legados)", () => {
+    expect(deveMostrarLembreteGeo(null, false)).toBe(true);
+    expect(deveMostrarLembreteGeo(undefined, false)).toBe(true);
+    expect(deveMostrarLembreteGeo(false, false)).toBe(true);
+  });
+  it("geo_preciso true → NÃO mostra (some sozinho após recapturar)", () => {
+    expect(deveMostrarLembreteGeo(true, false)).toBe(false);
+  });
+  it("dispensado → NÃO mostra (1x só)", () => {
+    expect(deveMostrarLembreteGeo(null, true)).toBe(false);
+    expect(deveMostrarLembreteGeo(false, true)).toBe(false);
   });
 });
