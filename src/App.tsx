@@ -5320,7 +5320,7 @@ export default function App() {
       { tipo: "candidatura", url: "/" },
     );
 
-    // Verifica se a vaga atingiu o limite de 5 interessados → some do feed
+    // Verifica se a vaga atingiu o limite (MAX_INTERESSADOS) → some do feed
     const { count } = await supabase
       .from("candidaturas")
       .select("*", { count: "exact", head: true })
@@ -12577,7 +12577,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Modal Interessados (anunciante escolhe 1 de até 5) ── */}
+        {/* ── Modal Interessados (anunciante escolhe 1; até MAX_INTERESSADOS por vaga) ── */}
         {modalCandidatos && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
             <div style={{ background:"var(--bg-app,#f0f2f5)", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:480, maxHeight:"82vh", overflow:"auto" }}>
