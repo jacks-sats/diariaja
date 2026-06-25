@@ -317,8 +317,10 @@ export const DIAS_LABEL: Record<string, string> = {
   seg: "Seg", ter: "Ter", qua: "Qua", qui: "Qui", sex: "Sex", sab: "Sáb", dom: "Dom",
 };
 
-// Máximo de interessados visíveis na listagem do anunciante
-export const MAX_INTERESSADOS = 5;
+// Teto de candidatos (pendentes) por vaga: ao atingir, a vaga some do feed.
+// ⚠️ Se mudar aqui, atualize TAMBÉM o trigger enforce_max_interessados no banco
+// (supabase/migrations/max_interessados_trigger.sql) — Postgres não lê esta const.
+export const MAX_INTERESSADOS = 10;
 
 // ── Cores de avatar (background, foreground) ─────────────────────────────────
 export const avatarColors: [string, string][] = [
