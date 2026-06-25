@@ -87,7 +87,7 @@ import {
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
-  formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
+  formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, geoPrecisoParaSalvar, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
@@ -6426,7 +6426,7 @@ export default function App() {
       setForm(prev => ({ ...prev, ruaEmp: json.logradouro||prev.ruaEmp, bairroEmp: json.bairro||prev.bairroEmp, cidadeEmp: json.localidade||prev.cidadeEmp, estadoEmp: json.uf||prev.estadoEmp }));
       // Geocodifica o CEP do empregador automaticamente
       const coords = await geocodificarCEP(cep, json.localidade, json.uf);
-      if (coords) { setLatPerfilCEP(coords.lat); setLngPerfilCEP(coords.lng); }
+      if (coords) { setLatPerfilCEP(coords.lat); setLngPerfilCEP(coords.lng); setCepPerfilPreciso(ultimoGeoCepPrecisoRef.current); }
     } catch { setAuthError("Erro ao buscar CEP. Verifique sua conexão."); }
     setBuscandoCEPEmp(false);
   };
@@ -6861,6 +6861,31 @@ export default function App() {
       else setAuthError("CEP encontrado, mas não foi possível obter as coordenadas. Tente novamente.");
     } catch { setAuthError("Erro ao buscar CEP. Verifique sua conexão."); }
     setBuscandoCEPPerfil(false);
+  };
+
+  // Captura a posição REAL via GPS (getCurrentPosition, mesma API do check-in :5813)
+  // e grava no perfil com geo_preciso=true. Usado na pedir-localizacao E nas duas
+  // telas de editar perfil — é como quem JÁ TEM conta recaptura a localização.
+  // aposSalvar() roda no sucesso (no onboarding navega pra home; na edição é omitido).
+  const capturarLocalizacaoGPS = (aposSalvar?: () => void) => {
+    if (!("geolocation" in navigator)) {
+      setToastError("📍 Seu aparelho não permite localização. Use o CEP.");
+      return;
+    }
+    setCapturandoGPS(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCapturandoGPS(false);
+        void saveProfile({ lat: pos.coords.latitude, lng: pos.coords.longitude, geo_preciso: geoPrecisoParaSalvar("gps") });
+        setToastSuccess("✅ Localização capturada com precisão!");
+        aposSalvar?.();
+      },
+      () => {
+        setCapturandoGPS(false);
+        setToastError("📍 Não consegui acessar sua localização. Permita o acesso ou use o CEP.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
   };
 
   // Busca endereço pelo CEP para o formulário de convite direto
@@ -17950,6 +17975,18 @@ export default function App() {
       {!latPerfilCEP && profile?.lat && (
         <p style={{ fontSize:12, color:"#16a34a", marginBottom:8 }}>✅ Localização já salva no perfil</p>
       )}
+      {/* GPS: posição real (geo_preciso=true) — é como quem já tem conta recaptura
+          a localização e faz a distância voltar a aparecer no feed. */}
+      <button
+        type="button"
+        style={{ width:"100%", padding:"12px", background:"#fff", color:"#FF6B35", border:"1.5px solid #FF6B35", borderRadius:12, fontSize:14, fontWeight:800, cursor: capturandoGPS ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: capturandoGPS ? 0.6 : 1, marginBottom:4 }}
+        disabled={capturandoGPS}
+        onClick={() => capturarLocalizacaoGPS()}>
+        {capturandoGPS ? "📍 Capturando..." : "📍 Usar minha localização atual"}
+      </button>
+      <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", margin:"0 0 8px" }}>
+        Mais preciso que o CEP — faz a distância aparecer pros anunciantes.
+      </p>
 
       {/* Portfólio de serviços */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", margin:"20px 0 8px", textTransform:"uppercase" as const, letterSpacing:0.5 }}>📸 Portfólio (até 3 fotos)</div>
@@ -18017,7 +18054,8 @@ export default function App() {
         if (form.sexo) upd.sexo = form.sexo;
         if (form.dataNasc) upd.data_nascimento = form.dataNasc;
         if (form.cep) upd.cep = form.cep;
-        if (latPerfilCEP !== null) { upd.lat = latPerfilCEP; upd.lng = lngPerfilCEP; }
+        // CEP atualizado marca geo_preciso conforme a precisão do geocode (centroide=false).
+        if (latPerfilCEP !== null) { upd.lat = latPerfilCEP; upd.lng = lngPerfilCEP; upd.geo_preciso = geoPrecisoParaSalvar("cep", cepPerfilPreciso); }
         const ok = await saveProfile(upd);
         if (ok) {
           setLatPerfilCEP(null); setLngPerfilCEP(null);
@@ -18089,31 +18127,6 @@ export default function App() {
       irParaDestino();  // entra SEMPRE
     };
 
-    // Alternativa ao CEP: captura a posição REAL via GPS (mesma API do check-in,
-    // :5813). É precisa (≠ centroide do CEP) — corrige a "minha localização" do
-    // feed. Grava lat/lng no perfil. (Marcar geo_preciso=true depende da coluna
-    // em user_profiles — ver MIGRAÇÃO no relatório; sem ela, só grava lat/lng.)
-    const handleUsarGPS = () => {
-      if (!("geolocation" in navigator)) {
-        setToastError("📍 Seu aparelho não permite localização. Use o CEP.");
-        return;
-      }
-      setCapturandoGPS(true);
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setCapturandoGPS(false);
-          void saveProfile({ lat: pos.coords.latitude, lng: pos.coords.longitude, geo_preciso: true });
-          setToastSuccess("✅ Localização capturada com precisão!");
-          irParaDestino();
-        },
-        () => {
-          setCapturandoGPS(false);
-          setToastError("📍 Não consegui acessar sua localização. Permita o acesso ou use o CEP.");
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-      );
-    };
-
     return (
       <div style={{ ...S.splash, background:"#f8fafc" }}>
         <div style={{ ...S.splashInner, maxWidth: 360, width:"100%" }}>
@@ -18155,7 +18168,7 @@ export default function App() {
           <button
             style={{ width:"100%", padding:"13px", background:"#fff", color: corTela, border:`1.5px solid ${corTela}`, borderRadius:12, fontSize:14, fontWeight:800, cursor: capturandoGPS ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: capturandoGPS ? 0.6 : 1, marginBottom:4 }}
             disabled={capturandoGPS}
-            onClick={handleUsarGPS}>
+            onClick={() => capturarLocalizacaoGPS(irParaDestino)}>
             {capturandoGPS ? "📍 Capturando..." : "📍 Usar minha localização atual"}
           </button>
 
@@ -19845,6 +19858,17 @@ export default function App() {
       ) : profile?.lat ? (
         <p style={{ color:"#16a34a", fontSize:12, marginTop:4 }}>✅ Localização já salva no perfil</p>
       ) : null}
+      {/* GPS: posição real (geo_preciso=true) — recaptura pra distância voltar no feed. */}
+      <button
+        type="button"
+        style={{ width:"100%", padding:"12px", background:"#fff", color:"#FF6B35", border:"1.5px solid #FF6B35", borderRadius:12, fontSize:14, fontWeight:800, cursor: capturandoGPS ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: capturandoGPS ? 0.6 : 1, margin:"8px 0 4px" }}
+        disabled={capturandoGPS}
+        onClick={() => capturarLocalizacaoGPS()}>
+        {capturandoGPS ? "📍 Capturando..." : "📍 Usar minha localização atual"}
+      </button>
+      <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", margin:"0 0 8px" }}>
+        Mais preciso que o CEP — melhora a distância exibida pros prestadores.
+      </p>
 
       {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}
       <button style={{ ...S.btnPrimary, marginTop:16, opacity: salvandoPerfil ? 0.6 : 1 }} onClick={async () => {
@@ -19878,7 +19902,7 @@ export default function App() {
         if (cnpjNovoEmp) upd.cnpj = form.cnpj;
         if (telefoneAlterado) upd.telefone_verificado = false;
         if (enderecoAtualizado) upd.endereco_empregador = enderecoAtualizado;
-        if (latPerfilCEP !== null) { upd.lat = latPerfilCEP; upd.lng = lngPerfilCEP; }
+        if (latPerfilCEP !== null) { upd.lat = latPerfilCEP; upd.lng = lngPerfilCEP; upd.geo_preciso = geoPrecisoParaSalvar("cep", cepPerfilPreciso); }
         const ok = await saveProfile(upd);
         if (ok) {
           setLatPerfilCEP(null); setLngPerfilCEP(null);

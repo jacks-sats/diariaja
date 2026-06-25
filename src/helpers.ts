@@ -665,6 +665,15 @@ export function distanciaParaFiltroRaio(km: number, ambosGeoPrecisos: boolean): 
   return ambosGeoPrecisos ? km : Infinity;
 }
 
+// Precisão a gravar (geo_preciso) conforme a ORIGEM da localização:
+//  - GPS (getCurrentPosition): SEMPRE preciso (posição real do aparelho).
+//  - CEP: preciso só quando o geocode NÃO caiu no centroide de cidade
+//    (geocodificarCEP marca isso; aqui recebemos esse resultado em cepPreciso).
+// Mesma regra usada no pedir-localizacao e nas telas de editar perfil.
+export function geoPrecisoParaSalvar(origem: "gps" | "cep", cepPreciso = false): boolean {
+  return origem === "gps" ? true : cepPreciso;
+}
+
 export function rotuloDistanciaFeed(
   km: number,
   opts: { perfisNaMesmaCoord: number; ambosGeoPrecisos?: boolean; gridKm?: number },

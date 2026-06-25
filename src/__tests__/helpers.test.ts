@@ -3,6 +3,7 @@ import {
   erroTelefoneSave,
   rotuloDistanciaFeed,
   distanciaParaFiltroRaio,
+  geoPrecisoParaSalvar,
   protocoloContato,
   maskData,
   isoParaBR,
@@ -1531,6 +1532,21 @@ describe("distanciaParaFiltroRaio", () => {
     expect(distanciaParaFiltroRaio(7.5, false)).toBe(Infinity);
     // 7,5 km > "até 5 km", mas com geo não confiável o perfil PASSA (Infinity).
     expect(distanciaParaFiltroRaio(7.5, false) <= 5).toBe(false);
+  });
+});
+
+// ── geoPrecisoParaSalvar: save (edição de perfil/onboarding) seta geo_preciso ──
+describe("geoPrecisoParaSalvar (save seta geo_preciso conforme a origem)", () => {
+  it("GPS → sempre true (posição real)", () => {
+    expect(geoPrecisoParaSalvar("gps")).toBe(true);
+    expect(geoPrecisoParaSalvar("gps", false)).toBe(true); // GPS ignora cepPreciso
+  });
+  it("CEP preciso → true (geocode não caiu no centroide)", () => {
+    expect(geoPrecisoParaSalvar("cep", true)).toBe(true);
+  });
+  it("CEP impreciso (centroide de cidade) → false", () => {
+    expect(geoPrecisoParaSalvar("cep", false)).toBe(false);
+    expect(geoPrecisoParaSalvar("cep")).toBe(false); // default = impreciso
   });
 });
 
