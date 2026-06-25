@@ -674,6 +674,23 @@ export function geoPrecisoParaSalvar(origem: "gps" | "cep", cepPreciso = false):
   return origem === "gps" ? true : cepPreciso;
 }
 
+// Extrai CEP/bairro/cidade/UF da resposta de reverse-geocoding (Nominatim
+// `address`). Usado quando o usuário captura por GPS: sincroniza o campo de CEP
+// com a posição real (CEP e coordenadas viram "um só"). CEP só volta preenchido
+// se vier com 8 dígitos; senão "" (o GPS continua sendo a verdade da distância).
+export function parseEnderecoReverso(
+  address: Record<string, string> | null | undefined,
+): { cep: string; bairro: string; cidade: string; uf: string } {
+  const a = address || {};
+  const cepRaw = (a.postcode || "").replace(/\D/g, "");
+  return {
+    cep: cepRaw.length === 8 ? `${cepRaw.slice(0, 5)}-${cepRaw.slice(5)}` : "",
+    bairro: a.suburb || a.neighbourhood || a.quarter || "",
+    cidade: a.city || a.town || a.municipality || a.village || "",
+    uf: a.state || "",
+  };
+}
+
 export function rotuloDistanciaFeed(
   km: number,
   opts: { perfisNaMesmaCoord: number; ambosGeoPrecisos?: boolean; gridKm?: number },

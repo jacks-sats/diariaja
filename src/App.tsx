@@ -87,7 +87,7 @@ import {
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
-  formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, geoPrecisoParaSalvar, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
+  formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, geoPrecisoParaSalvar, parseEnderecoReverso, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
@@ -6867,18 +6867,51 @@ export default function App() {
   // e grava no perfil com geo_preciso=true. Usado na pedir-localizacao E nas duas
   // telas de editar perfil — é como quem JÁ TEM conta recaptura a localização.
   // aposSalvar() roda no sucesso (no onboarding navega pra home; na edição é omitido).
-  const capturarLocalizacaoGPS = (aposSalvar?: () => void) => {
+  // Reverse-geocoding (lat/lng → CEP/bairro/cidade/UF) via Nominatim. Best-effort:
+  // null se não achar (o GPS continua sendo a verdade da distância).
+  const geocodificarReverso = async (
+    lat: number, lng: number,
+  ): Promise<{ cep: string; bairro: string; cidade: string; uf: string } | null> => {
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
+        { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
+      );
+      if (!r.ok) return null;
+      const j = await r.json();
+      return parseEnderecoReverso(j?.address);
+    } catch { return null; }
+  };
+
+  // GPS é SEMPRE manual (o usuário aperta quando quer) e a posição é a verdade.
+  // Ao capturar, sincroniza o CEP com a posição (reverse-geocode) pra os dois
+  // ficarem "um só"; se não achar CEP, mantém o GPS e segue. aplicarEndereco
+  // escreve nos campos da tela (cada tela passa o seu); aposSalvar roda no fim
+  // (onboarding navega; edição omite). Zera o CEP pendente p/ um "Salvar"
+  // posterior NUNCA sobrescrever o GPS.
+  const capturarLocalizacaoGPS = (opts?: {
+    aplicarEndereco?: (addr: { cep: string; bairro: string; cidade: string; uf: string }) => void;
+    aposSalvar?: () => void;
+  }) => {
     if (!("geolocation" in navigator)) {
       setToastError("📍 Seu aparelho não permite localização. Use o CEP.");
       return;
     }
     setCapturandoGPS(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const addr = await geocodificarReverso(latitude, longitude);
+        const cepSync = addr?.cep || "";
+        if (addr && opts?.aplicarEndereco) opts.aplicarEndereco(addr);
         setCapturandoGPS(false);
-        void saveProfile({ lat: pos.coords.latitude, lng: pos.coords.longitude, geo_preciso: geoPrecisoParaSalvar("gps") });
-        setToastSuccess("✅ Localização capturada com precisão!");
-        aposSalvar?.();
+        setLatPerfilCEP(null); setLngPerfilCEP(null); // blindagem: "Salvar" não sobrescreve o GPS
+        void saveProfile({
+          lat: latitude, lng: longitude, geo_preciso: geoPrecisoParaSalvar("gps"),
+          ...(cepSync ? { cep: cepSync.replace(/\D/g, "") } : {}),
+        });
+        setToastSuccess(cepSync ? "✅ Localização capturada (CEP atualizado pra bater com o GPS)!" : "✅ Localização capturada com precisão!");
+        opts?.aposSalvar?.();
       },
       () => {
         setCapturandoGPS(false);
@@ -17981,11 +18014,13 @@ export default function App() {
         type="button"
         style={{ width:"100%", padding:"12px", background:"#fff", color:"#FF6B35", border:"1.5px solid #FF6B35", borderRadius:12, fontSize:14, fontWeight:800, cursor: capturandoGPS ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: capturandoGPS ? 0.6 : 1, marginBottom:4 }}
         disabled={capturandoGPS}
-        onClick={() => capturarLocalizacaoGPS()}>
+        onClick={() => capturarLocalizacaoGPS({
+          aplicarEndereco: (a) => setForm(p => ({ ...p, cep: a.cep || p.cep, bairro: a.bairro || p.bairro, cidade: a.cidade || p.cidade })),
+        })}>
         {capturandoGPS ? "📍 Capturando..." : "📍 Usar minha localização atual"}
       </button>
       <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", margin:"0 0 8px" }}>
-        Mais preciso que o CEP — faz a distância aparecer pros anunciantes.
+        Mais preciso que o CEP — faz a distância aparecer pros anunciantes. O CEP é atualizado pra bater com o GPS.
       </p>
 
       {/* Portfólio de serviços */}
@@ -18168,7 +18203,10 @@ export default function App() {
           <button
             style={{ width:"100%", padding:"13px", background:"#fff", color: corTela, border:`1.5px solid ${corTela}`, borderRadius:12, fontSize:14, fontWeight:800, cursor: capturandoGPS ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: capturandoGPS ? 0.6 : 1, marginBottom:4 }}
             disabled={capturandoGPS}
-            onClick={() => capturarLocalizacaoGPS(irParaDestino)}>
+            onClick={() => capturarLocalizacaoGPS({
+              aplicarEndereco: (a) => setForm(p => ({ ...p, cep: a.cep || p.cep, bairro: a.bairro || p.bairro, cidade: a.cidade || p.cidade })),
+              aposSalvar: irParaDestino,
+            })}>
             {capturandoGPS ? "📍 Capturando..." : "📍 Usar minha localização atual"}
           </button>
 
@@ -19863,11 +19901,13 @@ export default function App() {
         type="button"
         style={{ width:"100%", padding:"12px", background:"#fff", color:"#FF6B35", border:"1.5px solid #FF6B35", borderRadius:12, fontSize:14, fontWeight:800, cursor: capturandoGPS ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: capturandoGPS ? 0.6 : 1, margin:"8px 0 4px" }}
         disabled={capturandoGPS}
-        onClick={() => capturarLocalizacaoGPS()}>
+        onClick={() => capturarLocalizacaoGPS({
+          aplicarEndereco: (a) => setForm(p => ({ ...p, cepEmp: a.cep || p.cepEmp, bairroEmp: a.bairro || p.bairroEmp, cidadeEmp: a.cidade || p.cidadeEmp, estadoEmp: a.uf || p.estadoEmp })),
+        })}>
         {capturandoGPS ? "📍 Capturando..." : "📍 Usar minha localização atual"}
       </button>
       <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", margin:"0 0 8px" }}>
-        Mais preciso que o CEP — melhora a distância exibida pros prestadores.
+        Mais preciso que o CEP — melhora a distância exibida pros prestadores. O CEP é atualizado pra bater com o GPS.
       </p>
 
       {authError && <p style={{ ...S.errorText, color: authError.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{authError}</p>}

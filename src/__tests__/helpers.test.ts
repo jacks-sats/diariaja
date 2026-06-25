@@ -4,6 +4,7 @@ import {
   rotuloDistanciaFeed,
   distanciaParaFiltroRaio,
   geoPrecisoParaSalvar,
+  parseEnderecoReverso,
   protocoloContato,
   maskData,
   isoParaBR,
@@ -1547,6 +1548,27 @@ describe("geoPrecisoParaSalvar (save seta geo_preciso conforme a origem)", () =>
   it("CEP impreciso (centroide de cidade) → false", () => {
     expect(geoPrecisoParaSalvar("cep", false)).toBe(false);
     expect(geoPrecisoParaSalvar("cep")).toBe(false); // default = impreciso
+  });
+});
+
+// ── parseEnderecoReverso: GPS sincroniza o CEP (lat/lng → endereço) ──
+describe("parseEnderecoReverso (sincroniza CEP com a posição do GPS)", () => {
+  it("address completo → CEP formatado + bairro/cidade/uf", () => {
+    expect(parseEnderecoReverso({
+      postcode: "79071160", suburb: "Tiradentes", city: "Campo Grande", state: "Mato Grosso do Sul",
+    })).toEqual({ cep: "79071-160", bairro: "Tiradentes", cidade: "Campo Grande", uf: "Mato Grosso do Sul" });
+  });
+  it("aceita CEP já com hífen e usa fallbacks de bairro/cidade", () => {
+    expect(parseEnderecoReverso({ postcode: "79071-160", neighbourhood: "Centro", town: "Sidrolândia" }))
+      .toEqual({ cep: "79071-160", bairro: "Centro", cidade: "Sidrolândia", uf: "" });
+  });
+  it("sem postcode (ou inválido) → cep '' (GPS continua a verdade)", () => {
+    expect(parseEnderecoReverso({ city: "Campo Grande" }).cep).toBe("");
+    expect(parseEnderecoReverso({ postcode: "123" }).cep).toBe("");
+  });
+  it("address null/undefined → tudo vazio (sem quebrar)", () => {
+    expect(parseEnderecoReverso(null)).toEqual({ cep: "", bairro: "", cidade: "", uf: "" });
+    expect(parseEnderecoReverso(undefined)).toEqual({ cep: "", bairro: "", cidade: "", uf: "" });
   });
 });
 
