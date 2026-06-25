@@ -87,7 +87,7 @@ import {
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
-  formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, geoPrecisoParaSalvar, parseEnderecoReverso, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
+  formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, geoPrecisoParaSalvar, parseEnderecoReverso, deveMostrarLembreteGeo, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
@@ -849,6 +849,17 @@ export default function App() {
   const fecharBannerMEI = () => {
     try { localStorage.setItem("diariaja_mei_banner_dismiss", "1"); } catch { /* modo privado */ }
     setMeiBannerOculto(true);
+  };
+
+  // Lembrete (1x) pra atualizar a localização — quem está com geo_preciso != true
+  // não aparece/não vê distância certa no feed. Dismissível; some sozinho quando
+  // a pessoa recaptura (geo_preciso vira true). Banner, nunca push/modal.
+  const [lembreteGeoOculto, setLembreteGeoOculto] = useState(() => {
+    try { return localStorage.getItem("diariaja_lembrete_geo_v1") === "1"; } catch { return false; }
+  });
+  const dispensarLembreteGeo = () => {
+    try { localStorage.setItem("diariaja_lembrete_geo_v1", "1"); } catch { /* modo privado */ }
+    setLembreteGeoOculto(true);
   };
 
   // Desktop vs mobile — a entrada (splash) vira uma landing "de site" no PC,
@@ -7406,6 +7417,24 @@ export default function App() {
     </div>
   ) : null;
 
+  // Lembrete (1x, dismissível) pra atualizar a localização. Leva pra tela de
+  // localização (a pessoa escolhe CEP/GPS). Some sozinho quando geo_preciso vira true.
+  const bannerLembreteGeo = (profile && deveMostrarLembreteGeo(profile.geo_preciso, lembreteGeoOculto)) ? (
+    <div style={{ margin:"12px 16px 0", background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 4px 16px rgba(255,107,53,.28)" }}>
+      <span style={{ fontSize:26, flexShrink:0 }}>📍</span>
+      <div style={{ flex:1, minWidth:0, cursor:"pointer" }} onClick={() => setTela("pedir-localizacao")}>
+        <div style={{ fontSize:13, fontWeight:900, color:"#fff", lineHeight:1.3 }}>Atualize sua localização</div>
+        <div style={{ fontSize:12, color:"rgba(255,255,255,.92)", marginTop:2, lineHeight:1.4 }}>
+          {modoAtual === "empregador"
+            ? <>Pra ver a <strong>distância certa</strong> até os prestadores. <u>Atualizar →</u></>
+            : <>Pra você aparecer com a <strong>distância certa</strong> pros anunciantes. <u>Atualizar →</u></>}
+        </div>
+      </div>
+      <button aria-label="Dispensar" onClick={dispensarLembreteGeo}
+        style={{ background:"rgba(255,255,255,.2)", border:"none", color:"#fff", borderRadius:8, width:26, height:26, fontSize:14, fontWeight:900, cursor:"pointer", flexShrink:0, fontFamily:"Inter, system-ui, sans-serif" }}>✕</button>
+    </div>
+  ) : null;
+
   // Variante do banner MEI pra Comunidade: âncora fixa de formalização. NÃO
   // depende do "fechar" da home (meiBannerOculto) e não tem ✕ — só some pra
   // quem já tem CNPJ (o incentivo não se aplica).
@@ -11500,6 +11529,7 @@ export default function App() {
                 Publicar quanto quero pagar
               </button>
             </div>
+            {bannerLembreteGeo}
             {/* Filtro de habilidades — sticky pra não sumir ao rolar (degrada sem quebrar) */}
             <div style={{ background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)", position:"sticky" as const, top:0, zIndex:5 }}>
               {/* Linha 1: disponíveis hoje + por categoria */}
@@ -14812,6 +14842,8 @@ export default function App() {
 
         {/* Banner MEI — incentivo à formalização (PF sem CNPJ) */}
         {bannerMEI}
+        {/* Lembrete (1x) pra atualizar a localização — só quem está sem geo preciso */}
+        {bannerLembreteGeo}
 
         {/* ── Convites ACEITOS — presença confirmada + atalho pro chat ── */}
         {convitesRecebidos.filter(c => c.status === "aceito").length > 0 && (
