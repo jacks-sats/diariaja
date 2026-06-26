@@ -5,7 +5,8 @@
 -- 'encerrada': sai do feed (o feed só mostra 'aberta') e não recebe mais candidato,
 -- SEM mandar "cancelado" pros candidatos já chamados. Só pra emprego.
 --
--- 1) Recria a constraint de status incluindo 'encerrada' (preserva os 6 atuais).
+-- 1) Recria a constraint de status incluindo 'encerrada' (preserva os atuais,
+--    inclusive 'expirada', que o App.tsx já grava em vagas/diárias vencidas).
 -- 2) Recria enforce_max_interessados (do max_interessados_trigger.sql) adicionando
 --    a checagem de status: candidatura só entra em vaga 'aberta'. Backstop do
 --    "encerrada não recebe mais candidato" (o feed já esconde; isto trava de vez).
@@ -13,7 +14,7 @@
 -- Idempotente. Aplicar: Supabase Dashboard → SQL Editor → Run.
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- 1. Constraint de status (6 atuais + 'encerrada') ────────────────────────────
+-- 1. Constraint de status (atuais + 'expirada' + 'encerrada') ─────────────────
 ALTER TABLE diarias DROP CONSTRAINT IF EXISTS diarias_status_check;
 ALTER TABLE diarias ADD CONSTRAINT diarias_status_check
   CHECK (status = ANY (ARRAY[
@@ -23,6 +24,7 @@ ALTER TABLE diarias ADD CONSTRAINT diarias_status_check
     'em_andamento', -- serviço em execução (diária)
     'concluida',    -- serviço finalizado (diária)
     'cancelada',    -- cancelada por qualquer parte
+    'expirada',     -- vaga/diária vencida (App.tsx seta status='expirada') — JÁ EXISTE em prod
     'encerrada'     -- NOVO: vaga de emprego encerrada pela empresa (sai do feed)
   ]));
 
