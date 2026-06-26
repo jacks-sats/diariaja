@@ -681,6 +681,33 @@ export function deveMostrarLembreteGeo(geoPreciso: boolean | null | undefined, d
   return geoPreciso !== true && !dispensado;
 }
 
+// ── Vaga de EMPREGO: chamar vários candidatos (Fase 1) ───────────────────────
+// Decisão de seleção/chamada por tipo de oferta. SÓ o emprego muda; diária/serviço
+// seguem idênticos. Emprego: chama vários, vaga segue ABERTA, NÃO rejeita ninguém,
+// NÃO define "o contratado" (diarista_aceite_id). Diária/serviço: contrata até
+// `vagas`; ao lotar, rejeita os pendentes e fecha a vaga.
+export function planoSelecao(opts: { ehEmprego: boolean; vagas: number; jaSelecionados: number }): {
+  rejeitarPendentes: boolean; fecharVaga: boolean; definirAceite: boolean;
+} {
+  if (opts.ehEmprego) return { rejeitarPendentes: false, fecharVaga: false, definirAceite: false };
+  const lotou = (opts.jaSelecionados + 1) >= opts.vagas;
+  return { rejeitarPendentes: lotou, fecharVaga: lotou, definirAceite: true };
+}
+
+// Vaga de emprego: chamar candidato exige plano pago (Essencial/Plus). Dentro do
+// plano é ILIMITADO (1ª chamada exige plano; com plano, todas as seguintes passam).
+// Diária/serviço NÃO usa isto (tem o fluxo de 3 grátis + R$ 2,50). É a UX; a
+// autoridade é o trigger no banco.
+export function empregoExigePlanoParaChamar(plano: string | null | undefined): boolean {
+  return !(plano === "essencial" || plano === "plus");
+}
+
+// Vaga aparece no feed de candidaturas só quando 'aberta'. Encerrada/cancelada/
+// preenchida saem do feed (e não recebem mais candidatura).
+export function vagaApareceNoFeed(status: string): boolean {
+  return status === "aberta";
+}
+
 // Extrai CEP/bairro/cidade/UF da resposta de reverse-geocoding (Nominatim
 // `address`). Usado quando o usuário captura por GPS: sincroniza o campo de CEP
 // com a posição real (CEP e coordenadas viram "um só"). CEP só volta preenchido

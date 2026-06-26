@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
+  planoSelecao,
+  empregoExigePlanoParaChamar,
+  vagaApareceNoFeed,
   erroTelefoneSave,
   rotuloDistanciaFeed,
   distanciaParaFiltroRaio,
@@ -1628,5 +1631,44 @@ describe("deveMostrarLembreteGeo", () => {
   it("dispensado → NÃO mostra (1x só)", () => {
     expect(deveMostrarLembreteGeo(null, true)).toBe(false);
     expect(deveMostrarLembreteGeo(false, true)).toBe(false);
+  });
+});
+
+// ── Vaga de EMPREGO: chamar vários (Fase 1) ──
+describe("planoSelecao (emprego chama vários; diária inalterada)", () => {
+  it("(a) emprego: chama vários — NÃO rejeita, NÃO fecha, NÃO define contratado", () => {
+    expect(planoSelecao({ ehEmprego: true, vagas: 1, jaSelecionados: 0 }))
+      .toEqual({ rejeitarPendentes: false, fecharVaga: false, definirAceite: false });
+    // mesmo já tendo chamado vários, segue liberando
+    expect(planoSelecao({ ehEmprego: true, vagas: 1, jaSelecionados: 5 }))
+      .toEqual({ rejeitarPendentes: false, fecharVaga: false, definirAceite: false });
+  });
+  it("(b) diária 1 vaga: NÃO regrediu — lota na 1ª, rejeita os outros e fecha", () => {
+    expect(planoSelecao({ ehEmprego: false, vagas: 1, jaSelecionados: 0 }))
+      .toEqual({ rejeitarPendentes: true, fecharVaga: true, definirAceite: true });
+  });
+  it("(b) diária multi-vagas: só fecha/rejeita quando lota", () => {
+    expect(planoSelecao({ ehEmprego: false, vagas: 3, jaSelecionados: 1 }))
+      .toEqual({ rejeitarPendentes: false, fecharVaga: false, definirAceite: true }); // 2/3
+    expect(planoSelecao({ ehEmprego: false, vagas: 3, jaSelecionados: 2 }))
+      .toEqual({ rejeitarPendentes: true, fecharVaga: true, definirAceite: true });   // 3/3
+  });
+});
+
+describe("vagaApareceNoFeed (encerrar tira do feed)", () => {
+  it("(c) só 'aberta' aparece; 'encerrada' (e outras) saem do feed", () => {
+    expect(vagaApareceNoFeed("aberta")).toBe(true);
+    expect(vagaApareceNoFeed("encerrada")).toBe(false);
+    expect(vagaApareceNoFeed("pendente")).toBe(false);
+    expect(vagaApareceNoFeed("cancelada")).toBe(false);
+  });
+});
+
+describe("empregoExigePlanoParaChamar (gate Essencial no chamar)", () => {
+  it("(d) grátis exige plano na 1ª chamada; com plano libera todas (ilimitado)", () => {
+    expect(empregoExigePlanoParaChamar("gratis")).toBe(true);
+    expect(empregoExigePlanoParaChamar(null)).toBe(true);
+    expect(empregoExigePlanoParaChamar("essencial")).toBe(false);
+    expect(empregoExigePlanoParaChamar("plus")).toBe(false);
   });
 });
