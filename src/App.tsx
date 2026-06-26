@@ -12906,7 +12906,8 @@ export default function App() {
                               { icone:"⭐", val: mediaAvs ? mediaAvs.toFixed(1) : "—", label:"Avaliação média" },
                               { icone:"💬", val: avaliacoesCandidato.length, label:"Avaliações" },
                               { icone:"📅", val: tempoNoApp, label:"No DiáriaJá" },
-                            ].map(s => (
+                            // "Diárias feitas" é métrica de diária — esconde em vaga de EMPREGO (confunde no CLT).
+                            ].filter(s => modalCandidatos?.tipo_oferta !== "emprego" || s.label !== "Diárias feitas").map(s => (
                               <div key={s.label} style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:14, padding:"12px 8px", textAlign:"center" as const }}>
                                 <div style={{ fontSize:20, marginBottom:4 }}>{s.icone}</div>
                                 <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", lineHeight:1 }}>{loadingPerfil ? "…" : s.val}</div>
@@ -12969,8 +12970,9 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* Valor */}
-                      {dp.valor_diaria > 0 && (
+                      {/* Valor — só faz sentido em diária/serviço. Em vaga de EMPREGO
+                          (CLT/mensal) o "R$ X/dia" é campo de diária e não deve vazar. */}
+                      {dp.valor_diaria > 0 && modalCandidatos?.tipo_oferta !== "emprego" && (
                         <div style={{ background:"#f0fdf4", borderRadius:14, padding:"14px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                           <div>
                             <div style={{ fontSize:11, fontWeight:800, color:"#16a34a", textTransform:"uppercase" as const, letterSpacing:0.5 }}>💰 Valor por diária</div>
@@ -13469,7 +13471,7 @@ export default function App() {
                 return (
                   <button
                     style={{ width:"100%", padding:"13px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-                    onClick={() => { setModalPlanoVaga(false); setTela("planos"); }}>
+                    onClick={() => { setModalPlanoVaga(false); setAuthError(""); iniciarAssinatura("essencial"); }}>
                     🚀 Assinar Essencial — R$ {valor.toFixed(2).replace(".", ",")} / 30 dias
                   </button>
                 );
