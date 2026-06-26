@@ -62,6 +62,7 @@ export interface Diaria {
   regime?: string | null;             // só se tipo_oferta='emprego' (Presencial/Híbrido/Remoto)
   salario_texto?: string | null;      // só se tipo_oferta='emprego' ("R$ 1.800" ou "A combinar")
   beneficios?: string[] | null;       // só se tipo_oferta='emprego' (chips: VT/VR/plano de saúde… + "Outros")
+  mensagem_automatica?: string | null; // só emprego: 1ª msg da empresa no chat ao candidato confirmar (texto livre, opcional)
   // ── Presença / ciclo de vida (Fase A) ────────────────────────────────────
   checkin_em?: string | null;         // quando o diarista bateu ponto de chegada
   checkin_metodo?: string | null;     // 'qr' | 'gps' | 'codigo'

@@ -715,6 +715,16 @@ export function documentoAprovado(status: string | null | undefined): boolean {
   return status === "aprovado";
 }
 
+// Extrai o PRIMEIRO link http(s) de um texto livre — usado na "mensagem
+// automática" da empresa pra mostrar o aviso "você está saindo do DiáriaJá"
+// antes de abrir. Retorna null se não houver link. Tira pontuação colada no
+// fim (".", ",", ")", etc.) pra não quebrar a URL. Pura/testável.
+export function extrairPrimeiroLink(texto: string | null | undefined): string | null {
+  const m = (texto || "").match(/https?:\/\/[^\s<>"')\]]+/i);
+  if (!m) return null;
+  return m[0].replace(/[.,;:!?)\]]+$/, "");
+}
+
 // Extrai CEP/bairro/cidade/UF da resposta de reverse-geocoding (Nominatim
 // `address`). Usado quando o usuário captura por GPS: sincroniza o campo de CEP
 // com a posição real (CEP e coordenadas viram "um só"). CEP só volta preenchido
