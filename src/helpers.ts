@@ -708,6 +708,13 @@ export function vagaApareceNoFeed(status: string): boolean {
   return status === "aberta";
 }
 
+// Documento (RG/CNH) aprovado pela equipe? É o gate da candidatura. O valor pode
+// ter mudado no servidor (aprovação) sem o app ter atualizado o perfil em memória,
+// então o caller re-busca o status fresco antes de barrar.
+export function documentoAprovado(status: string | null | undefined): boolean {
+  return status === "aprovado";
+}
+
 // Extrai CEP/bairro/cidade/UF da resposta de reverse-geocoding (Nominatim
 // `address`). Usado quando o usuário captura por GPS: sincroniza o campo de CEP
 // com a posição real (CEP e coordenadas viram "um só"). CEP só volta preenchido

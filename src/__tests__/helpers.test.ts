@@ -3,6 +3,7 @@ import {
   planoSelecao,
   empregoExigePlanoParaChamar,
   vagaApareceNoFeed,
+  documentoAprovado,
   erroTelefoneSave,
   rotuloDistanciaFeed,
   distanciaParaFiltroRaio,
@@ -1670,5 +1671,17 @@ describe("empregoExigePlanoParaChamar (gate Essencial no chamar)", () => {
     expect(empregoExigePlanoParaChamar(null)).toBe(true);
     expect(empregoExigePlanoParaChamar("essencial")).toBe(false);
     expect(empregoExigePlanoParaChamar("plus")).toBe(false);
+  });
+});
+
+// ── documentoAprovado: gate da candidatura (RG/CNH aprovado) ──
+describe("documentoAprovado", () => {
+  it("só 'aprovado' libera; os demais barram", () => {
+    expect(documentoAprovado("aprovado")).toBe(true);
+    expect(documentoAprovado("enviado")).toBe(false);
+    expect(documentoAprovado("nao_enviado")).toBe(false);
+    expect(documentoAprovado("rejeitado")).toBe(false);
+    expect(documentoAprovado(null)).toBe(false);
+    expect(documentoAprovado(undefined)).toBe(false);
   });
 });

@@ -91,8 +91,8 @@ import {
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
-  calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo,
-  montarTextoVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao,
+  calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
+  montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -2435,6 +2435,10 @@ export default function App() {
         if (data) setMinhasDiarias(data);
         const { data: ints } = await supabase.from("candidaturas").select("diaria_id, status").eq("diarista_id", uid);
         if (ints) { const m: Record<string, string> = {}; ints.forEach((i: any) => { m[i.diaria_id] = i.status; }); setMeuInteresse(m); }
+        // Re-busca status de KYC do próprio perfil (a equipe aprova por fora; sem
+        // isto o "documento aprovado" só aparecia após relogar).
+        const { data: meu } = await supabase.from("user_profiles").select("documento_status, antecedentes_status").eq("id", uid).maybeSingle();
+        if (meu) setProfile(prev => prev ? { ...prev, documento_status: meu.documento_status, antecedentes_status: meu.antecedentes_status } : prev);
       }
       // PR-D (B/C): recarrega também os CONVITES. Sem isto, o anunciante só via
       // "convite aceito → pode pagar" depois de apertar Voltar, e o botão de
@@ -4025,12 +4029,17 @@ export default function App() {
   // anúncio grátis do DiáriaJá → traz usuários novos.
   const compartilharVaga = async (dia: Diaria) => {
     const texto = montarTextoVaga(dia);
+    const url = linkVaga(dia.id);
     try {
       if (navigator.share) {
-        await navigator.share({ title: "Vaga no DiáriaJá", text: texto });
+        // `url` separado garante que o app de destino (WhatsApp, etc.) trate o
+        // link da vaga como link clicável — quem abrir sem conta cai no app e é
+        // levado a criar conta (deep link ?vaga=ID).
+        await navigator.share({ title: "Vaga no DiáriaJá", text: texto, url });
       } else {
+        // Desktop sem Web Share API: copia o texto (que já termina com o link).
         await navigator.clipboard?.writeText(texto);
-        setToastSuccess("🔗 Texto do anúncio copiado! Cole onde quiser.");
+        setToastSuccess("🔗 Link e texto da vaga copiados! Cole onde quiser.");
       }
       trackEvento("vaga_compartilhada", session?.user?.id, "diarista", {
         diaria_id: dia.id, tipo_oferta: dia.tipo_oferta,
@@ -4893,6 +4902,30 @@ export default function App() {
     }
   };
 
+  // Anunciante: baixa o currículo (PDF) — mesma RLS do abrir, mas a URL assinada
+  // sai com Content-Disposition: attachment (download forçado em vez de abrir no
+  // navegador). Usa um <a download> temporário pra disparar o salvamento.
+  const baixarCurriculo = async (path: string) => {
+    // Nome do arquivo salvo: usa o final do path (ex.: "uid/curriculo.pdf").
+    const nomeArquivo = (path.split("/").pop() || "curriculo.pdf");
+    const { data, error } = await supabase.storage
+      .from("curriculos")
+      .createSignedUrl(path, 300, { download: nomeArquivo });
+    if (data?.signedUrl) {
+      try {
+        const a = document.createElement("a");
+        a.href = data.signedUrl;
+        a.download = nomeArquivo;
+        a.rel = "noopener noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch { setToastError("Não consegui baixar o currículo."); }
+    } else {
+      setToastError("Não foi possível baixar o currículo: " + (error?.message || "arquivo não encontrado."));
+    }
+  };
+
   // Admin: abre um doc específico — gera signed URL pra visualizar
   const abrirDocParaRevisao = async (d: {user_id:string; nome:string; documento_url:string}) => {
     setDocRevisao({ user_id: d.user_id, nome: d.nome, url: d.documento_url });
@@ -5243,7 +5276,21 @@ export default function App() {
     // Trava de maioridade: só se candidata quem tem documento (RG/CNH) APROVADO.
     // A data de nascimento é auto-declarada e não prova idade; o documento aprovado
     // pela equipe é o que confirma que o prestador é maior de 18 (CLT/LC 150).
-    if (profile?.documento_status !== "aprovado") {
+    // Documento aprovado? Re-busca o status FRESCO do banco — a equipe pode ter
+    // aprovado sem o app ter atualizado o perfil em memória (era o bug: aprovado
+    // no banco, mas o cliente barrava com o status velho). Atualiza o perfil local.
+    let docStatusAtual = profile?.documento_status;
+    try {
+      const { data: docFresh } = await supabase
+        .from("user_profiles").select("documento_status").eq("id", session.user.id).maybeSingle();
+      if (docFresh?.documento_status) {
+        docStatusAtual = docFresh.documento_status;
+        if (docFresh.documento_status !== profile?.documento_status) {
+          setProfile(prev => prev ? { ...prev, documento_status: docFresh.documento_status } : prev);
+        }
+      }
+    } catch { /* offline: usa o status local */ }
+    if (!documentoAprovado(docStatusAtual)) {
       setVagaConfirm(null);
       setVagaConfirmada(false);
       setToastError("🪪 Envie seu documento (RG ou CNH) e aguarde a aprovação para se candidatar aos anúncios.");
@@ -5340,7 +5387,7 @@ export default function App() {
       { tipo: "candidatura", url: "/" },
     );
 
-    // Verifica se a vaga atingiu o limite de 5 interessados → some do feed
+    // Verifica se a vaga atingiu o limite (MAX_INTERESSADOS) → some do feed
     const { count } = await supabase
       .from("candidaturas")
       .select("*", { count: "exact", head: true })
@@ -7681,6 +7728,17 @@ export default function App() {
   if (tela === "splash") return (
     <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:480, margin:"0 auto", position:"relative" as const, paddingBottom:150 }}>
       {bannerLancamento}
+      {/* Convite de vaga compartilhada: quem chegou por um link ?vaga=ID ainda
+          sem conta vê um aviso de que precisa criar conta pra ver a vaga. O id
+          fica guardado e a vaga abre sozinha assim que a conta é criada. */}
+      {vagaDeepLinkId && (
+        <div style={{ margin:"14px 24px 0", background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:22, flexShrink:0 }}>💼</span>
+          <div style={{ fontSize:13, color:"#9a3412", lineHeight:1.45 }}>
+            <strong>Você recebeu uma vaga!</strong> Crie sua conta grátis (ou entre) pra ver os detalhes e se candidatar.
+          </div>
+        </div>
+      )}
       {/* ── Topo: logo + badge local ── */}
       <div style={{ padding:"26px 24px 0", display:"flex", alignItems:"center", justifyContent:"space-between", animation:"spl-fadein .6s ease-out both" }}>
         <div style={{ fontSize:26, fontWeight:900, letterSpacing:-1, lineHeight:1 }}>
@@ -12731,11 +12789,18 @@ export default function App() {
                                 </div>
                               )}
                               {info?.curriculo_path && (
-                                <button
-                                  onClick={e => { e.stopPropagation(); abrirCurriculo(info.curriculo_path!); }}
-                                  style={{ marginTop:6, background:"#eef2ff", color:"#4338ca", border:"none", borderRadius:10, padding:"7px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
-                                  📄 Ver currículo (PDF)
-                                </button>
+                                <div style={{ display:"flex", gap:6, flexWrap:"wrap" as const, marginTop:6 }}>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); abrirCurriculo(info.curriculo_path!); }}
+                                    style={{ background:"#eef2ff", color:"#4338ca", border:"none", borderRadius:10, padding:"7px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                                    📄 Ver currículo (PDF)
+                                  </button>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); baixarCurriculo(info.curriculo_path!); }}
+                                    style={{ background:"#f1f5f9", color:"#334155", border:"none", borderRadius:10, padding:"7px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                                    ⬇️ Baixar
+                                  </button>
+                                </div>
                               )}
                             </div>
                           )}
