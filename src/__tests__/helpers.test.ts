@@ -4,6 +4,7 @@ import {
   empregoExigePlanoParaChamar,
   vagaApareceNoFeed,
   documentoAprovado,
+  extrairPrimeiroLink,
   erroTelefoneSave,
   rotuloDistanciaFeed,
   distanciaParaFiltroRaio,
@@ -1683,5 +1684,25 @@ describe("documentoAprovado", () => {
     expect(documentoAprovado("rejeitado")).toBe(false);
     expect(documentoAprovado(null)).toBe(false);
     expect(documentoAprovado(undefined)).toBe(false);
+  });
+});
+
+// ── extrairPrimeiroLink: aviso "saindo do DiáriaJá" na mensagem automática ──
+describe("extrairPrimeiroLink", () => {
+  it("acha o primeiro link http(s)", () => {
+    expect(extrairPrimeiroLink("Boas-vindas! Cadastre-se em https://rh.empresa.com/vaga"))
+      .toBe("https://rh.empresa.com/vaga");
+    expect(extrairPrimeiroLink("http://exemplo.com.br já vale")).toBe("http://exemplo.com.br");
+  });
+  it("tira pontuação colada no fim", () => {
+    expect(extrairPrimeiroLink("Acesse https://talent.com/x.")).toBe("https://talent.com/x");
+    expect(extrairPrimeiroLink("(veja https://a.com/b)")).toBe("https://a.com/b");
+  });
+  it("sem link → null", () => {
+    expect(extrairPrimeiroLink("Bem-vindo! Aguarde nosso contato.")).toBeNull();
+    expect(extrairPrimeiroLink("www.semprotocolo.com")).toBeNull(); // exige http(s)
+    expect(extrairPrimeiroLink("")).toBeNull();
+    expect(extrairPrimeiroLink(null)).toBeNull();
+    expect(extrairPrimeiroLink(undefined)).toBeNull();
   });
 });

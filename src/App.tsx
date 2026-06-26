@@ -92,7 +92,7 @@ import {
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
-  montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao,
+  montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -365,7 +365,7 @@ export default function App() {
   const [filtroFuncao, setFiltroFuncao]   = useState("Todos");
   const [filtroDisp, setFiltroDisp]       = useState(false);
   const [diarias, setDiarias]                     = useState<Diaria[]>([]);
-  const [formDiaria, setFormDiaria]               = useState({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" });
+  const [formDiaria, setFormDiaria]               = useState({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" });
   const [buscandoCEP, setBuscandoCEP]             = useState(false);
   const [buscandoCEPPerfil, setBuscandoCEPPerfil] = useState(false);  // diarista profile CEP
   const [latPerfilCEP, setLatPerfilCEP]           = useState<number | null>(null); // geocoded from profile CEP
@@ -1060,6 +1060,9 @@ export default function App() {
   });
   // Anti-exit aviso no chat
   const [antiExitAviso, setAntiExitAviso] = useState(false);
+  // Aviso "você está saindo do DiáriaJá" antes de abrir um link de mensagem
+  // (ex.: link de RH na mensagem automática da empresa). Guarda a URL pendente.
+  const [linkExternoConfirm, setLinkExternoConfirm] = useState<string | null>(null);
 
   // Chat real (empregador ↔ diarista via diária)
   const [diaristasAceites, setDiaristasAceites] = useState<Record<string, UserProfile>>({});
@@ -1624,7 +1627,7 @@ export default function App() {
       // Não trafega `endereco` no feed de vagas abertas: o card só usa bairro/lat/lng,
       // e o endereço completo só deve aparecer após o contato ser liberado (status
       // aceita+). Defesa em profundidade contra vazamento do endereço pré-pagamento.
-      .select("id,oculto,empregador_id,nome_negocio,segmento,funcao,descricao,data,horario_inicio,horario_fim,valor,status,diarista_aceite_id,created_at,lat,lng,valor_encostada,valor_por_entrega,ganho_estimado_dia,bairro,tipo_oferta,tempo_estimado_min,tipo_preco,tipo_contrato,regime,salario_texto,beneficios,vagas,vagas_preenchidas")
+      .select("id,oculto,empregador_id,nome_negocio,segmento,funcao,descricao,data,horario_inicio,horario_fim,valor,status,diarista_aceite_id,created_at,lat,lng,valor_encostada,valor_por_entrega,ganho_estimado_dia,bairro,tipo_oferta,tempo_estimado_min,tipo_preco,tipo_contrato,regime,salario_texto,beneficios,mensagem_automatica,vagas,vagas_preenchidas")
       .eq("status", "aberta")
       .neq("empregador_id", session.user.id) // BUG-M8 fix: usuário "ambos" não vê suas próprias vagas
       .order("created_at", { ascending: false })
@@ -4270,7 +4273,7 @@ export default function App() {
   // existe, começando com o formulário limpo. Reutilizado pelos atalhos da
   // home do contratante (busca x publicar a própria oferta).
   const irPublicarOferta = () => {
-    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" });
+    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" });
     setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria");
   };
 
@@ -6290,6 +6293,8 @@ export default function App() {
           ...formDiaria.beneficios,
           ...(formDiaria.beneficios_outros.trim() ? [formDiaria.beneficios_outros.trim()] : []),
         ],
+        // 1ª msg da empresa no chat (injetada por trigger no confirmar). Texto livre.
+        mensagem_automatica: formDiaria.mensagem_auto.trim() || null,
       }),
       ...(isDelivery && {
         valor_encostada: formDiaria.valor_encostada ? Number(formDiaria.valor_encostada) : null,
@@ -6299,15 +6304,16 @@ export default function App() {
     };
     // Insert com fallback de ORDEM DE DEPLOY: se uma coluna nova ainda não existir
     // (migração não aplicada), reinsere sem ela em vez de quebrar a criação.
-    // Cobre geo_preciso E beneficios (vaga de emprego) — degrada sem salvá-las.
+    // Cobre geo_preciso, beneficios e mensagem_automatica — degrada sem salvá-las.
     const colNovaAusente = (e: { code?: string; message?: string } | null) =>
-      !!e && (e.code === "PGRST204" || e.code === "42703" || /geo_preciso|beneficios/i.test(e.message || ""));
+      !!e && (e.code === "PGRST204" || e.code === "42703" || /geo_preciso|beneficios|mensagem_automatica/i.test(e.message || ""));
     let novaInsert: Record<string, unknown> = nova;
     let { data, error } = await supabase.from("diarias").insert(nova).select().single();
     if (error && colNovaAusente(error)) {
       const semCols: Record<string, unknown> = { ...nova };
       delete semCols.geo_preciso;
       delete semCols.beneficios;
+      delete semCols.mensagem_automatica;
       novaInsert = semCols;
       ({ data, error } = await supabase.from("diarias").insert(semCols).select().single());
     }
@@ -6334,7 +6340,7 @@ export default function App() {
       recorrente: dirariaRepetir !== "nao",
       total_criadas: novasDiarias.length,
     });
-    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" });
+    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" });
     setDiariaRepetir("nao");
     setVagasDiaria(1);
     setLatDiaria(null); setLngDiaria(null);
@@ -11311,7 +11317,7 @@ export default function App() {
     // Abrir o fluxo de publicar diária — mesma ação do FAB "Publicar" da bottom
     // nav, extraída pra ser reusada também pelo top nav do desktop (sem duplicar
     // o reset do formulário e sem mudar nada do comportamento).
-    const abrirCriarDiaria = () => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria"); };
+    const abrirCriarDiaria = () => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria"); };
     const hora = new Date().getHours();
     const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
     const primeiroNome = profile?.nome?.split(" ")[0] || "você";
@@ -12608,7 +12614,7 @@ export default function App() {
 
               <button
                 style={{ ...S.btnPrimary, background:negocio.cor, marginTop:16 }}
-                onClick={() => { setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria"); }}>
+                onClick={() => { setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria"); }}>
                 + Nova diária
               </button>
             </div>
@@ -13485,6 +13491,38 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Modal: aviso "você está saindo do DiáriaJá" (link externo) ──
+            Aparece antes de abrir um link de mensagem (ex.: site de RH na
+            mensagem automática da empresa). LGPD/segurança: consentimento antes
+            de sair. Abre EXATAMENTE a URL que a empresa escreveu — sem nenhum
+            parâmetro automático (zero dado do candidato na URL). */}
+        {linkExternoConfirm && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:540, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}
+            onClick={() => setLinkExternoConfirm(null)}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px", maxWidth:360, width:"100%", textAlign:"center" }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize:42, marginBottom:8 }}>🔗</div>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:6 }}>Você está saindo do DiáriaJá</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.6, marginBottom:14 }}>
+                Este link foi enviado pela empresa e leva a um site <strong>fora do DiáriaJá</strong>. Confira o endereço antes de continuar e <strong>nunca compartilhe senhas</strong>.
+              </div>
+              <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:"10px 12px", fontSize:12, color:"var(--text-1,#0f172a)", wordBreak:"break-all" as const, marginBottom:18 }}>
+                {linkExternoConfirm}
+              </div>
+              <button type="button"
+                style={{ width:"100%", padding:"13px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
+                onClick={() => { const u = linkExternoConfirm; setLinkExternoConfirm(null); try { window.open(u, "_blank", "noopener,noreferrer"); } catch { /* ok */ } }}>
+                Continuar para o site →
+              </button>
+              <button type="button"
+                style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => setLinkExternoConfirm(null)}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── Modal: Denúncia ── */}
         {/* Modal: confirmar bloqueio de usuário */}
         {modalBloquear && (
@@ -13916,6 +13954,12 @@ export default function App() {
                       <div key={m.id} style={{ display:"flex", justifyContent: isMeu ? "flex-end" : "flex-start" }}>
                         <div style={{ background: isMeu ? negocio.cor : "var(--bg-card,#fff)", color: isMeu ? "#fff" : "var(--text-1,#0f172a)", borderRadius: isMeu ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding:"10px 14px", maxWidth:"75%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
                           {m.conteudo}
+                          {(() => { const lk = extrairPrimeiroLink(m.conteudo); return lk ? (
+                            <button type="button" onClick={() => setLinkExternoConfirm(lk)}
+                              style={{ display:"block", width:"100%", textAlign:"left" as const, marginTop:6, background: isMeu ? "rgba(255,255,255,.2)" : "#eef2ff", color: isMeu ? "#fff" : "#4338ca", border:"none", borderRadius:10, padding:"7px 12px", fontSize:12.5, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                              🔗 Abrir link com segurança
+                            </button>
+                          ) : null; })()}
                           <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:4, fontSize:10, opacity:.7, marginTop:4 }}>
                             <span>{new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}</span>
                             {isMeu && (
@@ -16208,6 +16252,12 @@ export default function App() {
                       <div key={m.id} style={{ display:"flex", justifyContent: isMeu ? "flex-end" : "flex-start" }}>
                         <div style={{ background: isMeu ? "#FF6B35" : "var(--bg-card,#fff)", color: isMeu ? "#fff" : "var(--text-1,#0f172a)", borderRadius: isMeu ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding:"10px 14px", maxWidth:"75%", fontSize:14, boxShadow:"0 1px 4px rgba(0,0,0,.1)", lineHeight:1.5 }}>
                           {m.conteudo}
+                          {(() => { const lk = extrairPrimeiroLink(m.conteudo); return lk ? (
+                            <button type="button" onClick={() => setLinkExternoConfirm(lk)}
+                              style={{ display:"block", width:"100%", textAlign:"left" as const, marginTop:6, background: isMeu ? "rgba(255,255,255,.2)" : "#eef2ff", color: isMeu ? "#fff" : "#4338ca", border:"none", borderRadius:10, padding:"7px 12px", fontSize:12.5, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                              🔗 Abrir link com segurança
+                            </button>
+                          ) : null; })()}
                           <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:4, fontSize:10, opacity:.7, marginTop:4 }}>
                             <span>{new Date(m.created_at).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}</span>
                             {isMeu && (
@@ -19481,6 +19531,22 @@ export default function App() {
               value={formDiaria.beneficios_outros}
               onChange={e => setFormDiaria({ ...formDiaria, beneficios_outros: e.target.value })}
             />
+
+            {/* Mensagem automática (opcional) — vira a 1ª mensagem da EMPRESA no
+                chat quando o candidato confirma. Texto livre; aceita link externo
+                (ex.: site de RH). ⚠️ Nunca preencha dado do candidato aqui — o
+                candidato preenche tudo na mão no destino. */}
+            <label style={{ ...S.label, marginTop:12 }}>Mensagem automática <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:600 }}>(opcional)</span></label>
+            <textarea
+              style={{ ...S.input, minHeight:80, resize:"vertical" as const, fontFamily:"Inter, system-ui, sans-serif" }}
+              placeholder="Ex.: Que bom seu interesse! Pra avançar, faça seu cadastro complementar em https://..."
+              maxLength={500}
+              value={formDiaria.mensagem_auto}
+              onChange={e => setFormDiaria({ ...formDiaria, mensagem_auto: e.target.value.slice(0, 500) })}
+            />
+            <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", margin:"4px 0 0" }}>
+              Enviada como sua 1ª mensagem quando o candidato confirma. Pode incluir um link. {formDiaria.mensagem_auto.length}/500
+            </p>
 
             <div style={{ background:`${cor}10`, border:`1.5px solid ${cor}30`, borderRadius:12, padding:"10px 14px", marginTop:12, fontSize:12, color:"var(--text-2,#64748b)" }}>
               💼 Vaga de emprego — os candidatos se candidatam e você escolhe quem chamar pra entrevista. A contratação é feita diretamente entre vocês.
