@@ -92,7 +92,7 @@ import {
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
-  montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar,
+  montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -459,6 +459,7 @@ export default function App() {
   const [alertaAceite, setAlertaAceite] = useState<Diaria | null>(null); // modal quando diarista aceita diária do empregador
   const [modalCancelar, setModalCancelar] = useState<Diaria | null>(null);
   const [motivoCancelamento, setMotivoCancelamento] = useState("");
+  const [modalEncerrarVaga, setModalEncerrarVaga] = useState<Diaria | null>(null); // emprego: encerrar vaga (Fase 1)
   const [cancelando, setCancelando] = useState(false);
   // Desistência (diarista devolve a vaga — fica aberta novamente)
   const [modalDesistir, setModalDesistir] = useState<Diaria | null>(null);
@@ -3938,6 +3939,25 @@ export default function App() {
     setToastSuccess("✅ Anúncio retirado do ar.");
   };
 
+  // EMPREGO (Fase 1): a empresa ENCERRA a vaga quando decidir. Status próprio
+  // 'encerrada' (≠ 'cancelada'): sai do feed e não recebe mais candidatura, sem
+  // mandar "cancelado" pros candidatos já chamados. Só pra vaga de emprego.
+  const encerrarVagaEmprego = async () => {
+    if (!session?.user || !modalEncerrarVaga) return;
+    const d = modalEncerrarVaga;
+    const { error } = await supabase
+      .from("diarias")
+      .update({ status: "encerrada" })
+      .eq("id", d.id)
+      .eq("empregador_id", session.user.id);
+    if (error) { setToastError("Não foi possível encerrar: " + traduzirErroBanco(error)); return; }
+    const atualizada = { ...d, status: "encerrada" };
+    setDiarias(prev => prev.map(x => x.id === d.id ? atualizada : x));
+    setMinhasDiarias(prev => prev.map(x => x.id === d.id ? atualizada : x));
+    setModalEncerrarVaga(null);
+    setToastSuccess("✅ Vaga encerrada. Não recebe mais candidatos.");
+  };
+
   // Diarista desiste — vaga volta a ficar aberta para outros
   const desistirDiaria = async () => {
     if (!session?.user || !modalDesistir || !motivoDesistencia.trim()) return;
@@ -5393,60 +5413,73 @@ export default function App() {
     setModalTermoCiencia(null);
     setTermoCienciaCheck(false);
 
-    // ── Multi-vagas ──────────────────────────────────────────────────────
-    // Quantas vagas a diária oferece e quantas já foram preenchidas. Com
-    // vagas=1 (default), `lotou` é sempre true já na 1ª seleção → o fluxo
-    // fica IDÊNTICO ao de antes (status 'pendente', rejeita os demais).
+    // ── Seleção/chamada — FORKA por tipo de oferta (helpers.planoSelecao) ──
+    // EMPREGO: chama vários, a vaga segue 'aberta', NÃO rejeita ninguém e NÃO
+    // define "o contratado" (diarista_aceite_id) — a vaga só fecha ao ENCERRAR.
+    // DIÁRIA/SERVIÇO: IDÊNTICO a antes (contrata até `vagas`; ao lotar, rejeita
+    // os pendentes e fecha). A diária não é tocada.
+    const ehEmprego = diaria.tipo_oferta === "emprego";
     const vagas = diaria.vagas ?? 1;
     const jaSelecionados = candidaturas.filter(c => c.diaria_id === diaria.id && (c.status === "selecionado" || c.status === "confirmado")).length;
     const novoTotal = jaSelecionados + 1;
-    const lotou = novoTotal >= vagas;
-    // O 1º selecionado vira o "principal" (diarista_aceite_id) p/ compatibilidade
-    // com chat/check-in/avaliação atuais. Enquanto não lota, a vaga segue 'aberta'
-    // (continua no feed recebendo gente); ao lotar, vira 'pendente' (sai do feed).
+    const sel = planoSelecao({ ehEmprego, vagas, jaSelecionados });
     const principal = diaria.diarista_aceite_id || diaristaId;
-    const novoStatus = lotou ? "pendente" : "aberta";
+    const novoStatus = sel.fecharVaga ? "pendente" : "aberta";
 
-    // 1. Atualiza a diária (status + principal + contador de preenchidas)
-    const { error: e1 } = await supabase
-      .from("diarias")
-      .update({ status: novoStatus, diarista_aceite_id: principal, vagas_preenchidas: novoTotal })
-      .eq("id", diaria.id)
-      .eq("empregador_id", session.user.id);
-
-    if (e1) {
-      setSelecionando(false);
-      setToastError("❌ Erro ao selecionar interessado: " + e1.message);
-      return;
+    // 1. Atualiza a diária — SÓ diária/serviço. Emprego não mexe na vaga.
+    if (!ehEmprego) {
+      const { error: e1 } = await supabase
+        .from("diarias")
+        .update({ status: novoStatus, diarista_aceite_id: principal, vagas_preenchidas: novoTotal })
+        .eq("id", diaria.id)
+        .eq("empregador_id", session.user.id);
+      if (e1) {
+        setSelecionando(false);
+        setToastError("❌ Erro ao selecionar interessado: " + e1.message);
+        return;
+      }
     }
 
-    // 2. Candidaturas: marca este como selecionado (com o instante, p/ a cobrança
-    //    contar cada vaga). Só rejeita os pendentes restantes quando LOTA.
-    await supabase.from("candidaturas").update({ status: "selecionado", selecionado_em: new Date().toISOString() }).eq("diaria_id", diaria.id).eq("diarista_id", diaristaId);
-    if (lotou) {
+    // 2. Candidaturas: marca este 'selecionado'. Rejeita os pendentes SÓ quando a
+    //    diária lota (emprego nunca rejeita). No emprego, o gate Essencial é a
+    //    autoridade do trigger enforce_plano_chamar_emprego (erro vem aqui).
+    const { error: eCand } = await supabase.from("candidaturas").update({ status: "selecionado", selecionado_em: new Date().toISOString() }).eq("diaria_id", diaria.id).eq("diarista_id", diaristaId);
+    if (eCand) {
+      setSelecionando(false);
+      setToastError("❌ " + traduzirErroBanco(eCand));
+      return;
+    }
+    if (sel.rejeitarPendentes) {
       await supabase.from("candidaturas").update({ status: "rejeitado" }).eq("diaria_id", diaria.id).eq("status", "pendente");
     }
 
-    // 3. Push pro prestador escolhido
+    // 3. Push pro prestador chamado
     enviarPush(
       [diaristaId],
-      "🎯 Anunciante demonstrou interesse!",
-      `${profile?.nome_negocio || "Um anunciante"} te selecionou para "${diaria.funcao || diaria.segmento}". Abra o app para confirmar.`,
+      ehEmprego ? "🎯 Você foi chamado para uma entrevista!" : "🎯 Anunciante demonstrou interesse!",
+      ehEmprego
+        ? `${profile?.nome_negocio || "Uma empresa"} quer te entrevistar para "${diaria.funcao}". Abra o app para confirmar.`
+        : `${profile?.nome_negocio || "Um anunciante"} te selecionou para "${diaria.funcao || diaria.segmento}". Abra o app para confirmar.`,
       { tipo: "selecionado", url: "/" },
     );
     hapticConfirm();
 
     // 4. Atualiza estado local
-    setDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: novoStatus, diarista_aceite_id: principal, vagas_preenchidas: novoTotal } : d));
+    if (!ehEmprego) {
+      setDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: novoStatus, diarista_aceite_id: principal, vagas_preenchidas: novoTotal } : d));
+    }
     setCandidaturas(prev => prev.map(c => {
       if (c.diaria_id !== diaria.id) return c;
       if (c.diarista_id === diaristaId) return { ...c, status: "selecionado" };
-      if (lotou && c.status === "pendente") return { ...c, status: "rejeitado" };
+      if (sel.rejeitarPendentes && c.status === "pendente") return { ...c, status: "rejeitado" };
       return c;
     }));
 
     setSelecionando(false);
-    if (lotou) {
+    if (ehEmprego) {
+      // Vaga continua aberta — modal segue aberto pra chamar mais.
+      setToastSuccess("✅ Candidato chamado! Quando ele confirmar, libera o chat. Pode chamar outros.");
+    } else if (sel.fecharVaga) {
       setModalCandidatos(null);
       setToastSuccess(vagas > 1
         ? `✅ Todas as ${vagas} vagas preenchidas! Os profissionais foram notificados.`
@@ -5769,9 +5802,11 @@ export default function App() {
       return;
     }
     // Multi-vagas: trava a seleção quando todas as vagas já foram preenchidas.
+    // EMPREGO é exceção: chama VÁRIOS candidatos (ilimitado até encerrar a vaga).
+    const ehEmpregoSel = diaria.tipo_oferta === "emprego";
     const vagasTotal = diaria.vagas ?? 1;
     const preenchidas = candidaturas.filter(c => c.diaria_id === diaria.id && (c.status === "selecionado" || c.status === "confirmado")).length;
-    if (preenchidas >= vagasTotal) {
+    if (!ehEmpregoSel && preenchidas >= vagasTotal) {
       setToastError(vagasTotal > 1 ? `Todas as ${vagasTotal} vagas desta diária já foram preenchidas.` : "Esta diária já tem um profissional selecionado.");
       return;
     }
@@ -5830,9 +5865,10 @@ export default function App() {
   // Executa confirmação real após aceite do modal
   const executarConfirmarPresenca = async (diaria: Diaria) => {
     if (!session?.user) return;
-    // P0-2: trava da cota grátis do diarista (3 diárias concluídas). UX: evita o
-    // erro cru do banco — o trigger trg_enforce_cota_gratis_diarista é a autoridade.
-    if (limits.diarista.passouCotaGratis) {
+    const ehEmpregoConf = diaria.tipo_oferta === "emprego";
+    // P0-2: trava da cota grátis do diarista (3 diárias concluídas). NÃO se aplica
+    // a EMPREGO — confirmar uma entrevista não é "aceitar diária".
+    if (!ehEmpregoConf && limits.diarista.passouCotaGratis) {
       setModalTermoDiarista(null);
       setTermoDiaristaCheck(false);
       setToastError("Você já concluiu suas 3 diárias grátis. Assine o Essencial (R$ 9,90) pra aceitar novas diárias.");
@@ -5840,13 +5876,17 @@ export default function App() {
       return;
     }
     setConfirmando(true);
-    const { error } = await supabase.from("diarias").update({ status: "aceita" }).eq("id", diaria.id);
-    if (error) { setAuthError(traduzirErroBanco(error)); setConfirmando(false); return; }
+    // EMPREGO: a vaga continua ABERTA (a empresa chama vários); NÃO vira 'aceita'.
+    // Só a candidatura passa a 'confirmado' (libera o chat daquele par pela RLS).
+    if (!ehEmpregoConf) {
+      const { error } = await supabase.from("diarias").update({ status: "aceita" }).eq("id", diaria.id);
+      if (error) { setAuthError(traduzirErroBanco(error)); setConfirmando(false); return; }
+    }
     // Verifica o erro do 2º update: se a candidatura não sincroniza, o empregador
     // não vê o diarista como "confirmado" e o fluxo de contato/chat trava.
     const { error: errCand } = await supabase.from("candidaturas").update({ status: "confirmado" }).eq("diaria_id", diaria.id).eq("diarista_id", session.user.id);
-    if (errCand) { setAuthError("Não foi possível aceitar o serviço. Tente novamente."); setConfirmando(false); return; }
-    setMinhasDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "aceita" } : d));
+    if (errCand) { setAuthError("Não foi possível confirmar. Tente novamente."); setConfirmando(false); return; }
+    if (!ehEmpregoConf) setMinhasDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "aceita" } : d));
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "confirmado" }));
     setConfirmando(false);
     setModalTermoDiarista(null);
@@ -12335,6 +12375,14 @@ export default function App() {
                                 🧾 Recibo
                               </button>
                             )}
+                            {/* Encerrar vaga — SÓ emprego (chama vários até decidir; aí encerra) */}
+                            {dia.tipo_oferta === "emprego" && dia.status === "aberta" && (
+                              <button
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#eef2ff", color:"#4338ca", border:"1.5px solid #c7d2fe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                onClick={() => setModalEncerrarVaga(dia)}>
+                                🔒 Encerrar vaga
+                              </button>
+                            )}
                           </div>
                         )}
                         {/* Delivery info para empregador */}
@@ -12629,6 +12677,28 @@ export default function App() {
               <button
                 style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { setModalCancelar(null); setMotivoCancelamento(""); }}>
+                Voltar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal: Encerrar vaga de emprego (Fase 1) ── */}
+        {modalEncerrarVaga && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+            <div role="dialog" aria-modal="true" aria-label="Encerrar vaga" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>🔒 Encerrar vaga</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20, lineHeight:1.6 }}>
+                A vaga sai do feed e <strong>não recebe mais candidatos</strong>. As conversas com quem você já chamou continuam.
+              </div>
+              <button
+                style={{ width:"100%", padding:"14px", background:"#4338ca", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
+                onClick={encerrarVagaEmprego}>
+                Encerrar vaga
+              </button>
+              <button
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => setModalEncerrarVaga(null)}>
                 Voltar
               </button>
             </div>
