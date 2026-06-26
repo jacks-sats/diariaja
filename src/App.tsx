@@ -91,7 +91,7 @@ import {
   calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
-  calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo,
+  calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
   montarTextoVaga, rotuloPrecoVaga, precoDiariaParaSalvar,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
@@ -2434,6 +2434,10 @@ export default function App() {
         if (data) setMinhasDiarias(data);
         const { data: ints } = await supabase.from("candidaturas").select("diaria_id, status").eq("diarista_id", uid);
         if (ints) { const m: Record<string, string> = {}; ints.forEach((i: any) => { m[i.diaria_id] = i.status; }); setMeuInteresse(m); }
+        // Re-busca status de KYC do próprio perfil (a equipe aprova por fora; sem
+        // isto o "documento aprovado" só aparecia após relogar).
+        const { data: meu } = await supabase.from("user_profiles").select("documento_status, antecedentes_status").eq("id", uid).maybeSingle();
+        if (meu) setProfile(prev => prev ? { ...prev, documento_status: meu.documento_status, antecedentes_status: meu.antecedentes_status } : prev);
       }
       // PR-D (B/C): recarrega também os CONVITES. Sem isto, o anunciante só via
       // "convite aceito → pode pagar" depois de apertar Voltar, e o botão de
@@ -5223,7 +5227,21 @@ export default function App() {
     // Trava de maioridade: só se candidata quem tem documento (RG/CNH) APROVADO.
     // A data de nascimento é auto-declarada e não prova idade; o documento aprovado
     // pela equipe é o que confirma que o prestador é maior de 18 (CLT/LC 150).
-    if (profile?.documento_status !== "aprovado") {
+    // Documento aprovado? Re-busca o status FRESCO do banco — a equipe pode ter
+    // aprovado sem o app ter atualizado o perfil em memória (era o bug: aprovado
+    // no banco, mas o cliente barrava com o status velho). Atualiza o perfil local.
+    let docStatusAtual = profile?.documento_status;
+    try {
+      const { data: docFresh } = await supabase
+        .from("user_profiles").select("documento_status").eq("id", session.user.id).maybeSingle();
+      if (docFresh?.documento_status) {
+        docStatusAtual = docFresh.documento_status;
+        if (docFresh.documento_status !== profile?.documento_status) {
+          setProfile(prev => prev ? { ...prev, documento_status: docFresh.documento_status } : prev);
+        }
+      }
+    } catch { /* offline: usa o status local */ }
+    if (!documentoAprovado(docStatusAtual)) {
       setVagaConfirm(null);
       setVagaConfirmada(false);
       setToastError("🪪 Envie seu documento (RG ou CNH) e aguarde a aprovação para se candidatar aos anúncios.");

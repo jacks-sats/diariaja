@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  documentoAprovado,
   erroTelefoneSave,
   rotuloDistanciaFeed,
   distanciaParaFiltroRaio,
@@ -1628,5 +1629,17 @@ describe("deveMostrarLembreteGeo", () => {
   it("dispensado → NÃO mostra (1x só)", () => {
     expect(deveMostrarLembreteGeo(null, true)).toBe(false);
     expect(deveMostrarLembreteGeo(false, true)).toBe(false);
+  });
+});
+
+// ── documentoAprovado: gate da candidatura (RG/CNH aprovado) ──
+describe("documentoAprovado", () => {
+  it("só 'aprovado' libera; os demais barram", () => {
+    expect(documentoAprovado("aprovado")).toBe(true);
+    expect(documentoAprovado("enviado")).toBe(false);
+    expect(documentoAprovado("nao_enviado")).toBe(false);
+    expect(documentoAprovado("rejeitado")).toBe(false);
+    expect(documentoAprovado(null)).toBe(false);
+    expect(documentoAprovado(undefined)).toBe(false);
   });
 });
