@@ -692,11 +692,12 @@ export default function App() {
   const [modalEditarDiaria, setModalEditarDiaria] = useState<Diaria | null>(null);
   const [formEditarDiaria, setFormEditarDiaria] = useState({ funcao:"", descricao:"", data:"", horario_inicio:"", horario_fim:"", valor:"" });
   const [salvandoEdicao, setSalvandoEdicao] = useState(false);
-  // Editar SÓ a mensagem automática de uma vaga de emprego já criada (o modal de
-  // editar diária é focado em diária — valida horário/valor, que não cabem aqui).
-  const [modalMsgAuto, setModalMsgAuto] = useState<Diaria | null>(null);
-  const [msgAutoDraft, setMsgAutoDraft] = useState("");
-  const [salvandoMsgAuto, setSalvandoMsgAuto] = useState(false);
+  // Editar vaga de EMPREGO já criada (modal próprio — o de diária valida
+  // horário/valor, que não cabem aqui). Cobre função, descrição, salário,
+  // contrato/regime, benefícios e a mensagem automática.
+  const [modalEditarEmprego, setModalEditarEmprego] = useState<Diaria | null>(null);
+  const [formEditarEmprego, setFormEditarEmprego] = useState({ funcao:"", descricao:"", salario:"", tipo_contrato:"", regime:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" });
+  const [salvandoEditarEmprego, setSalvandoEditarEmprego] = useState(false);
   const [salvandoPerfil, setSalvandoPerfil] = useState(false); // loading global do saveProfile
 
   // ── Push Notifications ────────────────────────────────────────────────────
@@ -3964,6 +3965,12 @@ export default function App() {
     const atualizada = { ...modalCancelar, status: "cancelada", motivo_cancelamento: motivoCancelamento.trim() };
     setDiarias(prev => prev.map(d => d.id === modalCancelar.id ? atualizada : d));
     setMinhasDiarias(prev => prev.map(d => d.id === modalCancelar.id ? atualizada : d));
+    // Notifica TODOS que se candidataram que a vaga foi cancelada (não ficam no vácuo).
+    const { data: candsCanc } = await supabase.from("candidaturas").select("diarista_id").eq("diaria_id", modalCancelar.id).in("status", ["pendente", "selecionado", "confirmado"]);
+    const idsCanc = [...new Set((candsCanc || []).map((c: { diarista_id: string }) => c.diarista_id))];
+    if (idsCanc.length) {
+      enviarPush(idsCanc, "Vaga cancelada", `A vaga de ${modalCancelar.funcao || modalCancelar.segmento} em que você se candidatou foi cancelada pelo anunciante.`, { tipo: "candidatura", url: "/" });
+    }
     setModalCancelar(null);
     setMotivoCancelamento("");
     setCancelando(false);
@@ -4000,6 +4007,14 @@ export default function App() {
     const atualizada = { ...d, status: "encerrada" };
     setDiarias(prev => prev.map(x => x.id === d.id ? atualizada : x));
     setMinhasDiarias(prev => prev.map(x => x.id === d.id ? atualizada : x));
+    // Avisa os candidatos NÃO chamados (pendentes) que a vaga fechou — outro foi
+    // escolhido — e incentiva a continuar. Os já chamados (selecionado/confirmado)
+    // seguem em conversa pelo chat, então NÃO recebem "não foi escolhido".
+    const { data: candsEnc } = await supabase.from("candidaturas").select("diarista_id").eq("diaria_id", d.id).eq("status", "pendente");
+    const idsEnc = [...new Set((candsEnc || []).map((c: { diarista_id: string }) => c.diarista_id))];
+    if (idsEnc.length) {
+      enviarPush(idsEnc, "Vaga encerrada", `A vaga de ${d.funcao || d.segmento} foi encerrada — o anunciante escolheu outro candidato. Continue tentando em outras vagas! 💪`, { tipo: "candidatura", url: "/" });
+    }
     setModalEncerrarVaga(null);
     setToastSuccess("✅ Vaga encerrada. Não recebe mais candidatos.");
   };
@@ -6099,21 +6114,50 @@ export default function App() {
 
   // Salva SÓ a mensagem automática (vaga de emprego). Vazio = remove (não envia
   // nada no confirmar). Atualiza a lista local pra refletir na hora.
-  const salvarMsgAuto = async () => {
-    if (!modalMsgAuto) return;
-    // Anti-abuso: bloqueia conteúdo proibido/discriminatório (não barra link).
-    const msgAviso = msgAutoDraft.trim()
-      ? (verificarConteudoProibido(msgAutoDraft) || verificarDiscriminacao(msgAutoDraft))
-      : null;
-    if (msgAviso) { setAuthError(msgAviso); return; }
-    setSalvandoMsgAuto(true);
-    const novaMsg = msgAutoDraft.trim() || null;
-    const { error } = await supabase.from("diarias").update({ mensagem_automatica: novaMsg }).eq("id", modalMsgAuto.id);
-    if (error) { setAuthError(traduzirErroBanco(error)); setSalvandoMsgAuto(false); return; }
-    setDiarias(prev => prev.map(d => d.id === modalMsgAuto.id ? { ...d, mensagem_automatica: novaMsg } : d));
-    setModalMsgAuto(null);
-    setSalvandoMsgAuto(false);
-    setToastSuccess("✅ Mensagem automática atualizada!");
+  // Abre o editor de vaga de emprego já populado (separa benefícios conhecidos
+  // dos "outros" pra cair certo nos chips + campo livre).
+  const abrirEditarEmprego = (dia: Diaria) => {
+    const benef = dia.beneficios || [];
+    const conhecidos = benef.filter(b => (BENEFICIOS_VAGA as readonly string[]).includes(b));
+    const outros = benef.filter(b => !(BENEFICIOS_VAGA as readonly string[]).includes(b));
+    setFormEditarEmprego({
+      funcao: dia.funcao || "",
+      descricao: dia.descricao || "",
+      salario: dia.salario_texto || "",
+      tipo_contrato: dia.tipo_contrato || "",
+      regime: dia.regime || "",
+      beneficios: conhecidos,
+      beneficios_outros: outros.join(", "),
+      mensagem_auto: dia.mensagem_automatica || "",
+    });
+    setModalEditarEmprego(dia);
+    setAuthError("");
+  };
+
+  const salvarEditarEmprego = async () => {
+    if (!modalEditarEmprego) return;
+    const f = formEditarEmprego;
+    if (!f.funcao.trim()) { setAuthError("Selecione a função."); return; }
+    // Anti-abuso (descrição + mensagem): bloqueia proibido/discriminatório (não barra link).
+    const aviso = verificarConteudoProibido(`${f.descricao} ${f.mensagem_auto}`) || verificarDiscriminacao(f.descricao);
+    if (aviso) { setAuthError(aviso); return; }
+    setSalvandoEditarEmprego(true);
+    const beneficios = [...f.beneficios, ...(f.beneficios_outros.trim() ? [f.beneficios_outros.trim()] : [])];
+    const updates = {
+      funcao: f.funcao,
+      descricao: f.descricao,
+      salario_texto: f.salario.trim(),
+      tipo_contrato: f.tipo_contrato,
+      regime: f.regime,
+      beneficios,
+      mensagem_automatica: f.mensagem_auto.trim() || null,
+    };
+    const { error } = await supabase.from("diarias").update(updates).eq("id", modalEditarEmprego.id);
+    if (error) { setAuthError(traduzirErroBanco(error)); setSalvandoEditarEmprego(false); return; }
+    setDiarias(prev => prev.map(d => d.id === modalEditarEmprego.id ? { ...d, ...updates } : d));
+    setModalEditarEmprego(null);
+    setSalvandoEditarEmprego(false);
+    setToastSuccess("✅ Vaga atualizada!");
   };
 
   // Upload de foto do portfólio (diarista)
@@ -12383,7 +12427,10 @@ export default function App() {
                                 </button>
                               </>
                             )}
-                            {dia.status !== "em_andamento" && dia.status !== "concluida" && (
+                            {dia.status !== "em_andamento" && dia.status !== "concluida"
+                              // Emprego ABERTO: a lixeira sai (cancelar já remove). Continua nos
+                              // estados mortos (encerrada/cancelada) pra "remover da lista".
+                              && !(dia.tipo_oferta === "emprego" && dia.status === "aberta") && (
                               <button
                                 style={{ background:"#fee2e2", color:"#ef4444", border:"none", borderRadius:8, padding:"4px 9px", fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1 }}
                                 title={dia.status === "expirada" ? "Remover da lista" : "Excluir diária"}
@@ -12438,8 +12485,9 @@ export default function App() {
                                 </div>
                               );
                             })()}
-                            {/* Ver interessados — diária aberta */}
-                            {dia.status === "aberta" && (() => {
+                            {/* Ver interessados — chip na fileira. SÓ diária: no emprego o
+                                botão laranja "Ver X interessados" já faz isso (evita duplicar). */}
+                            {dia.status === "aberta" && dia.tipo_oferta !== "emprego" && (() => {
                               const cands = candidaturas.filter(c => c.diaria_id === dia.id && c.status === "pendente");
                               return cands.length > 0 ? (
                                 <button
@@ -12464,12 +12512,12 @@ export default function App() {
                                 ✏️ Editar
                               </button>
                             )}
-                            {/* Editar mensagem automática — só vaga de emprego aberta */}
+                            {/* Editar vaga de emprego (função, salário, benefícios, mensagem) */}
                             {dia.tipo_oferta === "emprego" && dia.status === "aberta" && (
                               <button
-                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#eef2ff", color:"#4338ca", border:"1.5px solid #c7d2fe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
-                                onClick={() => { setModalMsgAuto(dia); setMsgAutoDraft(dia.mensagem_automatica || ""); setAuthError(""); }}>
-                                ✏️ Mensagem
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#fef3c7", color:"#92400e", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                onClick={() => abrirEditarEmprego(dia)}>
+                                ✏️ Editar
                               </button>
                             )}
                             {/* Cancelar */}
@@ -12636,11 +12684,15 @@ export default function App() {
                                   Aguardando interessados…
                                 </div>
                               )}
-                              <button
-                                style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
-                                onClick={e => { e.stopPropagation(); setModalCancelar(dia); setMotivoCancelamento(""); }}>
-                                Cancelar publicação
-                              </button>
+                              {/* "Cancelar publicação" sai no EMPREGO (o "✕ Cancelar" da fileira já
+                                  faz isso — evita 3 jeitos de cancelar). Diária mantém o link. */}
+                              {dia.tipo_oferta !== "emprego" && (
+                                <button
+                                  style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:"4px 0", textAlign:"center" as const, width:"100%", textDecoration:"underline" }}
+                                  onClick={e => { e.stopPropagation(); setModalCancelar(dia); setMotivoCancelamento(""); }}>
+                                  Cancelar publicação
+                                </button>
+                              )}
                             </div>
                           );
                         })()}
@@ -13294,37 +13346,80 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Modal: Editar mensagem automática (vaga de emprego) ── */}
-        {modalMsgAuto && (
+        {/* ── Modal: Editar vaga de EMPREGO (função, salário, benefícios, mensagem) ── */}
+        {modalEditarEmprego && (() => {
+          const seg = modalEditarEmprego.segmento as keyof typeof CATEGORIAS_NEGOCIO;
+          const funcs = (CATEGORIAS_NEGOCIO[seg]?.funcoes ?? []) as readonly string[];
+          const opcoesFunc = funcs.includes(formEditarEmprego.funcao) ? [...funcs] : [formEditarEmprego.funcao, ...funcs].filter(Boolean);
+          const corSeg = CATEGORIAS_NEGOCIO[seg]?.cor || "#FF6B35";
+          const inputSt = { width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, padding:"10px 12px", fontSize:13, outline:"none", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const, background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)" } as const;
+          const lblSt = { fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", margin:"12px 0 6px" } as const;
+          return (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
-              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✏️ Mensagem automática</div>
-              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:14, lineHeight:1.5 }}>
-                Enviada como sua 1ª mensagem quando o candidato confirma. Pode incluir um link (ex.: cadastro de RH). Deixe em branco pra não enviar nada.
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"24px 22px 36px", width:"100%", maxWidth:480, maxHeight:"88vh", overflow:"auto" }}>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:2 }}>✏️ Editar vaga</div>
+              <div style={{ fontSize:12.5, color:"var(--text-2,#64748b)", marginBottom:6 }}>{modalEditarEmprego.segmento}</div>
+
+              <label style={lblSt}>Função</label>
+              <select style={inputSt} value={formEditarEmprego.funcao} onChange={e => setFormEditarEmprego(p => ({ ...p, funcao:e.target.value }))}>
+                {opcoesFunc.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+
+              <label style={lblSt}>O que precisa ser feito</label>
+              <textarea style={{ ...inputSt, minHeight:72, resize:"vertical" as const, lineHeight:1.5 }} value={formEditarEmprego.descricao} onChange={e => setFormEditarEmprego(p => ({ ...p, descricao:e.target.value }))} />
+
+              <label style={lblSt}>Salário</label>
+              <input style={inputSt} placeholder="Ex.: R$ 1.800,00 · ou 'A combinar'" value={formEditarEmprego.salario} onChange={e => setFormEditarEmprego(p => ({ ...p, salario:e.target.value }))} />
+
+              <div style={{ display:"flex", gap:10 }}>
+                <div style={{ flex:1 }}>
+                  <label style={lblSt}>Contrato</label>
+                  <select style={inputSt} value={formEditarEmprego.tipo_contrato} onChange={e => setFormEditarEmprego(p => ({ ...p, tipo_contrato:e.target.value }))}>
+                    <option value="">—</option>
+                    {["CLT","PJ","Temporário","Estágio","Freelance"].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex:1 }}>
+                  <label style={lblSt}>Regime</label>
+                  <select style={inputSt} value={formEditarEmprego.regime} onChange={e => setFormEditarEmprego(p => ({ ...p, regime:e.target.value }))}>
+                    <option value="">—</option>
+                    {["Presencial","Híbrido","Remoto"].map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
               </div>
-              <textarea
-                style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"vertical" as const, minHeight:90, outline:"none", color:"var(--text-1,#0f172a)", lineHeight:1.5, boxSizing:"border-box" }}
-                placeholder="Ex.: Que bom seu interesse! Faça seu cadastro complementar em https://..."
-                maxLength={500}
-                value={msgAutoDraft}
-                onChange={e => setMsgAutoDraft(e.target.value.slice(0, 500))}
-              />
-              <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", margin:"4px 0 14px" }}>{msgAutoDraft.length}/500</p>
-              {authError && <p style={{ color:"#dc2626", fontSize:12, marginBottom:8 }}>{authError}</p>}
-              <button
-                style={{ width:"100%", padding:"14px", background: salvandoMsgAuto ? "#e2e8f0" : negocio?.cor || "#FF6B35", color: salvandoMsgAuto ? "#94a3b8" : "#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: salvandoMsgAuto ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-                disabled={salvandoMsgAuto}
-                onClick={salvarMsgAuto}>
-                {salvandoMsgAuto ? "Salvando..." : "✅ Salvar mensagem"}
+
+              <label style={lblSt}>Benefícios <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:600 }}>(opcional)</span></label>
+              <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, marginBottom:8 }}>
+                {BENEFICIOS_VAGA.map(b => {
+                  const marcado = formEditarEmprego.beneficios.includes(b);
+                  return (
+                    <button key={b} type="button"
+                      onClick={() => setFormEditarEmprego(p => ({ ...p, beneficios: marcado ? p.beneficios.filter(x => x !== b) : [...p.beneficios, b] }))}
+                      style={{ padding:"7px 11px", borderRadius:999, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", border: marcado ? `2px solid ${corSeg}` : "1.5px solid var(--border,#e2e8f0)", background: marcado ? `${corSeg}14` : "var(--bg-2,#fff)", color: marcado ? corSeg : "var(--text-2,#64748b)" }}>
+                      {marcado ? "✓ " : ""}{b}
+                    </button>
+                  );
+                })}
+              </div>
+              <input style={inputSt} placeholder="Outros benefícios (ex.: Gympass)" value={formEditarEmprego.beneficios_outros} onChange={e => setFormEditarEmprego(p => ({ ...p, beneficios_outros:e.target.value }))} />
+
+              <label style={lblSt}>Mensagem automática <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:600 }}>(opcional)</span></label>
+              <textarea style={{ ...inputSt, minHeight:80, resize:"vertical" as const, lineHeight:1.5 }} placeholder="Ex.: Que bom seu interesse! Faça seu cadastro em https://..." maxLength={500} value={formEditarEmprego.mensagem_auto} onChange={e => setFormEditarEmprego(p => ({ ...p, mensagem_auto: e.target.value.slice(0,500) }))} />
+              <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", margin:"4px 0 0" }}>Enviada como sua 1ª mensagem quando o candidato confirma. {formEditarEmprego.mensagem_auto.length}/500</p>
+
+              {authError && <p style={{ color:"#dc2626", fontSize:12, margin:"10px 0 0" }}>{authError}</p>}
+              <button style={{ width:"100%", padding:"14px", background: salvandoEditarEmprego ? "#e2e8f0" : negocio?.cor || "#FF6B35", color: salvandoEditarEmprego ? "#94a3b8" : "#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: salvandoEditarEmprego ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", margin:"16px 0 10px" }}
+                disabled={salvandoEditarEmprego} onClick={salvarEditarEmprego}>
+                {salvandoEditarEmprego ? "Salvando..." : "✅ Salvar alterações"}
               </button>
-              <button
-                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                onClick={() => { setModalMsgAuto(null); setAuthError(""); }}>
+              <button style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => { setModalEditarEmprego(null); setAuthError(""); }}>
                 Cancelar
               </button>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ── Modal: Recibo Digital ── */}
         {modalRecibo && (() => {
