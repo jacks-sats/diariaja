@@ -4010,7 +4010,7 @@ export default function App() {
     // Avisa os candidatos NÃO chamados (pendentes) que a vaga fechou — outro foi
     // escolhido — e incentiva a continuar. Os já chamados (selecionado/confirmado)
     // seguem em conversa pelo chat, então NÃO recebem "não foi escolhido".
-    const { data: candsEnc } = await supabase.from("candidaturas").select("diarista_id").eq("diaria_id", d.id).eq("status", "pendente");
+    const { data: candsEnc } = await supabase.from("candidaturas").select("diarista_id").eq("diaria_id", d.id).in("status", ["pendente", "selecionado"]);
     const idsEnc = [...new Set((candsEnc || []).map((c: { diarista_id: string }) => c.diarista_id))];
     if (idsEnc.length) {
       enviarPush(idsEnc, "Vaga encerrada", `A vaga de ${d.funcao || d.segmento} foi encerrada — o anunciante escolheu outro candidato. Continue tentando em outras vagas! 💪`, { tipo: "candidatura", url: "/" });
@@ -5434,27 +5434,43 @@ export default function App() {
       curriculoPath = path;
     }
 
+    const diaristaInfo = {
+      nome: profile?.nome || "",
+      funcao: profile?.funcao || "",
+      foto_url: fotoUrl || profile?.foto_url || "",
+      lat: profile?.lat || null,
+      lng: profile?.lng || null,
+      categorias: profile?.categorias || [],
+      // Só pra vaga de emprego — diária/serviço seguem com 1 clique.
+      ...(ehVagaEmprego && cartaVaga.trim() ? { carta: cartaVaga.trim() } : {}),
+      ...(curriculoPath ? { curriculo_path: curriculoPath } : {}),
+    };
     const { error } = await supabase.from("candidaturas").insert({
       diaria_id: diaria.id,
       diarista_id: session.user.id,
       status: "pendente",
-      diarista_info: {
-        nome: profile?.nome || "",
-        funcao: profile?.funcao || "",
-        foto_url: fotoUrl || profile?.foto_url || "",
-        lat: profile?.lat || null,
-        lng: profile?.lng || null,
-        categorias: profile?.categorias || [],
-        // Só pra vaga de emprego — diária/serviço seguem com 1 clique.
-        ...(ehVagaEmprego && cartaVaga.trim() ? { carta: cartaVaga.trim() } : {}),
-        ...(curriculoPath ? { curriculo_path: curriculoPath } : {}),
-      }
+      diarista_info: diaristaInfo,
     });
     setEnviandoInteresse(false);
     if (error) {
-      // Constraint única (já se candidatou a esta vaga): trata como sucesso suave
-      // em vez de erro feio. Backstop server-side do Bug "re-candidatar".
+      // Constraint única: já existe candidatura. Se foi REJEITADA, reabre (o
+      // candidato pode tentar de novo). Senão, é sucesso suave "já candidatou".
       if ((error as { code?: string }).code === "23505") {
+        const { data: existente } = await supabase.from("candidaturas")
+          .select("id, status").eq("diaria_id", diaria.id).eq("diarista_id", session.user.id).maybeSingle();
+        if (existente?.status === "rejeitado") {
+          const { error: reabrirErr } = await supabase.from("candidaturas")
+            .update({ status: "pendente", diarista_info: diaristaInfo }).eq("id", existente.id);
+          if (reabrirErr) { setAuthError(traduzirErroBanco(reabrirErr)); return; }
+          const cartaR = ehVagaEmprego ? cartaVaga.trim() : "";
+          setCartaVaga(""); setCurriculoFile(null);
+          setMeuInteresse(prev => ({ ...prev, [diaria.id]: "pendente" }));
+          if (cartaR) setMinhaCartaPorVaga(prev => ({ ...prev, [diaria.id]: cartaR }));
+          setVagaConfirm(null); setVagaConfirmada(true);
+          hapticConfirm();
+          setToastSuccess("✅ Candidatura reenviada!");
+          return;
+        }
         setMeuInteresse(prev => ({ ...prev, [diaria.id]: prev[diaria.id] || "pendente" }));
         setVagaConfirm(null); setVagaConfirmada(false);
         setToastSuccess("✅ Você já se candidatou a esta vaga.");
