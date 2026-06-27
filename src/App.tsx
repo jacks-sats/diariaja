@@ -489,6 +489,7 @@ export default function App() {
   const [motivoExclusao, setMotivoExclusao] = useState("");
   // Candidaturas (fluxo: interesse → seleção → confirmação)
   const [meuInteresse, setMeuInteresse]               = useState<Record<string,string>>({});          // diaria_id → status
+  const [minhaCartaPorVaga, setMinhaCartaPorVaga]     = useState<Record<string,string>>({});          // diaria_id → carta que EU enviei (emprego)
   const [candidaturas, setCandidaturas]               = useState<{id:string,diaria_id:string,diarista_id:string,status:string}[]>([]);
   const [candidatosProfiles, setCandidatosProfiles]   = useState<Record<string,UserProfile>>({});
   const [modalCandidatos, setModalCandidatos]         = useState<Diaria|null>(null);
@@ -497,6 +498,7 @@ export default function App() {
   const [checkinGpsId, setCheckinGpsId]               = useState<string | null>(null); // diária com check-in GPS em andamento
   // Perfil do candidato (empregador vê detalhes ao clicar no card)
   const [perfilCandidato, setPerfilCandidato]         = useState<UserProfile|null>(null);
+  const [cartaPerfilCandidato, setCartaPerfilCandidato] = useState<string|null>(null); // carta da candidatura aberta (emprego)
   const [avaliacoesCandidato, setAvaliacoesCandidato] = useState<{id:string,nota:number,comentario:string,created_at:string}[]>([]);
   const [diariasCandidato, setDiariasCandidato]       = useState(0);
   const [loadingPerfil, setLoadingPerfil]             = useState(false);
@@ -1717,8 +1719,12 @@ export default function App() {
         } catch {}
       }
       // Carrega interesses/candidaturas do diarista para saber quais vagas já sinalizou
-      const { data: ints } = await supabase.from("candidaturas").select("diaria_id, status").eq("diarista_id", session.user!.id);
-      if (ints) { const m: Record<string,string> = {}; ints.forEach((i:any) => { m[i.diaria_id] = i.status; }); setMeuInteresse(m); }
+      const { data: ints } = await supabase.from("candidaturas").select("diaria_id, status, diarista_info").eq("diarista_id", session.user!.id);
+      if (ints) {
+        const m: Record<string,string> = {}; const c: Record<string,string> = {};
+        ints.forEach((i:any) => { m[i.diaria_id] = i.status; const ca = i.diarista_info?.carta; if (ca) c[i.diaria_id] = ca; });
+        setMeuInteresse(m); setMinhaCartaPorVaga(c);
+      }
 
       // Carrega quais diárias o diarista já avaliou
       const { data: jaAvaliou } = await supabase
@@ -2441,8 +2447,12 @@ export default function App() {
           .in("status", ["pendente", "aceita", "em_andamento", "concluida", "cancelada"])
           .order("data", { ascending: false });
         if (data) setMinhasDiarias(data);
-        const { data: ints } = await supabase.from("candidaturas").select("diaria_id, status").eq("diarista_id", uid);
-        if (ints) { const m: Record<string, string> = {}; ints.forEach((i: any) => { m[i.diaria_id] = i.status; }); setMeuInteresse(m); }
+        const { data: ints } = await supabase.from("candidaturas").select("diaria_id, status, diarista_info").eq("diarista_id", uid);
+        if (ints) {
+          const m: Record<string, string> = {}; const c: Record<string, string> = {};
+          ints.forEach((i: any) => { m[i.diaria_id] = i.status; const ca = i.diarista_info?.carta; if (ca) c[i.diaria_id] = ca; });
+          setMeuInteresse(m); setMinhaCartaPorVaga(c);
+        }
         // Re-busca status de KYC do próprio perfil (a equipe aprova por fora; sem
         // isto o "documento aprovado" só aparecia após relogar).
         const { data: meu } = await supabase.from("user_profiles").select("documento_status, antecedentes_status").eq("id", uid).maybeSingle();
@@ -5257,8 +5267,9 @@ export default function App() {
 
   // Diarista aceita uma diária — concorda com o valor do empregador
   // Abre o perfil completo de um candidato no modal
-  const abrirPerfilCandidato = async (dp: UserProfile) => {
+  const abrirPerfilCandidato = async (dp: UserProfile, carta?: string | null) => {
     setPerfilCandidato(dp);
+    setCartaPerfilCandidato(carta || null);
     setAvaliacoesCandidato([]);
     setDiariasCandidato(0);
     setLoadingPerfil(true);
@@ -5380,10 +5391,22 @@ export default function App() {
       }
     });
     setEnviandoInteresse(false);
-    if (error) { setAuthError(traduzirErroBanco(error)); return; }
+    if (error) {
+      // Constraint única (já se candidatou a esta vaga): trata como sucesso suave
+      // em vez de erro feio. Backstop server-side do Bug "re-candidatar".
+      if ((error as { code?: string }).code === "23505") {
+        setMeuInteresse(prev => ({ ...prev, [diaria.id]: prev[diaria.id] || "pendente" }));
+        setVagaConfirm(null); setVagaConfirmada(false);
+        setToastSuccess("✅ Você já se candidatou a esta vaga.");
+        return;
+      }
+      setAuthError(traduzirErroBanco(error)); return;
+    }
+    const cartaEnviada = ehVagaEmprego ? cartaVaga.trim() : "";
     setCartaVaga(""); setCurriculoFile(null);
     trackEvento("candidatura_enviada", session?.user?.id, "diarista", { diaria_id: diaria.id, funcao: diaria.funcao });
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "pendente" }));
+    if (cartaEnviada) setMinhaCartaPorVaga(prev => ({ ...prev, [diaria.id]: cartaEnviada }));
     setVagaConfirmada(true);
     hapticConfirm();
 
@@ -12794,7 +12817,7 @@ export default function App() {
                             const p = (pArr as unknown as UserProfile[] | null)?.[0];
                             if (p) { setCandidatosProfiles(prev => ({ ...prev, [c.diarista_id]: p })); perfil = p; }
                           }
-                          if (perfil) abrirPerfilCandidato(perfil);
+                          if (perfil) abrirPerfilCandidato(perfil, info?.carta);
                         }}>
                         {/* Foto: iniciais como fundo, img sobreposta — some via onError se não carregar */}
                         <div style={{ position:"relative", width:56, height:56, flexShrink:0 }}>
@@ -12966,6 +12989,16 @@ export default function App() {
                           )}
                         </div>
                       </div>
+
+                      {/* Carta de apresentação da candidatura (vaga de emprego) —
+                          o que o candidato escreveu PARA ESTA vaga. Vem da
+                          candidatura (diarista_info.carta), passada ao abrir o perfil. */}
+                      {cartaPerfilCandidato && (
+                        <div style={{ background:"#eef2ff", borderRadius:14, padding:"14px 16px", border:"1.5px solid #c7d2fe" }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:"#4338ca", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>📝 Carta de apresentação</div>
+                          <p style={{ fontSize:14, color:"var(--text-label,#475569)", lineHeight:1.6, margin:0, whiteSpace:"pre-wrap" as const }}>{cartaPerfilCandidato}</p>
+                        </div>
+                      )}
 
                       {/* Bio */}
                       {dp.bio && (
@@ -17050,6 +17083,24 @@ export default function App() {
                       </button>
                       <button style={{ ...S.btnSecondary, marginTop:8, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setVagaConfirm(null)}>
                         Ainda não
+                      </button>
+                    </>
+                  ) : (meuInteresse[vagaConfirm.id] === "pendente" || meuInteresse[vagaConfirm.id] === "confirmado") ? (
+                    /* Já se candidatou — NÃO reabrir o formulário (Bug "pede interesse de novo") */
+                    <>
+                      <div style={{ fontSize:52, textAlign:"center", marginBottom:8 }}>✅</div>
+                      <h3 style={{ ...S.modalTitle, textAlign:"center" }}>Você já se candidatou</h3>
+                      <p style={{ ...S.modalText, textAlign:"center" }}>
+                        Sua candidatura para <strong>{vagaConfirm.funcao || vagaConfirm.segmento}</strong> foi enviada. Aguarde o anunciante chamar — você é avisado por aqui.
+                      </p>
+                      {vagaConfirm.tipo_oferta === "emprego" && minhaCartaPorVaga[vagaConfirm.id] && (
+                        <div style={{ marginTop:12, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 14px" }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>📝 Sua carta de apresentação</div>
+                          <div style={{ fontSize:13.5, color:"var(--text-1,#0f172a)", lineHeight:1.5, whiteSpace:"pre-wrap" as const }}>{minhaCartaPorVaga[vagaConfirm.id]}</div>
+                        </div>
+                      )}
+                      <button style={{ ...S.btnSecondary, marginTop:16, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setVagaConfirm(null)}>
+                        Fechar
                       </button>
                     </>
                   ) : (
