@@ -690,6 +690,11 @@ export default function App() {
   const [modalEditarDiaria, setModalEditarDiaria] = useState<Diaria | null>(null);
   const [formEditarDiaria, setFormEditarDiaria] = useState({ funcao:"", descricao:"", data:"", horario_inicio:"", horario_fim:"", valor:"" });
   const [salvandoEdicao, setSalvandoEdicao] = useState(false);
+  // Editar SÓ a mensagem automática de uma vaga de emprego já criada (o modal de
+  // editar diária é focado em diária — valida horário/valor, que não cabem aqui).
+  const [modalMsgAuto, setModalMsgAuto] = useState<Diaria | null>(null);
+  const [msgAutoDraft, setMsgAutoDraft] = useState("");
+  const [salvandoMsgAuto, setSalvandoMsgAuto] = useState(false);
   const [salvandoPerfil, setSalvandoPerfil] = useState(false); // loading global do saveProfile
 
   // ── Push Notifications ────────────────────────────────────────────────────
@@ -6022,6 +6027,20 @@ export default function App() {
     setModalEditarDiaria(null);
     setSalvandoEdicao(false);
     setToastSuccess("✅ Diária atualizada!");
+  };
+
+  // Salva SÓ a mensagem automática (vaga de emprego). Vazio = remove (não envia
+  // nada no confirmar). Atualiza a lista local pra refletir na hora.
+  const salvarMsgAuto = async () => {
+    if (!modalMsgAuto) return;
+    setSalvandoMsgAuto(true);
+    const novaMsg = msgAutoDraft.trim() || null;
+    const { error } = await supabase.from("diarias").update({ mensagem_automatica: novaMsg }).eq("id", modalMsgAuto.id);
+    if (error) { setAuthError(traduzirErroBanco(error)); setSalvandoMsgAuto(false); return; }
+    setDiarias(prev => prev.map(d => d.id === modalMsgAuto.id ? { ...d, mensagem_automatica: novaMsg } : d));
+    setModalMsgAuto(null);
+    setSalvandoMsgAuto(false);
+    setToastSuccess("✅ Mensagem automática atualizada!");
   };
 
   // Upload de foto do portfólio (diarista)
@@ -12259,7 +12278,7 @@ export default function App() {
                           </div>
                           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                             {/* Botão editar — só para diárias abertas ou pendentes (aguardando confirmação) */}
-                            {(dia.status === "aberta" || dia.status === "pendente") && (
+                            {(dia.status === "aberta" || dia.status === "pendente") && dia.tipo_oferta !== "emprego" && (
                               <button
                                 style={{ background:"#eff6ff", color:"#3A86FF", border:"none", borderRadius:8, padding:"4px 9px", fontSize:14, cursor:"pointer", lineHeight:1 }}
                                 title="Editar diária"
@@ -12358,11 +12377,19 @@ export default function App() {
                               </div>
                             )}
                             {/* Editar */}
-                            {(dia.status === "aberta" || dia.status === "pendente") && (
+                            {(dia.status === "aberta" || dia.status === "pendente") && dia.tipo_oferta !== "emprego" && (
                               <button
                                 style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#fef3c7", color:"#92400e", border:"1.5px solid #fde68a", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                 onClick={() => { setModalEditarDiaria(dia); setFormEditarDiaria({ funcao:dia.funcao, descricao:dia.descricao, data:dia.data, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); }}>
                                 ✏️ Editar
+                              </button>
+                            )}
+                            {/* Editar mensagem automática — só vaga de emprego aberta */}
+                            {dia.tipo_oferta === "emprego" && dia.status === "aberta" && (
+                              <button
+                                style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#eef2ff", color:"#4338ca", border:"1.5px solid #c7d2fe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                                onClick={() => { setModalMsgAuto(dia); setMsgAutoDraft(dia.mensagem_automatica || ""); setAuthError(""); }}>
+                                ✏️ Mensagem
                               </button>
                             )}
                             {/* Cancelar */}
@@ -13138,6 +13165,38 @@ export default function App() {
               <button
                 style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { setModalEditarDiaria(null); setAuthError(""); }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal: Editar mensagem automática (vaga de emprego) ── */}
+        {modalMsgAuto && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+              <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✏️ Mensagem automática</div>
+              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:14, lineHeight:1.5 }}>
+                Enviada como sua 1ª mensagem quando o candidato confirma. Pode incluir um link (ex.: cadastro de RH). Deixe em branco pra não enviar nada.
+              </div>
+              <textarea
+                style={{ width:"100%", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", resize:"vertical" as const, minHeight:90, outline:"none", color:"var(--text-1,#0f172a)", lineHeight:1.5, boxSizing:"border-box" }}
+                placeholder="Ex.: Que bom seu interesse! Faça seu cadastro complementar em https://..."
+                maxLength={500}
+                value={msgAutoDraft}
+                onChange={e => setMsgAutoDraft(e.target.value.slice(0, 500))}
+              />
+              <p style={{ fontSize:11, color:"var(--text-3,#94a3b8)", margin:"4px 0 14px" }}>{msgAutoDraft.length}/500</p>
+              {authError && <p style={{ color:"#dc2626", fontSize:12, marginBottom:8 }}>{authError}</p>}
+              <button
+                style={{ width:"100%", padding:"14px", background: salvandoMsgAuto ? "#e2e8f0" : negocio?.cor || "#FF6B35", color: salvandoMsgAuto ? "#94a3b8" : "#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: salvandoMsgAuto ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
+                disabled={salvandoMsgAuto}
+                onClick={salvarMsgAuto}>
+                {salvandoMsgAuto ? "Salvando..." : "✅ Salvar mensagem"}
+              </button>
+              <button
+                style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                onClick={() => { setModalMsgAuto(null); setAuthError(""); }}>
                 Cancelar
               </button>
             </div>
