@@ -3965,6 +3965,12 @@ export default function App() {
     const atualizada = { ...modalCancelar, status: "cancelada", motivo_cancelamento: motivoCancelamento.trim() };
     setDiarias(prev => prev.map(d => d.id === modalCancelar.id ? atualizada : d));
     setMinhasDiarias(prev => prev.map(d => d.id === modalCancelar.id ? atualizada : d));
+    // Notifica TODOS que se candidataram que a vaga foi cancelada (não ficam no vácuo).
+    const { data: candsCanc } = await supabase.from("candidaturas").select("diarista_id").eq("diaria_id", modalCancelar.id).in("status", ["pendente", "selecionado", "confirmado"]);
+    const idsCanc = [...new Set((candsCanc || []).map((c: { diarista_id: string }) => c.diarista_id))];
+    if (idsCanc.length) {
+      enviarPush(idsCanc, "Vaga cancelada", `A vaga de ${modalCancelar.funcao || modalCancelar.segmento} em que você se candidatou foi cancelada pelo anunciante.`, { tipo: "candidatura", url: "/" });
+    }
     setModalCancelar(null);
     setMotivoCancelamento("");
     setCancelando(false);
@@ -4001,6 +4007,14 @@ export default function App() {
     const atualizada = { ...d, status: "encerrada" };
     setDiarias(prev => prev.map(x => x.id === d.id ? atualizada : x));
     setMinhasDiarias(prev => prev.map(x => x.id === d.id ? atualizada : x));
+    // Avisa os candidatos NÃO chamados (pendentes) que a vaga fechou — outro foi
+    // escolhido — e incentiva a continuar. Os já chamados (selecionado/confirmado)
+    // seguem em conversa pelo chat, então NÃO recebem "não foi escolhido".
+    const { data: candsEnc } = await supabase.from("candidaturas").select("diarista_id").eq("diaria_id", d.id).eq("status", "pendente");
+    const idsEnc = [...new Set((candsEnc || []).map((c: { diarista_id: string }) => c.diarista_id))];
+    if (idsEnc.length) {
+      enviarPush(idsEnc, "Vaga encerrada", `A vaga de ${d.funcao || d.segmento} foi encerrada — o anunciante escolheu outro candidato. Continue tentando em outras vagas! 💪`, { tipo: "candidatura", url: "/" });
+    }
     setModalEncerrarVaga(null);
     setToastSuccess("✅ Vaga encerrada. Não recebe mais candidatos.");
   };
