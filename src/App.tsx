@@ -1101,6 +1101,8 @@ export default function App() {
   // Não-lidas por PAR (emprego): key `${diaria_id}:${outroId}` → conta. Separa as
   // conversas dos vários candidatos da mesma vaga (o badge por vaga é agregado).
   const [naoLidasPorPar, setNaoLidasPorPar] = useState<Record<string, number>>({});
+  // Última mensagem por PAR (emprego): key `${diaria_id}:${candidatoId}` → preview.
+  const [ultimaMsgPorPar, setUltimaMsgPorPar] = useState<Record<string, { texto: string; deMim: boolean }>>({});
   // Ref pra closures lerem o chat ativo atual sem causar re-subscribe
   const chatDiariaAtivaRef = useRef<Diaria | null>(null);
   useEffect(() => { chatDiariaAtivaRef.current = chatDiariaAtiva; }, [chatDiariaAtiva]);
@@ -2191,6 +2193,29 @@ export default function App() {
       }
     })();
   }, [modalCandidatos]);
+
+  // Item 3-b: ao abrir o modal de uma vaga de EMPREGO, carrega a ÚLTIMA mensagem
+  // de cada candidato (preview na lista "Conversas"). RLS deixa o anunciante ler
+  // todos os pares da vaga; agrupa por candidato e o último (ordem asc) vence.
+  useEffect(() => {
+    if (!modalCandidatos || !session?.user || modalCandidatos.tipo_oferta !== "emprego") return;
+    const meu = session.user.id;
+    const vagaId = modalCandidatos.id;
+    (async () => {
+      const { data } = await supabase
+        .from("mensagens")
+        .select("remetente_id, destinatario_id, conteudo, created_at")
+        .eq("diaria_id", vagaId)
+        .order("created_at", { ascending: true });
+      if (!data) return;
+      const ult: Record<string, { texto: string; deMim: boolean }> = {};
+      for (const m of data) {
+        const candidato = m.remetente_id === meu ? m.destinatario_id : m.remetente_id;
+        ult[`${vagaId}:${candidato}`] = { texto: m.conteudo, deMim: m.remetente_id === meu };
+      }
+      setUltimaMsgPorPar(prev => ({ ...prev, ...ult }));
+    })();
+  }, [modalCandidatos, session?.user?.id]);
 
   // 7) Realtime: diarista recebe notificação quando sua candidatura é cancelada (vaga excluída pelo empregador)
   useEffect(() => {
@@ -12948,7 +12973,18 @@ export default function App() {
                               <div style={{ width:42, height:42, borderRadius:21, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14 }}>{ini}</div>
                               {foto && <img src={foto} alt="" onError={e=>{(e.target as HTMLImageElement).style.display="none";}} style={{ position:"absolute", inset:0, width:42, height:42, borderRadius:21, objectFit:"cover" as const }} />}
                             </div>
-                            <div style={{ flex:1, minWidth:0, fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>{nome}</div>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>{nome}</div>
+                              {(() => {
+                                const um = ultimaMsgPorPar[`${modalCandidatos.id}:${c.diarista_id}`];
+                                if (!um) return null;
+                                return (
+                                  <div style={{ fontSize:12, color: naoLidas > 0 ? "var(--text-1,#0f172a)" : "var(--text-3,#94a3b8)", fontWeight: naoLidas > 0 ? 700 : 400, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const, marginTop:2 }}>
+                                    {um.deMim ? "Você: " : ""}{um.texto}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                             {naoLidas > 0 && (
                               <span title={`${naoLidas} mensagem(ns) não lida(s)`} style={{ background:"#ef4444", color:"#fff", borderRadius:999, minWidth:20, height:20, padding:"0 6px", fontSize:11, fontWeight:900, display:"inline-flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{naoLidas}</span>
                             )}
