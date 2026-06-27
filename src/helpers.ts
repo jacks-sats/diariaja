@@ -725,6 +725,23 @@ export function extrairPrimeiroLink(texto: string | null | undefined): string | 
   return m[0].replace(/[.,;:!?)\]]+$/, "");
 }
 
+// ── Chat escopado por PAR (emprego: 1 empresa ↔ N candidatos) ────────────────
+// O chat é keyado por diaria_id. Na DIÁRIA há 1 par só, então filtrar por par é
+// um no-op (tudo passa) — comportamento idêntico ao de hoje. No EMPREGO vários
+// candidatos dividem o mesmo diaria_id; o anunciante é participante de TODOS os
+// pares, então sem este filtro as conversas se misturariam. `mensagemDoPar`
+// devolve true só se a mensagem é exatamente entre `eu` e `outro` (qualquer
+// direção). Pura/testável — é o coração da garantia "diária não muda".
+export function mensagemDoPar(
+  msg: { remetente_id: string; destinatario_id: string },
+  eu: string,
+  outro: string | null | undefined,
+): boolean {
+  if (!outro) return true; // sem "outro" definido (ex.: diária 1:1 ainda sem par) → não filtra
+  return (msg.remetente_id === eu && msg.destinatario_id === outro)
+      || (msg.remetente_id === outro && msg.destinatario_id === eu);
+}
+
 // Extrai CEP/bairro/cidade/UF da resposta de reverse-geocoding (Nominatim
 // `address`). Usado quando o usuário captura por GPS: sincroniza o campo de CEP
 // com a posição real (CEP e coordenadas viram "um só"). CEP só volta preenchido

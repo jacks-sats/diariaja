@@ -5,6 +5,7 @@ import {
   vagaApareceNoFeed,
   documentoAprovado,
   extrairPrimeiroLink,
+  mensagemDoPar,
   erroTelefoneSave,
   rotuloDistanciaFeed,
   distanciaParaFiltroRaio,
@@ -1704,5 +1705,49 @@ describe("extrairPrimeiroLink", () => {
     expect(extrairPrimeiroLink("")).toBeNull();
     expect(extrairPrimeiroLink(null)).toBeNull();
     expect(extrairPrimeiroLink(undefined)).toBeNull();
+  });
+});
+
+// ── Chat por par (Emprego Fase 2) — prova os 2 fluxos pedidos ────────────────
+describe("mensagemDoPar — chat escopado", () => {
+  const EMP = "empresa-1";
+  const A = "candidato-A";
+  const B = "candidato-B";
+  // Mensagens de uma MESMA vaga (mesmo diaria_id), 2 pares diferentes:
+  const msgsDaVaga = [
+    { remetente_id: EMP, destinatario_id: A, conteudo: "Oi A" },
+    { remetente_id: A,   destinatario_id: EMP, conteudo: "Olá empresa (A)" },
+    { remetente_id: EMP, destinatario_id: B, conteudo: "Oi B" },
+    { remetente_id: B,   destinatario_id: EMP, conteudo: "Olá empresa (B)" },
+  ];
+
+  it("FLUXO DIÁRIA/CONVITE (1 par) — comportamento IDÊNTICO ao de hoje", () => {
+    // Diária: empresa ↔ 1 diarista. Só existe 1 par, então o filtro é no-op:
+    // tudo que vem (já limitado por diaria_id) passa — nada muda vs. hoje.
+    const diaria = [
+      { remetente_id: EMP, destinatario_id: A, conteudo: "msg 1" },
+      { remetente_id: A,   destinatario_id: EMP, conteudo: "msg 2" },
+    ];
+    // Lado anunciante (eu=EMP, outro=diarista A) → vê as 2.
+    expect(diaria.filter(m => mensagemDoPar(m, EMP, A))).toHaveLength(2);
+    // Lado diarista (eu=A, outro=EMP) → vê as 2.
+    expect(diaria.filter(m => mensagemDoPar(m, A, EMP))).toHaveLength(2);
+    // Sem "outro" definido (fallback) → não filtra (igual ao load só por diaria_id).
+    expect(diaria.filter(m => mensagemDoPar(m, EMP, null))).toHaveLength(2);
+  });
+
+  it("FLUXO EMPREGO (N candidatos) — cada chat só vê o SEU par", () => {
+    // Anunciante abre o chat do candidato A → só as msgs do par EMP↔A.
+    const chatComA = msgsDaVaga.filter(m => mensagemDoPar(m, EMP, A));
+    expect(chatComA.map(m => m.conteudo)).toEqual(["Oi A", "Olá empresa (A)"]);
+    // Anunciante abre o chat do candidato B → só as msgs do par EMP↔B.
+    const chatComB = msgsDaVaga.filter(m => mensagemDoPar(m, EMP, B));
+    expect(chatComB.map(m => m.conteudo)).toEqual(["Oi B", "Olá empresa (B)"]);
+    // NÃO vaza: A não aparece no chat de B e vice-versa.
+    expect(chatComA.some(m => m.conteudo.includes("B"))).toBe(false);
+    expect(chatComB.some(m => m.conteudo.includes("A"))).toBe(false);
+    // Lado do candidato A (eu=A) → só vê o par dele (RLS já garante, mas confirma).
+    expect(msgsDaVaga.filter(m => mensagemDoPar(m, A, EMP)).map(m => m.conteudo))
+      .toEqual(["Oi A", "Olá empresa (A)"]);
   });
 });
