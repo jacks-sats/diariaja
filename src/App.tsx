@@ -92,7 +92,7 @@ import {
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
-  montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink,
+  montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -1101,6 +1101,22 @@ export default function App() {
   const chatDiariaAtivaRef = useRef<Diaria | null>(null);
   useEffect(() => { chatDiariaAtivaRef.current = chatDiariaAtiva; }, [chatDiariaAtiva]);
 
+  // ── Chat por PAR (Emprego Fase 2) ──────────────────────────────────────────
+  // O "outro" participante do chat ativo. Diária/convite: derivado (anunciante
+  // ↔ diarista_aceite_id; diarista ↔ empregador) = comportamento idêntico ao de
+  // hoje. Emprego: a entrada do anunciante injeta `_chatOutroId` (o candidato
+  // específico) no chatDiariaAtiva, e aqui ele tem prioridade. Usado pra filtrar
+  // mensagens pelo par (sem isso o anunciante veria todos os candidatos juntos).
+  const chatOutroId = useMemo<string | null>(() => {
+    const c = chatDiariaAtiva; const meu = session?.user?.id;
+    if (!c || !meu) return null;
+    const explic = (c as Diaria & { _chatOutroId?: string })._chatOutroId;
+    if (explic) return explic;
+    return c.empregador_id === meu ? (c.diarista_aceite_id || null) : c.empregador_id;
+  }, [chatDiariaAtiva, session?.user?.id]);
+  const chatOutroIdRef = useRef<string | null>(null);
+  useEffect(() => { chatOutroIdRef.current = chatOutroId; }, [chatOutroId]);
+
   // Persiste o histórico de notificações no localStorage sempre que mudar —
   // assim o sininho não "esquece" ao recarregar o app.
   useEffect(() => {
@@ -1965,7 +1981,11 @@ export default function App() {
           // disparasse (timing/reconexão), a msg ficava só no banco e o
           // destinatário não via até reabrir. Este é um caminho redundante e
           // robusto (filtra por destinatario_id=eu, pega qualquer conversa).
-          if (msg.diaria_id && msg.diaria_id === chatDiariaAtivaRef.current?.id) {
+          // Emprego: só injeta se for do PAR aberto (vários candidatos dividem o
+          // mesmo diaria_id). Diária = no-op (1 par). Se não for do par, não
+          // injeta no chat aberto — fica no banco e aparece ao abrir aquele par.
+          if (msg.diaria_id && msg.diaria_id === chatDiariaAtivaRef.current?.id
+              && mensagemDoPar(msg, userId, chatOutroIdRef.current)) {
             setMensagensReais(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
             setTimeout(() => mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
             supabase.from("mensagens").update({ lida_em: new Date().toISOString() }).eq("id", msg.id);
@@ -2599,6 +2619,7 @@ export default function App() {
     if (!chatDiariaAtiva || !session?.user) return;
     const userId = session.user.id;
     const diariaId = chatDiariaAtiva.id;
+    const outro = chatOutroId; // par ativo (emprego: candidato específico)
     (async () => {
       const { data, error } = await supabase
         .from("mensagens")
@@ -2608,16 +2629,20 @@ export default function App() {
       // Onda 3: erro de rede mostrava chat em branco (parecia "sem mensagens").
       if (error) { setErroMensagens(true); return; }
       setErroMensagens(false);
-      if (data) setMensagensReais(data);
+      // Filtra pelo par ativo. Diária (1 par) = no-op (tudo passa). Emprego =
+      // separa as conversas dos vários candidatos do mesmo diaria_id.
+      if (data) setMensagensReais(data.filter(m => mensagemDoPar(m, userId, outro)));
       setTimeout(() => mensagensEndRef.current?.scrollIntoView(), 100);
 
-      // Marca como lidas todas as que eu recebi nessa conversa
-      await supabase
+      // Marca como lidas as que EU recebi nesta conversa (escopado ao par).
+      let upd = supabase
         .from("mensagens")
         .update({ lida_em: new Date().toISOString() })
         .eq("diaria_id", diariaId)
         .eq("destinatario_id", userId)
         .is("lida_em", null);
+      if (outro) upd = upd.eq("remetente_id", outro);
+      await upd;
       // Zera contagem local dessa conversa
       setNaoLidasPorDiaria(prev => {
         if (!prev[diariaId]) return prev;
@@ -2625,7 +2650,7 @@ export default function App() {
         return next;
       });
     })();
-  }, [chatDiariaAtiva?.id, session?.user?.id, recarregarMsg]);
+  }, [chatDiariaAtiva?.id, chatOutroId, session?.user?.id, recarregarMsg]);
 
   // Realtime: novas mensagens no chat ativo + UPDATE de lida_em (✓✓)
   useEffect(() => {
@@ -2638,6 +2663,9 @@ export default function App() {
         (payload: any) => {
           const nova = payload.new;
           if (nova.remetente_id === userId) return; // já adicionada otimisticamente
+          // Emprego: mesmo diaria_id pode ter msgs de OUTRO candidato — só injeta
+          // se a mensagem é do par aberto agora. Diária = no-op (1 par só).
+          if (!mensagemDoPar(nova, userId, chatOutroIdRef.current)) return;
           setMensagensReais(prev => [...prev, nova]);
           setTimeout(() => mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
           // Como o chat está aberto, marca a recebida como lida na hora
@@ -4375,6 +4403,16 @@ export default function App() {
     if (aba === "chat") setTabEmpregador("chat");
   };
 
+  // EMPREGO Fase 2: abre o chat com UM candidato específico de uma vaga de
+  // emprego. Injeta `_chatOutroId` (o candidato) no chatDiariaAtiva — é o que
+  // escopa as mensagens pelo par (vários candidatos dividem o mesmo diaria_id).
+  const abrirChatCandidato = (dia: Diaria, candidatoId: string, nome?: string, foto?: string) => {
+    hapticTick();
+    setChatDiariaAtiva({ ...dia, _chatOutroId: candidatoId, _nomeChat: nome, _fotoChat: foto } as Diaria & { _chatOutroId: string });
+    setModalCandidatos(null);
+    setTabEmpregador("chat");
+  };
+
   // Abre o chat real de um convite confirmado (cria a diária se ainda não houver).
   // Usado pelos DOIS lados (anunciante e prestador) — garante o mesmo chat.
   const abrirChatConvite = async (conv: Convite, comoAba: "empregador" | "diarista") => {
@@ -5203,8 +5241,14 @@ export default function App() {
     // desistir do prestador devolve a diária pra "aberta" (e marca o convite
     // recusado) — a conversa daquele match acabou. concluída/cancelada/expirada
     // cobrem conclusão e cancelamento.
-    if (["concluida", "cancelada", "expirada", "aberta"].includes(chatDiariaAtiva.status)) {
-      setToastError("Esta conversa foi encerrada — a diária não está mais ativa.");
+    // EMPREGO é exceção: a vaga fica "aberta" o tempo todo (chamar vários) e
+    // "encerrada" mantém as conversas (Fase 1). Só 'cancelada' encerra o chat.
+    const ehEmpregoChat = chatDiariaAtiva.tipo_oferta === "emprego";
+    const conversaEncerrada = ehEmpregoChat
+      ? chatDiariaAtiva.status === "cancelada"
+      : ["concluida", "cancelada", "expirada", "aberta"].includes(chatDiariaAtiva.status);
+    if (conversaEncerrada) {
+      setToastError(ehEmpregoChat ? "Esta vaga foi cancelada — a conversa não está mais ativa." : "Esta conversa foi encerrada — a diária não está mais ativa.");
       return;
     }
     // BUG CRÍTICO (teste real): o destinatário era escolhido pelo flag `tipo`
@@ -5213,9 +5257,10 @@ export default function App() {
     // ELE MESMO. A msg ia pra própria caixa e o outro lado nunca recebia.
     // Fix: decidir pela IDENTIDADE REAL nesta diária (quem EU sou), não pelo modo.
     const euSouEmpregador = chatDiariaAtiva.empregador_id === session.user.id;
-    const destinatario = euSouEmpregador
-      ? chatDiariaAtiva.diarista_aceite_id
-      : chatDiariaAtiva.empregador_id;
+    // Destinatário = o "outro" do par ativo. Diária/convite: diarista_aceite_id /
+    // empregador_id (idêntico ao de antes). Emprego: o candidato específico do
+    // chat aberto (chatOutroId), já que diarista_aceite_id fica null no "chamar vários".
+    const destinatario = chatOutroId;
     if (!destinatario) {
       // Sem o outro lado definido (ex.: diária 'aceita' mas sem diarista_aceite_id).
       // Antes saía em silêncio: usuário digitava, clicava e achava que mandou.
@@ -12782,6 +12827,39 @@ export default function App() {
                 )}
               </div>
               <div style={{ padding:"12px 16px 32px", display:"flex", flexDirection:"column", gap:12 }}>
+                {/* EMPREGO Fase 2: candidatos que CONFIRMARAM — fale com cada um (chat por par) */}
+                {modalCandidatos.tipo_oferta === "emprego" && (() => {
+                  const confirmados = candidaturas.filter(c => c.diaria_id === modalCandidatos.id && c.status === "confirmado" && !usuariosBloqueados.has(c.diarista_id));
+                  if (confirmados.length === 0) return null;
+                  return (
+                    <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:4 }}>
+                      <div style={{ fontSize:12, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>💬 Conversas ({confirmados.length})</div>
+                      {confirmados.map(c => {
+                        const info = (c as { diarista_info?: { nome?:string; foto_url?:string } }).diarista_info;
+                        const dp = candidatosProfiles[c.diarista_id];
+                        const nome = dp?.nome || info?.nome || "Candidato";
+                        const foto = dp?.foto_url || info?.foto_url || "";
+                        const ini = nome.split(" ").filter(Boolean).map(n=>n[0]).join("").slice(0,2).toUpperCase();
+                        return (
+                          <div key={"chat-"+c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"10px 12px", display:"flex", alignItems:"center", gap:12 }}>
+                            <div style={{ position:"relative", width:42, height:42, flexShrink:0 }}>
+                              <div style={{ width:42, height:42, borderRadius:21, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14 }}>{ini}</div>
+                              {foto && <img src={foto} alt="" onError={e=>{(e.target as HTMLImageElement).style.display="none";}} style={{ position:"absolute", inset:0, width:42, height:42, borderRadius:21, objectFit:"cover" as const }} />}
+                            </div>
+                            <div style={{ flex:1, minWidth:0, fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>{nome}</div>
+                            <button
+                              onClick={() => abrirChatCandidato(modalCandidatos, c.diarista_id, nome, foto)}
+                              style={{ background:"#eff6ff", color:"#3A86FF", border:"1.5px solid #bfdbfe", borderRadius:12, padding:"8px 14px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}>
+                              💬 Chat
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <div style={{ height:1, background:"var(--border,#e2e8f0)", margin:"2px 0 0" }} />
+                      <div style={{ fontSize:12, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginTop:4 }}>👥 Interessados</div>
+                    </div>
+                  );
+                })()}
                 {candidaturas
                   // Filtra candidatos bloqueados pelo empregador (UGC safety)
                   .filter(c => c.diaria_id === modalCandidatos.id && c.status === "pendente" && !usuariosBloqueados.has(c.diarista_id))
