@@ -1098,6 +1098,9 @@ export default function App() {
   const lastTypingBroadcastRef = useRef<number>(0);
   // Não-lidas indexado por diaria_id (carregado e atualizado em tempo real)
   const [naoLidasPorDiaria, setNaoLidasPorDiaria] = useState<Record<string, number>>({});
+  // Não-lidas por PAR (emprego): key `${diaria_id}:${outroId}` → conta. Separa as
+  // conversas dos vários candidatos da mesma vaga (o badge por vaga é agregado).
+  const [naoLidasPorPar, setNaoLidasPorPar] = useState<Record<string, number>>({});
   // Ref pra closures lerem o chat ativo atual sem causar re-subscribe
   const chatDiariaAtivaRef = useRef<Diaria | null>(null);
   useEffect(() => { chatDiariaAtivaRef.current = chatDiariaAtiva; }, [chatDiariaAtiva]);
@@ -1985,14 +1988,19 @@ export default function App() {
           // Emprego: só injeta se for do PAR aberto (vários candidatos dividem o
           // mesmo diaria_id). Diária = no-op (1 par). Se não for do par, não
           // injeta no chat aberto — fica no banco e aparece ao abrir aquele par.
-          if (msg.diaria_id && msg.diaria_id === chatDiariaAtivaRef.current?.id
-              && mensagemDoPar(msg, userId, chatOutroIdRef.current)) {
+          const ehParAtivo = !!msg.diaria_id && msg.diaria_id === chatDiariaAtivaRef.current?.id
+            && mensagemDoPar(msg, userId, chatOutroIdRef.current);
+          if (ehParAtivo) {
             setMensagensReais(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
             setTimeout(() => mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
             supabase.from("mensagens").update({ lida_em: new Date().toISOString() }).eq("id", msg.id);
+          } else if (msg.diaria_id) {
+            // Não é a conversa aberta → conta não-lida POR PAR (mesmo que a vaga esteja
+            // aberta com outro candidato). Cobre o emprego (vários pares por vaga).
+            setNaoLidasPorPar(prev => ({ ...prev, [`${msg.diaria_id}:${msg.remetente_id}`]: (prev[`${msg.diaria_id}:${msg.remetente_id}`] || 0) + 1 }));
           }
           setMsgNaoLidas(prev => prev + 1);
-          // Não-lidas por conversa — só conta se a conversa NÃO está aberta
+          // Não-lidas por conversa (agregado por vaga) — só conta se a vaga NÃO está aberta
           if (msg.diaria_id && msg.diaria_id !== chatDiariaAtivaRef.current?.id) {
             setNaoLidasPorDiaria(prev => ({ ...prev, [msg.diaria_id]: (prev[msg.diaria_id] || 0) + 1 }));
           }
@@ -2644,10 +2652,16 @@ export default function App() {
         .is("lida_em", null);
       if (outro) upd = upd.eq("remetente_id", outro);
       await upd;
-      // Zera contagem local dessa conversa
+      // Zera contagem local dessa conversa (agregado por vaga + o par específico).
       setNaoLidasPorDiaria(prev => {
         if (!prev[diariaId]) return prev;
         const next = { ...prev }; delete next[diariaId];
+        return next;
+      });
+      if (outro) setNaoLidasPorPar(prev => {
+        const k = `${diariaId}:${outro}`;
+        if (!prev[k]) return prev;
+        const next = { ...prev }; delete next[k];
         return next;
       });
     })();
@@ -2728,13 +2742,19 @@ export default function App() {
     (async () => {
       const { data } = await supabase
         .from("mensagens")
-        .select("diaria_id")
+        .select("diaria_id, remetente_id")
         .eq("destinatario_id", userId)
         .is("lida_em", null);
       if (data) {
         const cont: Record<string, number> = {};
-        for (const m of data) cont[m.diaria_id] = (cont[m.diaria_id] || 0) + 1;
+        const contPar: Record<string, number> = {};
+        for (const m of data) {
+          cont[m.diaria_id] = (cont[m.diaria_id] || 0) + 1;
+          const k = `${m.diaria_id}:${m.remetente_id}`;
+          contPar[k] = (contPar[k] || 0) + 1;
+        }
         setNaoLidasPorDiaria(cont);
+        setNaoLidasPorPar(contPar);
       }
     })();
   }, [tabEmpregador, tabDiarista, session?.user?.id]);
@@ -12920,6 +12940,8 @@ export default function App() {
                         const nome = dp?.nome || info?.nome || "Candidato";
                         const foto = dp?.foto_url || info?.foto_url || "";
                         const ini = nome.split(" ").filter(Boolean).map(n=>n[0]).join("").slice(0,2).toUpperCase();
+                        // Item 2: não-lidas DESTE par (candidato), não da vaga toda.
+                        const naoLidas = naoLidasPorPar[`${modalCandidatos.id}:${c.diarista_id}`] || 0;
                         return (
                           <div key={"chat-"+c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"10px 12px", display:"flex", alignItems:"center", gap:12 }}>
                             <div style={{ position:"relative", width:42, height:42, flexShrink:0 }}>
@@ -12927,6 +12949,9 @@ export default function App() {
                               {foto && <img src={foto} alt="" onError={e=>{(e.target as HTMLImageElement).style.display="none";}} style={{ position:"absolute", inset:0, width:42, height:42, borderRadius:21, objectFit:"cover" as const }} />}
                             </div>
                             <div style={{ flex:1, minWidth:0, fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>{nome}</div>
+                            {naoLidas > 0 && (
+                              <span title={`${naoLidas} mensagem(ns) não lida(s)`} style={{ background:"#ef4444", color:"#fff", borderRadius:999, minWidth:20, height:20, padding:"0 6px", fontSize:11, fontWeight:900, display:"inline-flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{naoLidas}</span>
+                            )}
                             <button
                               onClick={() => abrirChatCandidato(modalCandidatos, c.diarista_id, nome, foto)}
                               style={{ background:"#eff6ff", color:"#3A86FF", border:"1.5px solid #bfdbfe", borderRadius:12, padding:"8px 14px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}>
