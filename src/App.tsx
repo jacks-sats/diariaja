@@ -12471,8 +12471,9 @@ export default function App() {
                                 </div>
                               );
                             })()}
-                            {/* Ver interessados — diária aberta */}
-                            {dia.status === "aberta" && (() => {
+                            {/* Ver interessados — chip na fileira. SÓ diária: no emprego o
+                                botão laranja "Ver X interessados" já faz isso (evita duplicar). */}
+                            {dia.status === "aberta" && dia.tipo_oferta !== "emprego" && (() => {
                               const cands = candidaturas.filter(c => c.diaria_id === dia.id && c.status === "pendente");
                               return cands.length > 0 ? (
                                 <button
