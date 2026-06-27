@@ -6101,6 +6101,11 @@ export default function App() {
   // nada no confirmar). Atualiza a lista local pra refletir na hora.
   const salvarMsgAuto = async () => {
     if (!modalMsgAuto) return;
+    // Anti-abuso: bloqueia conteúdo proibido/discriminatório (não barra link).
+    const msgAviso = msgAutoDraft.trim()
+      ? (verificarConteudoProibido(msgAutoDraft) || verificarDiscriminacao(msgAutoDraft))
+      : null;
+    if (msgAviso) { setAuthError(msgAviso); return; }
     setSalvandoMsgAuto(true);
     const novaMsg = msgAutoDraft.trim() || null;
     const { error } = await supabase.from("diarias").update({ mensagem_automatica: novaMsg }).eq("id", modalMsgAuto.id);
@@ -6291,6 +6296,13 @@ export default function App() {
       const discrim = verificarDiscriminacao(`${formDiaria.local} ${formDiaria.descricao}`);
       const aviso = fraudeAviso || conteudoProibido || discrim;
       if (aviso) erros.descricao = aviso;
+    }
+
+    // Moderação da mensagem automática (vaga de emprego) — anti-abuso. Bloqueia
+    // conteúdo proibido/discriminatório, mas NÃO barra link (RH é o caso de uso).
+    if (ehEmprego && formDiaria.mensagem_auto.trim()) {
+      const msgAviso = verificarConteudoProibido(formDiaria.mensagem_auto) || verificarDiscriminacao(formDiaria.mensagem_auto);
+      if (msgAviso) { erros.mensagem_auto = msgAviso; setToastError(msgAviso); }
     }
 
     if (Object.keys(erros).length > 0) {
