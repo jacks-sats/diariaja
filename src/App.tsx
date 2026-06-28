@@ -1561,7 +1561,10 @@ export default function App() {
           const { data: cands, error: errCands } = await supabase.from("candidaturas").select("*").in("diaria_id", ids);
           if (errCands) {
             console.error("[interessados] falha ao carregar candidaturas:", errCands);
-            setToastError("Não foi possível carregar os interessados. Atualize a tela e tente de novo — se continuar, fale com o suporte.");
+            // DIAGNÓSTICO (preview): expõe código/mensagem do erro real no toast
+            // pra capturar a causa sem F12. REVERTER pro texto limpo antes do merge.
+            const e: any = errCands;
+            setToastError(`Erro interessados → code:${e.code ?? "?"} | msg:${e.message ?? "?"}${e.hint ? " | hint:" + e.hint : ""}${e.details ? " | det:" + e.details : ""}`);
           } else if (cands && cands.length > 0) {
             setCandidaturas(cands);
             const dids = [...new Set(cands.map((c:any) => c.diarista_id))];
