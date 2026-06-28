@@ -425,10 +425,6 @@ export default function App() {
   // Diárias expiradas que o anunciante ocultou da própria lista (limpeza). Guardado
   // só no localStorage — NÃO apaga do banco (preserva auditoria/feedback). É por
   // dispositivo, não-destrutivo: o registro continua existindo no servidor.
-  const [diariasOcultas, setDiariasOcultas] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("diariaja_diarias_ocultas") || "[]")); }
-    catch { return new Set(); }
-  });
   const [authError, setAuthError]         = useState("");
   // Erros de validação POR CAMPO no formulário de criar diária. Antes a validação
   // só setava um authError único, exibido lá no rodapé (longe do campo errado) e o
@@ -1574,7 +1570,10 @@ export default function App() {
         }
       }
     })();
-  }, [tela, session?.user?.id]);
+    // recarregarPrest: o botão "Tentar de novo" (e qualquer refresh) re-dispara
+    // ESTA carga também — antes só recarregava os prestadores, deixando diárias
+    // e interessados travados no erro.
+  }, [tela, session?.user?.id, recarregarPrest]);
 
   // ── Envio de feedback de vaga expirada (modal obrigatório) ──────────────────
   const enviarFeedbackVagaExpirada = async () => {
@@ -6123,18 +6122,22 @@ export default function App() {
     setToastSuccess("🗑️ Conversa excluída.");
   };
 
-  // Oculta uma diária EXPIRADA da lista do anunciante (limpeza). Não apaga do
-  // banco — só some da visão dele, persistido no localStorage. Diferente do
-  // excluirDiaria (que cancela e notifica): expirada já está morta, não há quem
-  // avisar, então é um "remover da minha lista" simples e reversível por suporte.
-  const ocultarDiariaExpirada = (diaId: string) => {
-    setDiariasOcultas(prev => {
-      const next = new Set(prev);
-      next.add(diaId);
-      try { localStorage.setItem("diariaja_diarias_ocultas", JSON.stringify([...next])); } catch { /* ignore */ }
-      return next;
-    });
-    setToastSuccess("🗑️ Diária expirada removida da sua lista.");
+  // Exclui uma diária EXPIRADA de vez (do banco). Antes só ocultava localmente
+  // (localStorage), mas o logout limpa as chaves diariaja_* → as expiradas
+  // "voltavam" a cada relogin. Agora apaga de verdade. Expirada já está morta
+  // (ninguém pra avisar). Checa as linhas afetadas via .select(): se o RLS/rede
+  // barrar, NÃO some da tela falsamente — avisa o erro (senão reaparece no reload).
+  const excluirDiariaExpirada = async (diaId: string) => {
+    if (!session?.user) return;
+    await supabase.from("candidaturas").delete().eq("diaria_id", diaId);
+    const { data, error } = await supabase.from("diarias").delete()
+      .eq("id", diaId).eq("empregador_id", session.user.id).select("id");
+    if (error || !data || data.length === 0) {
+      setToastError("Não foi possível excluir agora. Atualize a tela e tente de novo.");
+      return;
+    }
+    setDiarias(prev => prev.filter(d => d.id !== diaId));
+    setToastSuccess("🗑️ Diária expirada excluída.");
   };
 
   const excluirDiariaLocal = (diaId: string) => {
@@ -12141,7 +12144,7 @@ export default function App() {
           const buckets = {
             ativas:     diariasNaoCanceladas.filter(d => d.status === "aberta" || d.status === "pendente" || d.status === "aceita" || d.status === "em_andamento"),
             concluidas: diariasNaoCanceladas.filter(d => d.status === "concluida"),
-            expiradas:  diariasNaoCanceladas.filter(d => d.status === "expirada" && !diariasOcultas.has(d.id)),
+            expiradas:  diariasNaoCanceladas.filter(d => d.status === "expirada"),
           };
           const diariasFiltradas = buckets[filtroDiarias];
           const vazioPorAba: Record<typeof filtroDiarias, string> = {
@@ -12507,7 +12510,7 @@ export default function App() {
                                   e.stopPropagation();
                                   // Expirada: já está morta — só remove da lista (oculta), sem pedir
                                   // motivo nem notificar ninguém. Demais status: fluxo de exclusão normal.
-                                  if (dia.status === "expirada") ocultarDiariaExpirada(dia.id);
+                                  if (dia.status === "expirada") excluirDiariaExpirada(dia.id);
                                   else setModalExcluir(dia);
                                 }}>
                                 🗑️
