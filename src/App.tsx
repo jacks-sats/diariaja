@@ -11829,6 +11829,27 @@ export default function App() {
           <>
             {/* Lembrete de completar perfil — aparece a cada acesso até completar */}
             <BannerCompletarPerfil paraDiarista={false} />
+            {/* PROMO BOAS-VINDAS: novo anunciante tem 30 dias de contatos ilimitados
+                grátis (a partir do cadastro). Servidor é a autoridade — aqui só avisa. */}
+            {(() => {
+              if (!profile?.created_at) return null;
+              const fimMs = new Date(profile.created_at).getTime() + 30 * 24 * 60 * 60 * 1000;
+              const diasRest = Math.ceil((fimMs - Date.now()) / 86400000);
+              if (diasRest <= 0) return null;
+              return (
+                <div style={{ margin:"12px 16px 0", background:"linear-gradient(135deg,#16a34a,#22c55e)", borderRadius:16, padding:"14px 16px", color:"#fff", boxShadow:"0 4px 14px rgba(34,197,94,.35)" }}>
+                  <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
+                    <span style={{ fontSize:22, lineHeight:1 }}>🎁</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13.5, fontWeight:900 }}>Boas-vindas! Você está nos seus 30 dias grátis</div>
+                      <div style={{ fontSize:12, marginTop:2, lineHeight:1.5, opacity:.95 }}>
+                        Contatos <strong>ilimitados de graça</strong> por mais <strong>{diasRest} dia{diasRest > 1 ? "s" : ""}</strong> — selecione quantos profissionais quiser, sem pagar nada.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             {/* Dois caminhos do contratante: buscar diaristas (lista abaixo) OU
                 publicar a própria oferta de quanto quer pagar (criar-diaria). */}
             <div style={{ display:"flex", gap:10, padding:"12px 16px 4px" }}>
