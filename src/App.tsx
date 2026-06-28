@@ -1083,6 +1083,19 @@ export default function App() {
   const [confirmExcluirChat, setConfirmExcluirChat] = useState(false);
   const [confirmExcluirDiariaCancelada, setConfirmExcluirDiariaCancelada] = useState<string | null>(null);
   const [confirmCancelarConvite, setConfirmCancelarConvite] = useState<string | null>(null); // convite ID
+  // Convites pagos (contato desbloqueado) não podem ser apagados do banco — a
+  // policy preserva o histórico. Pra não entulhar a tela do anunciante, deixamos
+  // OCULTAR localmente (só some pra ele; nada é removido do banco).
+  const [convitesOcultos, setConvitesOcultos] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("diariaja_convites_ocultos") || "[]")); } catch { return new Set(); }
+  });
+  const ocultarConvite = (id: string) => {
+    setConvitesOcultos(prev => {
+      const prox = new Set(prev); prox.add(id);
+      try { localStorage.setItem("diariaja_convites_ocultos", JSON.stringify([...prox])); } catch {}
+      return prox;
+    });
+  };
   const [mensagensReais, setMensagensReais] = useState<{id:string,diaria_id:string,remetente_id:string,destinatario_id:string,conteudo:string,created_at:string,lida_em?:string|null}[]>([]);
   const [msgInputReal, setMsgInputReal] = useState("");
   const [enviandoMsgReal, setEnviandoMsgReal] = useState(false);
@@ -12342,14 +12355,14 @@ export default function App() {
               )}
 
               {/* ── Convites: Recusados ── */}
-              {convitesEnviados.filter(c => c.status === "recusado").length > 0 && (
+              {convitesEnviados.filter(c => c.status === "recusado" && !convitesOcultos.has(c.id)).length > 0 && (
                 <div style={{ marginBottom:20 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
                     <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>✗ Recusados</span>
-                    <span style={{ background:"#fee2e2", color:"#dc2626", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c=>c.status==="recusado").length}</span>
+                    <span style={{ background:"#fee2e2", color:"#dc2626", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c=>c.status==="recusado"&&!convitesOcultos.has(c.id)).length}</span>
                   </div>
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
-                    {convitesEnviados.filter(c => c.status === "recusado").map(c => {
+                    {convitesEnviados.filter(c => c.status === "recusado" && !convitesOcultos.has(c.id)).map(c => {
                       const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
                       return (
                         <div key={c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:"4px solid #ef4444", opacity:0.9 }}>
@@ -12366,8 +12379,22 @@ export default function App() {
                           <div style={{ background:"#fef2f2", borderRadius:10, padding:"8px 12px", fontSize:12, color:"#991b1b", fontWeight:700, marginBottom:10 }}>
                             😔 {c.diarista_nome?.split(" ")[0]} não pode neste dia. Tente outro profissional.
                           </div>
-                          {/* Confirmar e excluir */}
-                          {confirmCancelarConvite === c.id ? (
+                          {/* Convite PAGO (contato desbloqueado) não pode ser apagado do
+                              banco — a policy preserva o histórico do desbloqueio. Em vez de
+                              um botão de excluir que sempre falha, explicamos e deixamos OCULTAR
+                              localmente (some pra o anunciante; nada é removido do banco). */}
+                          {c.pago_em ? (
+                            <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                              <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:10, padding:"8px 12px", fontSize:11, color:"var(--text-3,#94a3b8)" }}>
+                                💳 Contato desbloqueado — este convite fica no seu histórico e não pode ser apagado.
+                              </div>
+                              <button
+                                style={{ width:"100%", padding:"9px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-label,#475569)", border:"none", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                                onClick={() => ocultarConvite(c.id)}>
+                                🙈 Ocultar
+                              </button>
+                            </div>
+                          ) : confirmCancelarConvite === c.id ? (
                             <div style={{ display:"flex", gap:8, alignItems:"center", background:"#fef2f2", borderRadius:10, padding:"8px 12px" }}>
                               <span style={{ fontSize:12, color:"#dc2626", fontWeight:700, flex:1 }}>Confirmar exclusão?</span>
                               <button style={{ background:"#dc2626", color:"#fff", border:"none", borderRadius:8, padding:"5px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => cancelarConvite(c.id)}>Excluir</button>
