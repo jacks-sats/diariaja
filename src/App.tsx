@@ -1553,8 +1553,16 @@ export default function App() {
         // Carrega candidaturas das diárias do empregador
         const ids = data.map((d:any) => d.id);
         if (ids.length > 0) {
-          const { data: cands } = await supabase.from("candidaturas").select("*").in("diaria_id", ids);
-          if (cands && cands.length > 0) {
+          // Erro engolido aqui fazia o card cair no estado vazio falso
+          // ("Aguardando interessados…") mesmo havendo candidaturas no banco —
+          // o anunciante não via ninguém e não sabia que a carga falhou.
+          // Agora o erro é capturado: registra no console (diagnóstico) e
+          // avisa o anunciante em vez de mentir que a vaga está vazia.
+          const { data: cands, error: errCands } = await supabase.from("candidaturas").select("*").in("diaria_id", ids);
+          if (errCands) {
+            console.error("[interessados] falha ao carregar candidaturas:", errCands);
+            setToastError("Não foi possível carregar os interessados. Atualize a tela e tente de novo — se continuar, fale com o suporte.");
+          } else if (cands && cands.length > 0) {
             setCandidaturas(cands);
             const dids = [...new Set(cands.map((c:any) => c.diarista_id))];
             // C2: perfis de candidatos não trazem telefone/PIX/token — só colunas públicas.
