@@ -1492,7 +1492,10 @@ export default function App() {
       // por papel (diarista/ambos) e exclui o próprio usuário no servidor.
       const { data, error } = await supabase.rpc("prestadores_publicos", { p_limit: 200 });
       // Onda 3: antes só logava no console — o anunciante via "nenhum profissional".
-      if (error) { console.warn("[home-empregador] erro carregando prestadores:", error.message); setErroPrestadores(true); return; }
+      if (error) { console.warn("[home-empregador] erro carregando prestadores:", error.message); setErroPrestadores(true);
+        // DIAGNÓSTICO (preview): expõe o código do erro real. REVERTER antes do merge.
+        { const e: any = error; setToastError(`Erro prestadores → code:${e.code ?? "?"} | msg:${e.message ?? "?"}${e.hint ? " | hint:"+e.hint : ""}`); }
+        return; }
       setErroPrestadores(false);
       if (data) {
         const lista = (data as unknown as UserProfile[]) ?? [];
@@ -1561,7 +1564,8 @@ export default function App() {
           const { data: cands, error: errCands } = await supabase.from("candidaturas").select("*").in("diaria_id", ids);
           if (errCands) {
             console.error("[interessados] falha ao carregar candidaturas:", errCands);
-            setToastError("Não foi possível carregar os interessados. Atualize a tela e tente de novo — se continuar, fale com o suporte.");
+            // DIAGNÓSTICO (preview): expõe o código do erro real. REVERTER antes do merge.
+            { const e: any = errCands; setToastError(`Erro interessados → code:${e.code ?? "?"} | msg:${e.message ?? "?"}${e.hint ? " | hint:"+e.hint : ""}${e.details ? " | det:"+e.details : ""}`); }
           } else if (cands && cands.length > 0) {
             setCandidaturas(cands);
             const dids = [...new Set(cands.map((c:any) => c.diarista_id))];
