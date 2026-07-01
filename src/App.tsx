@@ -400,7 +400,7 @@ export default function App() {
   const [convitesEnviados, setConvitesEnviados]   = useState<Convite[]>([]);
   const [modalConvite, setModalConvite]           = useState(false);
   const [enviandoConvite, setEnviandoConvite]     = useState(false);
-  const [formConvite, setFormConvite]             = useState({ cep: "", rua: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "", endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "" });
+  const [formConvite, setFormConvite]             = useState({ cep: "", rua: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "", endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "", valor: "" });
   const [buscandoCEPConvite, setBuscandoCEPConvite] = useState(false);
   // Comunidade
   const [topicos, setTopicos]                     = useState<Topico[]>([]);
@@ -4297,7 +4297,9 @@ export default function App() {
       data_servico:     formConvite.data,
       horario_servico:  horarioCompleto,
       observacoes:      formConvite.observacoes.trim() || null,
-      valor:            diaristaSelecionadaReal.valor_diaria || null,
+      // Fase B: usa o valor que o anunciante digitou; se vazio, cai no valor de
+      // referência do prestador (origem anterior). Só a ORIGEM do valor muda.
+      valor:            (Number(formConvite.valor) || diaristaSelecionadaReal.valor_diaria) || null,
       status:           "pendente",
     });
     if (error) {
@@ -4313,7 +4315,7 @@ export default function App() {
       { tipo: "selecionado", url: "/" },
     );
     setModalConvite(false);
-    setFormConvite({ cep: "", rua: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "", endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "" });
+    setFormConvite({ cep: "", rua: "", numero: "", complemento: "", bairro: "", cidade: "", estado: "", endereco: "", data: "", horario: "", cargaHoraria: "", observacoes: "", valor: "" });
     // Recarrega convites enviados e vai direto para aba Diárias
     if (session?.user) carregarConvites(session.user.id, "empregador");
     setTabEmpregador("diarias");
@@ -11998,7 +12000,7 @@ export default function App() {
 
                         <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
                           {/* Avatar */}
-                          <div style={{ width:60, height:60, borderRadius:30, background:bg, color:fg, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:18, flexShrink:0, overflow:"hidden", boxShadow:`0 4px 12px ${bg}55` }}>
+                          <div style={{ width:66, height:66, borderRadius:33, background:bg, color:fg, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:20, flexShrink:0, overflow:"hidden", boxShadow:`0 4px 12px ${bg}55` }}>
                             {d.foto_url
                               ? <img loading="lazy" src={d.foto_url} style={{ width:"100%", height:"100%", objectFit:"cover" }} alt="" />
                               : iniciais}
@@ -12007,26 +12009,29 @@ export default function App() {
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                               <div style={{ flex:1, minWidth:0 }}>
-                                <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>{d.nome}</div>
+                                <div style={{ fontWeight:900, fontSize:16.5, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>{d.nome}</div>
                                 <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5, flexWrap:"wrap" }}>
                                   <span style={{ background:funcCor+"18", color:funcCor, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, border:`1px solid ${funcCor}30` }}>
                                     {d.funcao}
                                   </span>
+                                  {/* Fase A: sinal de confiança (documento) sobe pro card — dado já
+                                      trazido pela RPC (tem_documento), sem carga nova. */}
+                                  {(d.tem_documento ?? !!(d.cpf || d.cnpj)) && (
+                                    <span style={{ background:"#dcfce7", color:"#16a34a", padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:800, display:"inline-flex", alignItems:"center", gap:3 }}>✅ Verificado</span>
+                                  )}
                                   {d.categorias?.slice(0,1).map(f => (
                                     <span key={f} style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>· {f}</span>
                                   ))}
                                 </div>
                               </div>
-                              <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:2, flexShrink:0 }}>
-                                <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>R$ {d.valor_diaria}</div>
-                                <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/dia</div>
-                                <button
-                                  style={{ background:"none", border:"none", padding:"2px 0", cursor:"pointer", fontSize:13, color:"#cbd5e1", lineHeight:1 }}
-                                  title="Denunciar usuário"
-                                  onClick={e => { e.stopPropagation(); setModalDenunciar({ tipo:"usuario", id:d.id, nome:d.nome }); setMotivoDenuncia(""); }}>
-                                  ⚑
-                                </button>
-                              </div>
+                              {/* Fase A (person-first): PREÇO removido da vitrine — passa a
+                                  aparecer só dentro do perfil. No canto fica só a denúncia. */}
+                              <button
+                                style={{ background:"none", border:"none", padding:"2px 0", cursor:"pointer", fontSize:13, color:"#cbd5e1", lineHeight:1, flexShrink:0 }}
+                                title="Denunciar usuário"
+                                onClick={e => { e.stopPropagation(); setModalDenunciar({ tipo:"usuario", id:d.id, nome:d.nome }); setMotivoDenuncia(""); }}>
+                                ⚑
+                              </button>
                             </div>
 
                             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
@@ -12046,6 +12051,14 @@ export default function App() {
                                       {lbl ? `📍 ${lbl}` : "📍 distância aproximada"}
                                     </span>
                                   );
+                                })()}
+                                {/* Fase A: nº de diárias concluídas SÓ quando já conhecido
+                                    (diaristasContagemDiarias) — sem forçar carga nova na vitrine. */}
+                                {(() => {
+                                  const q = diaristasContagemDiarias[d.id];
+                                  return q && q > 0 ? (
+                                    <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:700 }}>💼 {q} diária{q > 1 ? "s" : ""}</span>
+                                  ) : null;
                                 })()}
                               </div>
                               <button
@@ -19317,7 +19330,7 @@ export default function App() {
                 </div>
               )}
               <button style={{ ...S.btnPrimary, background:cor }} onClick={() => { setModalConvite(true); }}>
-                📨 Convidar para diária
+                📨 Oferecer diária
               </button>
             </div>
           );
@@ -19332,18 +19345,31 @@ export default function App() {
             <div style={{ ...S.modal, maxHeight:"90vh", overflowY:"auto" as const }}>
               {true && (
                 <>
-                  <h3 style={S.modalTitle}>Convidar {d.nome}</h3>
+                  <h3 style={S.modalTitle}>Oferecer diária a {d.nome}</h3>
                   <p style={S.modalText}>Informe onde e quando você precisa do serviço. O profissional vai confirmar se pode ir.</p>
 
                   <div style={S.modalRow}>
                     <span>Especialidade</span><strong>{d.funcao}</strong>
                   </div>
                   {d.valor_diaria && (
-                    <div style={{ ...S.modalRow, marginBottom:16 }}>
-                      <span>Valor combinado</span>
-                      <strong style={{ color:"#16a34a" }}>R$ {d.valor_diaria}/dia</strong>
+                    <div style={S.modalRow}>
+                      <span>Valor do prestador</span>
+                      <strong style={{ color:"#16a34a" }}>R$ {d.valor_diaria}/dia (referência)</strong>
                     </div>
                   )}
+                  {/* Fase B: o anunciante define quanto quer pagar por esta diária.
+                      Vazio = usa o valor de referência do prestador no convite (mesma
+                      origem de antes). NÃO mexe nas transições do convite nem no R$ 2,50. */}
+                  <div style={{ marginTop:10, marginBottom:16 }}>
+                    <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>💰 Quanto você quer pagar? (por dia)</label>
+                    <input
+                      value={formConvite.valor}
+                      onChange={e => setFormConvite(p => ({ ...p, valor: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
+                      inputMode="numeric"
+                      placeholder={d.valor_diaria ? `Deixe vazio pra usar R$ ${d.valor_diaria}` : "Ex: 150"}
+                      style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:14, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }}
+                    />
+                  </div>
 
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:12 }}>
                     {/* ── CEP com busca automática ── */}
