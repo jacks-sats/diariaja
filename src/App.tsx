@@ -11637,7 +11637,7 @@ export default function App() {
             { key:"diarias", label:"Diárias", icon:<Briefcase size={18} />,     ativo:tabEmpregador==="diarias", onClick:()=>{ hapticTick(); setTabEmpregador("diarias"); } },
             { key:"chat",    label:"Chat",    icon:<MessageCircle size={18} />, ativo:tabEmpregador==="chat",    badge:msgNaoLidas, onClick:()=>{ hapticTick(); setTabEmpregador("chat"); setMsgNaoLidas(0); } },
             { key:"perfil",  label:"Perfil",  icon:<User size={18} />,          ativo:tabEmpregador==="perfil",  onClick:()=>{ hapticTick(); setTabEmpregador("perfil"); } },
-            { key:"publicar",label:"Publicar anúncio",icon:<Plus size={18} />,          destaque:true, onClick:abrirCriarDiaria },
+            { key:"publicar",label:"Publicar",icon:<Plus size={18} />,          destaque:true, onClick:abrirCriarDiaria },
           ]} />
         )}
 
@@ -14875,7 +14875,7 @@ export default function App() {
               onClick={abrirCriarDiaria}>
               <Plus size={26} color="#fff" strokeWidth={2.8} />
             </div>
-            <span style={{ marginTop:2 }}>Publicar anúncio</span>
+            <span style={{ marginTop:2 }}>Publicar</span>
           </button>
           <button style={{ ...S.bottomNavBtn, position:"relative", ...(tabEmpregador==="chat"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>{ hapticTick(); setTabEmpregador("chat"); setMsgNaoLidas(0); }}>
             <span style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
