@@ -11919,10 +11919,10 @@ export default function App() {
               )}
             </div>
 
-            {/* Frase que explica o modelo de duas pontas (aceitar um preço já
-                publicado) — sem negociação, sem pechincha. */}
+            {/* Legenda da vitrine: foca na pessoa/região, sem mencionar preço
+                (coerente com a vitrine sem preço) — a negociação vai pro perfil. */}
             <div style={{ padding:"12px 16px 0", fontSize:12.5, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
-              Estes são os valores que cada prestador cobra. Você pode aceitar um deles — ou <strong style={{ color:negocio.cor }}>anunciar quanto quer pagar</strong>.
+              Veja os profissionais disponíveis na sua região. <strong style={{ color:negocio.cor }}>Toque no perfil</strong> para combinar o valor.
             </div>
             {/* Lista de profissionais */}
             {/* Desktop (>1024px): grade de até 3 cards por linha (mesmo card).
