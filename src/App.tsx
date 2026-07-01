@@ -11637,7 +11637,7 @@ export default function App() {
             { key:"diarias", label:"Diárias", icon:<Briefcase size={18} />,     ativo:tabEmpregador==="diarias", onClick:()=>{ hapticTick(); setTabEmpregador("diarias"); } },
             { key:"chat",    label:"Chat",    icon:<MessageCircle size={18} />, ativo:tabEmpregador==="chat",    badge:msgNaoLidas, onClick:()=>{ hapticTick(); setTabEmpregador("chat"); setMsgNaoLidas(0); } },
             { key:"perfil",  label:"Perfil",  icon:<User size={18} />,          ativo:tabEmpregador==="perfil",  onClick:()=>{ hapticTick(); setTabEmpregador("perfil"); } },
-            { key:"publicar",label:"Publicar",icon:<Plus size={18} />,          destaque:true, onClick:abrirCriarDiaria },
+            { key:"publicar",label:"Publicar anúncio",icon:<Plus size={18} />,          destaque:true, onClick:abrirCriarDiaria },
           ]} />
         )}
 
@@ -11866,7 +11866,7 @@ export default function App() {
                 style={{ flex:1, background:negocio.cor, border:`2px solid ${negocio.cor}`, color:"#fff", borderRadius:14, padding:"12px 8px", fontWeight:800, fontSize:12.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1.25, display:"flex", flexDirection:"column" as const, alignItems:"center", gap:5, boxShadow:`0 4px 12px ${negocio.cor}44` }}
                 onClick={irPublicarOferta}>
                 <span style={{ fontSize:20 }}>📢</span>
-                Publicar quanto quero pagar
+                Publicar anúncio
               </button>
             </div>
             {bannerLembreteGeo}
@@ -12076,7 +12076,7 @@ export default function App() {
                   <button
                     style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"11px 20px", fontWeight:800, fontSize:13.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                     onClick={irPublicarOferta}>
-                    📢 Publicar quanto quero pagar
+                    📢 Publicar anúncio
                   </button>
                 </div>
 
@@ -12867,7 +12867,7 @@ export default function App() {
               <button
                 style={{ ...S.btnPrimary, background:negocio.cor, marginTop:16 }}
                 onClick={() => { setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria"); }}>
-                + Nova diária
+                + Publicar anúncio
               </button>
             </div>
           );
@@ -14875,7 +14875,7 @@ export default function App() {
               onClick={abrirCriarDiaria}>
               <Plus size={26} color="#fff" strokeWidth={2.8} />
             </div>
-            <span style={{ marginTop:2 }}>Publicar</span>
+            <span style={{ marginTop:2 }}>Publicar anúncio</span>
           </button>
           <button style={{ ...S.bottomNavBtn, position:"relative", ...(tabEmpregador==="chat"?{ ...S.bottomNavAtivo, color:negocio.cor }:{}) }} onClick={()=>{ hapticTick(); setTabEmpregador("chat"); setMsgNaoLidas(0); }}>
             <span style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
