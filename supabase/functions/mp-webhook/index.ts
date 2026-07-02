@@ -264,6 +264,18 @@ Deno.serve(async (req) => {
       catch { /* best-effort */ }
     };
 
+    // Falha de ESCRITA no banco depois de um pagamento aprovado (timeout, pool
+    // esgotado, deadlock): antes o código só logava e retornava 200 — o MP não
+    // reentregava, o dedupe descartaria um reenvio, e o usuário ficava PAGO SEM
+    // BENEFÍCIO para sempre (auditoria 02/07/2026). Agora: libera a marca de
+    // idempotência e retorna 500 pro retry do MP reprocessar. Os grants são
+    // retry-safe (UNIQUE em mp_payment_id, updates condicionais/idempotentes).
+    const falhaEscrita = async (contexto: string, err: unknown) => {
+      await liberarIdempotencia();
+      console.error(`[mp-webhook] ${contexto}:`, err);
+      return new Response("erro de banco — aguardando retry", { status: 500 });
+    };
+
     const topic    = body.type ?? body.topic ?? "";
 
     // ─────────────────────────────────────────────────
@@ -301,17 +313,19 @@ Deno.serve(async (req) => {
       // IMPORTANTE (dual track): user pode ter 2 assinaturas (1 diarista +
       // 1 empregador). Escopa por mp_subscription_id (gravado em
       // create-subscription) pra mexer só na linha correta.
-      await supabase
+      const { error: subUpErr } = await supabase
         .from("assinaturas")
         .update({ status: novoStatus, updated_at: new Date().toISOString() })
         .eq("mp_subscription_id", subId);
+      if (subUpErr) return await falhaEscrita(`assinatura ${subId}: update status falhou`, subUpErr);
 
       // Se ativou → atualiza plano_ativo no perfil
       if (novoStatus === "ativo") {
-        await supabase
+        const { error: grantErr } = await supabase
           .from("user_profiles")
           .update({ plano_ativo: plano })
           .eq("id", userId);
+        if (grantErr) return await falhaEscrita(`assinatura ${subId}: grant plano_ativo falhou`, grantErr);
       }
 
       // Se cancelou → reverte para grátis, MAS só se o usuário não tiver outra
@@ -322,27 +336,34 @@ Deno.serve(async (req) => {
       // avulso ainda vigente.
       if (novoStatus === "cancelado") {
         // Outra assinatura recorrente ainda ativa?
-        const { data: outras } = await supabase
+        // ⚠️ Erro de LEITURA aqui não pode passar batido: `outras`/`prof` nulos
+        // por falha transitória fariam o downgrade rodar indevidamente,
+        // derrubando plano de quem tem outra fonte ativa. Falhou → retry.
+        const { data: outras, error: outrasErr } = await supabase
           .from("assinaturas")
           .select("plano")
           .eq("user_id", userId)
           .eq("status", "ativo");
+        if (outrasErr) return await falhaEscrita(`assinatura ${subId}: leitura de outras assinaturas falhou`, outrasErr);
         const temOutraAtiva = Array.isArray(outras) && outras.length > 0;
 
-        // Plano avulso (30 dias) ainda vigente?
-        const { data: prof } = await supabase
+        // Plano avulso (30 dias) ainda vigente? (maybeSingle: perfil apagado →
+        // data null sem erro; downgrade num perfil inexistente é no-op inócuo.)
+        const { data: prof, error: profErr } = await supabase
           .from("user_profiles")
           .select("plano_expira_em")
           .eq("id", userId)
-          .single();
+          .maybeSingle();
+        if (profErr) return await falhaEscrita(`assinatura ${subId}: leitura do perfil falhou`, profErr);
         const avulsoVigente = !!prof?.plano_expira_em
           && new Date(prof.plano_expira_em).getTime() > Date.now();
 
         if (!temOutraAtiva && !avulsoVigente) {
-          await supabase
+          const { error: downErr } = await supabase
             .from("user_profiles")
             .update({ plano_ativo: "gratis" })
             .eq("id", userId);
+          if (downErr) return await falhaEscrita(`assinatura ${subId}: downgrade pra gratis falhou`, downErr);
         }
       }
 
@@ -410,10 +431,9 @@ Deno.serve(async (req) => {
               mp_external_reference: String(payment.external_reference),
             });
           // Erro de duplicidade (UNIQUE) é esperado em retries — ignora.
-          // Outros erros vamos logar pra debugging mas não bloqueamos o webhook
-          // (200 OK pra MP não ficar retentando indefinidamente).
+          // Qualquer OUTRO erro = usuário pagou e não recebeu → força retry.
           if (insErr && !String(insErr.message ?? "").toLowerCase().includes("duplicate")) {
-            console.error(`[mp-webhook] insert contato_desbloqueio falhou:`, insErr);
+            return await falhaEscrita("insert contato_desbloqueio falhou", insErr);
           }
           // Fluxo de convite: marca o convite como pago e avisa o prestador pra
           // confirmar a presença. O chat só libera DEPOIS dessa confirmação.
@@ -424,7 +444,9 @@ Deno.serve(async (req) => {
               .eq("id", conviteId)
               .is("pago_em", null);  // idempotente: não re-notifica em retry
             if (cvErr) {
-              console.error(`[mp-webhook] marcar convite pago falhou:`, cvErr);
+              // Retry-safe: no reprocesso o insert do desbloqueio cai no
+              // UNIQUE (ignorado) e este update roda de novo (pago_em ainda null).
+              return await falhaEscrita("marcar convite pago falhou", cvErr);
             } else {
               // Busca o diarista do convite pra notificar (best-effort).
               const { data: conv } = await supabase
@@ -444,8 +466,9 @@ Deno.serve(async (req) => {
             .from("contatos_desbloqueios")
             .delete()
             .eq("mp_payment_id", String(paymentId));
-          if (delErr) console.error(`[mp-webhook] revogar contato (refund) falhou:`, delErr);
-          else console.log(`[mp-webhook] contact_unlock REVOGADO por ${payment.status}: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))}`);
+          // Falha aqui = usuário estornado FICA com o benefício → força retry.
+          if (delErr) return await falhaEscrita("revogar contato (refund) falhou", delErr);
+          console.log(`[mp-webhook] contact_unlock REVOGADO por ${payment.status}: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))}`);
         } else {
           console.log(`[mp-webhook] contact_unlock ignored: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
         }
@@ -475,15 +498,15 @@ Deno.serve(async (req) => {
               mp_external_reference: String(payment.external_reference),
             });
           if (insErr && !String(insErr.message ?? "").toLowerCase().includes("duplicate")) {
-            console.error(`[mp-webhook] insert vaga_emprego_desbloqueio falhou:`, insErr);
+            return await falhaEscrita("insert vaga_emprego_desbloqueio falhou", insErr);
           }
         } else if (ehRefund) {
           const { error: delErr } = await supabase
             .from("vagas_emprego_desbloqueios")
             .delete()
             .eq("mp_payment_id", String(paymentId));
-          if (delErr) console.error(`[mp-webhook] revogar vaga_emprego (refund) falhou:`, delErr);
-          else console.log(`[mp-webhook] vaga_emprego_unlock REVOGADO por ${payment.status}: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))}`);
+          if (delErr) return await falhaEscrita("revogar vaga_emprego (refund) falhou", delErr);
+          console.log(`[mp-webhook] vaga_emprego_unlock REVOGADO por ${payment.status}: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))}`);
         } else {
           console.log(`[mp-webhook] vaga_emprego_unlock ignored: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
         }
@@ -519,7 +542,8 @@ Deno.serve(async (req) => {
             .from("user_profiles")
             .update({ plano_ativo: planoId, plano_expira_em: expira })
             .eq("id", userId);
-          if (upErr) console.error(`[mp-webhook] plano grant falhou:`, upErr);
+          // Usuário pagou R$ 9,90–49,90 e não recebeu o plano → força retry.
+          if (upErr) return await falhaEscrita("plano grant falhou", upErr);
         } else if (ehRefund && userId) {
           // Estorno/chargeback do plano avulso → reverte pra grátis.
           // Só rebaixa se o plano atual for o que foi estornado (não derruba um
@@ -529,8 +553,8 @@ Deno.serve(async (req) => {
             .update({ plano_ativo: "gratis", plano_expira_em: null })
             .eq("id", userId)
             .eq("plano_ativo", planoId);
-          if (revErr) console.error(`[mp-webhook] reverter plano (refund) falhou:`, revErr);
-          else console.log(`[mp-webhook] plano REVOGADO por ${payment.status}: user=${await pseudo(userId)} plano=${planoId}`);
+          if (revErr) return await falhaEscrita("reverter plano (refund) falhou", revErr);
+          console.log(`[mp-webhook] plano REVOGADO por ${payment.status}: user=${await pseudo(userId)} plano=${planoId}`);
         } else {
           console.log(`[mp-webhook] plano ignored: user=${await pseudo(userId)} payment=${await pseudo(String(paymentId))} status=${payment.status}`);
         }
@@ -559,13 +583,14 @@ Deno.serve(async (req) => {
       };
       const novoStatus = statusMap[payment.status] ?? "aguardando";
 
-      await supabase
+      const { error: diaUpErr } = await supabase
         .from("diarias")
         .update({
           pagamento_status: novoStatus,
           pagamento_mp_id:  paymentId,
         })
         .eq("id", diariaId);
+      if (diaUpErr) return await falhaEscrita(`diaria ${diariaId}: update pagamento_status falhou`, diaUpErr);
 
       // Pagamento confirmado → insere mensagem automática no chat
       if (novoStatus === "pago") {
