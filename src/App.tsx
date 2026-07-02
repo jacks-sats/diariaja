@@ -3842,21 +3842,15 @@ export default function App() {
       .upload(path, file, { upsert: true, contentType: "image/jpeg" });
 
     if (uploadError) {
-      // Fallback: converte para base64 e salva direto no banco
-      setToastError("⚠️ Storage falhou, salvando localmente...");
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        const base64 = ev.target?.result as string;
-        if (base64) {
-          setFotoUrl(base64);
-          const ok = await salvarFotoUrl(base64);
-          if (ok) setToastSuccess("✅ Foto salva!");
-        } else {
-          setToastError("❌ Não foi possível salvar a foto.");
-        }
-        setUploadingFoto(false);
-      };
-      reader.readAsDataURL(file);
+      // NUNCA cair para base64 no banco: o antigo fallback gravava data-URIs de
+      // até ~7 MB em user_profiles.foto_url, e a vitrine inteira (RPC
+      // prestadores_publicos) passou a pesar 16 MB por carga (auditoria
+      // 02/07/2026 — 6 perfis somavam 15,4 MB). Se o Storage falhou, é
+      // indisponibilidade transitória: avisa e deixa tentar de novo.
+      URL.revokeObjectURL(previewUrl);
+      setFotoUrl(profile?.foto_url || "");
+      setToastError("❌ Não foi possível enviar a foto agora. Tente de novo em instantes.");
+      setUploadingFoto(false);
       return;
     }
 
