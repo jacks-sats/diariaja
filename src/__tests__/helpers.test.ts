@@ -61,6 +61,7 @@ import {
   LIMITE_VAGAS_EMPREGO_GRATIS_MES,
   rotuloPrecoVaga,
   precoDiariaParaSalvar,
+  cargaHorariaConvite,
 } from "../helpers";
 import { FUNCOES_DELIVERY } from "../constants";
 
@@ -1749,5 +1750,31 @@ describe("mensagemDoPar — chat escopado", () => {
     // Lado do candidato A (eu=A) → só vê o par dele (RLS já garante, mas confirma).
     expect(msgsDaVaga.filter(m => mensagemDoPar(m, A, EMP)).map(m => m.conteudo))
       .toEqual(["Oi A", "Olá empresa (A)"]);
+  });
+});
+
+// ── cargaHorariaConvite (item 9 — valor × carga no convite) ─────────────────
+describe("cargaHorariaConvite", () => {
+  it("prioriza a coluna estruturada quando presente", () => {
+    expect(cargaHorariaConvite(10, "08:00 (6h de trabalho)")).toBe(10);
+  });
+  it("extrai do texto legado quando a coluna é nula", () => {
+    expect(cargaHorariaConvite(null, "08:00 (10h de trabalho)")).toBe(10);
+    expect(cargaHorariaConvite(undefined, "14:30 (4h de trabalho)")).toBe(4);
+  });
+  it("aceita decimal com vírgula ou ponto no texto legado", () => {
+    expect(cargaHorariaConvite(null, "08:00 (7,5h de trabalho)")).toBe(7.5);
+    expect(cargaHorariaConvite(null, "08:00 (7.5h de trabalho)")).toBe(7.5);
+  });
+  it("retorna null quando não há como saber a carga", () => {
+    expect(cargaHorariaConvite(null, "08:00")).toBeNull();
+    expect(cargaHorariaConvite(null, null)).toBeNull();
+    expect(cargaHorariaConvite(undefined, undefined)).toBeNull();
+    expect(cargaHorariaConvite(null, "")).toBeNull();
+  });
+  it("ignora coluna inválida (zero/negativa/NaN) e cai no texto", () => {
+    expect(cargaHorariaConvite(0, "08:00 (8h de trabalho)")).toBe(8);
+    expect(cargaHorariaConvite(-2, "08:00 (8h de trabalho)")).toBe(8);
+    expect(cargaHorariaConvite(NaN, "08:00 (8h de trabalho)")).toBe(8);
   });
 });

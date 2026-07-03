@@ -93,6 +93,7 @@ import {
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
   montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar,
+  cargaHorariaConvite,
 } from "./helpers";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
@@ -4354,6 +4355,9 @@ export default function App() {
       local_servico:    enderecoFinal,
       data_servico:     formConvite.data,
       horario_servico:  horarioCompleto,
+      // Item 9 auditoria: carga também como coluna estruturada — o texto acima
+      // continua por compatibilidade, mas exibição/regra usam este número.
+      carga_horaria:    Number(formConvite.cargaHoraria) || null,
       observacoes:      formConvite.observacoes.trim() || null,
       // Fase B: usa o valor que o anunciante digitou; se vazio, cai no valor de
       // referência do prestador (origem anterior). Só a ORIGEM do valor muda.
@@ -15506,7 +15510,13 @@ export default function App() {
                   <span>📍 {c.local_servico}</span>
                   <span>📅 {new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR", { weekday:"long", day:"numeric", month:"long" })}</span>
                   <span>🕐 {c.horario_servico}</span>
-                  {c.valor && <span>💰 R$ {c.valor}/dia</span>}
+                  {c.valor && (() => {
+                    // "R$ X pela diária de Yh" — valor e carga JUNTOS (item 9):
+                    // "/dia" solto deixava o prestador aceitar 12h pelo preço
+                    // que ele definiu pensando em 8h.
+                    const ch = cargaHorariaConvite(c.carga_horaria, c.horario_servico);
+                    return <span>💰 R$ {c.valor}{ch ? <strong> pela diária de {ch}h</strong> : "/dia"}</span>;
+                  })()}
                   {c.observacoes && <span>📝 {c.observacoes}</span>}
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
@@ -15601,7 +15611,10 @@ export default function App() {
                 {linha("📍", "Local", c.local_servico || "—")}
                 {linha("📅", "Data", new Date(c.data_servico + "T12:00:00").toLocaleDateString("pt-BR", { weekday:"long", day:"numeric", month:"long" }))}
                 {linha("🕐", "Horário", c.horario_servico || "—")}
-                {c.valor != null && linha("💰", "Valor", `R$ ${c.valor}/dia`)}
+                {c.valor != null && linha("💰", "Valor", (() => {
+                  const ch = cargaHorariaConvite(c.carga_horaria, c.horario_servico);
+                  return ch ? `R$ ${c.valor} pela diária de ${ch}h` : `R$ ${c.valor}/dia`;
+                })())}
                 {c.observacoes && linha("📝", "Observações", c.observacoes)}
 
                 {/* Desistir — só enquanto não confirmou o serviço */}
@@ -19572,6 +19585,14 @@ export default function App() {
                           style={{ width:70, padding:"8px 10px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }}
                         />
                       </div>
+                      {/* Item 9 auditoria: carga alta + valor de referência do prestador
+                          = receita pro mal-entendido (ele definiu o preço sem saber
+                          desta carga; a disputa estouraria no local do serviço). */}
+                      {Number(formConvite.cargaHoraria) > 8 && !(Number(formConvite.valor) > 0) && diaristaSelecionadaReal?.valor_diaria ? (
+                        <div style={{ background:"#fffbeb", border:"1.5px solid #fde68a", borderRadius:10, padding:"8px 12px", marginTop:8, fontSize:12, color:"#92400e", lineHeight:1.5 }}>
+                          ⚠️ Você escolheu <strong>{formConvite.cargaHoraria}h</strong> sem definir um valor — o convite sairá com o preço de referência do prestador (<strong>R$ {diaristaSelecionadaReal.valor_diaria}</strong>), que pode ter sido pensado pra uma diária mais curta. Considere ofertar um valor à altura no campo lá em cima.
+                        </div>
+                      ) : null}
                     </div>
                     <div>
                       <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>📝 Observações (opcional)</label>
