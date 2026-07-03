@@ -378,6 +378,7 @@ export default function App() {
   // rede" (mostra card com "Tentar de novo") de "lista realmente vazia".
   const [erroFeed, setErroFeed]                   = useState(false);
   const [erroPrestadores, setErroPrestadores]     = useState(false);
+  const [erroDiarias, setErroDiarias]             = useState(false);
   const [erroMensagens, setErroMensagens]         = useState(false);
   // "Nonces" pro botão Tentar de novo re-disparar os efeitos de carregamento.
   const [recarregarPrest, setRecarregarPrest]     = useState(0);
@@ -1502,12 +1503,22 @@ export default function App() {
   useEffect(() => {
     if (tela !== "home-empregador" || !session?.user) return;
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("diarias")
         .select("*")
         .eq("empregador_id", session.user!.id)
         .neq("status", "cancelada")
         .order("created_at", { ascending: false });
+      // Query-MÃE da home do anunciante: se ela falhar, nada abaixo roda (nem
+      // candidaturas, nem feedback). Erro engolido aqui = lista de anúncios
+      // vazia SILENCIOSA — exatamente o sintoma do incidente de infra de junho
+      // (o fix do #277 cobriu só o passo das candidaturas, não este).
+      if (error) {
+        console.error("[home-empregador] falha ao carregar diárias:", error);
+        setErroDiarias(true);
+        return;
+      }
+      setErroDiarias(false);
       if (data) {
         // ── Auto-expira vagas vencidas E no-show (aceita sem check-in) ──────
         // (reforço client; o servidor/cron é a fonte da verdade, mas isto
@@ -12470,7 +12481,12 @@ export default function App() {
                 </div>
               )}
 
-              {diariasFiltradas.length === 0 ? (
+              {erroDiarias && diarias.length === 0 ? (
+                /* Falha na query-mãe: NUNCA mostrar "nenhuma diária" quando a
+                   carga falhou — era o estado mentiroso do incidente de junho.
+                   O retry re-dispara os dois efeitos da home (nonce compartilhado). */
+                <CardErroCarregar texto="Não foi possível carregar seus anúncios. Verifique sua conexão e tente de novo." onRetry={() => setRecarregarPrest(n => n + 1)} />
+              ) : diariasFiltradas.length === 0 ? (
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"20px 16px", textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:13 }}>
                   {diariasNaoCanceladas.length === 0 ? "Nenhuma diária publicada ainda." : vazioPorAba[filtroDiarias]}
                 </div>
