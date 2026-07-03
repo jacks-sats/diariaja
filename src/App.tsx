@@ -20087,11 +20087,30 @@ export default function App() {
             <div style={{ background:`${cor}10`, border:`1.5px solid ${cor}30`, borderRadius:12, padding:"10px 14px", marginTop:12, fontSize:12, color:"var(--text-2,#64748b)" }}>
               💼 Vaga de emprego — os candidatos se candidatam e você escolhe quem chamar pra entrevista. A contratação é feita diretamente entre vocês.
             </div>
-            {/* Aviso de monetização: publicar é grátis, contato exige plano */}
-            <div style={{ background:"#fffbeb", border:"1.5px solid #fde68a", borderRadius:12, padding:"10px 14px", marginTop:8, fontSize:12, color:"#92400e", lineHeight:1.5, display:"flex", gap:8, alignItems:"flex-start" }}>
-              <span style={{ fontSize:15, flexShrink:0 }}>💡</span>
-              <span><strong>Publicar a vaga é grátis.</strong> Para <strong>falar com os candidatos</strong> (selecionar quem chamar), é preciso o plano <strong>Essencial</strong>.</span>
-            </div>
+            {/* Aviso de monetização: publicar é grátis, contato exige plano.
+                Item 8 auditoria 02/07/2026: era INCONDICIONAL — aparecia até pra
+                assinante e pra quem está nos 30 dias grátis, contradizendo o
+                banner verde da home (o servidor LIBERA nesses dois casos — ver
+                promo_boas_vindas_30dias.sql). Agora: assinante não vê nada;
+                trial vê reforço verde; só o grátis pós-trial vê o amarelo. */}
+            {(() => {
+              const assinanteEmp = plans.empregador === "essencial" || plans.empregador === "plus";
+              if (assinanteEmp) return null;
+              const noTrial = !!profile?.created_at &&
+                Date.now() < new Date(profile.created_at).getTime() + 30 * 24 * 60 * 60 * 1000;
+              if (noTrial) return (
+                <div style={{ background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:12, padding:"10px 14px", marginTop:8, fontSize:12, color:"#166534", lineHeight:1.5, display:"flex", gap:8, alignItems:"flex-start" }}>
+                  <span style={{ fontSize:15, flexShrink:0 }}>🎁</span>
+                  <span><strong>Publicar a vaga é grátis.</strong> E nos seus <strong>30 dias de boas-vindas</strong>, falar com os candidatos também é <strong>grátis e ilimitado</strong>.</span>
+                </div>
+              );
+              return (
+                <div style={{ background:"#fffbeb", border:"1.5px solid #fde68a", borderRadius:12, padding:"10px 14px", marginTop:8, fontSize:12, color:"#92400e", lineHeight:1.5, display:"flex", gap:8, alignItems:"flex-start" }}>
+                  <span style={{ fontSize:15, flexShrink:0 }}>💡</span>
+                  <span><strong>Publicar a vaga é grátis.</strong> Para <strong>falar com os candidatos</strong> (selecionar quem chamar), é preciso o plano <strong>Essencial</strong>.</span>
+                </div>
+              );
+            })()}
           </>
         ) : formDiaria.tipo_oferta === "diaria" ? (
           <>
