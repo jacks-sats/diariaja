@@ -6681,6 +6681,20 @@ export default function App() {
     } catch { /* localStorage cheio — ignora */ }
   };
 
+  // Timeout dos lookups externos (BrasilAPI/Nominatim/ViaCEP — endpoints
+  // públicos, sem SLA): sem teto, uma resposta pendurada prendia o botão
+  // "Publicar" em "Publicando…" indefinidamente (item 7 da auditoria
+  // 02/07/2026). Abortou em 10 s → o try/catch de cada passo cai no fallback
+  // seguinte, como qualquer outra falha de rede. WebView sem
+  // AbortSignal.timeout segue sem teto (comportamento atual).
+  const fetchGeo = (url: string, init?: RequestInit) =>
+    fetch(url, {
+      ...init,
+      signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+        ? AbortSignal.timeout(10_000)
+        : undefined,
+    });
+
   const geocodificarCEP = async (cep: string, cidade?: string, uf?: string, permitirCidade = true): Promise<{lat:number, lng:number}|null> => {
     const cepNorm = cep.replace(/\D/g, "");
     if (cepNorm.length !== 8) return null;
@@ -6695,7 +6709,7 @@ export default function App() {
 
     // 2. BrasilAPI v2 — retorna lat/lng quando disponível (mais preciso pra BR)
     try {
-      const r = await fetch(`https://brasilapi.com.br/api/cep/v2/${cepNorm}`);
+      const r = await fetchGeo(`https://brasilapi.com.br/api/cep/v2/${cepNorm}`);
       if (r.ok) {
         const j = await r.json();
         const lat = parseFloat(j?.location?.coordinates?.latitude);
@@ -6710,7 +6724,7 @@ export default function App() {
     // 3. Fallback: Nominatim com CEP + cidade + UF (centróide do bairro)
     try {
       const query = encodeURIComponent(`${cepNorm}${cidade ? ", " + cidade : ""}${uf ? ", " + uf : ""}, Brasil`);
-      const res = await fetch(
+      const res = await fetchGeo(
         `https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1&addressdetails=0`,
         { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
       );
@@ -6721,7 +6735,7 @@ export default function App() {
         escreverGeoCache(cepNorm, lat, lng);
         return { lat, lng };
       }
-      const res2 = await fetch(
+      const res2 = await fetchGeo(
         `https://nominatim.openstreetmap.org/search?postalcode=${cepNorm}&country=Brazil&format=json&limit=1`,
         { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
       );
@@ -6743,7 +6757,7 @@ export default function App() {
       ultimoGeoCepPrecisoRef.current = false;  // centroide de cidade = posição IMPRECISA
       try {
         const q = encodeURIComponent(`${cidade}, ${uf}, Brasil`);
-        const r = await fetch(
+        const r = await fetchGeo(
           `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`,
           { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
         );
@@ -6780,7 +6794,7 @@ export default function App() {
     if (hit && Date.now() - hit.ts < GEOCACHE_TTL_MS) return { lat: hit.lat, lng: hit.lng };
     try {
       const q = encodeURIComponent(`${partes}, Brasil`);
-      const res = await fetch(
+      const res = await fetchGeo(
         `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=br&addressdetails=0`,
         { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
       );
@@ -6804,7 +6818,7 @@ export default function App() {
     setBuscandoCEP(true);
     setAuthError("");
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const res = await fetchGeo(`https://viacep.com.br/ws/${cep}/json/`);
       const json = await res.json();
       if (json.erro) { setAuthError("CEP não encontrado. Verifique e tente novamente."); setBuscandoCEP(false); return; }
       setFormDiaria(prev => ({
@@ -6828,7 +6842,7 @@ export default function App() {
     setBuscandoCEPEmp(true);
     setAuthError("");
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const res = await fetchGeo(`https://viacep.com.br/ws/${cep}/json/`);
       const json = await res.json();
       if (json.erro) { setAuthError("CEP não encontrado."); setBuscandoCEPEmp(false); return; }
       setForm(prev => ({ ...prev, ruaEmp: json.logradouro||prev.ruaEmp, bairroEmp: json.bairro||prev.bairroEmp, cidadeEmp: json.localidade||prev.cidadeEmp, estadoEmp: json.uf||prev.estadoEmp }));
@@ -6846,7 +6860,7 @@ export default function App() {
     setBuscandoCEPEmpresa(true);
     setErrosEmp(e => ({ ...e, cep: undefined }));
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const res = await fetchGeo(`https://viacep.com.br/ws/${cep}/json/`);
       const json = await res.json();
       if (json.erro) {
         setErrosEmp(e => ({ ...e, cep: "CEP não encontrado." }));
@@ -7260,7 +7274,7 @@ export default function App() {
     setBuscandoCEPPerfil(true);
     setAuthError("");
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const res = await fetchGeo(`https://viacep.com.br/ws/${cep}/json/`);
       const json = await res.json();
       if (json.erro) { setAuthError("CEP não encontrado. Verifique o CEP digitado."); setBuscandoCEPPerfil(false); return; }
       setForm(prev => ({ ...prev, bairro: json.bairro || prev.bairro, cidade: json.localidade || prev.cidade }));
@@ -7281,7 +7295,7 @@ export default function App() {
     lat: number, lng: number,
   ): Promise<{ cep: string; bairro: string; cidade: string; uf: string } | null> => {
     try {
-      const r = await fetch(
+      const r = await fetchGeo(
         `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
         { headers: { "Accept-Language": "pt-BR", "User-Agent": "Diariajakapp/1.0" } },
       );
@@ -7335,7 +7349,7 @@ export default function App() {
     if (cep.length !== 8) return;
     setBuscandoCEPConvite(true);
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const res = await fetchGeo(`https://viacep.com.br/ws/${cep}/json/`);
       const json = await res.json();
       if (json.erro) { setBuscandoCEPConvite(false); return; }
       setFormConvite(prev => ({ ...prev, rua: json.logradouro || prev.rua, bairro: json.bairro || prev.bairro, cidade: json.localidade || prev.cidade, estado: json.uf || prev.estado }));
