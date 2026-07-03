@@ -63,7 +63,27 @@ const storageNativo = {
   },
 };
 
+// ── Timeout global de rede ───────────────────────────────────────────────────
+// Nenhuma das ~200 chamadas `await supabase...` do App.tsx define timeout; se a
+// API pendurar a conexão (ex.: projeto restrito, rede móvel ruim), TODAS as
+// telas ficam em loading infinito. Este wrapper aplica um teto por request:
+//   • 20 s para REST/auth/RPC (queries normais respondem em <1 s);
+//   • 120 s para Storage (upload de foto de até 5 MB em 3G é legitimamente lento).
+// Respeita um `signal` já passado pelo chamador e degrada com segurança em
+// WebView antigo sem AbortSignal.timeout (segue sem teto, como hoje).
+const TIMEOUT_REST_MS = 20_000;
+const TIMEOUT_STORAGE_MS = 120_000;
+const fetchComTimeout: typeof fetch = (input, init) => {
+  const temTimeoutNativo =
+    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function";
+  if (init?.signal || !temTimeoutNativo) return fetch(input, init);
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  const ms = url.includes("/storage/v1/") ? TIMEOUT_STORAGE_MS : TIMEOUT_REST_MS;
+  return fetch(input, { ...init, signal: AbortSignal.timeout(ms) });
+};
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  global: { fetch: fetchComTimeout },
   auth: {
     // flowType 'implicit' resolve o erro "bad_oauth_state" em Android:
     // no fluxo PKCE (padrão) o code_verifier fica guardado no browser onde o
