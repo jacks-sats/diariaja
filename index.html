@@ -7,14 +7,23 @@
 -->
 <html lang="pt-BR">
   <head>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-18217224314"></script>
+    <!-- Google tag (gtag.js) — carrega SÓ na web (domínios de produção/preview).
+         Dentro do app nativo o Capacitor serve de https://localhost, então a
+         tag NÃO roda no Android: o Data Safety form da Play Store declara que
+         o app não compartilha dados com terceiros para publicidade, e a tag
+         rodando no APK contradiria a declaração (risco de rejeição/derrubada).
+         window.gtag continua definido em qualquer ambiente (só não envia). -->
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-
-      gtag('config', 'AW-18217224314');
+      if (/(\.|^)diariaja\.com(\.br)?$/.test(location.hostname) || /\.vercel\.app$/.test(location.hostname)) {
+        var gtagScript = document.createElement('script');
+        gtagScript.async = true;
+        gtagScript.src = 'https://www.googletagmanager.com/gtag/js?id=AW-18217224314';
+        document.head.appendChild(gtagScript);
+        gtag('js', new Date());
+        gtag('config', 'AW-18217224314');
+      }
     </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
