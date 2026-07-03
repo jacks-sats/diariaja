@@ -1374,3 +1374,21 @@ export function precoDiariaParaSalvar(opts: {
   const valor = opts.ehEmprego ? 0 : (Number(opts.valorForm) || 0);
   return { valor, ganho_estimado_dia: opts.ehDelivery ? (valor || null) : null };
 }
+
+// ── Convite: carga horária efetiva ───────────────────────────────────────────
+// Convites novos gravam a carga na coluna estruturada `carga_horaria`;
+// convites antigos só têm o texto "08:00 (10h de trabalho)" em
+// horario_servico. Esta função resolve os dois casos (coluna tem
+// prioridade) e devolve null quando não há como saber a carga.
+export function cargaHorariaConvite(
+  cargaHoraria?: number | null,
+  horarioServico?: string | null,
+): number | null {
+  if (typeof cargaHoraria === "number" && Number.isFinite(cargaHoraria) && cargaHoraria > 0) {
+    return cargaHoraria;
+  }
+  const m = /\((\d+(?:[.,]\d+)?)\s*h de trabalho\)/i.exec(horarioServico ?? "");
+  if (!m) return null;
+  const n = Number(m[1].replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}

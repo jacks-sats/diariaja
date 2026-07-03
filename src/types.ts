@@ -248,6 +248,10 @@ export interface Convite {
   horario_servico: string;
   observacoes?: string;
   valor?: number;
+  // Carga em horas escolhida pelo anunciante (coluna estruturada — migration
+  // convites_carga_horaria.sql). Convites antigos: null (a carga vive só no
+  // texto de horario_servico; ver helpers.cargaHorariaConvite).
+  carga_horaria?: number | null;
   status: string;             // 'pendente' | 'aceito' | 'recusado' | 'confirmado'
   created_at: string;
   pago_em?: string | null;                // anunciante pagou (webhook seta)
