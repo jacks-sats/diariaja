@@ -4392,10 +4392,21 @@ export default function App() {
       setConvDetalhe(null);
       return;
     }
-    const { error } = await supabase.from("convites")
+    // Lição C4 em ESCRITA (igual cancelarConvite): UPDATE barrado por RLS ou em
+    // linha que não existe mais NÃO retorna erro — retorna 0 linhas. Sem esta
+    // checagem, se o anunciante cancelar (DELETE) no instante em que o prestador
+    // aceita, o app fingia "✅ aceito" com nada no banco.
+    const { data: linhas, error } = await supabase.from("convites")
       .update({ status: resposta })
-      .eq("id", conviteId);
+      .eq("id", conviteId)
+      .select("id");
     if (error) { setToastError(traduzirErroBanco(error)); return; }
+    if (!linhas || linhas.length === 0) {
+      setToastError("Este convite não está mais disponível — o anunciante pode tê-lo cancelado. Atualize a tela.");
+      if (session?.user) void carregarConvites(session.user.id, "diarista");
+      setConvDetalhe(null);
+      return;
+    }
     setConvitesRecebidos(prev => prev.map(c => c.id === conviteId ? { ...c, status: resposta } : c));
     setToastSuccess(resposta === "aceito" ? "✅ Convite aceito! O anunciante será notificado." : "❌ Convite recusado.");
     // Notifica o anunciante sobre a resposta (antes não havia push de volta)
@@ -4418,12 +4429,21 @@ export default function App() {
   const desistirConvite = async (conv: Convite) => {
     if (!session?.user || desistindoConvite) return;
     setDesistindoConvite(true);
-    const { error } = await supabase.from("convites")
+    const { data: linhas, error } = await supabase.from("convites")
       .update({ status: "recusado" })
       .eq("id", conv.id)
-      .eq("diarista_id", session.user.id);
+      .eq("diarista_id", session.user.id)
+      .select("id");
     setDesistindoConvite(false);
     if (error) { setToastError(traduzirErroBanco(error)); return; }
+    if (!linhas || linhas.length === 0) {
+      // 0 linhas = convite já não existe (anunciante cancelou) ou RLS barrou.
+      setToastError("Este convite não está mais disponível. Atualize a tela.");
+      void carregarConvites(session.user.id, "diarista");
+      setConvDetalhe(null);
+      setConfirmandoDesistirConvite(false);
+      return;
+    }
     setConvitesRecebidos(prev => prev.map(c => c.id === conv.id ? { ...c, status: "recusado" } : c));
     setConvDetalhe(null);
     setConfirmandoDesistirConvite(false);
@@ -4489,14 +4509,23 @@ export default function App() {
     if (!session?.user || confirmandoPresencaConvite) return;
     setConfirmandoPresencaConvite(true);
     const agora = new Date().toISOString();
-    const { error } = await supabase.from("convites")
+    const { data: linhas, error } = await supabase.from("convites")
       .update({ status: "confirmado", presenca_confirmada_em: agora })
       .eq("id", conv.id)
-      .eq("diarista_id", session.user.id);
+      .eq("diarista_id", session.user.id)
+      .select("id");
     setConfirmandoPresencaConvite(false);
     if (error) {
       console.error("[confirmarPresencaConvite] erro:", error);
       setToastError(traduzirErroBanco(error));
+      return;
+    }
+    if (!linhas || linhas.length === 0) {
+      // 0 linhas: convite sumiu (cancelado) ou RLS barrou — sem esta checagem o
+      // app dizia "✅ Serviço aceito!" e ainda chamava criar_diaria_de_convite
+      // sobre um convite inexistente.
+      setToastError("Este convite não está mais disponível — o anunciante pode tê-lo cancelado. Atualize a tela.");
+      void carregarConvites(session.user.id, "diarista");
       return;
     }
     // Cria (idempotente) a diária real ligada ao convite — chat/agenda passam a
