@@ -725,6 +725,10 @@ export default function App() {
   // O webhook continua sendo a fonte da verdade (hidratação no login cobre o
   // retorno tardio/outro dispositivo) — isso aqui é só feedback ativo de UI.
   const [confirmandoPagamento, setConfirmandoPagamento] = useState<null | "polling" | "pendente" | "timeout">(null);
+  // Idem para o retorno de PLANO/ASSINATURA (?plano=ativado / ?assinatura=sucesso):
+  // o webhook pode levar 10–60 s (Pix, fila do MP); sem polling o usuário via o
+  // toast de sucesso mas `plano_ativo` seguia 'gratis' e os gates bloqueavam.
+  const [confirmandoPlano, setConfirmandoPlano] = useState<null | "assinatura" | "plano">(null);
   // Contexto da seleção que originou a cobrança R$1 (pra retomar após pagar).
   const [selecaoPendente, setSelecaoPendente] = useState<{ diariaId: string; diaristaId: string } | null>(null);
   const [retomarSelecao, setRetomarSelecao] = useState<{ diariaId: string; diaristaId: string } | null>(null);
@@ -1391,21 +1395,18 @@ export default function App() {
     }
     const assinaturaStatus = params.get("assinatura");
     if (assinaturaStatus === "sucesso") {
-      setToastSuccess("🎉 Assinatura ativada! Aproveite seu plano.");
+      setToastSuccess("🎉 Pagamento recebido! Ativando sua assinatura…");
       window.history.replaceState({}, "", window.location.pathname);
-      // Recarrega TODAS as assinaturas (dual track: diarista + empregador)
-      if (session?.user?.id) {
-        supabase.from("assinaturas").select("*").eq("user_id", session.user.id).eq("status", "ativo")
-          .then(({ data }) => setAssinaturas(Array.isArray(data) ? data : []));
-      }
+      // O webhook do MP pode demorar — o efeito 8.8 re-consulta por até 60 s.
+      if (session?.user?.id) setConfirmandoPlano("assinatura");
     }
     // Retorno do plano de 30 dias (pagamento único via Pix/cartão).
     const planoStatus = params.get("plano");
     if (planoStatus === "ativado") {
-      setToastSuccess("🎉 Pagamento recebido! Seu plano será liberado em instantes.");
+      setToastSuccess("🎉 Pagamento recebido! Ativando seu plano…");
       window.history.replaceState({}, "", window.location.pathname);
-      // Recarrega o perfil pra pegar o plano_ativo concedido pelo webhook.
-      if (session?.user?.id) void checkProfile(session.user.id);
+      // O webhook do MP pode demorar — o efeito 8.8 re-consulta por até 60 s.
+      if (session?.user?.id) setConfirmandoPlano("plano");
     } else if (planoStatus === "pendente") {
       setToastSuccess("⏳ Pagamento em processamento. Seu plano libera assim que confirmar.");
       window.history.replaceState({}, "", window.location.pathname);
@@ -2379,6 +2380,58 @@ export default function App() {
     return () => { cancelado = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmandoPagamento]);
+
+  // 8.8) Confirmação ativa de PLANO/ASSINATURA (retorno do MP com ?plano=ativado
+  //      ou ?assinatura=sucesso) — re-consulta a cada 5s por até 60s até o
+  //      webhook conceder. O fluxo do R$ 2,50 (8.6) já fazia isso; o de plano,
+  //      que custa 10x mais, voltava com toast de sucesso e um único fetch:
+  //      se o webhook demorasse (Pix), plano_ativo seguia 'gratis' e os gates
+  //      server-side continuavam bloqueando — "paguei e continuo no grátis".
+  useEffect(() => {
+    if (!confirmandoPlano || !session?.user) return;
+    const alvo = confirmandoPlano;
+    const userId = session.user.id;
+    let cancelado = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let tentativas = 0;
+    const tick = async () => {
+      if (cancelado) return;
+      tentativas++;
+      if (alvo === "assinatura") {
+        const { data } = await supabase
+          .from("assinaturas").select("*").eq("user_id", userId).eq("status", "ativo");
+        if (cancelado) return;
+        if (Array.isArray(data) && data.length > 0) {
+          setAssinaturas(data);
+          void checkProfile(userId); // pega o plano_ativo concedido pelo webhook
+          setConfirmandoPlano(null);
+          setToastSuccess("🎉 Assinatura ativada! Aproveite seu plano.");
+          return;
+        }
+      } else {
+        const { data } = await supabase
+          .from("user_profiles").select("plano_ativo").eq("id", userId).maybeSingle();
+        if (cancelado) return;
+        if (data?.plano_ativo && data.plano_ativo !== "gratis") {
+          void checkProfile(userId);
+          setConfirmandoPlano(null);
+          setToastSuccess("🎉 Plano ativado! Aproveite.");
+          return;
+        }
+      }
+      if (tentativas >= 12) {
+        if (!cancelado) {
+          setConfirmandoPlano(null);
+          setToastSuccess("⏳ Pagamento aprovado — a ativação está a caminho. Se não liberar em alguns minutos, feche e abra o app.");
+        }
+        return;
+      }
+      timer = setTimeout(tick, 5000);
+    };
+    timer = setTimeout(tick, 1500);
+    return () => { cancelado = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmandoPlano]);
 
   // 8.7) Retomada da seleção pós-pagamento: espera estar na home do anunciante
   //      com as diárias carregadas e reabre o MESMO fluxo (selecionarCandidato →
