@@ -88,7 +88,7 @@ import {
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
   formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, geoPrecisoParaSalvar, parseEnderecoReverso, deveMostrarLembreteGeo, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
-  calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
+  calcularNivelConfiabilidade, calcScoreEmpregador, academiaPctPorXp, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
@@ -12124,6 +12124,11 @@ export default function App() {
                                   {(d.tem_documento ?? !!(d.cpf || d.cnpj)) && (
                                     <span style={{ background:"#dcfce7", color:"#16a34a", padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:800, display:"inline-flex", alignItems:"center", gap:3 }}>✅ Verificado</span>
                                   )}
+                                  {/* Passo 4: selo de antecedentes (o moat) — só o positivo,
+                                      vindo da RPC perfis_publicos. Some sozinho sem a migração. */}
+                                  {d.antecedentes_verificado && (
+                                    <span style={{ background:"#dbeafe", color:"#1d4ed8", padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:800, display:"inline-flex", alignItems:"center", gap:3 }}>🛡️ Antecedentes</span>
+                                  )}
                                   {d.categorias?.slice(0,1).map(f => (
                                     <span key={f} style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>· {f}</span>
                                   ))}
@@ -14663,6 +14668,41 @@ export default function App() {
               </div>
             </div>
 
+            {/* ── SCORE de reputação do contratante (número único, holístico) ── */}
+            {(() => {
+              // Completude do perfil (mesmos itens do card de completude abaixo).
+              const itensComp = [
+                !!profile?.foto_url,
+                !!(profile?.bio && profile.bio.trim()),
+                !!(profile?.cnpj || profile?.cpf),
+                !!(profile?.telefone_verificado || telefoneVerificado),
+                !!profile?.endereco_empregador,
+              ];
+              const completudePct = Math.round(itensComp.filter(Boolean).length / itensComp.length * 100);
+              // Progresso no Já Decola (XP dos certificados → 0–100).
+              const xpDecola = academyCertificados.reduce((s, c) => s + (academyCursos.find(x => x.id === c.curso_id)?.pontos_score || 0), 0);
+              const sc = calcScoreEmpregador(reputacaoEmpProprio, {
+                completudePct,
+                academiaPct: academiaPctPorXp(xpDecola),
+              });
+              return (
+                <div style={{ margin:"12px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:14 }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>🏅 Reputação do contratante</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5, marginTop:4 }}>
+                      {sc.novo
+                        ? "Complete o perfil, faça o Já Decola e cumpra o combinado pra construir seu score."
+                        : "Junta avaliações, completude do perfil e Já Decola — tudo conta pra subir."}
+                    </div>
+                  </div>
+                  <div style={{ background:sc.cor, color:"#fff", borderRadius:16, minWidth:78, padding:"12px 10px", textAlign:"center" as const, flexShrink:0, boxShadow:`0 4px 12px ${sc.cor}55` }}>
+                    <div style={{ fontSize: sc.novo ? 17 : 26, fontWeight:900, lineHeight:1 }}>{sc.novo ? "Novo" : sc.score}</div>
+                    <div style={{ fontSize:10, fontWeight:800, letterSpacing:0.6, opacity:0.95, marginTop:3 }}>{sc.novo ? "SEM AVAL." : "SCORE"}</div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ── Selo de confiabilidade do anunciante ── */}
             {(() => {
               const nivelConf = calcularNivelConfiabilidade({
@@ -14672,22 +14712,41 @@ export default function App() {
                 documento_status: profile?.documento_status,
                 mfa_enabled: false,
               });
+              // Antecedentes criminais — selo extra de segurança (o moat).
+              const antOK  = profile?.antecedentes_status === "aprovado";
+              const antEnv = profile?.antecedentes_status === "enviado";
+              const antRej = profile?.antecedentes_status === "rejeitado";
+              const ant = antOK
+                ? { cor:"#16a34a", icone:"🛡️", txt:"Antecedentes verificados" }
+                : antEnv ? { cor:"#3A86FF", icone:"🔍", txt:"Antecedentes em análise" }
+                : antRej ? { cor:"#ef4444", icone:"❌", txt:"Antecedentes rejeitados — reenviar" }
+                : { cor:"#94a3b8", icone:"➕", txt:"Adicionar antecedentes (selo extra)" };
               return (
-                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:12 }}>
-                  <div style={{ width:46, height:46, borderRadius:14, background:nivelConf.cor+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                    <ShieldCheck size={24} color={nivelConf.cor} />
-                  </div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.4 }}>Selo de confiabilidade</div>
-                    <div style={{ fontWeight:900, fontSize:15, color:nivelConf.cor }}>Nível {nivelConf.nivel} · {nivelConf.nome}</div>
-                    {nivelConf.pendencias.length > 0 && (
-                      <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.4 }}>{nivelConf.pendencias[0]}</div>
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <div style={{ width:46, height:46, borderRadius:14, background:nivelConf.cor+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                      <ShieldCheck size={24} color={nivelConf.cor} />
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.4 }}>Confiança &amp; segurança</div>
+                      <div style={{ fontWeight:900, fontSize:15, color:nivelConf.cor }}>Nível {nivelConf.nivel} · {nivelConf.nome}</div>
+                      {nivelConf.pendencias.length > 0 && (
+                        <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.4 }}>{nivelConf.pendencias[0]}</div>
+                      )}
+                    </div>
+                    {nivelConf.proximo && (
+                      <button style={{ background:nivelConf.cor, color:"#fff", border:"none", borderRadius:10, padding:"8px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
+                        onClick={() => setTela("editar-perfil-empregador")}>Subir →</button>
                     )}
                   </div>
-                  {nivelConf.proximo && (
-                    <button style={{ background:nivelConf.cor, color:"#fff", border:"none", borderRadius:10, padding:"8px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
-                      onClick={() => setTela("editar-perfil-empregador")}>Subir →</button>
-                  )}
+                  {/* Selo de Antecedentes verificados — clica pra enviar/reenviar */}
+                  <button
+                    onClick={() => setTela("verificar-antecedentes")}
+                    style={{ marginTop:12, width:"100%", display:"flex", alignItems:"center", gap:9, background:ant.cor+"14", border:`1px solid ${ant.cor}33`, borderRadius:12, padding:"10px 12px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}>
+                    <span style={{ fontSize:16, lineHeight:1 }}>{ant.icone}</span>
+                    <span style={{ flex:1, fontSize:12.5, fontWeight:800, color:ant.cor }}>{ant.txt}</span>
+                    <span style={{ fontSize:12, fontWeight:800, color:ant.cor, opacity:0.8 }}>{antOK ? "✓" : "→"}</span>
+                  </button>
                 </div>
               );
             })()}

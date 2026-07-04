@@ -860,6 +860,78 @@ export function calcularNivelConfiabilidade(p: NivelEntrada): {
   };
 }
 
+// ── Progresso global no Já Decola (0–100) ────────────────────────────────────
+// Normaliza o XP total do Já Decola num 0–100, com teto no XP do nível máximo
+// (Diamante). Assim o Já Decola pode entrar no SCORE do contratante na mesma
+// escala das outras dimensões. Teto fica só aqui (NIVEIS_ACADEMY).
+export function academiaPctPorXp(xp: number): number {
+  const max = NIVEIS_ACADEMY[NIVEIS_ACADEMY.length - 1].min; // Diamante = 250
+  const x = Math.max(0, Number.isFinite(xp) ? xp : 0);
+  return Math.min(100, Math.round((x / max) * 100));
+}
+
+// ── SCORE de reputação do contratante (0–100) — holístico ────────────────────
+// Um número único e legível pra reputação do contratante (como o concorrente
+// exibe no perfil), mas "tudo conta pra subir": mistura três dimensões, cada
+// uma já em 0–100 e renormalizada sobre as presentes:
+//   - Reputação (70%): nota_media (1★→0, 5★→100) + % pagou + % cumpriu o
+//     combinado (internamente 50/25/25). Só entra quando há avaliação real.
+//   - Completude do perfil (15%): passada em extra.completudePct.
+//   - Já Decola (15%): progresso global no XP, passado em extra.academiaPct.
+// "Novo" (cinza, neutro) quando ainda não há sinal relevante — sem avaliação,
+// sem Já Decola e com perfil quase vazio — pra não mostrar vermelho a quem
+// acabou de chegar.
+export interface ScoreEmpregador {
+  score: number | null;   // 0–100, ou null quando "novo"
+  novo: boolean;          // true = sem sinal relevante ainda (contratante novo)
+  label: string;          // "Novo" | "Excelente" | "Bom" | "Regular" | "Atenção"
+  cor: string;
+}
+
+export function calcScoreEmpregador(r: {
+  total_avaliacoes?: number | null;
+  nota_media?: number | null;
+  pct_pagou_combinado?: number | null;
+  pct_cumpriu_combinado?: number | null;
+} | null | undefined, extra?: {
+  completudePct?: number | null;   // 0–100 completude do perfil
+  academiaPct?: number | null;     // 0–100 progresso no Já Decola
+}): ScoreEmpregador {
+  const clamp = (v: number) => Math.max(0, Math.min(100, v));
+
+  // Sub-score de reputação — só quando há algum sinal real de avaliação.
+  const repComps: Array<{ v: number; peso: number }> = [];
+  if (r && typeof r.nota_media === "number") repComps.push({ v: clamp(((r.nota_media - 1) / 4) * 100), peso: 0.5 });
+  if (r && typeof r.pct_pagou_combinado === "number") repComps.push({ v: clamp(r.pct_pagou_combinado), peso: 0.25 });
+  if (r && typeof r.pct_cumpriu_combinado === "number") repComps.push({ v: clamp(r.pct_cumpriu_combinado), peso: 0.25 });
+  const temRep = repComps.length > 0;
+  const repScore = temRep
+    ? repComps.reduce((s, c) => s + c.v * c.peso, 0) / repComps.reduce((s, c) => s + c.peso, 0)
+    : null;
+
+  const completude = typeof extra?.completudePct === "number" ? clamp(extra.completudePct) : null;
+  const academia   = typeof extra?.academiaPct   === "number" ? clamp(extra.academiaPct)   : null;
+
+  // Holístico: reputação 70% + completude 15% + Já Decola 15%, renormalizado
+  // sobre os componentes presentes.
+  const comps: Array<{ v: number; peso: number }> = [];
+  if (repScore !== null)   comps.push({ v: repScore,   peso: 0.70 });
+  if (completude !== null) comps.push({ v: completude, peso: 0.15 });
+  if (academia !== null)   comps.push({ v: academia,   peso: 0.15 });
+
+  // Contratante novo: nada relevante ainda → "Novo" em vez de nota baixa.
+  const semSinal = !temRep && (academia ?? 0) === 0 && (completude ?? 0) < 40;
+  if (comps.length === 0 || semSinal) {
+    return { score: null, novo: true, label: "Novo", cor: "#94a3b8" };
+  }
+
+  const score = Math.round(comps.reduce((s, c) => s + c.v * c.peso, 0) / comps.reduce((s, c) => s + c.peso, 0));
+  if (score >= 80) return { score, novo: false, label: "Excelente", cor: "#16a34a" };
+  if (score >= 60) return { score, novo: false, label: "Bom",       cor: "#d97706" };
+  if (score >= 40) return { score, novo: false, label: "Regular",   cor: "#f59e0b" };
+  return { score, novo: false, label: "Atenção", cor: "#ef4444" };
+}
+
 // ── Tempo relativo curto pt-BR ("agora", "há 12min", "há 2h", "ontem") ───────
 // Usado nos cards do feed pra mostrar há quanto tempo a vaga foi publicada.
 export function formatTempoRelativo(

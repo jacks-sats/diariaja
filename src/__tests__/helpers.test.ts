@@ -36,6 +36,8 @@ import {
   tempoEstimadoMin,
   formatarTempo,
   calcularNivelConfiabilidade,
+  calcScoreEmpregador,
+  academiaPctPorXp,
   formatTempoRelativo,
   calcularIdade,
   validarSenhaForte,
@@ -663,6 +665,108 @@ describe("calcularNivelConfiabilidade", () => {
     expect(r.nome).toBe("Premium");
     expect(r.pendencias.length).toBe(0);
     expect(r.proximo).toBeUndefined();
+  });
+});
+
+// ── calcScoreEmpregador ──────────────────────────────────────────────────────
+describe("calcScoreEmpregador", () => {
+  it("contratante novo (sem métricas) → novo/Novo, score null", () => {
+    const r = calcScoreEmpregador(null);
+    expect(r.novo).toBe(true);
+    expect(r.score).toBeNull();
+    expect(r.label).toBe("Novo");
+  });
+
+  it("objeto vazio ou tudo null também é Novo", () => {
+    expect(calcScoreEmpregador({}).novo).toBe(true);
+    expect(calcScoreEmpregador({ total_avaliacoes: 0, nota_media: null,
+      pct_pagou_combinado: null, pct_cumpriu_combinado: null }).novo).toBe(true);
+  });
+
+  it("nota 5★ + 100% pagou + 100% cumpriu → 100 Excelente", () => {
+    const r = calcScoreEmpregador({ total_avaliacoes: 8, nota_media: 5,
+      pct_pagou_combinado: 100, pct_cumpriu_combinado: 100 });
+    expect(r.score).toBe(100);
+    expect(r.label).toBe("Excelente");
+    expect(r.cor).toBe("#16a34a");
+  });
+
+  it("nota 1★ + 0% + 0% → 0 Atenção", () => {
+    const r = calcScoreEmpregador({ total_avaliacoes: 3, nota_media: 1,
+      pct_pagou_combinado: 0, pct_cumpriu_combinado: 0 });
+    expect(r.score).toBe(0);
+    expect(r.label).toBe("Atenção");
+  });
+
+  it("só nota (pcts null) usa 100% do peso na nota — 4★ → 75", () => {
+    const r = calcScoreEmpregador({ total_avaliacoes: 2, nota_media: 4 });
+    expect(r.score).toBe(75); // (4-1)/4*100 = 75
+    expect(r.novo).toBe(false);
+    expect(r.label).toBe("Bom");
+  });
+
+  it("faixa Regular entre 40 e 59", () => {
+    // nota 3★ → 50; pagou 50; cumpriu 50 → 50
+    const r = calcScoreEmpregador({ total_avaliacoes: 4, nota_media: 3,
+      pct_pagou_combinado: 50, pct_cumpriu_combinado: 50 });
+    expect(r.score).toBe(50);
+    expect(r.label).toBe("Regular");
+  });
+
+  it("recorta valores fora de faixa (defensivo)", () => {
+    const r = calcScoreEmpregador({ total_avaliacoes: 1, nota_media: 5,
+      pct_pagou_combinado: 150, pct_cumpriu_combinado: -20 });
+    // nota→100 (peso .5), pagou→100 (.25), cumpriu→0 (.25) => 75
+    expect(r.score).toBe(75);
+  });
+
+  // ── Holístico: completude e Já Decola também contam ──
+  it("só completude 80% (sem avaliação nem Já Decola) → 80 Excelente", () => {
+    const r = calcScoreEmpregador(null, { completudePct: 80 });
+    expect(r.novo).toBe(false);
+    expect(r.score).toBe(80);
+    expect(r.label).toBe("Excelente");
+  });
+
+  it("perfil quase vazio (completude 30, sem avaliação nem Decola) → Novo", () => {
+    const r = calcScoreEmpregador(null, { completudePct: 30, academiaPct: 0 });
+    expect(r.novo).toBe(true);
+    expect(r.label).toBe("Novo");
+  });
+
+  it("só Já Decola concluído tira do Novo (academia conta pra subir)", () => {
+    const r = calcScoreEmpregador(null, { completudePct: 20, academiaPct: 100 });
+    expect(r.novo).toBe(false);
+    expect(r.score).toBe(60); // (20*.15 + 100*.15)/.30 = 60
+  });
+
+  it("holístico completo: reputação + completude + Já Decola", () => {
+    const r = calcScoreEmpregador(
+      { total_avaliacoes: 5, nota_media: 5, pct_pagou_combinado: 100, pct_cumpriu_combinado: 100 },
+      { completudePct: 60, academiaPct: 40 });
+    // rep=100 (.70) + comp=60 (.15) + decola=40 (.15) = 70+9+6 = 85
+    expect(r.score).toBe(85);
+    expect(r.label).toBe("Excelente");
+  });
+
+  it("reputação domina quando existe (mau pagador puxa o score pra baixo)", () => {
+    const r = calcScoreEmpregador(
+      { total_avaliacoes: 4, nota_media: 2, pct_pagou_combinado: 20, pct_cumpriu_combinado: 20 },
+      { completudePct: 100, academiaPct: 100 });
+    // rep = (25*.5 + 20*.25 + 20*.25) = 22.5 → (22.5*.7 + 100*.15 + 100*.15)/1 = 45.75 → 46
+    expect(r.score).toBe(46);
+    expect(r.label).toBe("Regular");
+  });
+});
+
+describe("academiaPctPorXp", () => {
+  it("0 XP → 0%", () => expect(academiaPctPorXp(0)).toBe(0));
+  it("125 XP (metade de Diamante=250) → 50%", () => expect(academiaPctPorXp(125)).toBe(50));
+  it("250 XP (Diamante) → 100%", () => expect(academiaPctPorXp(250)).toBe(100));
+  it("acima do teto satura em 100%", () => expect(academiaPctPorXp(999)).toBe(100));
+  it("valores inválidos/negativos → 0%", () => {
+    expect(academiaPctPorXp(-10)).toBe(0);
+    expect(academiaPctPorXp(NaN)).toBe(0);
   });
 });
 

@@ -145,6 +145,9 @@ export interface UserProfile {
   // derivados no lugar (pro selo "Verificado" e o badge de nível).
   tem_documento?: boolean;
   nivel?: number;
+  // Selo de antecedentes p/ TERCEIROS: booleano positivo (true só quando
+  // aprovado). Nunca expõe "enviado"/"rejeitado" de outra pessoa.
+  antecedentes_verificado?: boolean;
 }
 
 // ── Já Decola — Sistema educacional gamificado ─────────────────────────────
