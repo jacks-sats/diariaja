@@ -27,11 +27,6 @@ const QRCodeSVG = React.lazy(() =>
   import("qrcode.react").then(m => ({ default: m.QRCodeSVG })),
 );
 
-// ── Helper de haptic feedback (vibração curta nos toques importantes) ───────
-const hapticTick = () => { try { navigator.vibrate?.(8); } catch {} };
-// Vibração mais forte para confirmações importantes (verificação, aceite, etc.)
-const hapticConfirm = () => { try { navigator.vibrate?.([100, 50, 200]); } catch {} };
-
 // ── Opções do filtro de raio (distância) ────────────────────────────────────
 // Compartilhadas pelos dois lados (prestador vê vagas / anunciante vê prestadores)
 // pra ficarem idênticas. Infinity = "Qualquer distância" (sem corte de raio):
@@ -98,6 +93,8 @@ import {
 import { CampoData } from "./components/CampoData";
 import { CampoHora } from "./components/CampoHora";
 import { StepperCiclo } from "./components/StepperCiclo";
+import { QRScannerComponent } from "./components/QRScannerComponent";
+import { hapticTick, hapticConfirm, mostrarNotificacaoLocal } from "./utils/device";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
 import { usePlan } from "./hooks/usePlan";
@@ -123,48 +120,6 @@ async function trackEvento(
   }
 }
 
-// BUG-C2 fix: QRScanner definido fora do App para não ser recriado a cada render
-function QRScannerComponent({ onResult, onError, onClose }: {
-  onResult: (diariaId: string) => void;
-  onError: (msg: string) => void;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    let html5QrCode: any;
-    (async () => {
-      try {
-        const { Html5Qrcode } = await import("html5-qrcode");
-        html5QrCode = new Html5Qrcode("qr-reader");
-        await html5QrCode.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 220, height: 220 } },
-          (result: string) => {
-            html5QrCode.stop().catch(() => {});
-            if (result.startsWith("DIARIAJA:")) {
-              onResult(result.replace("DIARIAJA:", ""));
-            } else {
-              onError("QR Code inválido. Use o código gerado pelo prestador.");
-            }
-            onClose();
-          },
-          () => {}
-        );
-      } catch (e: any) {
-        // PR-C: diferencia a causa em vez de uma mensagem genérica pra tudo.
-        const nome = String(e?.name || e?.message || "");
-        let msg = "Não foi possível abrir a câmera. Use o código de 4 dígitos abaixo.";
-        if (/NotAllowedError|Permission/i.test(nome)) msg = "Permissão de câmera negada. Libere a câmera nas configurações do app, ou use o código de 4 dígitos.";
-        else if (/NotFoundError|Devices/i.test(nome)) msg = "Nenhuma câmera encontrada. Use o código de 4 dígitos abaixo.";
-        else if (/NotReadableError|TrackStart|in use/i.test(nome)) msg = "A câmera está em uso por outro app. Feche-o e tente, ou use o código de 4 dígitos.";
-        onError(msg);
-        onClose();
-      }
-    })();
-    return () => { html5QrCode?.stop().catch(() => {}); };
-  }, []);
-  return <div id="qr-reader" style={{ width:"100%", borderRadius:12, overflow:"hidden" }} />;
-}
-
 // Verificação por WhatsApp (Edge Function verificar-whatsapp → Twilio Verify).
 // Os CTAs de verificação só aparecem quando esta flag está ligada. Mantenha
 // `false` até os secrets do Twilio estarem setados no Supabase
@@ -176,26 +131,6 @@ const MOSTRAR_VERIFICAR_TELEFONE_CTA = false;
 // perfis_publicos()/prestadores_publicos() (sem telefone/cpf/cnpj/PIX/token,
 // com derivados tem_documento e nivel). O antigo COLUNAS_PERFIL_PUBLICO foi
 // removido — não há mais select de colunas cruas de perfil alheio no cliente.
-
-// Helper: mostra notificação local compatível com mobile/PWA.
-// Em Android Chrome/PWA, `mostrarNotificacaoLocal(...)` é PROIBIDO — só funciona via
-// ServiceWorkerRegistration.showNotification(). Em desktop, ambos funcionam.
-// Esta função tenta SW primeiro (robusto pra mobile) e cai pro `new Notification`
-// no fallback (que funciona em desktop e em alguns browsers antigos).
-const mostrarNotificacaoLocal = (titulo: string, options?: NotificationOptions): void => {
-  if (typeof window === "undefined") return;
-  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-  // FIX 2026-05-28: o fallback recursivo causava RECURSÃO INFINITA — chamava
-  // a própria função em vez de `new Notification(...)`. Em browser sem SW
-  // travava o thread JS.
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.ready
-      .then(reg => reg.showNotification(titulo, options))
-      .catch(() => { try { new Notification(titulo, options); } catch { /* sem permissão: ignorar */ } });
-  } else {
-    try { new Notification(titulo, options); } catch { /* ignore */ }
-  }
-};
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
