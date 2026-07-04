@@ -14707,22 +14707,41 @@ export default function App() {
                 documento_status: profile?.documento_status,
                 mfa_enabled: false,
               });
+              // Antecedentes criminais — selo extra de segurança (o moat).
+              const antOK  = profile?.antecedentes_status === "aprovado";
+              const antEnv = profile?.antecedentes_status === "enviado";
+              const antRej = profile?.antecedentes_status === "rejeitado";
+              const ant = antOK
+                ? { cor:"#16a34a", icone:"🛡️", txt:"Antecedentes verificados" }
+                : antEnv ? { cor:"#3A86FF", icone:"🔍", txt:"Antecedentes em análise" }
+                : antRej ? { cor:"#ef4444", icone:"❌", txt:"Antecedentes rejeitados — reenviar" }
+                : { cor:"#94a3b8", icone:"➕", txt:"Adicionar antecedentes (selo extra)" };
               return (
-                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:12 }}>
-                  <div style={{ width:46, height:46, borderRadius:14, background:nivelConf.cor+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                    <ShieldCheck size={24} color={nivelConf.cor} />
-                  </div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.4 }}>Selo de confiabilidade</div>
-                    <div style={{ fontWeight:900, fontSize:15, color:nivelConf.cor }}>Nível {nivelConf.nivel} · {nivelConf.nome}</div>
-                    {nivelConf.pendencias.length > 0 && (
-                      <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.4 }}>{nivelConf.pendencias[0]}</div>
+                <div style={{ margin:"8px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <div style={{ width:46, height:46, borderRadius:14, background:nivelConf.cor+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                      <ShieldCheck size={24} color={nivelConf.cor} />
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.4 }}>Confiança &amp; segurança</div>
+                      <div style={{ fontWeight:900, fontSize:15, color:nivelConf.cor }}>Nível {nivelConf.nivel} · {nivelConf.nome}</div>
+                      {nivelConf.pendencias.length > 0 && (
+                        <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.4 }}>{nivelConf.pendencias[0]}</div>
+                      )}
+                    </div>
+                    {nivelConf.proximo && (
+                      <button style={{ background:nivelConf.cor, color:"#fff", border:"none", borderRadius:10, padding:"8px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
+                        onClick={() => setTela("editar-perfil-empregador")}>Subir →</button>
                     )}
                   </div>
-                  {nivelConf.proximo && (
-                    <button style={{ background:nivelConf.cor, color:"#fff", border:"none", borderRadius:10, padding:"8px 12px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", flexShrink:0 }}
-                      onClick={() => setTela("editar-perfil-empregador")}>Subir →</button>
-                  )}
+                  {/* Selo de Antecedentes verificados — clica pra enviar/reenviar */}
+                  <button
+                    onClick={() => setTela("verificar-antecedentes")}
+                    style={{ marginTop:12, width:"100%", display:"flex", alignItems:"center", gap:9, background:ant.cor+"14", border:`1px solid ${ant.cor}33`, borderRadius:12, padding:"10px 12px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const }}>
+                    <span style={{ fontSize:16, lineHeight:1 }}>{ant.icone}</span>
+                    <span style={{ flex:1, fontSize:12.5, fontWeight:800, color:ant.cor }}>{ant.txt}</span>
+                    <span style={{ fontSize:12, fontWeight:800, color:ant.cor, opacity:0.8 }}>{antOK ? "✓" : "→"}</span>
+                  </button>
                 </div>
               );
             })()}
