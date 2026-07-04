@@ -88,7 +88,7 @@ import {
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
   formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, geoPrecisoParaSalvar, parseEnderecoReverso, deveMostrarLembreteGeo, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
-  calcularNivelConfiabilidade, calcScoreEmpregador, calcularIdade, validarSenhaForte, validarPix,
+  calcularNivelConfiabilidade, calcScoreEmpregador, academiaPctPorXp, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
@@ -14663,17 +14663,31 @@ export default function App() {
               </div>
             </div>
 
-            {/* ── SCORE de reputação do contratante (número único, legível) ── */}
+            {/* ── SCORE de reputação do contratante (número único, holístico) ── */}
             {(() => {
-              const sc = calcScoreEmpregador(reputacaoEmpProprio);
+              // Completude do perfil (mesmos itens do card de completude abaixo).
+              const itensComp = [
+                !!profile?.foto_url,
+                !!(profile?.bio && profile.bio.trim()),
+                !!(profile?.cnpj || profile?.cpf),
+                !!(profile?.telefone_verificado || telefoneVerificado),
+                !!profile?.endereco_empregador,
+              ];
+              const completudePct = Math.round(itensComp.filter(Boolean).length / itensComp.length * 100);
+              // Progresso no Já Decola (XP dos certificados → 0–100).
+              const xpDecola = academyCertificados.reduce((s, c) => s + (academyCursos.find(x => x.id === c.curso_id)?.pontos_score || 0), 0);
+              const sc = calcScoreEmpregador(reputacaoEmpProprio, {
+                completudePct,
+                academiaPct: academiaPctPorXp(xpDecola),
+              });
               return (
                 <div style={{ margin:"12px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:14 }}>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>🏅 Reputação do contratante</div>
                     <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5, marginTop:4 }}>
                       {sc.novo
-                        ? "Contrate e cumpra o combinado pra construir seu score."
-                        : "Considera sua avaliação e se você paga e cumpre o combinado."}
+                        ? "Complete o perfil, faça o Já Decola e cumpra o combinado pra construir seu score."
+                        : "Junta avaliações, completude do perfil e Já Decola — tudo conta pra subir."}
                     </div>
                   </div>
                   <div style={{ background:sc.cor, color:"#fff", borderRadius:16, minWidth:78, padding:"12px 10px", textAlign:"center" as const, flexShrink:0, boxShadow:`0 4px 12px ${sc.cor}55` }}>
