@@ -1237,10 +1237,13 @@ export default function App() {
 
   // Carrega lista de cursos do Já Decola sempre que a Comunidade abre,
   // pra que o card destacado mostre a contagem real de selos.
-  // Também recarrega ao entrar nas telas academy* (atualiza contadores).
+  // Também recarrega ao entrar nas telas academy* (atualiza contadores) e na
+  // home do contratante — o SCORE holístico do perfil usa os certificados
+  // (parcela do Já Decola); sem carregar aqui, essa parcela ficava zerada até
+  // o usuário visitar a Comunidade/Já Decola na sessão.
   useEffect(() => {
     if (!session?.user) return;
-    if (tela === "comunidade" || tela === "academy" || tela === "academy-curso") {
+    if (tela === "comunidade" || tela === "academy" || tela === "academy-curso" || tela === "home-empregador") {
       carregarAcademyCursos();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
