@@ -12124,6 +12124,11 @@ export default function App() {
                                   {(d.tem_documento ?? !!(d.cpf || d.cnpj)) && (
                                     <span style={{ background:"#dcfce7", color:"#16a34a", padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:800, display:"inline-flex", alignItems:"center", gap:3 }}>✅ Verificado</span>
                                   )}
+                                  {/* Passo 4: selo de antecedentes (o moat) — só o positivo,
+                                      vindo da RPC perfis_publicos. Some sozinho sem a migração. */}
+                                  {d.antecedentes_verificado && (
+                                    <span style={{ background:"#dbeafe", color:"#1d4ed8", padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:800, display:"inline-flex", alignItems:"center", gap:3 }}>🛡️ Antecedentes</span>
+                                  )}
                                   {d.categorias?.slice(0,1).map(f => (
                                     <span key={f} style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>· {f}</span>
                                   ))}
