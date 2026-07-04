@@ -36,6 +36,7 @@ import {
   tempoEstimadoMin,
   formatarTempo,
   calcularNivelConfiabilidade,
+  calcScoreEmpregador,
   formatTempoRelativo,
   calcularIdade,
   validarSenhaForte,
@@ -663,6 +664,59 @@ describe("calcularNivelConfiabilidade", () => {
     expect(r.nome).toBe("Premium");
     expect(r.pendencias.length).toBe(0);
     expect(r.proximo).toBeUndefined();
+  });
+});
+
+// ── calcScoreEmpregador ──────────────────────────────────────────────────────
+describe("calcScoreEmpregador", () => {
+  it("contratante novo (sem métricas) → novo/Novo, score null", () => {
+    const r = calcScoreEmpregador(null);
+    expect(r.novo).toBe(true);
+    expect(r.score).toBeNull();
+    expect(r.label).toBe("Novo");
+  });
+
+  it("objeto vazio ou tudo null também é Novo", () => {
+    expect(calcScoreEmpregador({}).novo).toBe(true);
+    expect(calcScoreEmpregador({ total_avaliacoes: 0, nota_media: null,
+      pct_pagou_combinado: null, pct_cumpriu_combinado: null }).novo).toBe(true);
+  });
+
+  it("nota 5★ + 100% pagou + 100% cumpriu → 100 Excelente", () => {
+    const r = calcScoreEmpregador({ total_avaliacoes: 8, nota_media: 5,
+      pct_pagou_combinado: 100, pct_cumpriu_combinado: 100 });
+    expect(r.score).toBe(100);
+    expect(r.label).toBe("Excelente");
+    expect(r.cor).toBe("#16a34a");
+  });
+
+  it("nota 1★ + 0% + 0% → 0 Atenção", () => {
+    const r = calcScoreEmpregador({ total_avaliacoes: 3, nota_media: 1,
+      pct_pagou_combinado: 0, pct_cumpriu_combinado: 0 });
+    expect(r.score).toBe(0);
+    expect(r.label).toBe("Atenção");
+  });
+
+  it("só nota (pcts null) usa 100% do peso na nota — 4★ → 75", () => {
+    const r = calcScoreEmpregador({ total_avaliacoes: 2, nota_media: 4 });
+    expect(r.score).toBe(75); // (4-1)/4*100 = 75
+    expect(r.novo).toBe(false);
+    expect(r.label).toBe("Bom");
+  });
+
+  it("faixa Regular entre 40 e 59", () => {
+    // nota 3★ → 50; pagou 50; cumpriu 50 → 50
+    const r = calcScoreEmpregador({ total_avaliacoes: 4, nota_media: 3,
+      pct_pagou_combinado: 50, pct_cumpriu_combinado: 50 });
+    expect(r.score).toBe(50);
+    expect(r.label).toBe("Regular");
+  });
+
+  it("recorta valores fora de faixa (defensivo)", () => {
+    const r = calcScoreEmpregador({ total_avaliacoes: 1, nota_media: 5,
+      pct_pagou_combinado: 150, pct_cumpriu_combinado: -20 });
+    // nota→100 (peso .5), pagou→100 (.25), cumpriu→0 (.25) => 75
+    expect(r.score).toBe(75);
   });
 });
 

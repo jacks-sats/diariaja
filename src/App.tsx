@@ -88,7 +88,7 @@ import {
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
   formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, geoPrecisoParaSalvar, parseEnderecoReverso, deveMostrarLembreteGeo, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
-  calcularNivelConfiabilidade, calcularIdade, validarSenhaForte, validarPix,
+  calcularNivelConfiabilidade, calcScoreEmpregador, calcularIdade, validarSenhaForte, validarPix,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
@@ -14662,6 +14662,27 @@ export default function App() {
                 )}
               </div>
             </div>
+
+            {/* ── SCORE de reputação do contratante (número único, legível) ── */}
+            {(() => {
+              const sc = calcScoreEmpregador(reputacaoEmpProprio);
+              return (
+                <div style={{ margin:"12px 16px 0", background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px 18px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:14 }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>🏅 Reputação do contratante</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", lineHeight:1.5, marginTop:4 }}>
+                      {sc.novo
+                        ? "Contrate e cumpra o combinado pra construir seu score."
+                        : "Considera sua avaliação e se você paga e cumpre o combinado."}
+                    </div>
+                  </div>
+                  <div style={{ background:sc.cor, color:"#fff", borderRadius:16, minWidth:78, padding:"12px 10px", textAlign:"center" as const, flexShrink:0, boxShadow:`0 4px 12px ${sc.cor}55` }}>
+                    <div style={{ fontSize: sc.novo ? 17 : 26, fontWeight:900, lineHeight:1 }}>{sc.novo ? "Novo" : sc.score}</div>
+                    <div style={{ fontSize:10, fontWeight:800, letterSpacing:0.6, opacity:0.95, marginTop:3 }}>{sc.novo ? "SEM AVAL." : "SCORE"}</div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── Selo de confiabilidade do anunciante ── */}
             {(() => {

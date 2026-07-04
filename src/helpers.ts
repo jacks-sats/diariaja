@@ -860,6 +860,50 @@ export function calcularNivelConfiabilidade(p: NivelEntrada): {
   };
 }
 
+// ── SCORE de reputação do contratante (0–100) ────────────────────────────────
+// Um número único e legível pra reputação do contratante (como o concorrente
+// exibe no perfil). Compõe as métricas que já temos em reputacao_empregadores
+// (nota_media 1–5, % pagou o combinado, % cumpriu o combinado) num 0–100.
+//   - Sem histórico ainda → { novo: true, score: null, label: "Novo" }.
+//   - Peso: nota 50%, pagou 25%, cumpriu 25%. Componentes ausentes (ninguém
+//     respondeu ainda) saem da média e o peso é redistribuído entre os presentes.
+//   - nota_media entra na mesma curva de calcScoreBreakdown: 1★ → 0, 5★ → 100.
+export interface ScoreEmpregador {
+  score: number | null;   // 0–100, ou null quando ainda não há histórico
+  novo: boolean;          // true = sem métricas ainda (contratante novo)
+  label: string;          // "Novo" | "Excelente" | "Bom" | "Regular" | "Atenção"
+  cor: string;
+}
+
+export function calcScoreEmpregador(r: {
+  total_avaliacoes?: number | null;
+  nota_media?: number | null;
+  pct_pagou_combinado?: number | null;
+  pct_cumpriu_combinado?: number | null;
+} | null | undefined): ScoreEmpregador {
+  // Cada componente já normalizado a 0–100.
+  const comps: Array<{ v: number; peso: number }> = [];
+  if (r && typeof r.nota_media === "number") {
+    const v = Math.max(0, Math.min(100, ((r.nota_media - 1) / 4) * 100));
+    comps.push({ v, peso: 0.5 });
+  }
+  if (r && typeof r.pct_pagou_combinado === "number") {
+    comps.push({ v: Math.max(0, Math.min(100, r.pct_pagou_combinado)), peso: 0.25 });
+  }
+  if (r && typeof r.pct_cumpriu_combinado === "number") {
+    comps.push({ v: Math.max(0, Math.min(100, r.pct_cumpriu_combinado)), peso: 0.25 });
+  }
+  if (comps.length === 0) {
+    return { score: null, novo: true, label: "Novo", cor: "#94a3b8" };
+  }
+  const somaPeso = comps.reduce((s, c) => s + c.peso, 0);
+  const score = Math.round(comps.reduce((s, c) => s + c.v * c.peso, 0) / somaPeso);
+  if (score >= 80) return { score, novo: false, label: "Excelente", cor: "#16a34a" };
+  if (score >= 60) return { score, novo: false, label: "Bom",       cor: "#d97706" };
+  if (score >= 40) return { score, novo: false, label: "Regular",   cor: "#f59e0b" };
+  return { score, novo: false, label: "Atenção", cor: "#ef4444" };
+}
+
 // ── Tempo relativo curto pt-BR ("agora", "há 12min", "há 2h", "ontem") ───────
 // Usado nos cards do feed pra mostrar há quanto tempo a vaga foi publicada.
 export function formatTempoRelativo(
