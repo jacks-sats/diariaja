@@ -27,11 +27,6 @@ const QRCodeSVG = React.lazy(() =>
   import("qrcode.react").then(m => ({ default: m.QRCodeSVG })),
 );
 
-// ── Helper de haptic feedback (vibração curta nos toques importantes) ───────
-const hapticTick = () => { try { navigator.vibrate?.(8); } catch {} };
-// Vibração mais forte para confirmações importantes (verificação, aceite, etc.)
-const hapticConfirm = () => { try { navigator.vibrate?.([100, 50, 200]); } catch {} };
-
 // ── Opções do filtro de raio (distância) ────────────────────────────────────
 // Compartilhadas pelos dois lados (prestador vê vagas / anunciante vê prestadores)
 // pra ficarem idênticas. Infinity = "Qualquer distância" (sem corte de raio):
@@ -95,6 +90,11 @@ import {
   montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar,
   cargaHorariaConvite,
 } from "./helpers";
+import { CampoData } from "./components/CampoData";
+import { CampoHora } from "./components/CampoHora";
+import { StepperCiclo } from "./components/StepperCiclo";
+import { QRScannerComponent } from "./components/QRScannerComponent";
+import { hapticTick, hapticConfirm, mostrarNotificacaoLocal } from "./utils/device";
 import { usePushNotifications } from "./usePushNotifications";
 import { showLoadingBar, hideLoadingBar } from "./GlobalLoadingBar";
 import { usePlan } from "./hooks/usePlan";
@@ -120,140 +120,6 @@ async function trackEvento(
   }
 }
 
-// BUG-C2 fix: QRScanner definido fora do App para não ser recriado a cada render
-function QRScannerComponent({ onResult, onError, onClose }: {
-  onResult: (diariaId: string) => void;
-  onError: (msg: string) => void;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    let html5QrCode: any;
-    (async () => {
-      try {
-        const { Html5Qrcode } = await import("html5-qrcode");
-        html5QrCode = new Html5Qrcode("qr-reader");
-        await html5QrCode.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 220, height: 220 } },
-          (result: string) => {
-            html5QrCode.stop().catch(() => {});
-            if (result.startsWith("DIARIAJA:")) {
-              onResult(result.replace("DIARIAJA:", ""));
-            } else {
-              onError("QR Code inválido. Use o código gerado pelo prestador.");
-            }
-            onClose();
-          },
-          () => {}
-        );
-      } catch (e: any) {
-        // PR-C: diferencia a causa em vez de uma mensagem genérica pra tudo.
-        const nome = String(e?.name || e?.message || "");
-        let msg = "Não foi possível abrir a câmera. Use o código de 4 dígitos abaixo.";
-        if (/NotAllowedError|Permission/i.test(nome)) msg = "Permissão de câmera negada. Libere a câmera nas configurações do app, ou use o código de 4 dígitos.";
-        else if (/NotFoundError|Devices/i.test(nome)) msg = "Nenhuma câmera encontrada. Use o código de 4 dígitos abaixo.";
-        else if (/NotReadableError|TrackStart|in use/i.test(nome)) msg = "A câmera está em uso por outro app. Feche-o e tente, ou use o código de 4 dígitos.";
-        onError(msg);
-        onClose();
-      }
-    })();
-    return () => { html5QrCode?.stop().catch(() => {}); };
-  }, []);
-  return <div id="qr-reader" style={{ width:"100%", borderRadius:12, overflow:"hidden" }} />;
-}
-
-// ── CampoData: digita DD/MM/AAAA, sem calendário nativo ──────────────────────
-// Guarda/emite no formato ISO (yyyy-mm-dd) que o app já usa. O usuário leigo se
-// perde no calendário do Android — aqui é só digitar como ele já escreve datas.
-// `inputMode="numeric"` abre o teclado numérico no celular.
-function CampoData({ valorISO, onChangeISO, estilo, placeholder = "DD/MM/AAAA", disabled, erro }: {
-  valorISO: string;
-  onChangeISO: (iso: string) => void;
-  estilo?: React.CSSProperties;
-  placeholder?: string;
-  disabled?: boolean;
-  erro?: string; // erro externo (validação do submit) — exibido se não houver um mais específico
-}) {
-  // Texto digitado (BR). Semeado do ISO; re-sincroniza se o ISO mudar por fora.
-  const [txt, setTxt] = useState<string>(isoParaBR(valorISO));
-  const [tocado, setTocado] = useState(false); // virou true ao sair do campo (blur)
-  const ultimoISO = useRef(valorISO);
-  useEffect(() => {
-    if (valorISO !== ultimoISO.current) { setTxt(isoParaBR(valorISO)); ultimoISO.current = valorISO; }
-  }, [valorISO]);
-  // Data com 8 dígitos digitados mas que NÃO converte pra ISO = inválida (ex.:
-  // ano 2926, 31/02, etc.). Com 1–7 dígitos ao sair do campo = INCOMPLETA — era o
-  // caso que falhava em silêncio (digitar o ano "26" parecia preenchido, mas a
-  // data ia vazia e o botão não explicava nada).
-  const digitos = txt.replace(/\D/g, "").length;
-  const invalida = digitos === 8 && !brParaIso(txt);
-  const incompleta = tocado && digitos > 0 && digitos < 8;
-  const aviso = invalida
-    ? "⚠ Data inválida. Use DD/MM/AAAA (ex.: 15/06/2026)."
-    : incompleta
-    ? "⚠ Data incompleta — use o ano com 4 dígitos (ex.: 15/06/2026)."
-    : erro
-    ? "⚠ " + erro
-    : "";
-  return (
-    <>
-      <input
-        type="text"
-        inputMode="numeric"
-        autoComplete="off"
-        placeholder={placeholder}
-        value={txt}
-        disabled={disabled}
-        style={{ ...estilo, ...(aviso ? { borderColor: "#ef4444" } : {}) }}
-        onBlur={() => setTocado(true)}
-        onChange={e => {
-          setTocado(false); // enquanto digita, não fica acusando incompleta
-          const masked = maskData(e.target.value);
-          setTxt(masked);
-          // Só emite ISO quando a data está completa E é válida (senão "").
-          const iso = brParaIso(masked);
-          ultimoISO.current = iso;
-          onChangeISO(iso);
-        }}
-      />
-      {aviso && (
-        <p style={{ fontSize: 11.5, color: "#ef4444", fontWeight: 700, margin: "3px 0 0" }}>
-          {aviso}
-        </p>
-      )}
-    </>
-  );
-}
-
-// ── CampoHora: lista rolável de horários, sem relógio circular ───────────────
-// Abre um dropdown com horários de `passoMin` em `passoMin` minutos. Guarda/emite
-// "HH:MM". Se o valor atual não estiver na lista (ex.: legado tipo "08:15"), ele
-// é incluído no topo pra não sumir.
-function CampoHora({ valor, onChange, estilo, passoMin = 30, placeholder = "Selecione", disabled }: {
-  valor: string;
-  onChange: (hhmm: string) => void;
-  estilo?: React.CSSProperties;
-  passoMin?: number;
-  placeholder?: string;
-  disabled?: boolean;
-}) {
-  const horarios = useMemo(() => {
-    const base = gerarHorarios(passoMin);
-    return valor && !base.includes(valor) ? [valor, ...base] : base;
-  }, [passoMin, valor]);
-  return (
-    <select
-      value={valor || ""}
-      disabled={disabled}
-      style={{ ...estilo, appearance: "none" as const, WebkitAppearance: "none" as const, backgroundImage: "none" }}
-      onChange={e => onChange(e.target.value)}
-    >
-      <option value="" disabled>{placeholder}</option>
-      {horarios.map(h => <option key={h} value={h}>{h}</option>)}
-    </select>
-  );
-}
-
 // Verificação por WhatsApp (Edge Function verificar-whatsapp → Twilio Verify).
 // Os CTAs de verificação só aparecem quando esta flag está ligada. Mantenha
 // `false` até os secrets do Twilio estarem setados no Supabase
@@ -265,78 +131,6 @@ const MOSTRAR_VERIFICAR_TELEFONE_CTA = false;
 // perfis_publicos()/prestadores_publicos() (sem telefone/cpf/cnpj/PIX/token,
 // com derivados tem_documento e nivel). O antigo COLUNAS_PERFIL_PUBLICO foi
 // removido — não há mais select de colunas cruas de perfil alheio no cliente.
-
-// Helper: mostra notificação local compatível com mobile/PWA.
-// Em Android Chrome/PWA, `mostrarNotificacaoLocal(...)` é PROIBIDO — só funciona via
-// ServiceWorkerRegistration.showNotification(). Em desktop, ambos funcionam.
-// Esta função tenta SW primeiro (robusto pra mobile) e cai pro `new Notification`
-// no fallback (que funciona em desktop e em alguns browsers antigos).
-const mostrarNotificacaoLocal = (titulo: string, options?: NotificationOptions): void => {
-  if (typeof window === "undefined") return;
-  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-  // FIX 2026-05-28: o fallback recursivo causava RECURSÃO INFINITA — chamava
-  // a própria função em vez de `new Notification(...)`. Em browser sem SW
-  // travava o thread JS.
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.ready
-      .then(reg => reg.showNotification(titulo, options))
-      .catch(() => { try { new Notification(titulo, options); } catch { /* sem permissão: ignorar */ } });
-  } else {
-    try { new Notification(titulo, options); } catch { /* ignore */ }
-  }
-};
-
-// ── Stepper do ciclo de vida (Conexão → No dia → Concluído) ──────────────────
-// Faixa de 4 fases mostrada no card da diária/serviço, em ambos os lados.
-// Sempre escreve "de quem é a vez" embaixo — some na auditoria de UX a queixa de
-// "não sei se estou esperando ou se a bola está comigo". Usa faseCiclo/vezDoCiclo
-// (helpers puros + testados). Status fora do trilho (cancelada/expirada) → nada.
-function StepperCiclo({ status, perspectiva }: {
-  status: string;
-  perspectiva: "prestador" | "anunciante";
-}) {
-  const fase = faseCiclo(status);
-  if (fase === null) return null;
-  const passos = ["Selecionado", "Combinando", "No dia", "Concluído"];
-  const vez = vezDoCiclo(status, perspectiva);
-  const corOk = "#22c55e";
-  const corAtual = "#FF6B35";
-  return (
-    <div style={{ marginTop: 12, marginBottom: 2 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        {passos.map((p, i) => {
-          const n = i + 1;
-          // Concluída é estado TERMINAL: o último passo também fica ✓ verde
-          // (não "atual" laranja). Sem isso, o 4º círculo mostrava "4" laranja
-          // mesmo com o serviço já concluído.
-          const concluido = status === "concluida";
-          const feito = n < fase || (concluido && n === fase);
-          const atual = n === fase && !concluido;
-          const cor = feito ? corOk : atual ? corAtual : "#e2e8f0";
-          const corTxt = feito ? corOk : atual ? corAtual : "#94a3b8";
-          return (
-            <React.Fragment key={p}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0 }}>
-                <div style={{ width: 22, height: 22, borderRadius: "50%", background: feito || atual ? cor : "transparent", border: `2px solid ${cor}`, color: feito || atual ? "#fff" : "#94a3b8", fontSize: 11, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
-                  {feito ? "✓" : n}
-                </div>
-                <span style={{ fontSize: 9, fontWeight: atual ? 800 : 600, color: corTxt, whiteSpace: "nowrap" as const }}>{p}</span>
-              </div>
-              {i < passos.length - 1 && (
-                <div style={{ flex: 1, height: 2, background: n < fase ? corOk : "#e2e8f0", borderRadius: 2, marginBottom: 14 }} />
-              )}
-            </React.Fragment>
-          );
-        })}
-      </div>
-      {vez && (
-        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: status === "concluida" ? corOk : "var(--text-2,#64748b)", textAlign: "center" as const }}>
-          {status === "pendente" && perspectiva === "prestador" ? "👉 " : ""}{vez}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -1237,10 +1031,13 @@ export default function App() {
 
   // Carrega lista de cursos do Já Decola sempre que a Comunidade abre,
   // pra que o card destacado mostre a contagem real de selos.
-  // Também recarrega ao entrar nas telas academy* (atualiza contadores).
+  // Também recarrega ao entrar nas telas academy* (atualiza contadores) e na
+  // home do contratante — o SCORE holístico do perfil usa os certificados
+  // (parcela do Já Decola); sem carregar aqui, essa parcela ficava zerada até
+  // o usuário visitar a Comunidade/Já Decola na sessão.
   useEffect(() => {
     if (!session?.user) return;
-    if (tela === "comunidade" || tela === "academy" || tela === "academy-curso") {
+    if (tela === "comunidade" || tela === "academy" || tela === "academy-curso" || tela === "home-empregador") {
       carregarAcademyCursos();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
