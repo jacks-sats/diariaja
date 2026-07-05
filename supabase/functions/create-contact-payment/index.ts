@@ -50,6 +50,8 @@ const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const MP_TOKEN          = Deno.env.get("MP_ACCESS_TOKEN")!;
 const APP_URL           = Deno.env.get("APP_URL") ?? "https://diariaja.com";
+const SERVICE_ROLE      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!; // auto-injetado
+const INTERNAL_SECRET   = Deno.env.get("INTERNAL_SECRET") ?? "";      // push (best-effort)
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -114,6 +116,63 @@ Deno.serve(async (req) => {
     if (blocked) {
       log(traceId, "05_rate_limit_atingido");
       return blocked;
+    }
+
+    // ── LANÇAMENTO GRÁTIS (anunciante): se a flag app_config.launch_free_anunciante
+    //    estiver ON, libera o desbloqueio SEM Mercado Pago, gravando EXATAMENTE o
+    //    mesmo registro que o mp-webhook gravaria na aprovação (contatos_desbloqueios
+    //    + convites.pago_em + push). Autoridade no servidor; front só reage.
+    //    Religar a cobrança = UPDATE app_config = 'false' (sem redeploy). ───────────
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+    const { data: flag } = await admin.from("app_config")
+      .select("valor").eq("chave", "launch_free_anunciante").maybeSingle();
+    if (flag?.valor === "true") {
+      const extRef = convite_id
+        ? `contact_unlock::${empregador_id}::${convite_id}`
+        : `contact_unlock::${empregador_id}`;
+      // mp_payment_id sintético e DETERMINÍSTICO → o UNIQUE barra desbloqueio duplo.
+      const freeId = `free-launch::${convite_id ?? empregador_id}`;
+
+      // 1) MESMO insert do webhook. Duplicado (UNIQUE) = ok em reclique.
+      const { error: insErr } = await admin.from("contatos_desbloqueios").insert({
+        empregador_id,
+        mp_payment_id:         freeId,
+        mp_external_reference: extRef,
+      });
+      if (insErr && !String(insErr.message ?? "").toLowerCase().includes("duplicate")) {
+        // NÃO libera sem registrar (senão o anunciante fica sem acesso).
+        log(traceId, "free_insert_falhou", { msg: insErr.message });
+        return json({ error: "Não foi possível liberar o contato. Tente de novo.", trace_id: traceId }, 500);
+      }
+
+      // 2) Fluxo de convite: MESMO update + push (best-effort), igual webhook.
+      if (convite_id) {
+        await admin.from("convites").update({ pago_em: new Date().toISOString() })
+          .eq("id", convite_id).is("pago_em", null);
+        const { data: conv } = await admin.from("convites")
+          .select("diarista_id, funcao").eq("id", convite_id).single();
+        if (conv?.diarista_id && INTERNAL_SECRET) {
+          await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+            method:  "POST",
+            headers: {
+              "Content-Type":     "application/json",
+              "x-internal-secret": INTERNAL_SECRET,
+              "Authorization":     `Bearer ${SERVICE_ROLE}`,
+              "apikey":            SERVICE_ROLE,
+            },
+            body: JSON.stringify({
+              user_ids: [conv.diarista_id],
+              title:    "Você foi contratado! 🎉",
+              body:     `Confirme sua presença para liberar o chat e combinar "${conv.funcao ?? "a diária"}".`,
+              url:      "/",
+              tipo:     "confirmacao",
+            }),
+          }).catch(() => { /* push é best-effort */ });
+        }
+      }
+
+      log(traceId, "08_liberado_gratis", { convite: !!convite_id });
+      return json({ liberado_gratis: true, trace_id: traceId });
     }
 
     const idempotencyKey = `contact-unlock-${empregador_id}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
