@@ -321,6 +321,18 @@ export default function App() {
     );
   }, []);
 
+  // Lançamento grátis do ANUNCIANTE (app_config.launch_free_anunciante). Quando
+  // ligada, o servidor (RPC + trigger) já libera emprego e desbloqueio de diária;
+  // aqui a flag só serve pra os AVISOS de cobrança ficarem honestos (reverte
+  // sozinho ao religar). Lançar/religar = UPDATE app_config.
+  const [launchFreeAnunciante, setLaunchFreeAnunciante] = useState(false);
+  useEffect(() => {
+    supabase.rpc("launch_free_anunciante").then(
+      ({ data }) => setLaunchFreeAnunciante(data === true),
+      () => { /* RPC ainda não aplicada → trata como desligado */ },
+    );
+  }, []);
+
   // ── Banner de contagem regressiva do lançamento oficial ──────────────────
   // Alvo: 1º/07/2026 00:00 em Campo Grande-MS (UTC−4). Some sozinho depois.
   // Dismissível e persistido (diariaja_banner_lancamento_fechado).
@@ -19803,6 +19815,14 @@ export default function App() {
             {(() => {
               const assinanteEmp = plans.empregador === "essencial" || plans.empregador === "plus";
               if (assinanteEmp) return null;
+              // Lançamento grátis ligado → contato liberado pra todos (o servidor
+              // já libera); mostra o aviso positivo no lugar do "precisa Essencial".
+              if (launchFreeAnunciante) return (
+                <div style={{ background:"#fffbeb", border:"1.5px solid #fde68a", borderRadius:12, padding:"10px 14px", marginTop:8, fontSize:12, color:"#92400e", lineHeight:1.5, display:"flex", gap:8, alignItems:"flex-start" }}>
+                  <span style={{ fontSize:15, flexShrink:0 }}>💡</span>
+                  <span><strong>Grátis no lançamento</strong> — publique a vaga e fale com os candidatos sem custo.</span>
+                </div>
+              );
               const noTrial = !!profile?.created_at &&
                 Date.now() < new Date(profile.created_at).getTime() + 30 * 24 * 60 * 60 * 1000;
               if (noTrial) return (
