@@ -5630,7 +5630,16 @@ export default function App() {
           body: JSON.stringify({ empregador_id: sess.user.id, ...(conviteId ? { convite_id: conviteId } : {}) }),
         }
       );
-      const data = await resp.json().catch(() => ({} as { checkout_url?: string; error?: string }));
+      const data = await resp.json().catch(() => ({} as { checkout_url?: string; liberado_gratis?: boolean; error?: string }));
+      // Lançamento grátis: o servidor já gravou o desbloqueio (contatos_desbloqueios
+      // + convite pago) sem MP. Só reagimos — sem redirect. Reverte pela flag.
+      if (resp.ok && data.liberado_gratis) {
+        if (conviteId) setContatosLiberados(prev => new Set([...prev, conviteId]));
+        void carregarConvites(sess.user.id, "empregador"); // re-hidrata pago_em
+        setToastSuccess("✅ Chat liberado — grátis no lançamento!");
+        setDesbloqueandoContato(false);
+        return;
+      }
       if (resp.ok && data.checkout_url) {
         // Persiste o contexto ANTES do redirect (o state do React se perde):
         // baseline da contagem (pra detectar o webhook no retorno) + a seleção
@@ -7698,12 +7707,14 @@ export default function App() {
         <ul style={{ fontSize:13, color:"#334155", lineHeight:1.7, margin:"0 0 14px 18px", padding:0 }}>
           <li>É uma <strong>relação autônoma</strong> entre prestador independente e anunciante. NÃO é vínculo de emprego (CLT) nem doméstico (LC 150/2015).</li>
           <li>O DiáriaJá <strong>NÃO intermedia o valor da diária</strong>. Pagamento é combinado e realizado <strong>direto via PIX entre vocês</strong>, fora da plataforma, após a execução.</li>
-          <li>A plataforma cobra apenas <strong>R$ 2,50</strong> pra liberar o chat — facilitar a conexão.</li>
+          <li>{launchFreeAnunciante ? <>Liberar o chat com o prestador está <strong>grátis no lançamento</strong>.</> : <>A plataforma cobra apenas <strong>R$ 2,50</strong> pra liberar o chat — facilitar a conexão.</>}</li>
           <li>Combinem todas as condições (valor, horário, local, escopo) <strong>antes</strong> da execução.</li>
           <li>Em caso de problema, use o chat do app pra ter registro. NÃO compartilhe contatos externos antes do match.</li>
         </ul>
         <div style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:13, color:"#9a3412", lineHeight:1.6 }}>
-          ⚠️ <strong>O valor da diária NÃO passa pelo app.</strong> Aqui você paga só a taxa de <strong>R$ 2,50</strong> do contato — o pagamento do serviço é combinado direto com o prestador (PIX, dinheiro etc.).
+          {launchFreeAnunciante
+            ? <>💡 <strong>Grátis no lançamento:</strong> você não paga taxa de contato. O valor da diária é combinado direto com o prestador (PIX, dinheiro etc.), fora do app.</>
+            : <>⚠️ <strong>O valor da diária NÃO passa pelo app.</strong> Aqui você paga só a taxa de <strong>R$ 2,50</strong> do contato — o pagamento do serviço é combinado direto com o prestador (PIX, dinheiro etc.).</>}
         </div>
         <label style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoCompromissoCheck?"#FF6B35":"#e2e8f0"}`, cursor:"pointer", marginBottom:14 }}>
           <input type="checkbox" checked={termoCompromissoCheck}
@@ -12024,7 +12035,7 @@ export default function App() {
                                 style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.7 : 1 }}
                                 disabled={desbloqueandoContato}
                                 onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: primeiroNome, conviteId: c.id })}>
-                                {desbloqueandoContato ? "Aguarde..." : "✅ Confirmar diária por R$ 2,50"}
+                                {desbloqueandoContato ? "Aguarde..." : launchFreeAnunciante ? "✅ Confirmar diária — grátis no lançamento" : "✅ Confirmar diária por R$ 2,50"}
                               </button>
                             )}
                             <button
@@ -19110,7 +19121,9 @@ export default function App() {
                     <div style={{ fontSize:20, marginBottom:6 }}>🔒</div>
                     <div style={{ fontWeight:800, fontSize:13, color:"#92400e", marginBottom:4 }}>Chat bloqueado</div>
                     <div style={{ fontSize:12, color:"#a16207", lineHeight:1.5 }}>
-                      Pague <strong>R$ 2,50</strong>. Depois {d.nome.split(" ")[0]} aceita o serviço e o chat libera.<br />
+                      {launchFreeAnunciante
+                        ? <><strong>Grátis no lançamento</strong> — é só {d.nome.split(" ")[0]} aceitar o serviço e o chat libera.<br /></>
+                        : <>Pague <strong>R$ 2,50</strong>. Depois {d.nome.split(" ")[0]} aceita o serviço e o chat libera.<br /></>}
                       O valor da diária ({conviteAtivo?.valor ? `R$ ${conviteAtivo.valor}` : "combinado"}) você paga direto pra ele via PIX, fora do app.
                     </div>
                   </div>
@@ -19125,7 +19138,7 @@ export default function App() {
                     style={{ ...S.btnPrimary, background:cor, opacity: desbloqueandoContato ? 0.7 : 1 }}
                     disabled={desbloqueandoContato}
                     onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: d.nome.split(" ")[0], conviteId: conviteAtivo?.id })}>
-                    {desbloqueandoContato ? "Aguarde..." : "💳 Pagar R$ 2,50 e liberar chat"}
+                    {desbloqueandoContato ? "Aguarde..." : launchFreeAnunciante ? "💬 Liberar chat — grátis no lançamento" : "💳 Pagar R$ 2,50 e liberar chat"}
                   </button>
                 )}
 
