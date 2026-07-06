@@ -533,6 +533,29 @@ export function duracaoTurnoMin(horarioInicio?: string, horarioFim?: string): nu
   return min;
 }
 
+// Data de HOJE no fuso LOCAL, no formato yyyy-mm-dd. Usar isto (e NÃO
+// `new Date().toISOString()`, que é UTC) em comparações de "é passado?": à
+// noite em fusos negativos (BR = UTC-3/-4) o UTC já virou o dia seguinte, e o
+// dia de hoje passava a ser lido como passado — bloqueando agendar pra hoje.
+export function hojeLocalISO(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Término de um turno a partir do início ("HH:MM") + carga em horas. Devolve a
+// hora final "HH:MM" e quantos dias depois ela cai (0 = mesmo dia, 1 = vira o
+// dia). Ex.: fimTurno("22:00", 6) → { hora: "04:00", diasDepois: 1 }.
+export function fimTurno(inicio: string | undefined, cargaHoras: number): { hora: string; diasDepois: number } | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec((inicio ?? "").trim());
+  if (!m || !Number.isFinite(cargaHoras) || cargaHoras <= 0) return null;
+  const iniMin = Number(m[1]) * 60 + Number(m[2]);
+  if (iniMin >= 1440) return null;
+  const fimMin = iniMin + Math.round(cargaHoras * 60);
+  const diasDepois = Math.floor(fimMin / 1440);
+  const hh = Math.floor((fimMin % 1440) / 60);
+  const mm = fimMin % 60;
+  return { hora: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`, diasDepois };
+}
+
 // ── Validação de e-mail (formato básico, espelha a checagem do Supabase) ─────
 export function validarEmail(email: string): boolean {
   const e = email.trim();
