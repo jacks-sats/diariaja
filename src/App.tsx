@@ -94,6 +94,9 @@ import {
   cargaHorariaConvite, gerarReciboPDF,
 } from "./helpers";
 
+// Link oficial do app na Google Play (usado no banner de download da web).
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.diariaja.app";
+
 // Compartilha (ou baixa) um PDF já gerado como bytes. Web Share Level 2 anexa
 // o arquivo real (ex.: WhatsApp) quando suportado; senão, dispara o download.
 async function compartilharPDF(
@@ -362,6 +365,10 @@ export default function App() {
   const [agoraBanner, setAgoraBanner] = useState(() => Date.now());
   const [bannerLancFechado, setBannerLancFechado] = useState(
     () => { try { return localStorage.getItem("diariaja_banner_lancamento_fechado") === "1"; } catch { return false; } }
+  );
+  // Dispensa do banner "baixe o app na Play" (só web). Persistido em localStorage.
+  const [bannerBaixarFechado, setBannerBaixarFechado] = useState(
+    () => { try { return localStorage.getItem("diariaja_baixar_app_v1") === "1"; } catch { return false; } }
   );
   useEffect(() => {
     const id = setInterval(() => setAgoraBanner(Date.now()), 60000); // 1x/min — banner não mostra segundos
@@ -7568,6 +7575,27 @@ export default function App() {
     );
   })();
 
+  // ── Banner "baixe o app na Play Store" ──────────────────────────────────────
+  // Só na WEB (dentro do app nativo não faz sentido — o usuário já está no app)
+  // e dispensável (localStorage diariaja_baixar_app_v1). Converte quem usa a
+  // versão web/PWA em instalação oficial da Play. Reusado na landing e no splash.
+  const bannerBaixarApp = (Capacitor.isNativePlatform() || bannerBaixarFechado) ? null : (
+    <div style={{ display:"flex", alignItems:"center", gap:10, background:"#0A1733", color:"#FBF6EF", padding:"10px 14px", fontSize:14, fontWeight:700, borderBottom:"2px solid #FF6B35" }}>
+      <span style={{ fontSize:20, flexShrink:0 }}>📲</span>
+      <span style={{ flex:1, lineHeight:1.3 }}>
+        Já está no Google Play! <span style={{ color:"#FF6B35" }}>Baixe o app oficial do DiáriaJá.</span>
+      </span>
+      <a href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer"
+        onClick={() => { try { trackEvento("clique_baixar_app", session?.user?.id, modoAtual); } catch { /* analytics best-effort */ } }}
+        style={{ background:"#FF6B35", color:"#fff", textDecoration:"none", borderRadius:10, padding:"7px 14px", fontSize:13, fontWeight:800, whiteSpace:"nowrap" }}>
+        Baixar
+      </a>
+      <button onClick={() => { setBannerBaixarFechado(true); try { localStorage.setItem("diariaja_baixar_app_v1", "1"); } catch {} }}
+        aria-label="Fechar aviso"
+        style={{ background:"transparent", border:0, color:"#8595BE", fontSize:18, lineHeight:1, cursor:"pointer", padding:4 }}>×</button>
+    </div>
+  );
+
   // Variante do countdown pro topo do cadastro de prestador (tela com padding,
   // por isso arredondada estilo banner MEI). Reusa a MESMA contagem/alvo e o
   // MESMO dismiss (diariaja_banner_lancamento_fechado) do banner da landing.
@@ -7801,6 +7829,7 @@ export default function App() {
     return (
       <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", color:"#0f172a" }}>
         {bannerLancamento}
+        {bannerBaixarApp}
         {/* Top nav */}
         <header style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"22px 48px", maxWidth:1180, margin:"0 auto" }}>
           <div style={{ fontSize:26, fontWeight:900, letterSpacing:-1 }}>
@@ -7901,6 +7930,7 @@ export default function App() {
   if (tela === "splash") return (
     <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:480, margin:"0 auto", position:"relative" as const, paddingBottom:150 }}>
       {bannerLancamento}
+      {bannerBaixarApp}
       {/* Convite de vaga compartilhada: quem chegou por um link ?vaga=ID ainda
           sem conta vê um aviso de que precisa criar conta pra ver a vaga. O id
           fica guardado e a vaga abre sozinha assim que a conta é criada. */}
@@ -11416,6 +11446,7 @@ export default function App() {
 
     return (
       <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+        {bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
         {isDesktop && (
@@ -15057,6 +15088,7 @@ export default function App() {
 
     return (
       <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom: 76, background: "#f0f2f5" }}>
+        {bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
         {isDesktop && (
