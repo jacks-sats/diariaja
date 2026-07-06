@@ -2149,7 +2149,7 @@ export default function App() {
           const parts = String(novo?.mp_external_reference ?? "").split("::");
           if (parts.length >= 3 && parts[2]) {
             setContatosLiberados(prev => new Set([...prev, parts[2]]));
-            setToastSuccess("✅ Chat liberado! Pagamento confirmado.");
+            setToastSuccess("✅ Chat liberado!"); // neutro: vale p/ pago E grátis no lançamento
           }
           setContatosDesbloqueados(prev => prev + 1);
         }
@@ -12009,7 +12009,7 @@ export default function App() {
                             {confirmado
                               ? `✅ ${primeiroNome} aceitou o serviço! Chat liberado — combine os detalhes.`
                               : pago
-                                ? `⏳ Pagamento confirmado. Aguardando ${primeiroNome} aceitar o serviço pra liberar o chat.`
+                                ? `⏳ ${launchFreeAnunciante ? "Contato liberado" : "Pagamento confirmado"}. Aguardando ${primeiroNome} aceitar o serviço pra liberar o chat.`
                                 : `🎉 ${primeiroNome} aceitou! Confirme a diária para liberar o chat interno.`}
                           </div>
                           <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
@@ -19081,7 +19081,7 @@ export default function App() {
                   <div>
                     <div style={{ fontWeight:800, fontSize:14, color:"#166534" }}>Convite aceito!</div>
                     <div style={{ fontSize:12, color:"#15803d", marginTop:2 }}>
-                      {d.nome.split(" ")[0]} aceitou o serviço. Libere o chat com R$ 2,50 pra combinar os detalhes.
+                      {d.nome.split(" ")[0]} aceitou o serviço. {launchFreeAnunciante ? "Libere o chat de graça pra combinar os detalhes." : "Libere o chat com R$ 2,50 pra combinar os detalhes."}
                     </div>
                   </div>
                 </div>
@@ -19111,7 +19111,7 @@ export default function App() {
                 ) : aguardandoConfirmacao ? (
                   <div style={{ background:"#eff6ff", borderRadius:14, padding:"14px 16px", textAlign:"center" as const }}>
                     <div style={{ fontSize:20, marginBottom:6 }}>⏳</div>
-                    <div style={{ fontWeight:800, fontSize:13, color:"#1e40af", marginBottom:4 }}>Pagamento confirmado!</div>
+                    <div style={{ fontWeight:800, fontSize:13, color:"#1e40af", marginBottom:4 }}>{launchFreeAnunciante ? "Contato liberado!" : "Pagamento confirmado!"}</div>
                     <div style={{ fontSize:12, color:"#1d4ed8", lineHeight:1.5 }}>
                       Avisamos {d.nome.split(" ")[0]} pra aceitar o serviço. Assim que aceitar, o chat libera pros dois. 🔔
                     </div>
