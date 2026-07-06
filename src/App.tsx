@@ -17119,6 +17119,17 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* Código de chegada — também aqui no detalhe (antes só no card).
+                      Mesma janela do card (30min antes → 2h após). Fecha o detalhe e
+                      abre o modal do QR pra não empilhar dois modais. */}
+                  {(d.status === "aceita" || d.status === "em_andamento") && checkinDentroDaJanela(d) && (
+                    <button
+                      style={{ width:"100%", padding:"12px", background:"#0f172a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
+                      onClick={() => { setDetalhesDiaria(null); setQrDiaria(d); }}>
+                      📲 Mostrar código de chegada ao anunciante
+                    </button>
+                  )}
+
                   {/* Desistir — também aqui no detalhe (antes só na Agenda), pra
                       diária ainda não iniciada. Fecha o detalhe e abre o modal de motivo. */}
                   {d.status === "aceita" && (
