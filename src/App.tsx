@@ -91,8 +91,30 @@ import {
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
   montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar,
-  cargaHorariaConvite,
+  cargaHorariaConvite, gerarReciboPDF,
 } from "./helpers";
+
+// Compartilha (ou baixa) um PDF já gerado como bytes. Web Share Level 2 anexa
+// o arquivo real (ex.: WhatsApp) quando suportado; senão, dispara o download.
+async function compartilharPDF(
+  bytes: Uint8Array, nomeArquivo: string, titulo: string, onBaixou?: () => void,
+): Promise<void> {
+  const blob = new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
+  const file = new File([blob], nomeArquivo, { type: "application/pdf" });
+  const nav = navigator as Navigator & { canShare?: (d: { files: File[] }) => boolean };
+  if (nav.canShare && nav.canShare({ files: [file] }) && navigator.share) {
+    try { await navigator.share({ files: [file], title: titulo }); }
+    catch { /* usuário cancelou — não baixa por cima */ }
+    return;
+  }
+  // Fallback (navegador sem compartilhamento de arquivo): baixa o PDF.
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nomeArquivo;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  onBaixou?.();
+}
 import { CampoData } from "./components/CampoData";
 import { CampoHora } from "./components/CampoHora";
 import { StepperCiclo } from "./components/StepperCiclo";
@@ -11242,12 +11264,20 @@ export default function App() {
           </div>
           <button
             style={{ width:"100%", padding:"13px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-            onClick={() => {
-              const texto = `🧾 RECIBO DE SERVIÇO - DiáriaJá\n\nServiço: ${d.funcao||d.descricao}\nLocal: ${d.nome_negocio||d.segmento}\nData: ${new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")}\nHorário: ${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}\nTotal: R$ ${d.valor_diarista ?? d.valor}\n\nGerado em: ${new Date().toLocaleString("pt-BR")}`;
-              if (navigator.share) { navigator.share({ title:"Recibo DiáriaJá", text:texto }).catch(()=>{}); }
-              else { navigator.clipboard.writeText(texto).then(() => setToastSuccess("✅ Recibo copiado!")); }
+            onClick={async () => {
+              const bytes = gerarReciboPDF({
+                servico:      d.funcao || d.descricao || "Serviço",
+                data:         new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR"),
+                horario:      d.horario_fim ? `${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}${horasR ? ` (${horasR})` : ""}` : d.horario_inicio.slice(0,5),
+                local:        d.nome_negocio || d.segmento || "—",
+                profissional: profile?.nome || undefined,
+                valor:        String(d.valor_diarista ?? d.valor ?? ""),
+                rotuloValor:  "Total recebido",
+                geradoEm:     new Date().toLocaleString("pt-BR"),
+              });
+              await compartilharPDF(bytes, "recibo-diariaja.pdf", "Recibo DiáriaJá", () => setToastSuccess("✅ Recibo PDF baixado!"));
             }}>
-            📤 Compartilhar recibo
+            📄 Recibo em PDF
           </button>
           <button
             style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -13348,12 +13378,21 @@ export default function App() {
                 </div>
                 <button
                   style={{ width:"100%", padding:"13px", background:"#0f172a", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-                  onClick={() => {
-                    const texto = `🧾 RECIBO DE SERVIÇO - DiáriaJá\n\nServiço: ${modalRecibo.funcao||modalRecibo.descricao}\nData: ${new Date(modalRecibo.data+"T12:00:00").toLocaleDateString("pt-BR")}\nHorário: ${modalRecibo.horario_inicio.slice(0,5)} – ${modalRecibo.horario_fim.slice(0,5)}\nLocal: ${modalRecibo.nome_negocio||modalRecibo.segmento}\nProfissional: ${dp?.nome||"—"}\nValor: R$ ${modalRecibo.valor}\n\nGerado em: ${new Date().toLocaleString("pt-BR")}`;
-                    if (navigator.share) { navigator.share({ title:"Recibo DiáriaJá", text:texto }); }
-                    else { navigator.clipboard?.writeText(texto); setToastSuccess("📋 Recibo copiado!"); }
+                  onClick={async () => {
+                    const bytes = gerarReciboPDF({
+                      servico:      modalRecibo.funcao || modalRecibo.descricao || "Serviço",
+                      data:         new Date(modalRecibo.data+"T12:00:00").toLocaleDateString("pt-BR"),
+                      horario:      `${modalRecibo.horario_inicio.slice(0,5)} – ${modalRecibo.horario_fim.slice(0,5)}${horas ? ` (${horas})` : ""}`,
+                      local:        modalRecibo.nome_negocio || modalRecibo.segmento || "—",
+                      profissional: dp?.nome || undefined,
+                      anunciante:   profile?.nome_negocio || profile?.nome || undefined,
+                      valor:        String(modalRecibo.valor ?? ""),
+                      rotuloValor:  "Total",
+                      geradoEm:     new Date().toLocaleString("pt-BR"),
+                    });
+                    await compartilharPDF(bytes, "recibo-diariaja.pdf", "Recibo DiáriaJá", () => setToastSuccess("✅ Recibo PDF baixado!"));
                   }}>
-                  📤 Compartilhar recibo
+                  📄 Recibo em PDF
                 </button>
                 <button
                   style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
