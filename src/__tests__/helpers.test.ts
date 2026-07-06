@@ -38,6 +38,8 @@ import {
   calcularNivelConfiabilidade,
   calcScoreEmpregador,
   academiaPctPorXp,
+  hojeLocalISO,
+  fimTurno,
   formatTempoRelativo,
   calcularIdade,
   validarSenhaForte,
@@ -767,6 +769,40 @@ describe("academiaPctPorXp", () => {
   it("valores inválidos/negativos → 0%", () => {
     expect(academiaPctPorXp(-10)).toBe(0);
     expect(academiaPctPorXp(NaN)).toBe(0);
+  });
+});
+
+// ── hojeLocalISO ─────────────────────────────────────────────────────────────
+describe("hojeLocalISO", () => {
+  it("formata a data LOCAL em yyyy-mm-dd (sem virar pra UTC)", () => {
+    // 5/jul 23:00 local: toISOString() (UTC-3/-4) já seria 6/jul — o helper NÃO.
+    const d = new Date(2026, 6, 5, 23, 0, 0); // mês 6 = julho (0-based)
+    expect(hojeLocalISO(d)).toBe("2026-07-05");
+  });
+  it("zero-padding de mês e dia", () => {
+    expect(hojeLocalISO(new Date(2026, 0, 9, 10, 0, 0))).toBe("2026-01-09");
+  });
+});
+
+// ── fimTurno ─────────────────────────────────────────────────────────────────
+describe("fimTurno", () => {
+  it("22:00 + 6h → 04:00, vira o dia (diasDepois=1)", () => {
+    expect(fimTurno("22:00", 6)).toEqual({ hora: "04:00", diasDepois: 1 });
+  });
+  it("08:00 + 6h → 14:00, mesmo dia", () => {
+    expect(fimTurno("08:00", 6)).toEqual({ hora: "14:00", diasDepois: 0 });
+  });
+  it("18:00 + 8h → 02:00, vira o dia", () => {
+    expect(fimTurno("18:00", 8)).toEqual({ hora: "02:00", diasDepois: 1 });
+  });
+  it("carga longa que passa de 24h conta os dias", () => {
+    expect(fimTurno("10:00", 20)).toEqual({ hora: "06:00", diasDepois: 1 });
+  });
+  it("entradas inválidas → null", () => {
+    expect(fimTurno("", 6)).toBeNull();
+    expect(fimTurno("22:00", 0)).toBeNull();
+    expect(fimTurno("22:00", NaN)).toBeNull();
+    expect(fimTurno("25:00", 6)).toBeNull();
   });
 });
 

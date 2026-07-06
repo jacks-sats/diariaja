@@ -86,7 +86,7 @@ import {
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
   formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, geoPrecisoParaSalvar, parseEnderecoReverso, deveMostrarLembreteGeo, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
-  calcularNivelConfiabilidade, calcScoreEmpregador, academiaPctPorXp, calcularIdade, validarSenhaForte, validarPix,
+  calcularNivelConfiabilidade, calcScoreEmpregador, academiaPctPorXp, calcularIdade, validarSenhaForte, validarPix, hojeLocalISO, fimTurno,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
@@ -1780,7 +1780,7 @@ export default function App() {
     if (!session?.user || modoAtual !== "diarista") return;
     if (minhasDiarias.length === 0) return;
     if (notifHojeEnviadaRef.current) return; // só uma vez por sessão
-    const hoje = new Date().toISOString().split("T")[0];
+    const hoje = hojeLocalISO(); // dia LOCAL (não UTC) — senão à noite "hoje" vira o dia seguinte
     const diariastHoje = minhasDiarias.filter(
       d => d.data === hoje && (d.status === "aceita" || d.status === "em_andamento")
     );
@@ -4140,8 +4140,8 @@ export default function App() {
     // Validação de FAIXA da data (evita o "ano errado" tipo 2029 que trava o
     // fluxo do dia — check-in/conclusão nunca abrem). data vem como AAAA-MM-DD.
     {
-      const hojeStr = new Date().toISOString().split("T")[0];
-      const maxStr = (() => { const d = new Date(); d.setMonth(d.getMonth() + 12); return d.toISOString().split("T")[0]; })();
+      const hojeStr = hojeLocalISO(); // dia LOCAL (não UTC) — senão à noite "hoje" vira "passado"
+      const maxStr = (() => { const d = new Date(); d.setMonth(d.getMonth() + 12); return hojeLocalISO(d); })();
       if (formConvite.data < hojeStr) {
         setToastError("A data do serviço não pode ser no passado. Confira o dia/mês/ano.");
         return;
@@ -11969,7 +11969,7 @@ export default function App() {
                   O corte por data (data_servico >= hoje) só arquiva os JÁ PAGOS,
                   pra não inflar a lista com histórico de contato já liberado. */}
               {(() => {
-                const hojeISO = new Date().toISOString().split("T")[0];
+                const hojeISO = hojeLocalISO(); // dia LOCAL — evita esconder convite de hoje à noite
                 const convitesAceitosAtivos = convitesEnviados.filter(c =>
                   (c.status === "aceito" || c.status === "confirmado") &&
                   (!c.pago_em || !c.data_servico || c.data_servico >= hojeISO),
@@ -14966,8 +14966,8 @@ export default function App() {
     const primeiroNome = profile?.nome?.split(" ")[0] || "você";
     const iniciaisNome = profile?.nome?.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase() || "?";
 
-    const hojeFmtV = new Date().toISOString().split("T")[0];
-    const amanhaFmtV = (() => { const d = new Date(); d.setDate(d.getDate()+1); return d.toISOString().split("T")[0]; })();
+    const hojeFmtV = hojeLocalISO(); // dia LOCAL (não UTC)
+    const amanhaFmtV = (() => { const d = new Date(); d.setDate(d.getDate()+1); return hojeLocalISO(d); })();
 
     // ── Helper de distância (retorna Infinity se faltar lat/lng) ─────────────
     const distKm = (d: Diaria): number => {
@@ -16114,7 +16114,7 @@ export default function App() {
                 )}
                 <div style={{ display:"flex", gap:0, position:"relative" as const }}>
                   {(() => {
-                    const hojeFmt = new Date().toISOString().split("T")[0];
+                    const hojeFmt = hojeLocalISO(); // dia LOCAL (não UTC)
                     const aceitasHoje = minhasDiarias.filter(d => d.data === hojeFmt && (d.status === "aceita" || d.status === "em_andamento"));
                     return [
                       { n:concluidas.length,  label:"Concluídas",  cor:"#16a34a" },
@@ -19296,6 +19296,22 @@ export default function App() {
                           style={{ width:70, padding:"8px 10px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", fontSize:13, fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box" as const }}
                         />
                       </div>
+                      {/* Término calculado automático (início + carga). Deixa claro
+                          quando o turno "vira o dia" (ex.: 22:00 + 6h = 04:00 do dia
+                          seguinte) — sem pedir um campo de término manual. */}
+                      {(() => {
+                        const fim = fimTurno(formConvite.horario, Number(formConvite.cargaHoraria));
+                        if (!fim) return null;
+                        const dataFimTxt = fim.diasDepois > 0 && formConvite.data
+                          ? (() => { const d = new Date(formConvite.data + "T12:00:00"); d.setDate(d.getDate() + fim.diasDepois); return d.toLocaleDateString("pt-BR"); })()
+                          : null;
+                        return (
+                          <div style={{ marginTop:8, fontSize:12.5, color:"var(--text-2,#64748b)", fontWeight:600, display:"flex", alignItems:"center", gap:6 }}>
+                            <span style={{ fontSize:14 }}>🕐</span>
+                            <span>Termina às <strong style={{ color:"var(--text-1,#0f172a)" }}>{fim.hora}</strong>{fim.diasDepois > 0 ? <> — vira o dia{dataFimTxt ? <> (<strong style={{ color:"var(--text-1,#0f172a)" }}>{dataFimTxt}</strong>)</> : null}</> : null}</span>
+                          </div>
+                        );
+                      })()}
                       {/* Item 9 auditoria: carga alta + valor de referência do prestador
                           = receita pro mal-entendido (ele definiu o preço sem saber
                           desta carga; a disputa estouraria no local do serviço). */}
