@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  gerarReciboPDF,
   planoSelecao,
   empregoExigePlanoParaChamar,
   vagaApareceNoFeed,
@@ -1916,5 +1917,57 @@ describe("cargaHorariaConvite", () => {
     expect(cargaHorariaConvite(0, "08:00 (8h de trabalho)")).toBe(8);
     expect(cargaHorariaConvite(-2, "08:00 (8h de trabalho)")).toBe(8);
     expect(cargaHorariaConvite(NaN, "08:00 (8h de trabalho)")).toBe(8);
+  });
+});
+
+describe("gerarReciboPDF", () => {
+  const base = {
+    servico: "Motoboy",
+    data: "05/07/2026",
+    horario: "23:00 – 07:00 (8h)",
+    local: "Veraci sales",
+    profissional: "Jackson dos santos da Silva",
+    valor: "100",
+    rotuloValor: "Total recebido",
+    geradoEm: "06/07/2026, 13:07:49",
+  };
+
+  it("gera um PDF válido (cabeçalho %PDF e fim %%EOF)", () => {
+    const bytes = gerarReciboPDF(base);
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    const head = String.fromCharCode(...bytes.slice(0, 5));
+    expect(head).toBe("%PDF-");
+    const tail = String.fromCharCode(...bytes.slice(-5));
+    expect(tail).toBe("%%EOF");
+  });
+
+  it("os offsets do xref apontam para o início de cada objeto", () => {
+    const bytes = gerarReciboPDF(base);
+    const txt = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
+    const startxref = Number(/startxref\s+(\d+)/.exec(txt)![1]);
+    // A tabela xref começa exatamente no offset declarado em startxref.
+    expect(txt.slice(startxref, startxref + 4)).toBe("xref");
+    // Cada offset "n" listado deve cair num "<i> 0 obj".
+    const linhas = txt.slice(startxref).split("\n").filter((l) => /^\d{10} 00000 n/.test(l));
+    expect(linhas.length).toBe(6);
+    linhas.forEach((l, idx) => {
+      const off = Number(l.slice(0, 10));
+      expect(txt.slice(off, off + 40)).toContain(`${idx + 1} 0 obj`);
+    });
+  });
+
+  it("acentos do pt-BR viram bytes WinAnsi (não UTF-8 multibyte)", () => {
+    const bytes = gerarReciboPDF({ ...base, servico: "Ração & Café" });
+    // 'ç' = 0xE7, 'ã' = 0xE3, 'é' = 0xE9 em WinAnsi/Latin-1
+    expect(Array.from(bytes)).toContain(0xe7);
+    expect(Array.from(bytes)).toContain(0xe3);
+    expect(Array.from(bytes)).toContain(0xe9);
+  });
+
+  it("funciona sem campos opcionais (profissional/anunciante)", () => {
+    const { profissional, ...semProf } = base;
+    void profissional;
+    const bytes = gerarReciboPDF(semProf);
+    expect(bytes.length).toBeGreaterThan(400);
   });
 });
