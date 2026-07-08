@@ -205,6 +205,9 @@ export default function App() {
   const [erroMensagens, setErroMensagens]         = useState(false);
   // "Nonces" pro botão Tentar de novo re-disparar os efeitos de carregamento.
   const [recarregarPrest, setRecarregarPrest]     = useState(0);
+  // Loading da lista de prestadores (home-empregador): sem isto, o empty-state
+  // "Nenhum profissional ainda" aparecia DURANTE o fetch e sumia — parecia bug.
+  const [carregandoPrest, setCarregandoPrest]     = useState(true);
   const [recarregarMsg, setRecarregarMsg]         = useState(0);
   const [vagaConfirm, setVagaConfirm]             = useState<Diaria | null>(null);
   const [vagaConfirmada, setVagaConfirmada]       = useState(false);
@@ -1330,7 +1333,9 @@ export default function App() {
       // C2 passo B: feed via RPC prestadores_publicos — retorna só dados públicos
       // + derivados (tem_documento, nivel), sem telefone/cpf/cnpj/PIX/token. Filtra
       // por papel (diarista/ambos) e exclui o próprio usuário no servidor.
+      setCarregandoPrest(true);
       const { data, error } = await supabase.rpc("prestadores_publicos", { p_limit: 200 });
+      setCarregandoPrest(false);
       // Onda 3: antes só logava no console — o anunciante via "nenhum profissional".
       if (error) { console.warn("[home-empregador] erro carregando prestadores:", error.message); setErroPrestadores(true); return; }
       setErroPrestadores(false);
@@ -10702,7 +10707,9 @@ export default function App() {
         ))}
       </div>
       {authError && <p style={S.errorText}>{authError}</p>}
-      <button style={{ ...S.btnPrimary, opacity:negocioSelecionado?1:0.4 }} disabled={!negocioSelecionado}
+      {/* Loading no clique: saveProfile faz 2 round-trips (getSession + UPDATE) —
+          sem isto o botão parecia "travado" em rede lenta e aceitava double-tap. */}
+      <button style={{ ...S.btnPrimary, opacity:(negocioSelecionado && !salvandoPerfil)?1:0.4 }} disabled={!negocioSelecionado || salvandoPerfil}
         onClick={async () => {
           setAuthError("");
           const ok = await saveProfile({ segmento: negocioSelecionado! });
@@ -10714,7 +10721,7 @@ export default function App() {
             setTela(profile?.lat ? "home-empregador" : "pedir-localizacao");
           }
         }}>
-        Ver profissionais disponíveis
+        {salvandoPerfil ? "Salvando..." : "Ver profissionais disponíveis"}
       </button>
     </div>
   );
@@ -11778,6 +11785,13 @@ export default function App() {
                 {erroPrestadores && diaristasReais.length === 0 ? (
                   <div style={{ gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined, width:"100%" }}>
                     <CardErroCarregar texto="Não foi possível carregar os profissionais. Verifique sua conexão e tente de novo." onRetry={() => setRecarregarPrest(n => n + 1)} />
+                  </div>
+                ) : carregandoPrest && diaristasReais.length === 0 ? (
+                  // Loading da 1ª carga: sem isto o empty-state "Nenhum profissional
+                  // ainda" piscava DURANTE o fetch (parecia falha na apresentação).
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined }}>
+                    <div style={{ fontSize:40, marginBottom:12 }}>⏳</div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"var(--text-2,#64748b)" }}>Buscando profissionais na sua região…</div>
                   </div>
                 ) : diaristasReaisVisiveis.length === 0 ? (
                   <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined }}>

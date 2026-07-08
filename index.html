@@ -258,9 +258,14 @@
             })
             .catch(function() {});
 
-          // Recarrega quando um novo SW toma controle
+          // Recarrega quando um novo SW toma controle — MAS não na 1ª visita:
+          // no primeiro acesso o clients.claim() do SW dispara controllerchange
+          // numa página que nunca teve controller, e recarregar aqui reiniciava
+          // o load do nada (pior no iOS Safari, que já é mais lento pra ativar).
           var refreshing = false;
+          var tinhaController = !!navigator.serviceWorker.controller;
           navigator.serviceWorker.addEventListener("controllerchange", function() {
+            if (!tinhaController) { tinhaController = true; return; }
             if (!refreshing) { refreshing = true; window.location.reload(); }
           });
         });
