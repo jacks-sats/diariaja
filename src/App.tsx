@@ -15797,8 +15797,8 @@ export default function App() {
                           <div style={{ color:"var(--text-3,#94a3b8)", fontSize:12, marginTop:4, display:"flex", alignItems:"center", gap:4 }}>
                             <span>📍</span>
                             {(() => {
-                              const partes = (dia.endereco || "").split(", ");
-                              const localHint = partes.length >= 3 ? partes.slice(2, 4).join(", ").split(" — ")[0] : "";
+                              // Bairro vem no feed (o endereço completo NÃO — fica p/ pós-aceite).
+                              const localHint = dia.bairro || "";
                               if (profile?.lat && profile?.lng && dia.lat && dia.lng) {
                                 const km = haversineKm(profile.lat!, profile.lng!, dia.lat!, dia.lng!);
                                 const distTxt = `${formatarDistancia(km)} · ~${formatarTempo(tempoEstimadoMin(km))} de moto`;
@@ -15809,9 +15809,9 @@ export default function App() {
                                   </span>
                                 );
                               }
-                              // Sem GPS: mostra bairro/cidade se disponível
+                              // Sem GPS: mostra o bairro se disponível
                               if (localHint) return <span style={{ color:"var(--text-2,#64748b)", fontWeight:600 }}>{localHint}</span>;
-                              return <span style={{ fontStyle:"italic", color:"var(--text-3,#94a3b8)" }}>Bairro liberado após aceitar</span>;
+                              return <span style={{ fontStyle:"italic", color:"var(--text-3,#94a3b8)" }}>Localização aproximada indisponível</span>;
                             })()}
                           </div>
 
@@ -17179,7 +17179,10 @@ export default function App() {
                   ) : !enderecoLiberado && (
                     <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:12, padding:"12px 14px", marginBottom:14, display:"flex", gap:10, alignItems:"center" }}>
                       <span style={{ fontSize:20 }}>🔒</span>
-                      <div style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>Endereço liberado apenas após aceitar o anúncio</div>
+                      <div style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>
+                        {d.bairro && <div style={{ fontWeight:700, color:"var(--text-1,#0f172a)", marginBottom:2 }}>📍 {d.bairro}</div>}
+                        Endereço completo liberado após aceitar o anúncio
+                      </div>
                     </div>
                   )}
 
@@ -17439,6 +17442,10 @@ export default function App() {
                           <div style={S.modalRow}><span>Data</span><strong>{new Date(vagaConfirm.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong></div>
                           <div style={S.modalRow}><span>Horário</span><strong>{vagaConfirm.horario_inicio.slice(0,5)} – {vagaConfirm.horario_fim.slice(0,5)}</strong></div>
                         </>
+                      )}
+                      {/* Bairro (área aproximada) — endereço completo só pós-seleção */}
+                      {vagaConfirm.bairro && (
+                        <div style={S.modalRow}><span>Bairro</span><strong style={{ color:"var(--text-1,#0f172a)" }}>📍 {vagaConfirm.bairro}</strong></div>
                       )}
                       {/* Distância até o anúncio */}
                       {profile?.lat && profile?.lng && vagaConfirm.lat && vagaConfirm.lng && (() => {
