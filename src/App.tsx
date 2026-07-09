@@ -45,7 +45,7 @@ const OPCOES_RAIO_KM: { v: number; lab: string }[] = [
 ];
 
 // ── Wrapper pra disparar push notification via Edge Function send-push ──────
-type PushTipo = "mensagem" | "vaga_proxima" | "candidatura" | "selecionado" | "confirmacao" | "convite_resposta" | "default";
+type PushTipo = "mensagem" | "vaga_proxima" | "candidatura" | "selecionado" | "confirmacao" | "convite_resposta" | "desistencia" | "default";
 // Notificação persistida no histórico (sininho). `destino` = tela ao tocar.
 type NotifItem = { tipo: "ok" | "erro"; msg: string; ts: number; lida?: boolean; destino?: string };
 type DiaristaInfoCandidatura = {
@@ -4024,51 +4024,73 @@ export default function App() {
   const desistirDiaria = async () => {
     if (!session?.user || !modalDesistir || !motivoDesistencia.trim()) return;
     setDesistindo(true);
+    setAuthError("");
     const diariaId = modalDesistir.id;
-    const { error } = await supabase
-      .from("diarias")
-      .update({ status: "aberta", diarista_aceite_id: null, motivo_cancelamento: motivoDesistencia.trim() })
-      .eq("id", diariaId)
-      .eq("diarista_aceite_id", session.user.id) // PR-B: só o prestador designado
-      .in("status", ["pendente", "aceita"]);      // PR-B: não desistir após check-in
-    if (error) { setAuthError(traduzirErroBanco(error)); setDesistindo(false); return; }
-    // Remove candidatura da tabela para que possa se recandidatar depois
-    await supabase.from("candidaturas").delete()
-      .eq("diaria_id", diariaId)
-      .eq("diarista_id", session.user.id);
-    // BUG-FIX: se a diária NASCEU de um convite (convite.diaria_id == diariaId),
-    // marca o convite como "recusado" também. Senão a Agenda re-deriva o item do
-    // convite confirmado (filtro em ~"convitesAgendados") e ele REAPARECE — o
-    // sintoma "desisti e a diária continua aqui". Avisa o anunciante por push.
-    {
-      const { data: convVinc } = await supabase.from("convites")
-        .update({ status: "recusado" })
-        .eq("diaria_id", diariaId)
-        .eq("diarista_id", session.user.id)
-        .select("id, contratante_id, funcao");
-      if (Array.isArray(convVinc) && convVinc.length > 0) {
-        const ids = new Set(convVinc.map((c: { id: string }) => c.id));
-        setConvitesRecebidos(prev => prev.map(c => ids.has(c.id) ? { ...c, status: "recusado" } : c));
-        const conv = convVinc[0] as { contratante_id?: string; funcao?: string };
-        if (conv.contratante_id) {
-          const primeiroNome = profile?.nome?.split(" ")[0] || "O profissional";
-          enviarPush([conv.contratante_id], "Diária cancelada",
-            `${primeiroNome} desistiu da diária de ${conv.funcao || "serviço"}.`,
-            { tipo: "convite_resposta", url: "/" });
-        }
-      }
+    const motivo = motivoDesistencia.trim();
+    const { data, error } = await supabase.rpc("desistir_diaria", {
+      p_diaria_id: diariaId,
+      p_motivo: motivo,
+    });
+    const resultado = data as {
+      ok?: boolean;
+      erro?: string;
+      status?: string;
+      status_novo?: string;
+      voltou_feed?: boolean;
+      empregador_id?: string;
+      funcao?: string;
+      convite_recusado?: boolean;
+    } | null;
+    if (error || resultado?.ok === false) {
+      const erro = resultado?.erro;
+      const msg = erro === "ja_iniciada"
+        ? "Não dá para desistir depois do check-in. Fale com o anunciante pelo chat."
+        : erro === "status_invalido"
+          ? "Esta diária não está mais em um estado que permite desistência."
+          : erro === "sem_permissao"
+            ? "Você não está mais selecionado nesta diária. Atualize a tela."
+            : erro === "fluxo_emprego"
+              ? "Vaga de emprego usa retirada de candidatura, não desistência de diária."
+              : error ? traduzirErroBanco(error) : "Não foi possível registrar a desistência. Tente novamente.";
+      setAuthError(msg);
+      setDesistindo(false);
+      return;
+    }
+    if (resultado?.convite_recusado) {
+      setConvitesRecebidos(prev => prev.map(c =>
+        c.diaria_id === diariaId && c.diarista_id === session.user.id ? { ...c, status: "recusado" } : c
+      ));
     }
     // Remove da lista "minhas diárias"
     setMinhasDiarias(prev => prev.filter(d => d.id !== diariaId));
+    setCandidaturas(prev => prev.filter(c => !(c.diaria_id === diariaId && c.diarista_id === session.user.id)));
     // Reseta o interesse local para que a vaga apareça como disponível
     setMeuInteresse(prev => { const n = { ...prev }; delete n[diariaId]; return n; });
-    // Recarrega a vaga atualizada (status "aberta") e insere em vagasReais
-    const { data: vagaVolta } = await supabase.from("diarias").select("*").eq("id", diariaId).single();
-    if (vagaVolta) setVagasReais(prev => [vagaVolta, ...prev.filter(v => v.id !== diariaId)]);
+    // Recarrega a vaga se ela realmente voltou ao feed. Convite direto vira cancelado
+    // privado e não deve aparecer como anúncio público.
+    if (resultado?.voltou_feed) {
+      const { data: vagaVolta } = await supabase.from("diarias").select("*").eq("id", diariaId).single();
+      if (vagaVolta) setVagasReais(prev => [vagaVolta, ...prev.filter(v => v.id !== diariaId)]);
+    } else {
+      setVagasReais(prev => prev.filter(v => v.id !== diariaId));
+    }
+    if (resultado?.empregador_id) {
+      const primeiroNome = profile?.nome?.split(" ")[0] || "O profissional";
+      const nomeVaga = resultado.funcao || modalDesistir.funcao || "serviço";
+      const motivoMsg = motivo ? ` Motivo informado: ${motivo}` : "";
+      enviarPush(
+        [resultado.empregador_id],
+        "Prestador desistiu",
+        `${primeiroNome} desistiu do anúncio de ${nomeVaga}.${resultado.voltou_feed ? " A vaga voltou ao ar." : ""}${motivoMsg}`,
+        { tipo: "desistencia", url: "/" },
+      );
+    }
     setModalDesistir(null);
     setMotivoDesistencia("");
     setDesistindo(false);
-    setToastSuccess("✅ Desistência registrada. O anúncio voltou a ficar disponível.");
+    setToastSuccess(resultado?.voltou_feed
+      ? "✅ Desistência registrada. O anunciante foi avisado e a vaga voltou ao ar."
+      : "✅ Desistência registrada. O anunciante foi avisado.");
   };
 
   // Diarista retira interesse numa vaga (ainda pendente, não aceito)
