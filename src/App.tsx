@@ -6193,10 +6193,16 @@ export default function App() {
   // Salva edição de diária aberta (empregador)
   const salvarEdicaoDiaria = async () => {
     if (!modalEditarDiaria) return;
-    // Regra "vira o dia": 18:00→02:00 = 8h (válido). fim == início = 0 (inválido).
-    const minEdit = duracaoTurnoMin(formEditarDiaria.horario_inicio, formEditarDiaria.horario_fim);
-    if (minEdit == null || minEdit <= 0) { setAuthError("Horário inválido."); return; }
-    if (!formEditarDiaria.valor || Number(formEditarDiaria.valor) <= 0) { setAuthError("Informe um valor válido."); return; }
+    // Serviço pontual pode não ter horário de fim; serviço com proposta tem
+    // valor 0 — as regras da DIÁRIA não podem travar a edição do serviço.
+    const ehServicoEdit = modalEditarDiaria.tipo_oferta === "servico";
+    if (!ehServicoEdit || formEditarDiaria.horario_fim) {
+      // Regra "vira o dia": 18:00→02:00 = 8h (válido). fim == início = 0 (inválido).
+      const minEdit = duracaoTurnoMin(formEditarDiaria.horario_inicio, formEditarDiaria.horario_fim);
+      if (minEdit == null || minEdit <= 0) { setAuthError("Horário inválido."); return; }
+    }
+    if (!(ehServicoEdit && servicoExigeProposta(modalEditarDiaria))
+        && (!formEditarDiaria.valor || Number(formEditarDiaria.valor) <= 0)) { setAuthError("Informe um valor válido."); return; }
     if (!formEditarDiaria.funcao.trim()) { setAuthError("Selecione a função."); return; }
     if (!formEditarDiaria.data) { setAuthError("Informe a data."); return; }
     setSalvandoEdicao(true);
@@ -6242,6 +6248,11 @@ export default function App() {
     if (!modalEditarEmprego) return;
     const f = formEditarEmprego;
     if (!f.funcao.trim()) { setAuthError("Selecione a função."); return; }
+    // Mesmas exigências da CRIAÇÃO da vaga — sem isto, a edição deixava
+    // salvar vaga incompleta (sem contrato/regime/salário).
+    if (!f.tipo_contrato) { setAuthError("Selecione o tipo de contrato."); return; }
+    if (!f.regime) { setAuthError("Selecione o regime."); return; }
+    if (!f.salario.trim()) { setAuthError("Informe o salário."); return; }
     // Anti-abuso (descrição + mensagem): bloqueia proibido/discriminatório (não barra link).
     const aviso = verificarConteudoProibido(`${f.descricao} ${f.mensagem_auto}`) || verificarDiscriminacao(f.descricao);
     if (aviso) { setAuthError(aviso); return; }
@@ -12555,13 +12566,9 @@ export default function App() {
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
                           <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
                             <span style={{ background:sl.bg, color:sl.color, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:800 }}>{sl.txt}</span>
-                            {/* Badge de pagamento */}
-                            {dia.pagamento_status === "pago" && (
-                              <span style={{ background:"#dcfce7", color:"#15803d", padding:"3px 9px", borderRadius:20, fontSize:10, fontWeight:800 }}>💳 Pago</span>
-                            )}
-                            {(dia.pagamento_status === "aguardando" || !dia.pagamento_status) && dia.diarista_aceite_id && (dia.status === "aceita" || dia.status === "em_andamento") && (
-                              <span style={{ background:"#fef3c7", color:"#d97706", padding:"3px 9px", borderRadius:20, fontSize:10, fontWeight:800 }}>⏳ Pg. pendente</span>
-                            )}
+                            {/* Badges de pagamento REMOVIDOS: a plataforma não intermedia o
+                                valor da diária (pagamento é direto entre as partes), então
+                                "Pago"/"Pg. pendente" por pagamento_status só confundia. */}
                             {/* Badge de dislikes */}
                             {dia.status === "aberta" && (dislikesPorVaga[dia.id] ?? 0) > 0 && (
                               <span style={{ background:"#fef2f2", color:"#dc2626", padding:"3px 9px", borderRadius:20, fontSize:10, fontWeight:800 }} title="Profissionais que não têm interesse neste anúncio">
@@ -12634,8 +12641,9 @@ export default function App() {
                         {/* ── Painel de ações rápidas (aparece ao expandir o card) ── */}
                         {estaExpandida && (
                           <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const, marginTop:10, paddingTop:10, borderTop:"1px solid var(--border,#f1f5f9)" }} onClick={e => e.stopPropagation()}>
-                            {/* Chat — liberado após pagamento */}
-                            {((dia.status === "aceita" && dia.pagamento_status === "pago") || dia.status === "em_andamento") && dia.diarista_aceite_id && (
+                            {/* Chat — liberado pelo STATUS do match (aceita+), não por
+                                pagamento da diária (modelo antigo de intermediação). */}
+                            {contatoLiberado(dia.status) && dia.diarista_aceite_id && (
                               <button
                                 style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#eff6ff", color:"#3A86FF", border:"1.5px solid #bfdbfe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                                 onClick={() => { abrirChatDiaria(dia, "chat"); setMsgNaoLidas(0); }}>
