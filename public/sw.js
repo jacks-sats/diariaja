@@ -2,7 +2,10 @@
 // v2 — estratégia network-first para HTML (evita tela branca após deploy)
 // v4 — corrige "Response body is already used" na rota de assets (clone síncrono)
 // v5 — ícones novos (pin DJ): bump invalida o cache dos PNGs antigos
-const CACHE = "diariajaV5";
+// v6 — remove o client.navigate() do activate: causava reloads em cascata
+//      (2-3 por ativação, pior no iOS Safari). O reload em atualização agora
+//      tem UM dono só: o listener de controllerchange do index.html.
+const CACHE = "diariajaV6";
 
 // Só pré-cacheia assets estáticos imutáveis (nunca o index.html)
 const STATIC_ASSETS = ["/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/manifest.json"];
@@ -17,18 +20,16 @@ self.addEventListener("install", e => {
 });
 
 self.addEventListener("activate", e => {
-  // Remove todos os caches antigos (versões anteriores)
+  // Remove todos os caches antigos (versões anteriores).
+  // v6: NÃO força mais client.navigate() aqui — combinado com o reload do
+  // controllerchange (index.html), gerava 2-3 reloads em cascata a cada
+  // ativação (inclusive na PRIMEIRA visita, via clients.claim). O index.html
+  // continua recarregando em atualização de versão; contra tela branca segue
+  // o network-first do HTML + auto-recovery de script quebrado.
   e.waitUntil(
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
-      .then(() => self.clients.matchAll({ includeUncontrolled: true, type: "window" }))
-      .then(clients => {
-        // Força reload de todas as abas abertas para sair da tela branca
-        clients.forEach(client => {
-          try { client.navigate(client.url); } catch {}
-        });
-      })
   );
 });
 

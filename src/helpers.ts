@@ -790,7 +790,9 @@ export function rotuloDistanciaFeed(
   if (!Number.isFinite(km)) return null;
   if (opts.ambosGeoPrecisos === false) return null; // algum lado sem geo preciso (centroide/null)
   if (opts.perfisNaMesmaCoord >= 3) return null;    // coord de centroide compartilhada → não confiável
-  if (km < grid * 1.5) return null;                 // dentro do ruído do arredondamento (#226)
+  // Dentro do ruído do arredondamento (#226): não dá pra cravar número, mas o
+  // dado é bom — em vez do fallback mudo, informa um TETO honesto ("perto").
+  if (km < grid * 1.5) return `a menos de ~${Math.ceil(grid * 1.5)} km`;
   return `~${km.toFixed(1).replace(".", ",")} km`;
 }
 
@@ -1486,4 +1488,133 @@ export function cargaHorariaConvite(
   if (!m) return null;
   const n = Number(m[1].replace(",", "."));
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// ── Recibo em PDF (zero dependência) ─────────────────────────────────────────
+// Gera um PDF A4 de 1 página com o recibo do serviço, SEM biblioteca externa
+// (evita inchar o bundle). O App embrulha os bytes num Blob("application/pdf")
+// e compartilha via Web Share (arquivo) ou baixa. Usa as fontes Helvetica
+// padrão do PDF com WinAnsiEncoding → acentos do pt-BR (á ã ç é í ó õ ú) e o
+// travessão "–" saem corretos. Emojis NÃO são representáveis (viram "?"), por
+// isso o layout não usa emoji.
+export interface DadosReciboPDF {
+  servico: string;
+  data: string;          // já formatada "dd/mm/aaaa"
+  horario: string;       // ex.: "23:00 – 07:00 (8h)"
+  local: string;
+  profissional?: string; // nome do prestador
+  anunciante?: string;   // nome/empresa do anunciante
+  valor: string;         // ex.: "100" (sem o "R$")
+  rotuloValor?: string;  // ex.: "Total recebido" | "Total" (default "Total")
+  geradoEm: string;      // já formatada "dd/mm/aaaa, hh:mm:ss"
+}
+
+// Mapeia 1 caractere JS → 1 byte WinAnsi (Latin-1 + specials tipográficos).
+// Manter 1-char→1-byte é essencial: os offsets do xref do PDF são calculados
+// pelo índice de caractere da string final.
+function winAnsiByte(ch: string): number {
+  const cp = ch.charCodeAt(0);
+  if (cp <= 0x7f) return cp;                 // ASCII
+  if (cp >= 0xa0 && cp <= 0xff) return cp;   // Latin-1 == WinAnsi nesse range
+  switch (cp) {
+    case 0x20ac: return 0x80; // €
+    case 0x2026: return 0x85; // …
+    case 0x2018: return 0x91; // ‘
+    case 0x2019: return 0x92; // ’
+    case 0x201c: return 0x93; // “
+    case 0x201d: return 0x94; // ”
+    case 0x2022: return 0x95; // •
+    case 0x2013: return 0x96; // –
+    case 0x2014: return 0x97; // —
+    case 0x2122: return 0x99; // ™
+    default:     return 0x3f; // "?" pra qualquer coisa fora do WinAnsi
+  }
+}
+
+// Escapa os caracteres especiais de string literal PDF: \ ( )
+function escapePdfText(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+// Corta valores longos pra não estourar a largura da página.
+function fitPdf(s: string, max = 46): string {
+  const t = (s ?? "").trim();
+  return t.length > max ? t.slice(0, max - 1) + "…" : t;
+}
+
+export function gerarReciboPDF(d: DadosReciboPDF): Uint8Array {
+  const W = 595, H = 842;                 // A4 em pt
+  const laranja = "0.973 0.420 0.208";    // ~ #f86b35 (marca)
+  const cinza   = "0.40 0.45 0.53";
+  const escuro  = "0.06 0.09 0.16";
+  const verde   = "0.13 0.77 0.37";       // ~ #22c55e
+
+  const parts: string[] = [];
+  const texto = (font: string, size: number, x: number, y: number, cor: string, s: string) =>
+    `BT ${cor} rg /${font} ${size} Tf 1 0 0 1 ${x} ${y} Tm (${escapePdfText(s)}) Tj ET`;
+
+  // Cabeçalho: faixa laranja com a marca
+  parts.push(`${laranja} rg 0 ${H - 110} ${W} 110 re f`);
+  parts.push(texto("F2", 28, 40, H - 60, "1 1 1", "DiáriaJá"));
+  parts.push(texto("F1", 13, 40, H - 88, "1 1 1", "Recibo de Serviço"));
+
+  // Linhas de campos
+  const linhas: [string, string][] = [
+    ["Serviço",      fitPdf(d.servico)],
+    ["Data",         fitPdf(d.data)],
+    ["Horário",      fitPdf(d.horario)],
+    ["Local",        fitPdf(d.local)],
+  ];
+  if (d.profissional) linhas.push(["Profissional", fitPdf(d.profissional)]);
+  if (d.anunciante)   linhas.push(["Anunciante",   fitPdf(d.anunciante)]);
+
+  let y = H - 165;
+  for (const [k, v] of linhas) {
+    parts.push(texto("F2", 11, 40, y, cinza, k));
+    parts.push(texto("F1", 12, 190, y, escuro, v));
+    parts.push(`0.89 0.91 0.94 RG 0.6 w 40 ${y - 12} m ${W - 40} ${y - 12} l S`);
+    y -= 36;
+  }
+
+  // Caixa do valor (destaque verde claro)
+  const boxY = y - 44;
+  parts.push(`0.90 0.98 0.93 rg 40 ${boxY} ${W - 80} 56 re f`);
+  parts.push(texto("F2", 14, 58, boxY + 21, escuro, d.rotuloValor || "Total"));
+  parts.push(texto("F2", 22, W - 58 - (`R$ ${d.valor}`.length * 12), boxY + 18, verde, `R$ ${d.valor}`));
+
+  // Aviso fiscal + rodapé
+  parts.push(texto("F1", 10, 40, 150, cinza, "Este recibo não substitui documentos fiscais. Guarde como comprovante"));
+  parts.push(texto("F1", 10, 40, 136, cinza, "informal de prestação de serviço entre as partes."));
+  parts.push(texto("F1", 10, 40, 104, escuro, `Gerado em: ${fitPdf(d.geradoEm, 60)}`));
+  parts.push(`0.89 0.91 0.94 RG 0.6 w 40 80 m ${W - 40} 80 l S`);
+  parts.push(texto("F2", 11, 40, 58, laranja, "DiáriaJá"));
+  parts.push(texto("F1", 10, 96, 58, cinza, "· diariaja.com.br · Campo Grande/MS"));
+
+  const content = parts.join("\n");
+
+  const objs: string[] = [];
+  objs[1] = "<</Type/Catalog/Pages 2 0 R>>";
+  objs[2] = "<</Type/Pages/Kids[3 0 R]/Count 1>>";
+  objs[3] = `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${W} ${H}]/Resources<</Font<</F1 5 0 R/F2 6 0 R>>>>/Contents 4 0 R>>`;
+  objs[4] = `<</Length ${content.length}>>\nstream\n${content}\nendstream`;
+  objs[5] = "<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>";
+  objs[6] = "<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold/Encoding/WinAnsiEncoding>>";
+
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  for (let i = 1; i <= 6; i++) {
+    offsets[i] = pdf.length;
+    pdf += `${i} 0 obj\n${objs[i]}\nendobj\n`;
+  }
+  const xrefStart = pdf.length;
+  pdf += "xref\n0 7\n0000000000 65535 f \n";
+  for (let i = 1; i <= 6; i++) {
+    pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer\n<</Size 7/Root 1 0 R>>\nstartxref\n${xrefStart}\n%%EOF`;
+
+  // string → bytes WinAnsi (1 char = 1 byte, offsets do xref continuam válidos)
+  const bytes = new Uint8Array(pdf.length);
+  for (let i = 0; i < pdf.length; i++) bytes[i] = winAnsiByte(pdf[i]);
+  return bytes;
 }

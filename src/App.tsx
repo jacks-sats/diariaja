@@ -92,8 +92,33 @@ import {
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
   montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar,
-  cargaHorariaConvite,
+  cargaHorariaConvite, gerarReciboPDF,
 } from "./helpers";
+
+// Link oficial do app na Google Play (usado no banner de download da web).
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.diariaja.app";
+
+// Compartilha (ou baixa) um PDF já gerado como bytes. Web Share Level 2 anexa
+// o arquivo real (ex.: WhatsApp) quando suportado; senão, dispara o download.
+async function compartilharPDF(
+  bytes: Uint8Array, nomeArquivo: string, titulo: string, onBaixou?: () => void,
+): Promise<void> {
+  const blob = new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
+  const file = new File([blob], nomeArquivo, { type: "application/pdf" });
+  const nav = navigator as Navigator & { canShare?: (d: { files: File[] }) => boolean };
+  if (nav.canShare && nav.canShare({ files: [file] }) && navigator.share) {
+    try { await navigator.share({ files: [file], title: titulo }); }
+    catch { /* usuário cancelou — não baixa por cima */ }
+    return;
+  }
+  // Fallback (navegador sem compartilhamento de arquivo): baixa o PDF.
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nomeArquivo;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  onBaixou?.();
+}
 import { CampoData } from "./components/CampoData";
 import { CampoHora } from "./components/CampoHora";
 import { StepperCiclo } from "./components/StepperCiclo";
@@ -181,6 +206,9 @@ export default function App() {
   const [erroMensagens, setErroMensagens]         = useState(false);
   // "Nonces" pro botão Tentar de novo re-disparar os efeitos de carregamento.
   const [recarregarPrest, setRecarregarPrest]     = useState(0);
+  // Loading da lista de prestadores (home-empregador): sem isto, o empty-state
+  // "Nenhum profissional ainda" aparecia DURANTE o fetch e sumia — parecia bug.
+  const [carregandoPrest, setCarregandoPrest]     = useState(true);
   const [recarregarMsg, setRecarregarMsg]         = useState(0);
   const [vagaConfirm, setVagaConfirm]             = useState<Diaria | null>(null);
   const [vagaConfirmada, setVagaConfirmada]       = useState(false);
@@ -342,6 +370,10 @@ export default function App() {
   const [agoraBanner, setAgoraBanner] = useState(() => Date.now());
   const [bannerLancFechado, setBannerLancFechado] = useState(
     () => { try { return localStorage.getItem("diariaja_banner_lancamento_fechado") === "1"; } catch { return false; } }
+  );
+  // Dispensa do banner "baixe o app na Play" (só web). Persistido em localStorage.
+  const [bannerBaixarFechado, setBannerBaixarFechado] = useState(
+    () => { try { return localStorage.getItem("diariaja_baixar_app_v1") === "1"; } catch { return false; } }
   );
   useEffect(() => {
     const id = setInterval(() => setAgoraBanner(Date.now()), 60000); // 1x/min — banner não mostra segundos
@@ -1303,7 +1335,9 @@ export default function App() {
       // C2 passo B: feed via RPC prestadores_publicos — retorna só dados públicos
       // + derivados (tem_documento, nivel), sem telefone/cpf/cnpj/PIX/token. Filtra
       // por papel (diarista/ambos) e exclui o próprio usuário no servidor.
+      setCarregandoPrest(true);
       const { data, error } = await supabase.rpc("prestadores_publicos", { p_limit: 200 });
+      setCarregandoPrest(false);
       // Onda 3: antes só logava no console — o anunciante via "nenhum profissional".
       if (error) { console.warn("[home-empregador] erro carregando prestadores:", error.message); setErroPrestadores(true); return; }
       setErroPrestadores(false);
@@ -7577,6 +7611,27 @@ export default function App() {
     );
   })();
 
+  // ── Banner "baixe o app na Play Store" ──────────────────────────────────────
+  // Só na WEB (dentro do app nativo não faz sentido — o usuário já está no app)
+  // e dispensável (localStorage diariaja_baixar_app_v1). Converte quem usa a
+  // versão web/PWA em instalação oficial da Play. Reusado na landing e no splash.
+  const bannerBaixarApp = (Capacitor.isNativePlatform() || bannerBaixarFechado) ? null : (
+    <div style={{ display:"flex", alignItems:"center", gap:10, background:"#0A1733", color:"#FBF6EF", padding:"10px 14px", fontSize:14, fontWeight:700, borderBottom:"2px solid #FF6B35" }}>
+      <span style={{ fontSize:20, flexShrink:0 }}>📲</span>
+      <span style={{ flex:1, lineHeight:1.3 }}>
+        Já está no Google Play! <span style={{ color:"#FF6B35" }}>Baixe o app oficial do DiáriaJá.</span>
+      </span>
+      <a href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer"
+        onClick={() => { try { trackEvento("clique_baixar_app", session?.user?.id, modoAtual); } catch { /* analytics best-effort */ } }}
+        style={{ background:"#FF6B35", color:"#fff", textDecoration:"none", borderRadius:10, padding:"7px 14px", fontSize:13, fontWeight:800, whiteSpace:"nowrap" }}>
+        Baixar
+      </a>
+      <button onClick={() => { setBannerBaixarFechado(true); try { localStorage.setItem("diariaja_baixar_app_v1", "1"); } catch {} }}
+        aria-label="Fechar aviso"
+        style={{ background:"transparent", border:0, color:"#8595BE", fontSize:18, lineHeight:1, cursor:"pointer", padding:4 }}>×</button>
+    </div>
+  );
+
   // Variante do countdown pro topo do cadastro de prestador (tela com padding,
   // por isso arredondada estilo banner MEI). Reusa a MESMA contagem/alvo e o
   // MESMO dismiss (diariaja_banner_lancamento_fechado) do banner da landing.
@@ -7810,6 +7865,7 @@ export default function App() {
     return (
       <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", color:"#0f172a" }}>
         {bannerLancamento}
+        {bannerBaixarApp}
         {/* Top nav */}
         <header style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"22px 48px", maxWidth:1180, margin:"0 auto" }}>
           <div style={{ fontSize:26, fontWeight:900, letterSpacing:-1 }}>
@@ -7910,6 +7966,7 @@ export default function App() {
   if (tela === "splash") return (
     <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:480, margin:"0 auto", position:"relative" as const, paddingBottom:150 }}>
       {bannerLancamento}
+      {bannerBaixarApp}
       {/* Convite de vaga compartilhada: quem chegou por um link ?vaga=ID ainda
           sem conta vê um aviso de que precisa criar conta pra ver a vaga. O id
           fica guardado e a vaga abre sozinha assim que a conta é criada. */}
@@ -10804,7 +10861,9 @@ export default function App() {
         ))}
       </div>
       {authError && <p style={S.errorText}>{authError}</p>}
-      <button style={{ ...S.btnPrimary, opacity:negocioSelecionado?1:0.4 }} disabled={!negocioSelecionado}
+      {/* Loading no clique: saveProfile faz 2 round-trips (getSession + UPDATE) —
+          sem isto o botão parecia "travado" em rede lenta e aceitava double-tap. */}
+      <button style={{ ...S.btnPrimary, opacity:(negocioSelecionado && !salvandoPerfil)?1:0.4 }} disabled={!negocioSelecionado || salvandoPerfil}
         onClick={async () => {
           setAuthError("");
           const ok = await saveProfile({ segmento: negocioSelecionado! });
@@ -10816,7 +10875,7 @@ export default function App() {
             setTela(profile?.lat ? "home-empregador" : "pedir-localizacao");
           }
         }}>
-        Ver profissionais disponíveis
+        {salvandoPerfil ? "Salvando..." : "Ver profissionais disponíveis"}
       </button>
     </div>
   );
@@ -11396,12 +11455,20 @@ export default function App() {
           </div>
           <button
             style={{ width:"100%", padding:"13px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-            onClick={() => {
-              const texto = `🧾 RECIBO DE SERVIÇO - DiáriaJá\n\nServiço: ${d.funcao||d.descricao}\nLocal: ${d.nome_negocio||d.segmento}\nData: ${new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")}\nHorário: ${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}\nTotal: R$ ${d.valor_diarista ?? d.valor}\n\nGerado em: ${new Date().toLocaleString("pt-BR")}`;
-              if (navigator.share) { navigator.share({ title:"Recibo DiáriaJá", text:texto }).catch(()=>{}); }
-              else { navigator.clipboard.writeText(texto).then(() => setToastSuccess("✅ Recibo copiado!")); }
+            onClick={async () => {
+              const bytes = gerarReciboPDF({
+                servico:      d.funcao || d.descricao || "Serviço",
+                data:         new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR"),
+                horario:      d.horario_fim ? `${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}${horasR ? ` (${horasR})` : ""}` : d.horario_inicio.slice(0,5),
+                local:        d.nome_negocio || d.segmento || "—",
+                profissional: profile?.nome || undefined,
+                valor:        String(d.valor_diarista ?? d.valor ?? ""),
+                rotuloValor:  "Total recebido",
+                geradoEm:     new Date().toLocaleString("pt-BR"),
+              });
+              await compartilharPDF(bytes, "recibo-diariaja.pdf", "Recibo DiáriaJá", () => setToastSuccess("✅ Recibo PDF baixado!"));
             }}>
-            📤 Compartilhar recibo
+            📄 Recibo em PDF
           </button>
           <button
             style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -11538,6 +11605,7 @@ export default function App() {
 
     return (
       <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+        {bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
         {isDesktop && (
@@ -11868,6 +11936,13 @@ export default function App() {
                 {erroPrestadores && diaristasReais.length === 0 ? (
                   <div style={{ gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined, width:"100%" }}>
                     <CardErroCarregar texto="Não foi possível carregar os profissionais. Verifique sua conexão e tente de novo." onRetry={() => setRecarregarPrest(n => n + 1)} />
+                  </div>
+                ) : carregandoPrest && diaristasReais.length === 0 ? (
+                  // Loading da 1ª carga: sem isto o empty-state "Nenhum profissional
+                  // ainda" piscava DURANTE o fetch (parecia falha na apresentação).
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined }}>
+                    <div style={{ fontSize:40, marginBottom:12 }}>⏳</div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"var(--text-2,#64748b)" }}>Buscando profissionais na sua região…</div>
                   </div>
                 ) : diaristasReaisVisiveis.length === 0 ? (
                   <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined }}>
@@ -13499,12 +13574,21 @@ export default function App() {
                 </div>
                 <button
                   style={{ width:"100%", padding:"13px", background:"#0f172a", color:"#fff", border:"none", borderRadius:14, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-                  onClick={() => {
-                    const texto = `🧾 RECIBO DE SERVIÇO - DiáriaJá\n\nServiço: ${modalRecibo.funcao||modalRecibo.descricao}\nData: ${new Date(modalRecibo.data+"T12:00:00").toLocaleDateString("pt-BR")}\nHorário: ${modalRecibo.horario_inicio.slice(0,5)} – ${modalRecibo.horario_fim.slice(0,5)}\nLocal: ${modalRecibo.nome_negocio||modalRecibo.segmento}\nProfissional: ${dp?.nome||"—"}\nValor: R$ ${modalRecibo.valor}\n\nGerado em: ${new Date().toLocaleString("pt-BR")}`;
-                    if (navigator.share) { navigator.share({ title:"Recibo DiáriaJá", text:texto }); }
-                    else { navigator.clipboard?.writeText(texto); setToastSuccess("📋 Recibo copiado!"); }
+                  onClick={async () => {
+                    const bytes = gerarReciboPDF({
+                      servico:      modalRecibo.funcao || modalRecibo.descricao || "Serviço",
+                      data:         new Date(modalRecibo.data+"T12:00:00").toLocaleDateString("pt-BR"),
+                      horario:      `${modalRecibo.horario_inicio.slice(0,5)} – ${modalRecibo.horario_fim.slice(0,5)}${horas ? ` (${horas})` : ""}`,
+                      local:        modalRecibo.nome_negocio || modalRecibo.segmento || "—",
+                      profissional: dp?.nome || undefined,
+                      anunciante:   profile?.nome_negocio || profile?.nome || undefined,
+                      valor:        String(modalRecibo.valor ?? ""),
+                      rotuloValor:  "Total",
+                      geradoEm:     new Date().toLocaleString("pt-BR"),
+                    });
+                    await compartilharPDF(bytes, "recibo-diariaja.pdf", "Recibo DiáriaJá", () => setToastSuccess("✅ Recibo PDF baixado!"));
                   }}>
-                  📤 Compartilhar recibo
+                  📄 Recibo em PDF
                 </button>
                 <button
                   style={{ width:"100%", padding:"12px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:14, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -15169,6 +15253,7 @@ export default function App() {
 
     return (
       <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom: 76, background: "#f0f2f5" }}>
+        {bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
         {isDesktop && (
@@ -15882,8 +15967,8 @@ export default function App() {
                           <div style={{ color:"var(--text-3,#94a3b8)", fontSize:12, marginTop:4, display:"flex", alignItems:"center", gap:4 }}>
                             <span>📍</span>
                             {(() => {
-                              const partes = (dia.endereco || "").split(", ");
-                              const localHint = partes.length >= 3 ? partes.slice(2, 4).join(", ").split(" — ")[0] : "";
+                              // Bairro vem no feed (o endereço completo NÃO — fica p/ pós-aceite).
+                              const localHint = dia.bairro || "";
                               if (profile?.lat && profile?.lng && dia.lat && dia.lng) {
                                 const km = haversineKm(profile.lat!, profile.lng!, dia.lat!, dia.lng!);
                                 const distTxt = `${formatarDistancia(km)} · ~${formatarTempo(tempoEstimadoMin(km))} de moto`;
@@ -15894,9 +15979,9 @@ export default function App() {
                                   </span>
                                 );
                               }
-                              // Sem GPS: mostra bairro/cidade se disponível
+                              // Sem GPS: mostra o bairro se disponível
                               if (localHint) return <span style={{ color:"var(--text-2,#64748b)", fontWeight:600 }}>{localHint}</span>;
-                              return <span style={{ fontStyle:"italic", color:"var(--text-3,#94a3b8)" }}>Bairro liberado após aceitar</span>;
+                              return <span style={{ fontStyle:"italic", color:"var(--text-3,#94a3b8)" }}>Localização aproximada indisponível</span>;
                             })()}
                           </div>
 
@@ -17264,7 +17349,10 @@ export default function App() {
                   ) : !enderecoLiberado && (
                     <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:12, padding:"12px 14px", marginBottom:14, display:"flex", gap:10, alignItems:"center" }}>
                       <span style={{ fontSize:20 }}>🔒</span>
-                      <div style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>Endereço liberado apenas após aceitar o anúncio</div>
+                      <div style={{ fontSize:13, color:"var(--text-2,#64748b)" }}>
+                        {d.bairro && <div style={{ fontWeight:700, color:"var(--text-1,#0f172a)", marginBottom:2 }}>📍 {d.bairro}</div>}
+                        Endereço completo liberado após aceitar o anúncio
+                      </div>
                     </div>
                   )}
 
@@ -17524,6 +17612,10 @@ export default function App() {
                           <div style={S.modalRow}><span>Data</span><strong>{new Date(vagaConfirm.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong></div>
                           <div style={S.modalRow}><span>Horário</span><strong>{vagaConfirm.horario_inicio.slice(0,5)} – {vagaConfirm.horario_fim.slice(0,5)}</strong></div>
                         </>
+                      )}
+                      {/* Bairro (área aproximada) — endereço completo só pós-seleção */}
+                      {vagaConfirm.bairro && (
+                        <div style={S.modalRow}><span>Bairro</span><strong style={{ color:"var(--text-1,#0f172a)" }}>📍 {vagaConfirm.bairro}</strong></div>
                       )}
                       {/* Distância até o anúncio */}
                       {profile?.lat && profile?.lng && vagaConfirm.lat && vagaConfirm.lng && (() => {

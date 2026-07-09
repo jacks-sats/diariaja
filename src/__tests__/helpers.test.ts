@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  gerarReciboPDF,
   planoSelecao,
   empregoExigePlanoParaChamar,
   vagaApareceNoFeed,
@@ -1645,9 +1646,9 @@ describe("rotuloDistanciaFeed", () => {
     expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 12 })).toBeNull();
     expect(rotuloDistanciaFeed(6.0, { perfisNaMesmaCoord: 3 })).toBeNull();
   });
-  it("distância abaixo do ruído do arredondamento (~1,1 km) → null", () => {
-    expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 1 })).toBeNull();
-    expect(rotuloDistanciaFeed(1.4, { perfisNaMesmaCoord: 1 })).toBeNull();
+  it("distância abaixo do ruído do arredondamento → teto honesto 'a menos de ~2 km'", () => {
+    expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 1 })).toBe("a menos de ~2 km");
+    expect(rotuloDistanciaFeed(1.4, { perfisNaMesmaCoord: 1 })).toBe("a menos de ~2 km");
   });
   it("coord única e distância acima da grade → mostra '~X km'", () => {
     expect(rotuloDistanciaFeed(3.2, { perfisNaMesmaCoord: 1 })).toBe("~3,2 km");
@@ -1666,9 +1667,12 @@ describe("rotuloDistanciaFeed", () => {
   it("ambosGeoPrecisos=true + coord única + acima da grade → mostra '~X km'", () => {
     expect(rotuloDistanciaFeed(3.2, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: true })).toBe("~3,2 km");
   });
-  it("ambosGeoPrecisos=true NÃO fura o piso de ruído nem o cluster", () => {
-    expect(rotuloDistanciaFeed(0.5, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: true })).toBeNull();
+  it("ambosGeoPrecisos=true: piso de ruído vira teto honesto; cluster continua null", () => {
+    expect(rotuloDistanciaFeed(0.5, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: true })).toBe("a menos de ~2 km");
     expect(rotuloDistanciaFeed(4.0, { perfisNaMesmaCoord: 3, ambosGeoPrecisos: true })).toBeNull();
+  });
+  it("ambosGeoPrecisos=false NÃO ganha o teto 'a menos de ~2 km' (dado ruim = mudo)", () => {
+    expect(rotuloDistanciaFeed(0.5, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: false })).toBeNull();
   });
 });
 
@@ -1916,5 +1920,57 @@ describe("cargaHorariaConvite", () => {
     expect(cargaHorariaConvite(0, "08:00 (8h de trabalho)")).toBe(8);
     expect(cargaHorariaConvite(-2, "08:00 (8h de trabalho)")).toBe(8);
     expect(cargaHorariaConvite(NaN, "08:00 (8h de trabalho)")).toBe(8);
+  });
+});
+
+describe("gerarReciboPDF", () => {
+  const base = {
+    servico: "Motoboy",
+    data: "05/07/2026",
+    horario: "23:00 – 07:00 (8h)",
+    local: "Veraci sales",
+    profissional: "Jackson dos santos da Silva",
+    valor: "100",
+    rotuloValor: "Total recebido",
+    geradoEm: "06/07/2026, 13:07:49",
+  };
+
+  it("gera um PDF válido (cabeçalho %PDF e fim %%EOF)", () => {
+    const bytes = gerarReciboPDF(base);
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    const head = String.fromCharCode(...bytes.slice(0, 5));
+    expect(head).toBe("%PDF-");
+    const tail = String.fromCharCode(...bytes.slice(-5));
+    expect(tail).toBe("%%EOF");
+  });
+
+  it("os offsets do xref apontam para o início de cada objeto", () => {
+    const bytes = gerarReciboPDF(base);
+    const txt = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
+    const startxref = Number(/startxref\s+(\d+)/.exec(txt)![1]);
+    // A tabela xref começa exatamente no offset declarado em startxref.
+    expect(txt.slice(startxref, startxref + 4)).toBe("xref");
+    // Cada offset "n" listado deve cair num "<i> 0 obj".
+    const linhas = txt.slice(startxref).split("\n").filter((l) => /^\d{10} 00000 n/.test(l));
+    expect(linhas.length).toBe(6);
+    linhas.forEach((l, idx) => {
+      const off = Number(l.slice(0, 10));
+      expect(txt.slice(off, off + 40)).toContain(`${idx + 1} 0 obj`);
+    });
+  });
+
+  it("acentos do pt-BR viram bytes WinAnsi (não UTF-8 multibyte)", () => {
+    const bytes = gerarReciboPDF({ ...base, servico: "Ração & Café" });
+    // 'ç' = 0xE7, 'ã' = 0xE3, 'é' = 0xE9 em WinAnsi/Latin-1
+    expect(Array.from(bytes)).toContain(0xe7);
+    expect(Array.from(bytes)).toContain(0xe3);
+    expect(Array.from(bytes)).toContain(0xe9);
+  });
+
+  it("funciona sem campos opcionais (profissional/anunciante)", () => {
+    const { profissional, ...semProf } = base;
+    void profissional;
+    const bytes = gerarReciboPDF(semProf);
+    expect(bytes.length).toBeGreaterThan(400);
   });
 });
