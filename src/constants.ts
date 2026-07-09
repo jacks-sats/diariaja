@@ -4,6 +4,227 @@
 // ── Funções que usam formulário especial de Delivery ─────────────────────────
 export const FUNCOES_DELIVERY = ["Motoboy", "Entregador de Bicicleta", "Entregador de Carro"];
 
+export const SERVICOS_EMPRESARIAIS = [
+  { id: "promotor_reposicao", nome: "Promotor de Reposição", subtitulo: "Abastecimento, organização e validade" },
+  { id: "promotor_merchandising", nome: "Promotor de Merchandising", subtitulo: "Ponto extra, material de PDV e exposição" },
+  { id: "auditoria_loja", nome: "Auditoria de Loja", subtitulo: "Verificação de execução e processos" },
+  { id: "inventario", nome: "Inventário", subtitulo: "Contagem de estoque e ruptura" },
+  { id: "precificacao", nome: "Precificação", subtitulo: "Pesquisa e troca de preços" },
+  { id: "mudanca_layout", nome: "Mudança de Layout", subtitulo: "Planograma, gôndola e exposição" },
+  { id: "montagem_ilha", nome: "Montagem de Ilha", subtitulo: "Ilhas, pontas e campanhas sazonais" },
+  { id: "degustacao", nome: "Degustação", subtitulo: "Ações promocionais e demonstrações" },
+  { id: "reposicao_noturna", nome: "Reposição Noturna", subtitulo: "Abastecimento fora do horário comercial" },
+  { id: "pesquisa_precos", nome: "Pesquisa de Preços", subtitulo: "Coleta de preço, concorrência e ruptura" },
+] as const;
+
+export const ATIVIDADES_SERVICO_EMPRESA = [
+  "Abastecer gôndola",
+  "Organizar produtos",
+  "Verificar validade",
+  "Conferir preço",
+  "Tirar fotos",
+  "Montar ilha",
+  "Aplicar material de PDV",
+  "Negociar ponto extra",
+  "Contar estoque",
+  "Checar planograma",
+] as const;
+
+export const CHECKLIST_SERVICO_EMPRESA_PADRAO = [
+  "Produto em falta?",
+  "Preço incorreto?",
+  "Conseguiu abastecer?",
+  "Conseguiu ponto extra?",
+  "Material de PDV aplicado?",
+  "Observações gerais",
+] as const;
+
+export const MODELOS_SERVICO_EMPRESA: Record<string, {
+  atividades: string[];
+  checklist: Array<{ pergunta: string; tipo: "sim_nao" | "texto" | "numero" | "foto"; obrigatorio?: boolean }>;
+  produtoLabel: string;
+  produtoPlaceholder: string;
+  materialPlaceholder: string;
+  uniformePlaceholder: string;
+  observacaoPlaceholder: string;
+}> = {
+  promotor_reposicao: {
+    atividades: ["Abastecer gôndola", "Organizar produtos", "Verificar validade", "Conferir preço", "Tirar fotos"],
+    checklist: [
+      { pergunta: "Produto em falta?", tipo: "sim_nao" },
+      { pergunta: "Gôndola abastecida?", tipo: "sim_nao" },
+      { pergunta: "Validade verificada?", tipo: "sim_nao" },
+      { pergunta: "Preço confere com etiqueta?", tipo: "sim_nao" },
+      { pergunta: "Foto da gôndola antes", tipo: "foto" },
+      { pergunta: "Foto da gôndola depois", tipo: "foto" },
+      { pergunta: "Observações gerais", tipo: "texto", obrigatorio: false },
+    ],
+    produtoLabel: "Produto ou linha",
+    produtoPlaceholder: "Ex: Refrigerantes 2L, biscoitos recheados, linha higiene",
+    materialPlaceholder: "Ex: camisa da marca, etiquetas, cartazes, lista de SKUs",
+    uniformePlaceholder: "Ex: camisa da marca, calça preta, sapato fechado",
+    observacaoPlaceholder: "Ex: priorizar corredor de bebidas, falar com gerente do setor, reportar ruptura",
+  },
+  promotor_merchandising: {
+    atividades: ["Aplicar material de PDV", "Negociar ponto extra", "Organizar produtos", "Checar planograma", "Tirar fotos"],
+    checklist: [
+      { pergunta: "Material de PDV aplicado?", tipo: "sim_nao" },
+      { pergunta: "Ponto extra negociado?", tipo: "sim_nao" },
+      { pergunta: "Planograma respeitado?", tipo: "sim_nao" },
+      { pergunta: "Produtos com boa exposição?", tipo: "sim_nao" },
+      { pergunta: "Foto do ponto natural", tipo: "foto" },
+      { pergunta: "Foto do ponto extra", tipo: "foto" },
+      { pergunta: "Observações gerais", tipo: "texto", obrigatorio: false },
+    ],
+    produtoLabel: "Produto, campanha ou linha",
+    produtoPlaceholder: "Ex: Campanha volta às aulas, linha premium, lançamento",
+    materialPlaceholder: "Ex: wobblers, faixas, stopper, display, cartaz de preço",
+    uniformePlaceholder: "Ex: camiseta da ação, crachá, calça preta",
+    observacaoPlaceholder: "Ex: negociar ponta de gôndola, aplicar material novo e registrar resistência da loja",
+  },
+  auditoria_loja: {
+    atividades: ["Auditar execução", "Checar planograma", "Conferir preço", "Registrar divergência", "Tirar fotos"],
+    checklist: [
+      { pergunta: "Produto encontrado na loja?", tipo: "sim_nao" },
+      { pergunta: "Planograma cumprido?", tipo: "sim_nao" },
+      { pergunta: "Preço correto?", tipo: "sim_nao" },
+      { pergunta: "Material de PDV visível?", tipo: "sim_nao" },
+      { pergunta: "Divergências encontradas", tipo: "texto", obrigatorio: false },
+      { pergunta: "Foto da execução auditada", tipo: "foto" },
+    ],
+    produtoLabel: "Marca, produto ou processo auditado",
+    produtoPlaceholder: "Ex: Execução de cervejas, validade do setor, campanha vigente",
+    materialPlaceholder: "Ex: roteiro de auditoria, lista de lojas, padrão esperado",
+    uniformePlaceholder: "Ex: discreto, sem uniforme da marca, ou conforme orientação",
+    observacaoPlaceholder: "Ex: não interferir na execução, apenas fotografar e responder checklist",
+  },
+  inventario: {
+    atividades: ["Contar estoque", "Registrar ruptura", "Conferir validade", "Consolidar contagem", "Tirar fotos"],
+    checklist: [
+      { pergunta: "Contagem realizada?", tipo: "sim_nao" },
+      { pergunta: "Quantidade encontrada", tipo: "numero" },
+      { pergunta: "Ruptura identificada?", tipo: "sim_nao" },
+      { pergunta: "Validade crítica encontrada?", tipo: "sim_nao" },
+      { pergunta: "Foto do estoque/gôndola", tipo: "foto" },
+      { pergunta: "Observações da contagem", tipo: "texto", obrigatorio: false },
+    ],
+    produtoLabel: "Produto, categoria ou área inventariada",
+    produtoPlaceholder: "Ex: Bebidas energéticas, higiene oral, estoque de mercearia",
+    materialPlaceholder: "Ex: planilha de SKUs, coletor, lista de códigos, caneta",
+    uniformePlaceholder: "Ex: roupa neutra, sapato fechado, colete se houver",
+    observacaoPlaceholder: "Ex: contar estoque de retaguarda e gôndola, separar produtos avariados",
+  },
+  precificacao: {
+    atividades: ["Conferir preço", "Trocar etiqueta", "Registrar ruptura", "Tirar fotos", "Registrar divergência"],
+    checklist: [
+      { pergunta: "Preço da gôndola correto?", tipo: "sim_nao" },
+      { pergunta: "Preço do sistema/confência informado?", tipo: "texto", obrigatorio: false },
+      { pergunta: "Etiqueta trocada?", tipo: "sim_nao" },
+      { pergunta: "Produto sem preço?", tipo: "sim_nao" },
+      { pergunta: "Foto da etiqueta antes", tipo: "foto" },
+      { pergunta: "Foto da etiqueta depois", tipo: "foto" },
+    ],
+    produtoLabel: "Produto ou lista de SKUs",
+    produtoPlaceholder: "Ex: SKU 789..., linha de cafés, lista promocional da semana",
+    materialPlaceholder: "Ex: etiquetas, lista de preços, autorização do gerente",
+    uniformePlaceholder: "Ex: uniforme da loja ou roupa neutra, conforme combinado",
+    observacaoPlaceholder: "Ex: conferir preço promocional e avisar gerente em caso de divergência",
+  },
+  mudanca_layout: {
+    atividades: ["Checar planograma", "Organizar produtos", "Reorganizar gôndola", "Aplicar material de PDV", "Tirar fotos"],
+    checklist: [
+      { pergunta: "Layout anterior registrado?", tipo: "sim_nao" },
+      { pergunta: "Planograma aplicado?", tipo: "sim_nao" },
+      { pergunta: "Produtos realocados?", tipo: "sim_nao" },
+      { pergunta: "Material aplicado?", tipo: "sim_nao" },
+      { pergunta: "Foto antes do layout", tipo: "foto" },
+      { pergunta: "Foto depois do layout", tipo: "foto" },
+      { pergunta: "Pendências do layout", tipo: "texto", obrigatorio: false },
+    ],
+    produtoLabel: "Categoria ou área alterada",
+    produtoPlaceholder: "Ex: Gôndola de cafés, setor de limpeza, geladeira de bebidas",
+    materialPlaceholder: "Ex: planograma impresso, etiquetas, material de PDV, fitas",
+    uniformePlaceholder: "Ex: calça preta, sapato fechado, camiseta da ação",
+    observacaoPlaceholder: "Ex: seguir planograma anexo e registrar qualquer produto sem espaço",
+  },
+  montagem_ilha: {
+    atividades: ["Montar ilha", "Abastecer produtos", "Aplicar material de PDV", "Negociar ponto extra", "Tirar fotos"],
+    checklist: [
+      { pergunta: "Ponto da ilha liberado?", tipo: "sim_nao" },
+      { pergunta: "Ilha montada conforme orientação?", tipo: "sim_nao" },
+      { pergunta: "Produtos abastecidos?", tipo: "sim_nao" },
+      { pergunta: "Material visual aplicado?", tipo: "sim_nao" },
+      { pergunta: "Foto da ilha montada", tipo: "foto" },
+      { pergunta: "Observações da montagem", tipo: "texto", obrigatorio: false },
+    ],
+    produtoLabel: "Produto, campanha ou ilha",
+    produtoPlaceholder: "Ex: Ilha de chocolates, cervejas premium, campanha sazonal",
+    materialPlaceholder: "Ex: display, pallets, cartazes, faixas, material promocional",
+    uniformePlaceholder: "Ex: camiseta da campanha, sapato fechado, calça preta",
+    observacaoPlaceholder: "Ex: confirmar local com gerente e registrar se a ilha foi movida",
+  },
+  degustacao: {
+    atividades: ["Preparar degustação", "Abordar clientes", "Distribuir amostras", "Registrar feedback", "Tirar fotos"],
+    checklist: [
+      { pergunta: "Mesa/estação montada?", tipo: "sim_nao" },
+      { pergunta: "Amostras distribuídas", tipo: "numero" },
+      { pergunta: "Clientes abordados", tipo: "numero" },
+      { pergunta: "Produto aprovado pelo público?", tipo: "sim_nao" },
+      { pergunta: "Foto da estação de degustação", tipo: "foto" },
+      { pergunta: "Comentários dos clientes", tipo: "texto", obrigatorio: false },
+    ],
+    produtoLabel: "Produto degustado",
+    produtoPlaceholder: "Ex: Café gelado, queijo, iogurte, bebida funcional",
+    materialPlaceholder: "Ex: mesa, luvas, touca, copos, amostras, lixeira, banner",
+    uniformePlaceholder: "Ex: uniforme da ação, touca, luvas, sapato fechado",
+    observacaoPlaceholder: "Ex: usar luvas, abordar clientes no corredor principal e anotar feedbacks",
+  },
+  reposicao_noturna: {
+    atividades: ["Abastecer gôndola", "Organizar produtos", "Verificar validade", "Registrar ruptura", "Tirar fotos"],
+    checklist: [
+      { pergunta: "Abastecimento concluído?", tipo: "sim_nao" },
+      { pergunta: "Rupturas registradas?", tipo: "sim_nao" },
+      { pergunta: "Produtos vencidos encontrados?", tipo: "sim_nao" },
+      { pergunta: "Área limpa e organizada?", tipo: "sim_nao" },
+      { pergunta: "Foto final da gôndola", tipo: "foto" },
+      { pergunta: "Pendências para o próximo turno", tipo: "texto", obrigatorio: false },
+    ],
+    produtoLabel: "Categoria ou setor",
+    produtoPlaceholder: "Ex: Bebidas, mercearia, frios, higiene pessoal",
+    materialPlaceholder: "Ex: lista de prioridades, EPIs, acesso ao estoque",
+    uniformePlaceholder: "Ex: sapato fechado, roupa escura, colete refletivo se necessário",
+    observacaoPlaceholder: "Ex: entrar pela doca, procurar líder noturno e priorizar ruptura crítica",
+  },
+  pesquisa_precos: {
+    atividades: ["Coletar preço", "Conferir concorrência", "Registrar ruptura", "Tirar fotos", "Registrar divergência"],
+    checklist: [
+      { pergunta: "Preço coletado?", tipo: "sim_nao" },
+      { pergunta: "Valor encontrado", tipo: "numero" },
+      { pergunta: "Produto em promoção?", tipo: "sim_nao" },
+      { pergunta: "Concorrente informado?", tipo: "texto", obrigatorio: false },
+      { pergunta: "Foto da etiqueta/preço", tipo: "foto" },
+      { pergunta: "Observações da pesquisa", tipo: "texto", obrigatorio: false },
+    ],
+    produtoLabel: "Produto ou lista de pesquisa",
+    produtoPlaceholder: "Ex: Arroz 5kg, leite UHT, cerveja lata, cesta básica",
+    materialPlaceholder: "Ex: lista de produtos, formulário de pesquisa, régua de preço",
+    uniformePlaceholder: "Ex: roupa neutra ou uniforme discreto, conforme orientação",
+    observacaoPlaceholder: "Ex: coletar preço da marca própria e concorrentes diretos quando houver",
+  },
+};
+
+export const HABILIDADES_TRADE = [
+  "Reposição",
+  "Merchandising",
+  "Auditoria de loja",
+  "Inventário",
+  "Precificação",
+  "Degustação",
+  "Montagem de ilha",
+  "Pesquisa de preços",
+  "Reposição noturna",
+] as const;
+
 // ── Categorias organizadas por demanda em Campo Grande / MS ─────────────────
 export const CATEGORIAS_NEGOCIO = {
   "Delivery": {

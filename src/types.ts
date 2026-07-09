@@ -17,7 +17,7 @@ export interface Assinatura {
 
 // Diária (jornada de várias horas) vs Serviço (tarefa pontual "vem-faz-vai").
 // Spec: docs/spec-tipo-oferta-diaria-vs-servico.md
-export type TipoOferta = 'diaria' | 'servico' | 'emprego';
+export type TipoOferta = 'diaria' | 'servico' | 'emprego' | 'servico_empresa';
 export type TipoPreco = 'fixo' | 'a_combinar' | 'a_partir_de';
 
 export interface Diaria {
@@ -119,6 +119,9 @@ export interface UserProfile {
   acesso_total?: boolean;     // beta: liberado a criar vaga / se candidatar (testers + admin)
   is_suporte?: boolean;       // agente de suporte — promovido pelo admin via RPC promover_suporte()
   portfolio_urls?: string[];  // até 3 fotos do trabalho (diarista)
+  habilidades_trade?: string[];
+  experiencia_trade?: string;
+  aceita_servico_empresa?: boolean;
   // ── Níveis de confiabilidade ─────────────────────────────────────────
   telefone_verificado?: boolean;
   documento_status?: "nao_enviado" | "enviado" | "aprovado" | "rejeitado";
@@ -148,6 +151,69 @@ export interface UserProfile {
   // Selo de antecedentes p/ TERCEIROS: booleano positivo (true só quando
   // aprovado). Nunca expõe "enviado"/"rejeitado" de outra pessoa.
   antecedentes_verificado?: boolean;
+}
+
+export interface ServicoEmpresaDetalhes {
+  diaria_id: string;
+  tipo_servico: string;
+  marca?: string | null;
+  produto?: string | null;
+  atividades: string[];
+  exige_fotos: boolean;
+  exige_relatorio: boolean;
+  exige_checkin: boolean;
+  material_fornecido?: string | null;
+  uniforme?: string | null;
+  treinamento_necessario: boolean;
+  treinamento_texto?: string | null;
+  instrucoes?: string | null;
+  created_at?: string;
+}
+
+export interface ServicoLoja {
+  id: string;
+  diaria_id: string;
+  ordem: number;
+  nome_loja: string;
+  cep?: string | null;
+  endereco: string;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  geo_preciso?: boolean | null;
+  janela_inicio?: string | null;
+  janela_fim?: string | null;
+  created_at?: string;
+}
+
+export interface ServicoChecklistItem {
+  id: string;
+  diaria_id: string;
+  ordem: number;
+  pergunta: string;
+  tipo: "sim_nao" | "texto" | "numero" | "foto";
+  obrigatorio: boolean;
+  created_at?: string;
+}
+
+export interface ServicoExecucao {
+  id: string;
+  diaria_id: string;
+  loja_id: string;
+  candidatura_id?: string | null;
+  prestador_id: string;
+  status: "pendente" | "em_andamento" | "concluida" | "nao_realizada";
+  checkin_em?: string | null;
+  checkin_lat?: number | null;
+  checkin_lng?: number | null;
+  checkin_metodo?: string | null;
+  checkin_distancia_m?: number | null;
+  checkout_em?: string | null;
+  observacoes?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // ── Já Decola — Sistema educacional gamificado ─────────────────────────────

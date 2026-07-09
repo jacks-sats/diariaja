@@ -20,7 +20,7 @@ import {
   Star, CheckCircle2, AlertTriangle, MapPin,
   Filter, X, Send,
   Wallet, ShieldCheck, Clock,
-  ChevronRight, Inbox, Loader2,
+  ChevronRight, Inbox, Loader2, CalendarDays, Store,
 } from "lucide-react";
 // QRCodeSVG é carregado sob demanda — economiza ~117KB gzip no startup
 const QRCodeSVG = React.lazy(() =>
@@ -29,6 +29,7 @@ const QRCodeSVG = React.lazy(() =>
 // Telas informativas/estáticas — carregadas sob demanda (saem do chunk principal)
 const PoliticaPrivacidade = React.lazy(() => import("./screens/PoliticaPrivacidade"));
 const MeiInfo = React.lazy(() => import("./screens/MeiInfo"));
+const PublicarServicoEmpresa = React.lazy(() => import("./screens/empresa/PublicarServicoEmpresa"));
 
 // ── Opções do filtro de raio (distância) ────────────────────────────────────
 // Compartilhadas pelos dois lados (prestador vê vagas / anunciante vê prestadores)
@@ -221,6 +222,7 @@ export default function App() {
   // o tipo. A sugestão automática (por categoria da função) só age enquanto ele NÃO
   // tocou no seletor.
   const [tipoOfertaManual, setTipoOfertaManual]   = useState(false);
+  const [tipoPublicacaoEscolhida, setTipoPublicacaoEscolhida] = useState<"diaria" | "servico" | "emprego" | null>(null);
   const [diaristasReais, setDiaristasReais]       = useState<UserProfile[]>([]);
   const [diaristaSelecionadaReal, setDiaristaSelecionadaReal] = useState<UserProfile | null>(null);
   const [convitesRecebidos, setConvitesRecebidos] = useState<Convite[]>([]);
@@ -4309,12 +4311,38 @@ export default function App() {
     }
   };
 
-  // Abre o fluxo "publicar quanto quero pagar" — a tela criar-diaria que já
-  // existe, começando com o formulário limpo. Reutilizado pelos atalhos da
-  // home do contratante (busca x publicar a própria oferta).
+  // Publicação do anunciante: primeiro abre o hub com Diária, Serviço, Emprego e Serviços para Empresas.
+  // Diária/Serviço/Emprego reaproveitam o formulário antigo; Serviços para Empresas usa o wizard próprio.
+  const prepararFormularioPublicacao = (tipoOferta: "diaria" | "servico" | "emprego" = "diaria") => {
+    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:tipoOferta, tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" });
+    setLatDiaria(null); setLngDiaria(null); setAuthError(""); setErrosDiaria({}); setVagasDiaria(1); setTipoOfertaManual(true); setTipoPublicacaoEscolhida(tipoOferta);
+  };
+
   const irPublicarOferta = () => {
-    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" });
-    setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria");
+    setAuthError("");
+    setTipoPublicacaoEscolhida(null);
+    setTela("publicar-opcoes");
+  };
+
+  const abrirPublicacaoDiaria = () => {
+    prepararFormularioPublicacao("diaria");
+    setTela("criar-diaria");
+  };
+
+  const abrirPublicacaoServico = () => {
+    prepararFormularioPublicacao("servico");
+    setTela("criar-diaria");
+  };
+
+  const abrirPublicacaoEmprego = () => {
+    prepararFormularioPublicacao("emprego");
+    setTela("criar-diaria");
+  };
+
+  const irPublicarServicoEmpresa = () => {
+    setAuthError("");
+    setTipoPublicacaoEscolhida(null);
+    setTela("publicar-servico-empresa");
   };
 
   const cancelarConvite = async (conviteId: string) => {
@@ -5546,6 +5574,9 @@ export default function App() {
       setSelecionando(false);
       setToastError("❌ " + traduzirErroBanco(eCand));
       return;
+    }
+    if (diaria.tipo_oferta === "servico_empresa") {
+      void supabase.rpc("preparar_execucoes_servico_empresa", { p_diaria_id: diaria.id });
     }
     if (sel.rejeitarPendentes) {
       await supabase.from("candidaturas").update({ status: "rejeitado" }).eq("diaria_id", diaria.id).eq("status", "pendente");
@@ -9617,6 +9648,129 @@ export default function App() {
     </Suspense>
   );
 
+  // ESCOLHA DO TIPO DE PUBLICAÇÃO
+  if (tela === "publicar-opcoes") {
+    const cor = negocio?.cor || "#FF6B35";
+    const opcoes = [
+      {
+        titulo: "Publicar Diária",
+        subtitulo: "Contrate para uma diária",
+        icone: <CalendarDays size={23} />,
+        cor: "#ef4444",
+        fundo: "#fff1f2",
+        novo: false,
+        acao: abrirPublicacaoDiaria,
+      },
+      {
+        titulo: "Publicar Serviço",
+        subtitulo: "Tarefa pontual com preço combinado",
+        icone: <Clock size={23} />,
+        cor: "#f97316",
+        fundo: "#fff7ed",
+        novo: false,
+        acao: abrirPublicacaoServico,
+      },
+      {
+        titulo: "Vaga de Emprego",
+        subtitulo: "Vagas fixas e efetivas",
+        icone: <Briefcase size={23} />,
+        cor: "#2563eb",
+        fundo: "#eff6ff",
+        novo: false,
+        acao: abrirPublicacaoEmprego,
+      },
+      {
+        titulo: "Serviços para Empresas",
+        subtitulo: "Promotores, inventário, auditoria e mais",
+        icone: <Store size={23} />,
+        cor: "#16a34a",
+        fundo: "#f0fdf4",
+        novo: true,
+        acao: irPublicarServicoEmpresa,
+      },
+    ];
+    return (
+      <div style={{ minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", paddingTop:24, paddingRight:20, paddingBottom:40, paddingLeft:20, fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth: isDesktop ? 560 : 480, margin:"0 auto" }}>
+        <button style={S.back} onClick={() => { setAuthError(""); setTipoPublicacaoEscolhida(null); setTela("home-empregador"); }}>← Voltar</button>
+
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:22 }}>
+          <div>
+            <div style={{ fontSize:12, fontWeight:800, color:cor, textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:5 }}>
+              Publicar anúncio
+            </div>
+            <h1 style={{ margin:0, fontSize:24, lineHeight:1.12, color:"var(--text-1,#0f172a)", letterSpacing:0 }}>
+              O que você precisa?
+            </h1>
+          </div>
+          <div style={{ width:46, height:46, borderRadius:16, background:`${cor}14`, color:cor, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+            <Plus size={25} strokeWidth={2.7} />
+          </div>
+        </div>
+
+        <div style={{ display:"grid", gap:12 }}>
+          {opcoes.map(opcao => (
+            <button
+              key={opcao.titulo}
+              style={{
+                width:"100%",
+                minHeight:82,
+                background:"var(--bg-card,#fff)",
+                border:`1.5px solid ${opcao.novo ? "#22c55e" : "var(--border,#e2e8f0)"}`,
+                borderRadius:16,
+                padding:"14px 14px",
+                display:"flex",
+                alignItems:"center",
+                gap:14,
+                textAlign:"left" as const,
+                cursor:"pointer",
+                fontFamily:"Inter, system-ui, sans-serif",
+                boxShadow: opcao.novo ? "0 8px 20px rgba(34,197,94,.12)" : "0 2px 8px rgba(15,23,42,.05)",
+              }}
+              onClick={() => { hapticTick(); opcao.acao(); }}>
+              <span style={{ width:48, height:48, borderRadius:14, background:opcao.fundo, color:opcao.cor, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                {opcao.icone}
+              </span>
+              <span style={{ flex:1, minWidth:0 }}>
+                <span style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" as const }}>
+                  <span style={{ fontSize:15, fontWeight:900, color:"var(--text-1,#0f172a)" }}>{opcao.titulo}</span>
+                  {opcao.novo && (
+                    <span style={{ background:"#16a34a", color:"#fff", borderRadius:999, padding:"3px 7px", fontSize:9.5, fontWeight:900, lineHeight:1 }}>
+                      NOVO
+                    </span>
+                  )}
+                </span>
+                <span style={{ display:"block", fontSize:12.5, color:"var(--text-2,#64748b)", fontWeight:600, marginTop:4, lineHeight:1.35 }}>
+                  {opcao.subtitulo}
+                </span>
+              </span>
+              <ChevronRight size={20} color="var(--text-3,#94a3b8)" />
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // SERVIÇOS PARA EMPRESAS — publicação com roteiro/checklist em tela própria
+  if (tela === "publicar-servico-empresa") return (
+    <Suspense fallback={<div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)" }} />}>
+      <PublicarServicoEmpresa
+        session={session}
+        profile={profile}
+        negocioSelecionado={negocioSelecionado}
+        isDesktop={isDesktop}
+        onVoltar={() => setTela("publicar-opcoes")}
+        onErro={setToastError}
+        onPublicado={(nova) => {
+          setDiarias(prev => [nova, ...prev]);
+          setTabEmpregador("diarias");
+          setToastSuccess("✅ Serviço empresarial publicado! Aguardando interessados.");
+          setTela("home-empregador");
+        }}
+      />
+    </Suspense>
+  );
+
   // SUPORTE
   if (tela === "suporte") {
     const voltarTela = profile?.user_type === "empregador" ? "home-empregador" : profile?.user_type === "diarista" ? "home-diarista" : "splash";
@@ -11353,10 +11507,8 @@ export default function App() {
     // Usa constante global pré-computada (evita recalcular a cada render)
     const funcoes = TODAS_AS_FUNCOES;
     const iniciaisEmp = profile?.nome?.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase() || "?";
-    // Abrir o fluxo de publicar diária — mesma ação do FAB "Publicar" da bottom
-    // nav, extraída pra ser reusada também pelo top nav do desktop (sem duplicar
-    // o reset do formulário e sem mudar nada do comportamento).
-    const abrirCriarDiaria = () => { hapticTick(); setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria"); };
+    // Abrir o hub de publicação — o usuário escolhe Diária, Emprego ou Serviços para Empresas.
+    const abrirCriarDiaria = () => { hapticTick(); irPublicarOferta(); };
     const hora = new Date().getHours();
     const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
     const primeiroNome = profile?.nome?.split(" ")[0] || "você";
@@ -11678,9 +11830,8 @@ export default function App() {
                 </div>
               );
             })()}
-            {/* Dois caminhos do contratante: buscar diaristas (lista abaixo) OU
-                publicar a própria oferta de quanto quer pagar (criar-diaria). */}
-            <div style={{ display:"flex", gap:10, padding:"12px 16px 4px" }}>
+            {/* Dois caminhos do contratante: buscar prestadores ou abrir o hub de publicação. */}
+            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2,1fr)" : "1fr 1fr", gap:10, padding:"12px 16px 4px" }}>
               <button
                 style={{ flex:1, background:"var(--bg-card,#fff)", border:`2px solid ${negocio.cor}`, color:negocio.cor, borderRadius:14, padding:"12px 8px", fontWeight:800, fontSize:12.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1.25, display:"flex", flexDirection:"column" as const, alignItems:"center", gap:5 }}
                 onClick={() => document.getElementById("emp-lista-diaristas")?.scrollIntoView({ behavior:"smooth", block:"start" })}>
@@ -11916,7 +12067,7 @@ export default function App() {
                 )}
 
                 {/* Caminho de saída no fim da lista: se não achou o valor ideal,
-                    publica a própria oferta (mesmo fluxo de aceitar preço). */}
+                    abre o hub de publicação. */}
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined }}>
                   <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5, marginBottom:10 }}>
                     Não achou o valor ideal? Publique quanto você quer pagar e espere as diaristas aceitarem.
@@ -12719,7 +12870,7 @@ export default function App() {
 
               <button
                 style={{ ...S.btnPrimary, background:negocio.cor, marginTop:16 }}
-                onClick={() => { setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" }); setLatDiaria(null); setLngDiaria(null); setAuthError(""); setTipoOfertaManual(false); setTela("criar-diaria"); }}>
+                onClick={irPublicarOferta}>
                 + Publicar anúncio
               </button>
             </div>
@@ -15777,6 +15928,11 @@ export default function App() {
                                     {dia.funcao}
                                   </span>
                                 )}
+                                {dia.tipo_oferta === "servico_empresa" && (
+                                  <span style={{ background:"#fff1f2", color:"#be123c", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:900, border:"1px solid #fecdd3" }}>
+                                    EMPRESA
+                                  </span>
+                                )}
                                 <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>· {dia.segmento}</span>
                               </div>
                             </div>
@@ -15789,7 +15945,7 @@ export default function App() {
                               ) : (
                                 <>
                                   <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>{FUNCOES_DELIVERY.includes(dia.funcao) ? "~" : ""}R$ {dia.valor}</div>
-                                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{FUNCOES_DELIVERY.includes(dia.funcao) ? "/dia (estimado)" : dia.tipo_oferta === "servico" ? "/serviço" : "/dia"}</div>
+                                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{FUNCOES_DELIVERY.includes(dia.funcao) ? "/dia (estimado)" : dia.tipo_oferta === "servico_empresa" ? "/profissional" : dia.tipo_oferta === "servico" ? "/serviço" : "/dia"}</div>
                                 </>
                               )}
                             </div>
@@ -19664,8 +19820,8 @@ export default function App() {
     return (
       // Desktop: formulário em container ~700px centralizado (campos width:100%
       // acompanham). Mobile: 480px, idêntico ao anterior.
-      <div style={{ ...S.page, maxWidth: isDesktop ? 700 : 480 }}>
-        <button style={S.back} onClick={() => { setAuthError(""); setTabEmpregador("perfil"); setTela("home-empregador"); }}>← Voltar</button>
+      <div style={{ minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", paddingTop:24, paddingRight:20, paddingBottom:24, paddingLeft:20, fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth: isDesktop ? 700 : 480, margin:"0 auto" }}>
+        <button style={S.back} onClick={() => { setAuthError(""); setTela("publicar-opcoes"); }}>← Voltar</button>
 
         {/* Cabeçalho */}
         <div style={{ background:`linear-gradient(135deg,${cor} 0%,${cor}cc 100%)`, borderRadius:20, padding:"20px 20px 18px", marginBottom:8, color:"#fff" }}>
@@ -19680,36 +19836,41 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── SEÇÃO 1: Tipo de oportunidade (escolha primeiro — o resto se adapta) ── */}
-        <Secao icone="📌" titulo="O que você quer publicar?" />
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:14 }}>
-          {([
-            { v:"diaria",  emoji:"🌞", label:"Diária",  sub:"Várias horas" },
-            { v:"servico", emoji:"⚡", label:"Serviço", sub:"Tarefa pontual" },
-            // Vaga de emprego: publicar é GRÁTIS e ilimitado (igual diária/serviço).
-            // O antigo R$1/publicação morreu. A monetização da vaga é no CONTATO:
-            // selecionar candidato de vaga exige plano Essencial (trava no servidor).
-            { v:"emprego", emoji:"💼", label:"Emprego", sub:"Vaga fixa" },
-          ] as const).map(opt => {
-            const sel = formDiaria.tipo_oferta === opt.v;
-            return (
-              <button key={opt.v} type="button"
-                // Escolha MANUAL: marca a flag pra a sugestão automática por habilidade
-                // não sobrescrever o que o usuário escolheu aqui.
-                onClick={() => { setTipoOfertaManual(true); setFormDiaria({ ...formDiaria, tipo_oferta: opt.v }); }}
-                style={{
-                  padding:"12px 8px", textAlign:"center" as const, borderRadius:12,
-                  background: sel ? `${cor}14` : "var(--bg-2,#fff)",
-                  border: sel ? `2px solid ${cor}` : "1.5px solid var(--border,#e2e8f0)",
-                  cursor:"pointer",
-                }}>
-                <div style={{ fontSize:22 }}>{opt.emoji}</div>
-                <div style={{ fontSize:14, fontWeight: sel ? 800 : 600, color: sel ? cor : "var(--text-1,#0f172a)" }}>{opt.label}</div>
-                <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", marginTop:2 }}>{opt.sub}</div>
-              </button>
-            );
-          })}
-        </div>
+        {/* ── SEÇÃO 1: Tipo de oportunidade. Só aparece em acessos antigos/rascunhos,
+            porque no fluxo novo o tipo já foi escolhido no hub de publicação. ── */}
+        {!tipoPublicacaoEscolhida && (
+          <>
+            <Secao icone="📌" titulo="O que você quer publicar?" />
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:14 }}>
+              {([
+                { v:"diaria",  emoji:"🌞", label:"Diária",  sub:"Várias horas" },
+                { v:"servico", emoji:"⚡", label:"Serviço", sub:"Tarefa pontual" },
+                // Vaga de emprego: publicar é GRÁTIS e ilimitado (igual diária/serviço).
+                // O antigo R$1/publicação morreu. A monetização da vaga é no CONTATO:
+                // selecionar candidato de vaga exige plano Essencial (trava no servidor).
+                { v:"emprego", emoji:"💼", label:"Emprego", sub:"Vaga fixa" },
+              ] as const).map(opt => {
+                const sel = formDiaria.tipo_oferta === opt.v;
+                return (
+                  <button key={opt.v} type="button"
+                    // Escolha MANUAL: marca a flag pra a sugestão automática por habilidade
+                    // não sobrescrever o que o usuário escolheu aqui.
+                    onClick={() => { setTipoOfertaManual(true); setFormDiaria({ ...formDiaria, tipo_oferta: opt.v }); }}
+                    style={{
+                      padding:"12px 8px", textAlign:"center" as const, borderRadius:12,
+                      background: sel ? `${cor}14` : "var(--bg-2,#fff)",
+                      border: sel ? `2px solid ${cor}` : "1.5px solid var(--border,#e2e8f0)",
+                      cursor:"pointer",
+                    }}>
+                    <div style={{ fontSize:22 }}>{opt.emoji}</div>
+                    <div style={{ fontSize:14, fontWeight: sel ? 800 : 600, color: sel ? cor : "var(--text-1,#0f172a)" }}>{opt.label}</div>
+                    <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", marginTop:2 }}>{opt.sub}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
 
         {/* ── SEÇÃO 2: A diária / O serviço / A vaga ── */}
         <Secao icone="📋" titulo={ehEmp ? "A vaga" : ehServ ? "O serviço" : "A diária"} />
