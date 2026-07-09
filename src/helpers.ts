@@ -790,7 +790,9 @@ export function rotuloDistanciaFeed(
   if (!Number.isFinite(km)) return null;
   if (opts.ambosGeoPrecisos === false) return null; // algum lado sem geo preciso (centroide/null)
   if (opts.perfisNaMesmaCoord >= 3) return null;    // coord de centroide compartilhada → não confiável
-  if (km < grid * 1.5) return null;                 // dentro do ruído do arredondamento (#226)
+  // Dentro do ruído do arredondamento (#226): não dá pra cravar número, mas o
+  // dado é bom — em vez do fallback mudo, informa um TETO honesto ("perto").
+  if (km < grid * 1.5) return `a menos de ~${Math.ceil(grid * 1.5)} km`;
   return `~${km.toFixed(1).replace(".", ",")} km`;
 }
 

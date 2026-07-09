@@ -1646,9 +1646,9 @@ describe("rotuloDistanciaFeed", () => {
     expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 12 })).toBeNull();
     expect(rotuloDistanciaFeed(6.0, { perfisNaMesmaCoord: 3 })).toBeNull();
   });
-  it("distância abaixo do ruído do arredondamento (~1,1 km) → null", () => {
-    expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 1 })).toBeNull();
-    expect(rotuloDistanciaFeed(1.4, { perfisNaMesmaCoord: 1 })).toBeNull();
+  it("distância abaixo do ruído do arredondamento → teto honesto 'a menos de ~2 km'", () => {
+    expect(rotuloDistanciaFeed(0.2, { perfisNaMesmaCoord: 1 })).toBe("a menos de ~2 km");
+    expect(rotuloDistanciaFeed(1.4, { perfisNaMesmaCoord: 1 })).toBe("a menos de ~2 km");
   });
   it("coord única e distância acima da grade → mostra '~X km'", () => {
     expect(rotuloDistanciaFeed(3.2, { perfisNaMesmaCoord: 1 })).toBe("~3,2 km");
@@ -1667,9 +1667,12 @@ describe("rotuloDistanciaFeed", () => {
   it("ambosGeoPrecisos=true + coord única + acima da grade → mostra '~X km'", () => {
     expect(rotuloDistanciaFeed(3.2, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: true })).toBe("~3,2 km");
   });
-  it("ambosGeoPrecisos=true NÃO fura o piso de ruído nem o cluster", () => {
-    expect(rotuloDistanciaFeed(0.5, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: true })).toBeNull();
+  it("ambosGeoPrecisos=true: piso de ruído vira teto honesto; cluster continua null", () => {
+    expect(rotuloDistanciaFeed(0.5, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: true })).toBe("a menos de ~2 km");
     expect(rotuloDistanciaFeed(4.0, { perfisNaMesmaCoord: 3, ambosGeoPrecisos: true })).toBeNull();
+  });
+  it("ambosGeoPrecisos=false NÃO ganha o teto 'a menos de ~2 km' (dado ruim = mudo)", () => {
+    expect(rotuloDistanciaFeed(0.5, { perfisNaMesmaCoord: 1, ambosGeoPrecisos: false })).toBeNull();
   });
 });
 
