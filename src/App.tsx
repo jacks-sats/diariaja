@@ -48,6 +48,25 @@ const OPCOES_RAIO_KM: { v: number; lab: string }[] = [
 type PushTipo = "mensagem" | "vaga_proxima" | "candidatura" | "selecionado" | "confirmacao" | "convite_resposta" | "default";
 // Notificação persistida no histórico (sininho). `destino` = tela ao tocar.
 type NotifItem = { tipo: "ok" | "erro"; msg: string; ts: number; lida?: boolean; destino?: string };
+type DiaristaInfoCandidatura = {
+  nome?: string;
+  funcao?: string;
+  foto_url?: string;
+  lat?: number | null;
+  lng?: number | null;
+  categorias?: string[];
+  carta?: string;
+  curriculo_path?: string;
+  valor_proposta?: number;
+  observacao_proposta?: string;
+};
+type CandidaturaLocal = {
+  id: string;
+  diaria_id: string;
+  diarista_id: string;
+  status: string;
+  diarista_info?: DiaristaInfoCandidatura | null;
+};
 async function enviarPush(
   userIds: string[],
   title: string,
@@ -315,7 +334,9 @@ export default function App() {
   // Candidaturas (fluxo: interesse → seleção → confirmação)
   const [meuInteresse, setMeuInteresse]               = useState<Record<string,string>>({});          // diaria_id → status
   const [minhaCartaPorVaga, setMinhaCartaPorVaga]     = useState<Record<string,string>>({});          // diaria_id → carta que EU enviei (emprego)
-  const [candidaturas, setCandidaturas]               = useState<{id:string,diaria_id:string,diarista_id:string,status:string}[]>([]);
+  const [minhaPropostaPorVaga, setMinhaPropostaPorVaga] = useState<Record<string,{ valor:number; observacao?:string }>>({});
+  const [propostaServico, setPropostaServico]         = useState({ valor:"", observacao:"" });
+  const [candidaturas, setCandidaturas]               = useState<CandidaturaLocal[]>([]);
   const [candidatosProfiles, setCandidatosProfiles]   = useState<Record<string,UserProfile>>({});
   const [modalCandidatos, setModalCandidatos]         = useState<Diaria|null>(null);
   const [selecionando, setSelecionando]               = useState(false);
@@ -324,6 +345,7 @@ export default function App() {
   // Perfil do candidato (empregador vê detalhes ao clicar no card)
   const [perfilCandidato, setPerfilCandidato]         = useState<UserProfile|null>(null);
   const [cartaPerfilCandidato, setCartaPerfilCandidato] = useState<string|null>(null); // carta da candidatura aberta (emprego)
+  const [propostaPerfilCandidato, setPropostaPerfilCandidato] = useState<{ valor:number; observacao?:string } | null>(null);
   const [avaliacoesCandidato, setAvaliacoesCandidato] = useState<{id:string,nota:number,comentario:string,created_at:string}[]>([]);
   const [diariasCandidato, setDiariasCandidato]       = useState(0);
   const [loadingPerfil, setLoadingPerfil]             = useState(false);
@@ -1611,9 +1633,14 @@ export default function App() {
       // Carrega interesses/candidaturas do diarista para saber quais vagas já sinalizou
       const { data: ints } = await supabase.from("candidaturas").select("diaria_id, status, diarista_info").eq("diarista_id", session.user!.id);
       if (ints) {
-        const m: Record<string,string> = {}; const c: Record<string,string> = {};
-        ints.forEach((i:any) => { m[i.diaria_id] = i.status; const ca = i.diarista_info?.carta; if (ca) c[i.diaria_id] = ca; });
-        setMeuInteresse(m); setMinhaCartaPorVaga(c);
+        const m: Record<string,string> = {}; const c: Record<string,string> = {}; const p: Record<string,{ valor:number; observacao?:string }> = {};
+        ints.forEach((i:any) => {
+          m[i.diaria_id] = i.status;
+          const ca = i.diarista_info?.carta; if (ca) c[i.diaria_id] = ca;
+          const vp = Number(i.diarista_info?.valor_proposta || 0);
+          if (vp > 0) p[i.diaria_id] = { valor: vp, observacao: i.diarista_info?.observacao_proposta || "" };
+        });
+        setMeuInteresse(m); setMinhaCartaPorVaga(c); setMinhaPropostaPorVaga(p);
       }
 
       // Carrega quais diárias o diarista já avaliou
@@ -2423,9 +2450,14 @@ export default function App() {
         if (data) setMinhasDiarias(data);
         const { data: ints } = await supabase.from("candidaturas").select("diaria_id, status, diarista_info").eq("diarista_id", uid);
         if (ints) {
-          const m: Record<string, string> = {}; const c: Record<string, string> = {};
-          ints.forEach((i: any) => { m[i.diaria_id] = i.status; const ca = i.diarista_info?.carta; if (ca) c[i.diaria_id] = ca; });
-          setMeuInteresse(m); setMinhaCartaPorVaga(c);
+          const m: Record<string, string> = {}; const c: Record<string, string> = {}; const p: Record<string,{ valor:number; observacao?:string }> = {};
+          ints.forEach((i: any) => {
+            m[i.diaria_id] = i.status;
+            const ca = i.diarista_info?.carta; if (ca) c[i.diaria_id] = ca;
+            const vp = Number(i.diarista_info?.valor_proposta || 0);
+            if (vp > 0) p[i.diaria_id] = { valor: vp, observacao: i.diarista_info?.observacao_proposta || "" };
+          });
+          setMeuInteresse(m); setMinhaCartaPorVaga(c); setMinhaPropostaPorVaga(p);
         }
         // Re-busca status de KYC do próprio perfil (a equipe aprova por fora; sem
         // isto o "documento aprovado" só aparecia após relogar).
@@ -4314,7 +4346,7 @@ export default function App() {
   // Publicação do anunciante: primeiro abre o hub com Diária, Serviço, Emprego e Serviços para Empresas.
   // Diária/Serviço/Emprego reaproveitam o formulário antigo; Serviços para Empresas usa o wizard próprio.
   const prepararFormularioPublicacao = (tipoOferta: "diaria" | "servico" | "emprego" = "diaria") => {
-    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:tipoOferta, tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" });
+    setFormDiaria({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:tipoOferta, tempo_estimado_min:"60", tipo_preco:tipoOferta === "servico" ? "a_combinar" : "fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" });
     setLatDiaria(null); setLngDiaria(null); setAuthError(""); setErrosDiaria({}); setVagasDiaria(1); setTipoOfertaManual(true); setTipoPublicacaoEscolhida(tipoOferta);
   };
 
@@ -5346,9 +5378,10 @@ export default function App() {
 
   // Diarista aceita uma diária — concorda com o valor do empregador
   // Abre o perfil completo de um candidato no modal
-  const abrirPerfilCandidato = async (dp: UserProfile, carta?: string | null) => {
+  const abrirPerfilCandidato = async (dp: UserProfile, carta?: string | null, proposta?: { valor:number; observacao?:string } | null) => {
     setPerfilCandidato(dp);
     setCartaPerfilCandidato(carta || null);
+    setPropostaPerfilCandidato(proposta || null);
     setAvaliacoesCandidato([]);
     setDiariasCandidato(0);
     setLoadingPerfil(true);
@@ -5421,6 +5454,17 @@ export default function App() {
       }
     }
 
+    const servicoComProposta = diaria.tipo_oferta === "servico" && Number(diaria.valor || 0) <= 0;
+    const propostaValorNormalizada = propostaServico.valor.trim().includes(",")
+      ? propostaServico.valor.trim().replace(/\./g, "").replace(",", ".")
+      : propostaServico.valor.trim();
+    const valorPropostaServico = servicoComProposta ? Number(propostaValorNormalizada) : 0;
+    const observacaoPropostaServico = propostaServico.observacao.trim();
+    if (servicoComProposta && (!valorPropostaServico || Number.isNaN(valorPropostaServico) || valorPropostaServico <= 0)) {
+      setToastError("Informe o valor da sua proposta para este serviço.");
+      return;
+    }
+
     setEnviandoInteresse(true);
 
     // ── Vaga de emprego: carta (opcional) + currículo PDF (opcional) ──────────
@@ -5463,6 +5507,10 @@ export default function App() {
       // Só pra vaga de emprego — diária/serviço seguem com 1 clique.
       ...(ehVagaEmprego && cartaVaga.trim() ? { carta: cartaVaga.trim() } : {}),
       ...(curriculoPath ? { curriculo_path: curriculoPath } : {}),
+      ...(servicoComProposta ? {
+        valor_proposta: valorPropostaServico,
+        observacao_proposta: observacaoPropostaServico || undefined,
+      } : {}),
     };
     const { error } = await supabase.from("candidaturas").insert({
       diaria_id: diaria.id,
@@ -5485,9 +5533,10 @@ export default function App() {
           setCartaVaga(""); setCurriculoFile(null);
           setMeuInteresse(prev => ({ ...prev, [diaria.id]: "pendente" }));
           if (cartaR) setMinhaCartaPorVaga(prev => ({ ...prev, [diaria.id]: cartaR }));
+          if (servicoComProposta) setMinhaPropostaPorVaga(prev => ({ ...prev, [diaria.id]: { valor: valorPropostaServico, observacao: observacaoPropostaServico } }));
           setVagaConfirm(null); setVagaConfirmada(true);
           hapticConfirm();
-          setToastSuccess("✅ Candidatura reenviada!");
+          setToastSuccess(servicoComProposta ? "✅ Proposta reenviada!" : "✅ Candidatura reenviada!");
           return;
         }
         setMeuInteresse(prev => ({ ...prev, [diaria.id]: prev[diaria.id] || "pendente" }));
@@ -5502,6 +5551,8 @@ export default function App() {
     trackEvento("candidatura_enviada", session?.user?.id, "diarista", { diaria_id: diaria.id, funcao: diaria.funcao });
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "pendente" }));
     if (cartaEnviada) setMinhaCartaPorVaga(prev => ({ ...prev, [diaria.id]: cartaEnviada }));
+    if (servicoComProposta) setMinhaPropostaPorVaga(prev => ({ ...prev, [diaria.id]: { valor: valorPropostaServico, observacao: observacaoPropostaServico } }));
+    setPropostaServico({ valor:"", observacao:"" });
     setVagaConfirmada(true);
     hapticConfirm();
 
@@ -5509,7 +5560,9 @@ export default function App() {
     enviarPush(
       [diaria.empregador_id],
       "Novo interessado no seu anúncio",
-      `${profile?.nome?.split(" ")[0] || "Um prestador"} demonstrou interesse em "${diaria.funcao || diaria.segmento}".`,
+      servicoComProposta
+        ? `${profile?.nome?.split(" ")[0] || "Um prestador"} enviou proposta de R$ ${valorPropostaServico.toLocaleString("pt-BR")} para "${diaria.funcao || diaria.segmento}".`
+        : `${profile?.nome?.split(" ")[0] || "Um prestador"} demonstrou interesse em "${diaria.funcao || diaria.segmento}".`,
       { tipo: "candidatura", url: "/" },
     );
 
@@ -6328,6 +6381,11 @@ export default function App() {
     setErrosDiaria(e => (Object.keys(e).length ? {} : e));
   }, [formDiaria]);
 
+  useEffect(() => {
+    if (!vagaConfirm || vagaConfirm.tipo_oferta !== "servico") return;
+    if (!meuInteresse[vagaConfirm.id]) setPropostaServico({ valor:"", observacao:"" });
+  }, [vagaConfirm?.id]);
+
   const salvarDiaria = async () => {
     if (!session?.user) return;
     // Modo Beta: CRIAR VAGA é liberado (popula o feed e o anunciante testa o fluxo).
@@ -6344,6 +6402,8 @@ export default function App() {
     const erros: Record<string, string> = {};
     const ehServico = formDiaria.tipo_oferta === "servico";
     const ehEmprego = formDiaria.tipo_oferta === "emprego";
+    const ehDeliveryForm = FUNCOES_DELIVERY.includes(formDiaria.funcao);
+    const servicoRecebePropostas = ehServico && !ehDeliveryForm && formDiaria.tipo_preco === "a_combinar";
 
     const erroTitulo = validarTituloDiaria(formDiaria.local);
     if (erroTitulo) erros.local = erroTitulo;
@@ -6370,7 +6430,7 @@ export default function App() {
         // SERVIÇO: precisa só início (quando ir) + tempo estimado já tem default
         if (!formDiaria.horario_inicio) erros.horario_inicio = "Informe o horário previsto pra chegada.";
       }
-      if (!formDiaria.valor || isNaN(Number(formDiaria.valor)) || Number(formDiaria.valor) <= 0) erros.valor = "Informe um valor numérico válido.";
+      if (!servicoRecebePropostas && (!formDiaria.valor || isNaN(Number(formDiaria.valor)) || Number(formDiaria.valor) <= 0)) erros.valor = "Informe um valor numérico válido.";
     }
     // Endereço: obrigatório p/ diária/serviço e p/ vaga presencial/híbrida.
     // VAGA REMOTA (emprego + regime "Remoto"): endereço é OPCIONAL — não bloqueia.
@@ -11375,6 +11435,7 @@ export default function App() {
   // ── MODAL: Termo do Diarista (Diarista aceita o serviço) ──────────────────
   if (modalTermoDiarista) {
     const d = modalTermoDiarista;
+    const propostaTermo = d.tipo_oferta === "servico" ? minhaPropostaPorVaga[d.id] : null;
     return (
       <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" }}>
         <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
@@ -11383,8 +11444,10 @@ export default function App() {
           <div style={{ background:"#f8fafc", borderRadius:14, padding:"14px 16px", marginBottom:16 }}>
             <div style={{ fontWeight:800, fontSize:15, color:"var(--text-1,#0f172a)", marginBottom:6 }}>{d.nome_negocio || d.segmento}</div>
             <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:4 }}>👷 {d.funcao}</div>
-            <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:4 }}>📅 {new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {d.horario_inicio.slice(0,5)}–{d.horario_fim.slice(0,5)}</div>
-            <div style={{ fontSize:15, fontWeight:900, color:"#FF6B35", marginTop:6 }}>{rotuloPrecoVaga(d.valor, { ehDelivery: FUNCOES_DELIVERY.includes(d.funcao), ehServico: d.tipo_oferta === "servico" })}</div>
+            <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:4 }}>📅 {new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {d.horario_inicio.slice(0,5)}{d.tipo_oferta === "servico" ? " · serviço pontual" : `–${d.horario_fim.slice(0,5)}`}</div>
+            <div style={{ fontSize:15, fontWeight:900, color:"#FF6B35", marginTop:6 }}>
+              {propostaTermo ? `Sua proposta: R$ ${propostaTermo.valor.toLocaleString("pt-BR")}` : rotuloPrecoVaga(d.valor, { ehDelivery: FUNCOES_DELIVERY.includes(d.funcao), ehServico: d.tipo_oferta === "servico" })}
+            </div>
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
             {[
@@ -11422,11 +11485,16 @@ export default function App() {
   // ── MODAL: Recibo do Diarista ─────────────────────────────────────────────
   if (modalReciboDiarista) {
     const d = modalReciboDiarista;
-    const [h1r, m1r] = d.horario_inicio.split(":").map(Number);
-    const [h2r, m2r] = d.horario_fim.split(":").map(Number);
-    let totalMinR = (h2r * 60 + m2r) - (h1r * 60 + m1r);
-    if (totalMinR < 0) totalMinR += 1440; // vira o dia (turno cruza a meia-noite)
-    const horasR = totalMinR > 0 ? `${Math.floor(totalMinR/60)}h${totalMinR%60>0?String(totalMinR%60).padStart(2,"0")+"min":""}` : "";
+    const propostaRecibo = d.tipo_oferta === "servico" ? minhaPropostaPorVaga[d.id] : null;
+    let horasR = "";
+    if (d.horario_fim) {
+      const [h1r, m1r] = d.horario_inicio.split(":").map(Number);
+      const [h2r, m2r] = d.horario_fim.split(":").map(Number);
+      let totalMinR = (h2r * 60 + m2r) - (h1r * 60 + m1r);
+      if (totalMinR < 0) totalMinR += 1440; // vira o dia (turno cruza a meia-noite)
+      horasR = totalMinR > 0 ? `${Math.floor(totalMinR/60)}h${totalMinR%60>0?String(totalMinR%60).padStart(2,"0")+"min":""}` : "";
+    }
+    const valorRecibo = propostaRecibo?.valor ?? d.valor_diarista ?? d.valor;
     return (
       <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.85)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"Inter, system-ui, sans-serif" }}>
         <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px 32px", width:"100%", maxWidth:420 }}>
@@ -11450,7 +11518,7 @@ export default function App() {
             <div style={{ height:1, background:"#e2e8f0", margin:"4px 0" }} />
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <span style={{ fontSize:14, fontWeight:700, color:"var(--text-1,#0f172a)" }}>Total recebido</span>
-              <span style={{ fontSize:20, fontWeight:900, color:"#22c55e" }}>R$ {d.valor_diarista ?? d.valor}</span>
+              <span style={{ fontSize:20, fontWeight:900, color:"#22c55e" }}>R$ {Number(valorRecibo || 0).toLocaleString("pt-BR")}</span>
             </div>
           </div>
           <button
@@ -11462,7 +11530,7 @@ export default function App() {
                 horario:      d.horario_fim ? `${d.horario_inicio.slice(0,5)} – ${d.horario_fim.slice(0,5)}${horasR ? ` (${horasR})` : ""}` : d.horario_inicio.slice(0,5),
                 local:        d.nome_negocio || d.segmento || "—",
                 profissional: profile?.nome || undefined,
-                valor:        String(d.valor_diarista ?? d.valor ?? ""),
+                valor:        String(valorRecibo ?? ""),
                 rotuloValor:  "Total recebido",
                 geradoEm:     new Date().toLocaleString("pt-BR"),
               });
@@ -12469,11 +12537,15 @@ export default function App() {
                 <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
                   {diariasFiltradas.map(dia => {
                     const sl = statusLabel[dia.status] ?? statusLabel.aberta;
-                    const [h1s, m1s] = dia.horario_inicio.split(":");
-                    const [h2s, m2s] = dia.horario_fim.split(":");
-                    let min = (parseInt(h2s)*60+parseInt(m2s)) - (parseInt(h1s)*60+parseInt(m1s));
-                    if (min < 0) min += 1440; // vira o dia (turno cruza a meia-noite)
-                    const dur = min > 0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
+                    const ehServicoCardEmp = dia.tipo_oferta === "servico";
+                    let dur = "";
+                    if (!ehServicoCardEmp && dia.horario_fim) {
+                      const [h1s, m1s] = dia.horario_inicio.split(":");
+                      const [h2s, m2s] = dia.horario_fim.split(":");
+                      let min = (parseInt(h2s)*60+parseInt(m2s)) - (parseInt(h1s)*60+parseInt(m1s));
+                      if (min < 0) min += 1440; // vira o dia (turno cruza a meia-noite)
+                      dur = min > 0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
+                    }
                     const bordaCor = dia.status==="em_andamento" ? "#f59e0b" : dia.status==="aceita" ? "#3A86FF" : dia.status==="concluida" ? "#22c55e" : dia.status==="cancelada" ? "#ef4444" : dia.status==="expirada" ? "#f59e0b" : "#e2e8f0";
                     const estaExpandida = detalhesDiaria?.id === dia.id;
                     return (
@@ -12541,7 +12613,9 @@ export default function App() {
                                 🗑️
                               </button>
                             )}
-                            <span style={{ fontWeight:900, fontSize:16, color:negocio.cor }}>R$ {dia.valor}</span>
+                            <span style={{ fontWeight:900, fontSize:16, color:negocio.cor }}>
+                              {dia.tipo_oferta === "servico" && Number(dia.valor || 0) <= 0 ? "Propostas" : `R$ ${dia.valor}`}
+                            </span>
                             {/* Indicador expand/collapse */}
                             <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)", transition:"transform .2s", display:"inline-block", transform: estaExpandida ? "rotate(180deg)" : "rotate(0deg)" }}>▼</span>
                           </div>
@@ -12549,7 +12623,7 @@ export default function App() {
                         <div style={{ fontWeight:700, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:6 }}>{dia.descricao}</div>
                         <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginBottom:4 }}>
                           {dia.funcao && <span>👷 {dia.funcao} · </span>}
-                          <span>📅 {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {dia.horario_inicio.slice(0,5)}–{dia.horario_fim.slice(0,5)}{dur ? ` · ${dur}` : ""}</span>
+                          <span>📅 {new Date(dia.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {dia.horario_inicio.slice(0,5)}{ehServicoCardEmp ? " · serviço pontual" : `–${dia.horario_fim.slice(0,5)}${dur ? ` · ${dur}` : ""}`}</span>
                         </div>
                         {dia.endereco && <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginBottom:4 }}>📍 {dia.endereco.split(", ").slice(0,3).join(", ")}</div>}
 
@@ -13044,7 +13118,10 @@ export default function App() {
                   .map(c => {
                     const dp = candidatosProfiles[c.diarista_id];
                     // diarista_info: dados embutidos na candidatura (independe de RLS)
-                    const info = (c as any).diarista_info as { nome?:string; funcao?:string; foto_url?:string; lat?:number; lng?:number; carta?:string; curriculo_path?:string } | undefined;
+                    const info = (c as any).diarista_info as { nome?:string; funcao?:string; foto_url?:string; lat?:number; lng?:number; carta?:string; curriculo_path?:string; valor_proposta?:number; observacao_proposta?:string } | undefined;
+                    const propostaCandidato = info?.valor_proposta && info.valor_proposta > 0
+                      ? { valor: info.valor_proposta, observacao: info.observacao_proposta || "" }
+                      : null;
                     const nome = dp?.nome || info?.nome || "Profissional";
                     const funcao = dp?.funcao || info?.funcao || "";
                     const latD = dp?.lat ?? info?.lat ?? null;
@@ -13072,7 +13149,7 @@ export default function App() {
                             const p = (pArr as unknown as UserProfile[] | null)?.[0];
                             if (p) { setCandidatosProfiles(prev => ({ ...prev, [c.diarista_id]: p })); perfil = p; }
                           }
-                          if (perfil) abrirPerfilCandidato(perfil, info?.carta);
+                          if (perfil) abrirPerfilCandidato(perfil, info?.carta, propostaCandidato);
                         }}>
                         {/* Foto: iniciais como fundo, img sobreposta — some via onError se não carregar */}
                         <div style={{ position:"relative", width:56, height:56, flexShrink:0 }}>
@@ -13091,6 +13168,12 @@ export default function App() {
                             ? <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>📍 {distCandTxt}</div>
                             : <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Toque para ver perfil completo →</div>
                           }
+                          {modalCandidatos.tipo_oferta === "servico" && propostaCandidato && (
+                            <div style={{ marginTop:8, background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:10, padding:"8px 10px", fontSize:12, color:"#9a3412", lineHeight:1.45 }}>
+                              <strong>Proposta:</strong> R$ {propostaCandidato.valor.toLocaleString("pt-BR")}
+                              {propostaCandidato.observacao ? <div style={{ marginTop:3, color:"#7c2d12" }}>{propostaCandidato.observacao}</div> : null}
+                            </div>
+                          )}
                           {/* Vaga de emprego: carta de apresentação + botão de currículo */}
                           {modalCandidatos.tipo_oferta === "emprego" && (info?.carta || info?.curriculo_path) && (
                             <div style={{ marginTop:8 }}>
@@ -13244,6 +13327,21 @@ export default function App() {
                           )}
                         </div>
                       </div>
+
+                      {propostaPerfilCandidato && (
+                        <div style={{ background:"#fff7ed", borderRadius:14, padding:"14px 16px", border:"1.5px solid #fed7aa" }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:"#9a3412", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>💰 Proposta enviada</div>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
+                            <div style={{ fontSize:13, color:"#7c2d12", lineHeight:1.5 }}>
+                              Valor que o profissional propôs para executar este serviço.
+                            </div>
+                            <div style={{ fontWeight:900, fontSize:22, color:"#ea580c", whiteSpace:"nowrap" as const }}>R$ {propostaPerfilCandidato.valor.toLocaleString("pt-BR")}</div>
+                          </div>
+                          {propostaPerfilCandidato.observacao && (
+                            <p style={{ fontSize:13, color:"#7c2d12", lineHeight:1.5, margin:"8px 0 0", whiteSpace:"pre-wrap" as const }}>{propostaPerfilCandidato.observacao}</p>
+                          )}
+                        </div>
+                      )}
 
                       {/* Carta de apresentação da candidatura (vaga de emprego) —
                           o que o candidato escreveu PARA ESTA vaga. Vem da
@@ -13537,11 +13635,21 @@ export default function App() {
         {/* ── Modal: Recibo Digital ── */}
         {modalRecibo && (() => {
           const dp = modalRecibo.diarista_aceite_id ? diaristasAceites[modalRecibo.diarista_aceite_id] : null;
-          const [h1, m1] = modalRecibo.horario_inicio.split(":").map(Number);
-          const [h2, m2] = modalRecibo.horario_fim.split(":").map(Number);
-          let minutos = (h2 * 60 + m2) - (h1 * 60 + m1);
-          if (minutos < 0) minutos += 1440; // vira o dia (turno cruza a meia-noite)
-          const horas = minutos > 0 ? `${Math.floor(minutos/60)}h${minutos%60>0?String(minutos%60).padStart(2,"0")+"min":""}` : "";
+          const propostaReciboEmp = modalRecibo.tipo_oferta === "servico"
+            ? Number(candidaturas.find(c => c.diaria_id === modalRecibo.id && c.diarista_id === modalRecibo.diarista_aceite_id)?.diarista_info?.valor_proposta || 0)
+            : 0;
+          const valorReciboEmp = propostaReciboEmp > 0 ? propostaReciboEmp : modalRecibo.valor;
+          let horas = "";
+          if (modalRecibo.horario_fim) {
+            const [h1, m1] = modalRecibo.horario_inicio.split(":").map(Number);
+            const [h2, m2] = modalRecibo.horario_fim.split(":").map(Number);
+            let minutos = (h2 * 60 + m2) - (h1 * 60 + m1);
+            if (minutos < 0) minutos += 1440; // vira o dia (turno cruza a meia-noite)
+            horas = minutos > 0 ? `${Math.floor(minutos/60)}h${minutos%60>0?String(minutos%60).padStart(2,"0")+"min":""}` : "";
+          }
+          const horarioReciboEmp = modalRecibo.horario_fim
+            ? `${modalRecibo.horario_inicio.slice(0,5)} – ${modalRecibo.horario_fim.slice(0,5)}${horas ? ` (${horas})` : ""}`
+            : `${modalRecibo.horario_inicio.slice(0,5)} · serviço pontual`;
           return (
             <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.8)", zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
               <div style={{ background:"var(--bg-card,#fff)", borderRadius:24, padding:"28px 24px 32px", width:"100%", maxWidth:380, boxShadow:"0 20px 60px rgba(0,0,0,.4)" }}>
@@ -13554,7 +13662,7 @@ export default function App() {
                   {[
                     ["Serviço", modalRecibo.funcao || modalRecibo.descricao],
                     ["Data", new Date(modalRecibo.data+"T12:00:00").toLocaleDateString("pt-BR")],
-                    ["Horário", `${modalRecibo.horario_inicio.slice(0,5)} – ${modalRecibo.horario_fim.slice(0,5)}${horas ? ` (${horas})` : ""}`],
+                    ["Horário", horarioReciboEmp],
                     ["Local", modalRecibo.nome_negocio || modalRecibo.segmento],
                     ["Profissional", dp?.nome || "—"],
                     ["Anunciante", profile?.nome_negocio || profile?.nome || "—"],
@@ -13566,7 +13674,7 @@ export default function App() {
                   ))}
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:12, marginTop:4 }}>
                     <span style={{ fontSize:14, fontWeight:800, color:"var(--text-1,#0f172a)" }}>Total</span>
-                    <span style={{ fontSize:20, fontWeight:900, color:"#22c55e" }}>R$ {modalRecibo.valor}</span>
+                    <span style={{ fontSize:20, fontWeight:900, color:"#22c55e" }}>R$ {Number(valorReciboEmp || 0).toLocaleString("pt-BR")}</span>
                   </div>
                 </div>
                 <div style={{ background:"#fef3c7", borderRadius:12, padding:"10px 14px", fontSize:12, color:"#92400e", fontWeight:600, marginBottom:16, lineHeight:1.5 }}>
@@ -13578,11 +13686,11 @@ export default function App() {
                     const bytes = gerarReciboPDF({
                       servico:      modalRecibo.funcao || modalRecibo.descricao || "Serviço",
                       data:         new Date(modalRecibo.data+"T12:00:00").toLocaleDateString("pt-BR"),
-                      horario:      `${modalRecibo.horario_inicio.slice(0,5)} – ${modalRecibo.horario_fim.slice(0,5)}${horas ? ` (${horas})` : ""}`,
+                      horario:      horarioReciboEmp,
                       local:        modalRecibo.nome_negocio || modalRecibo.segmento || "—",
                       profissional: dp?.nome || undefined,
                       anunciante:   profile?.nome_negocio || profile?.nome || undefined,
-                      valor:        String(modalRecibo.valor ?? ""),
+                      valor:        String(valorReciboEmp ?? ""),
                       rotuloValor:  "Total",
                       geradoEm:     new Date().toLocaleString("pt-BR"),
                     });
@@ -15813,11 +15921,16 @@ export default function App() {
                   const cor = segInfo?.cor || "#FF6B35";
                   const iniciais = empresaIniciais(dia.nome_negocio || dia.segmento);
                   const dataFmt = formatData(dia.data);
-                  const [h1, m1] = dia.horario_inicio.split(":");
-                  const [h2, m2] = dia.horario_fim.split(":");
-                  let minTotal = (parseInt(h2)*60+parseInt(m2)) - (parseInt(h1)*60+parseInt(m1));
-                  if (minTotal < 0) minTotal += 1440; // vira o dia (turno cruza a meia-noite)
-                  const duracao = minTotal > 0 ? ` · ${Math.floor(minTotal/60)}h${minTotal%60>0?String(minTotal%60).padStart(2,"0")+"min":""}` : "";
+                  const ehServicoFeed = dia.tipo_oferta === "servico";
+                  const propostaFeed = ehServicoFeed ? minhaPropostaPorVaga[dia.id] : null;
+                  let duracao = "";
+                  if (!ehServicoFeed && dia.horario_fim) {
+                    const [h1, m1] = dia.horario_inicio.split(":");
+                    const [h2, m2] = dia.horario_fim.split(":");
+                    let minTotal = (parseInt(h2)*60+parseInt(m2)) - (parseInt(h1)*60+parseInt(m1));
+                    if (minTotal < 0) minTotal += 1440; // vira o dia (turno cruza a meia-noite)
+                    duracao = minTotal > 0 ? ` · ${Math.floor(minTotal/60)}h${minTotal%60>0?String(minTotal%60).padStart(2,"0")+"min":""}` : "";
+                  }
                   const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(dia.funcao));
                   const funcCor = funcCatEntry ? funcCatEntry[1].cor : "#64748b";
                   // Urgência social (FOMO): candidaturas nas últimas 24h pra essa vaga
@@ -15943,10 +16056,17 @@ export default function App() {
                                   <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>💼 emprego</div>
                                 </>
                               ) : (
-                                <>
-                                  <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>{FUNCOES_DELIVERY.includes(dia.funcao) ? "~" : ""}R$ {dia.valor}</div>
-                                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{FUNCOES_DELIVERY.includes(dia.funcao) ? "/dia (estimado)" : dia.tipo_oferta === "servico_empresa" ? "/profissional" : dia.tipo_oferta === "servico" ? "/serviço" : "/dia"}</div>
-                                </>
+                                dia.tipo_oferta === "servico" && Number(dia.valor || 0) <= 0 ? (
+                                  <>
+                                    <div style={{ fontWeight:900, fontSize:15, color:"#FF6B35", lineHeight:1.15, textAlign:"right" as const }}>Enviar proposta</div>
+                                    <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/orçamento</div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>{FUNCOES_DELIVERY.includes(dia.funcao) ? "~" : ""}R$ {dia.valor}</div>
+                                    <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{FUNCOES_DELIVERY.includes(dia.funcao) ? "/dia (estimado)" : dia.tipo_oferta === "servico_empresa" ? "/profissional" : dia.tipo_oferta === "servico" ? "/serviço" : "/dia"}</div>
+                                  </>
+                                )
                               )}
                             </div>
                           </div>
@@ -15960,7 +16080,7 @@ export default function App() {
                           ) : (
                             <div style={{ color:"var(--text-2,#64748b)", fontSize:12, marginTop:8, display:"flex", alignItems:"center", gap:4 }}>
                               <span>📅</span>
-                              <span>{dataFmt} · {dia.horario_inicio.slice(0,5)} às {dia.horario_fim.slice(0,5)}{duracao}</span>
+                              <span>{dataFmt} · {dia.horario_inicio.slice(0,5)}{ehServicoFeed ? " · serviço pontual" : ` às ${dia.horario_fim.slice(0,5)}${duracao}`}</span>
                             </div>
                           )}
 
@@ -16015,7 +16135,7 @@ export default function App() {
                               if (st === "pendente") return (
                                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                                   <div style={{ background:"#dcfce7", color:"#15803d", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:13, flex:1, textAlign:"center" as const }}>
-                                    ✅ Interesse enviado
+                                    {propostaFeed ? `✅ Proposta enviada: R$ ${propostaFeed.valor.toLocaleString("pt-BR")}` : "✅ Interesse enviado"}
                                   </div>
                                   <button
                                     style={{ background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -16211,6 +16331,7 @@ export default function App() {
             const tempoServ = ehServ && dia.tempo_estimado_min
               ? (dia.tempo_estimado_min >= 60 ? `${Math.round(dia.tempo_estimado_min/60)}h` : `${dia.tempo_estimado_min}min`)
               : ehServ ? "a combinar" : "";
+            const propostaDesteServico = ehServ ? minhaPropostaPorVaga[dia.id] : null;
             const st = stMap[dia.status] ?? stMap.aceita;
             // QR/código de presença só dentro da janela de check-in (corrige o
             // "expirada ainda pede QR": uma diária que passou da hora some o QR).
@@ -16233,8 +16354,10 @@ export default function App() {
                     </div>
                   </div>
                   <div style={{ textAlign:"right", flexShrink:0 }}>
-                    <div style={{ fontWeight:900, fontSize:20, color: dia.status==="concluida" ? "#22c55e" : "#FF6B35", lineHeight:1 }}>R$ {dia.valor}</div>
-                    <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{ehServ ? "fixo" : "/dia"}</div>
+                    <div style={{ fontWeight:900, fontSize:20, color: dia.status==="concluida" ? "#22c55e" : "#FF6B35", lineHeight:1 }}>
+                      {ehServ && propostaDesteServico ? `R$ ${propostaDesteServico.valor.toLocaleString("pt-BR")}` : `R$ ${dia.valor}`}
+                    </div>
+                    <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{ehServ && propostaDesteServico ? "sua proposta" : ehServ ? "fixo" : "/dia"}</div>
                   </div>
                 </div>
                 <div style={{ display:"flex", gap:14, fontSize:12, color:"var(--text-2,#64748b)", flexWrap:"wrap" as const }}>
@@ -16384,6 +16507,7 @@ export default function App() {
                   <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
                     {paraConfirmar.map(d => {
                       const ehSv = d.tipo_oferta === "servico";
+                      const propostaEnviada = ehSv ? minhaPropostaPorVaga[d.id] : null;
                       return (
                       <div key={d.id} style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.1)", border:"2px solid #f59e0b" }}>
                         <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
@@ -16395,7 +16519,9 @@ export default function App() {
                           📅 {new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {d.horario_inicio.slice(0,5)}
                           {ehSv ? "" : (d.horario_fim ? `–${d.horario_fim.slice(0,5)}` : "")}
                         </div>
-                        <div style={{ fontWeight:900, fontSize:18, color:"#FF6B35", marginBottom:12 }}>R$ {d.valor}{ehSv ? "" : "/dia"}</div>
+                        <div style={{ fontWeight:900, fontSize:18, color:"#FF6B35", marginBottom:12 }}>
+                          {ehSv && propostaEnviada ? `R$ ${propostaEnviada.valor.toLocaleString("pt-BR")}` : `R$ ${d.valor}${ehSv ? "" : "/dia"}`}
+                        </div>
                         <button
                           style={{ width:"100%", padding:"13px", background:"#22c55e", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(34,197,94,.4)", opacity:confirmando?0.6:1 }}
                           disabled={confirmando}
@@ -16554,11 +16680,16 @@ export default function App() {
                         const diaSemana = fmtDiaSemana(dia.data);
                         const dataFmt = fmtData(dia.data);
                         const isHoje = new Date(dia.data + "T12:00:00").toDateString() === hoje.toDateString();
-                        const [h1,m1] = dia.horario_inicio.split(":");
-                        const [h2,m2] = dia.horario_fim.split(":");
-                        let min = (parseInt(h2)*60+parseInt(m2))-(parseInt(h1)*60+parseInt(m1));
-                        if (min < 0) min += 1440; // vira o dia (turno cruza a meia-noite)
-                        const dur = min>0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
+                        const ehServAgenda = dia.tipo_oferta === "servico";
+                        const propostaAgenda = ehServAgenda ? minhaPropostaPorVaga[dia.id] : null;
+                        let dur = "";
+                        if (!ehServAgenda && dia.horario_fim) {
+                          const [h1,m1] = dia.horario_inicio.split(":");
+                          const [h2,m2] = dia.horario_fim.split(":");
+                          let min = (parseInt(h2)*60+parseInt(m2))-(parseInt(h1)*60+parseInt(m1));
+                          if (min < 0) min += 1440; // vira o dia (turno cruza a meia-noite)
+                          dur = min>0 ? `${Math.floor(min/60)}h${min%60>0?String(min%60).padStart(2,"0")+"min":""}` : "";
+                        }
                         return (
                           <div key={dia.id} style={{ background:"var(--bg-card,#fff)", borderRadius:18, overflow:"hidden", boxShadow:"0 2px 10px rgba(0,0,0,.07)", display:"flex" }}>
                             {/* Coluna de data */}
@@ -16588,7 +16719,7 @@ export default function App() {
                               </div>
                               <div style={{ display:"flex", gap:10, marginTop:8, flexWrap:"wrap" as const }}>
                                 <span style={{ display:"flex", alignItems:"center", gap:4, fontSize:12, color:"var(--text-label,#475569)" }}>
-                                  🕐 {dia.horario_inicio.slice(0,5)}–{dia.horario_fim.slice(0,5)}{dur ? ` · ${dur}` : ""}
+                                  🕐 {dia.horario_inicio.slice(0,5)}{ehServAgenda ? " · serviço pontual" : `${dia.horario_fim ? `–${dia.horario_fim.slice(0,5)}` : ""}${dur ? ` · ${dur}` : ""}`}
                                 </span>
                                 {dia.funcao && (
                                   <span style={{ background:cor+"18", color:cor, padding:"1px 8px", borderRadius:20, fontSize:11, fontWeight:700 }}>{dia.funcao}</span>
@@ -16618,7 +16749,10 @@ export default function App() {
                                 </div>
                               )}
                               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10, gap:8 }}>
-                                <span style={{ fontWeight:900, fontSize:15, color:"#FF6B35" }}>R$ {dia.valor}<span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:400 }}>/dia</span></span>
+                                <span style={{ fontWeight:900, fontSize:15, color:"#FF6B35" }}>
+                                  {ehServAgenda && propostaAgenda ? `R$ ${propostaAgenda.valor.toLocaleString("pt-BR")}` : `R$ ${dia.valor}`}
+                                  <span style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:400 }}>{ehServAgenda && propostaAgenda ? " · sua proposta" : ehServAgenda ? "" : "/dia"}</span>
+                                </span>
                                 <div style={{ display:"flex", gap:8 }}>
                                   <button
                                     style={{ background:"#16a34a", color:"#fff", border:"none", borderRadius:10, padding:"6px 12px", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -17405,7 +17539,10 @@ export default function App() {
               </p>
               <div style={{ ...S.modalRow, flexDirection:"column" as const, alignItems:"flex-start", gap:4 }}>
                 <span style={{ fontWeight:700, fontSize:13, color:"var(--text-1,#0f172a)" }}>{modalDesistir.nome_negocio || modalDesistir.segmento}</span>
-                <span style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>{new Date(modalDesistir.data+"T12:00:00").toLocaleDateString("pt-BR")} · {modalDesistir.horario_inicio.slice(0,5)}–{modalDesistir.horario_fim.slice(0,5)}</span>
+                <span style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>
+                  {new Date(modalDesistir.data+"T12:00:00").toLocaleDateString("pt-BR")} · {modalDesistir.horario_inicio.slice(0,5)}
+                  {modalDesistir.tipo_oferta === "servico" ? " · serviço pontual" : `–${modalDesistir.horario_fim.slice(0,5)}`}
+                </span>
               </div>
               <label style={{ ...S.label, marginTop:12 }}>Motivo da desistência *</label>
               <textarea
@@ -17449,8 +17586,8 @@ export default function App() {
                           { k:"Local",   v: vagaConfirm.nome_negocio || vagaConfirm.segmento },
                           { k:"Função",  v: vagaConfirm.funcao || "—" },
                           { k:"Data",    v: new Date(vagaConfirm.data+"T12:00:00").toLocaleDateString("pt-BR") },
-                          { k:"Horário", v: `${vagaConfirm.horario_inicio.slice(0,5)} – ${vagaConfirm.horario_fim.slice(0,5)}` },
-                          { k:"Valor",   v: `R$ ${vagaConfirm.valor}/dia` },
+                          { k:"Horário", v: vagaConfirm.tipo_oferta === "servico" ? `${vagaConfirm.horario_inicio.slice(0,5)} · serviço pontual` : `${vagaConfirm.horario_inicio.slice(0,5)} – ${vagaConfirm.horario_fim.slice(0,5)}` },
+                          { k:"Valor",   v: vagaConfirm.tipo_oferta === "servico" && minhaPropostaPorVaga[vagaConfirm.id] ? `R$ ${minhaPropostaPorVaga[vagaConfirm.id].valor.toLocaleString("pt-BR")}` : `R$ ${vagaConfirm.valor}/dia` },
                         ].map(r => (
                           <div key={r.k} style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"4px 0" }}>
                             <span style={{ color:"var(--text-2,#64748b)" }}>{r.k}</span>
@@ -17487,6 +17624,15 @@ export default function App() {
                         <div style={{ marginTop:12, background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 14px" }}>
                           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>📝 Sua carta de apresentação</div>
                           <div style={{ fontSize:13.5, color:"var(--text-1,#0f172a)", lineHeight:1.5, whiteSpace:"pre-wrap" as const }}>{minhaCartaPorVaga[vagaConfirm.id]}</div>
+                        </div>
+                      )}
+                      {vagaConfirm.tipo_oferta === "servico" && minhaPropostaPorVaga[vagaConfirm.id] && (
+                        <div style={{ marginTop:12, background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:12, padding:"12px 14px" }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:"#9a3412", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:4 }}>💰 Sua proposta</div>
+                          <div style={{ fontSize:17, color:"#ea580c", fontWeight:900 }}>R$ {minhaPropostaPorVaga[vagaConfirm.id].valor.toLocaleString("pt-BR")}</div>
+                          {minhaPropostaPorVaga[vagaConfirm.id].observacao && (
+                            <div style={{ fontSize:13.5, color:"#7c2d12", lineHeight:1.5, marginTop:4, whiteSpace:"pre-wrap" as const }}>{minhaPropostaPorVaga[vagaConfirm.id].observacao}</div>
+                          )}
                         </div>
                       )}
                       <button style={{ ...S.btnSecondary, marginTop:16, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setVagaConfirm(null)}>
@@ -17610,7 +17756,7 @@ export default function App() {
                       ) : (
                         <>
                           <div style={S.modalRow}><span>Data</span><strong>{new Date(vagaConfirm.data+"T12:00:00").toLocaleDateString("pt-BR")}</strong></div>
-                          <div style={S.modalRow}><span>Horário</span><strong>{vagaConfirm.horario_inicio.slice(0,5)} – {vagaConfirm.horario_fim.slice(0,5)}</strong></div>
+                          <div style={S.modalRow}><span>Horário</span><strong>{vagaConfirm.tipo_oferta === "servico" ? `${vagaConfirm.horario_inicio.slice(0,5)} · serviço pontual` : `${vagaConfirm.horario_inicio.slice(0,5)} – ${vagaConfirm.horario_fim.slice(0,5)}`}</strong></div>
                         </>
                       )}
                       {/* Bairro (área aproximada) — endereço completo só pós-seleção */}
@@ -17625,13 +17771,48 @@ export default function App() {
                           <div style={S.modalRow}><span>Distância</span><strong style={{ color:"#FF6B35" }}>📍 {txt}</strong></div>
                         );
                       })()}
-                      <div style={{ ...S.modalRow, borderTop:"2px solid #0f172a", paddingTop:8 }}>
-                        <strong>{vagaConfirm.tipo_oferta === "emprego" ? "Salário" : "Valor oferecido"}</strong>
-                        <strong style={{ color:"#FF6B35", fontSize:17 }}>{vagaConfirm.tipo_oferta === "emprego" ? (vagaConfirm.salario_texto || "A combinar") : `R$ ${vagaConfirm.valor}/dia`}</strong>
-                      </div>
+                      {(() => {
+                        const servicoRecebeProposta = vagaConfirm.tipo_oferta === "servico" && Number(vagaConfirm.valor || 0) <= 0;
+                        return (
+                          <div style={{ ...S.modalRow, borderTop:"2px solid #0f172a", paddingTop:8 }}>
+                            <strong>{vagaConfirm.tipo_oferta === "emprego" ? "Salário" : servicoRecebeProposta ? "Forma de contratação" : "Valor oferecido"}</strong>
+                            <strong style={{ color:"#FF6B35", fontSize:17 }}>
+                              {vagaConfirm.tipo_oferta === "emprego"
+                                ? (vagaConfirm.salario_texto || "A combinar")
+                                : servicoRecebeProposta
+                                  ? "Recebe propostas"
+                                  : `R$ ${vagaConfirm.valor}${vagaConfirm.tipo_oferta === "servico" ? "" : "/dia"}`}
+                            </strong>
+                          </div>
+                        );
+                      })()}
                       <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:10, padding:"10px 12px", fontSize:12, color:"#1d4ed8", marginTop:12 }}>
                         💡 O endereço completo aparece pra você depois que o anunciante te selecionar e você aceitar o serviço.
                       </div>
+
+                      {vagaConfirm.tipo_oferta === "servico" && Number(vagaConfirm.valor || 0) <= 0 && (
+                        <div style={{ marginTop:14, paddingTop:14, borderTop:"1.5px dashed var(--border,#e2e8f0)" }}>
+                          <label style={{ ...S.label, marginBottom:6 }}>Sua proposta (R$) *</label>
+                          <input
+                            style={S.input}
+                            inputMode="decimal"
+                            placeholder="Ex: 180,00"
+                            value={propostaServico.valor}
+                            onChange={e => setPropostaServico(prev => ({ ...prev, valor:e.target.value.replace(/[^0-9,.]/g, "") }))}
+                          />
+                          <label style={{ ...S.label, marginTop:10, marginBottom:6 }}>Observação da proposta <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:600 }}>(opcional)</span></label>
+                          <textarea
+                            style={{ ...S.input, height:78, resize:"none" as const, lineHeight:1.5 }}
+                            placeholder="Ex: Inclui mão de obra. Peças e materiais ficam à parte."
+                            maxLength={300}
+                            value={propostaServico.observacao}
+                            onChange={e => setPropostaServico(prev => ({ ...prev, observacao:e.target.value }))}
+                          />
+                          <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:10, padding:"9px 11px", fontSize:12, color:"#9a3412", marginTop:8, lineHeight:1.45 }}>
+                            O anunciante verá esse valor junto com seu perfil. Se ele aceitar sua proposta, vocês combinam os detalhes pelo chat.
+                          </div>
+                        </div>
+                      )}
 
                       {/* Vaga de emprego: carta de apresentação + currículo (opcionais) */}
                       {vagaConfirm.tipo_oferta === "emprego" && (
@@ -17666,7 +17847,7 @@ export default function App() {
                       {/* Trava de maioridade: só libera candidatura com documento (RG/CNH) APROVADO */}
                       {profile?.documento_status === "aprovado" ? (
                         <button style={{ ...S.btnPrimary, background:"#FF6B35", marginTop:16, opacity: enviandoInteresse ? 0.7 : 1 }} disabled={enviandoInteresse} onClick={() => demonstrarInteresse(vagaConfirm)}>
-                          {enviandoInteresse ? "Enviando..." : "✋ Confirmar interesse"}
+                          {enviandoInteresse ? "Enviando..." : vagaConfirm.tipo_oferta === "servico" && Number(vagaConfirm.valor || 0) <= 0 ? "💰 Enviar proposta" : "✋ Confirmar interesse"}
                         </button>
                       ) : (() => {
                         const st = profile?.documento_status;
@@ -17709,8 +17890,12 @@ export default function App() {
               ) : (
                 <div style={{ ...S.sucesso, textAlign:"center" }}>
                   <div style={{ fontSize:52 }}>🙌</div>
-                  <h3 style={S.modalTitle}>Interesse registrado!</h3>
-                  <p style={S.modalText}>O anunciante receberá seu perfil. Se ele demonstrar interesse em você, você será notificado para aceitar o serviço.</p>
+                  <h3 style={S.modalTitle}>{vagaConfirm.tipo_oferta === "servico" && Number(vagaConfirm.valor || 0) <= 0 ? "Proposta enviada!" : "Interesse registrado!"}</h3>
+                  <p style={S.modalText}>
+                    {vagaConfirm.tipo_oferta === "servico" && Number(vagaConfirm.valor || 0) <= 0
+                      ? "O anunciante receberá seu perfil e o valor proposto. Se ele aceitar, você será notificado para combinar e confirmar o serviço."
+                      : "O anunciante receberá seu perfil. Se ele demonstrar interesse em você, você será notificado para aceitar o serviço."}
+                  </p>
                   <button style={{ ...S.btnPrimary, background:"#FF6B35" }}
                     onClick={() => { setVagaConfirm(null); setVagaConfirmada(false); setAuthError(""); }}>
                     Entendido 👍
@@ -17928,8 +18113,13 @@ export default function App() {
               {/* Info da diária */}
               <div style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px", marginBottom:16, textAlign:"left" }}>
                 <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)", marginBottom:4 }}>{qrDiaria.nome_negocio || qrDiaria.segmento}</div>
-                <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>📅 {new Date(qrDiaria.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {qrDiaria.horario_inicio.slice(0,5)}–{qrDiaria.horario_fim.slice(0,5)}</div>
-                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>💰 R$ {qrDiaria.valor}/dia</div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)" }}>
+                  📅 {new Date(qrDiaria.data+"T12:00:00").toLocaleDateString("pt-BR")} · 🕐 {qrDiaria.horario_inicio.slice(0,5)}
+                  {qrDiaria.tipo_oferta === "servico" ? " · serviço pontual" : `–${qrDiaria.horario_fim.slice(0,5)}`}
+                </div>
+                <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                  💰 {qrDiaria.tipo_oferta === "servico" && minhaPropostaPorVaga[qrDiaria.id] ? `R$ ${minhaPropostaPorVaga[qrDiaria.id].valor.toLocaleString("pt-BR")} · sua proposta` : `R$ ${qrDiaria.valor}/dia`}
+                </div>
               </div>
               {qrDiaria.status === "em_andamento" && (
                 <div style={{ background:"#fef3c7", color:"#d97706", borderRadius:12, padding:"10px 14px", fontSize:13, fontWeight:700, marginBottom:12 }}>
@@ -19855,7 +20045,7 @@ export default function App() {
                   <button key={opt.v} type="button"
                     // Escolha MANUAL: marca a flag pra a sugestão automática por habilidade
                     // não sobrescrever o que o usuário escolheu aqui.
-                    onClick={() => { setTipoOfertaManual(true); setFormDiaria({ ...formDiaria, tipo_oferta: opt.v }); }}
+                    onClick={() => { setTipoOfertaManual(true); setFormDiaria({ ...formDiaria, tipo_oferta: opt.v, tipo_preco: opt.v === "servico" ? "a_combinar" : formDiaria.tipo_preco }); }}
                     style={{
                       padding:"12px 8px", textAlign:"center" as const, borderRadius:12,
                       background: sel ? `${cor}14` : "var(--bg-2,#fff)",
@@ -19907,7 +20097,7 @@ export default function App() {
           // A escolha MANUAL do tipo vence: só auto-sugere enquanto o usuário não
           // tocou no seletor (que agora é a 1ª seção do formulário).
           const aplicaSugestao = tipoSugerido && !tipoOfertaManual;
-          setFormDiaria({ ...formDiaria, funcao: novaFuncao, ...(aplicaSugestao ? { tipo_oferta: tipoSugerido } : {}) });
+          setFormDiaria({ ...formDiaria, funcao: novaFuncao, ...(aplicaSugestao ? { tipo_oferta: tipoSugerido, tipo_preco: tipoSugerido === "servico" ? "a_combinar" : formDiaria.tipo_preco } : {}) });
         }}>
           <option value="">— Selecione uma habilidade —</option>
           {funcoesDisponiveis.map(([categoria, info]) => (
@@ -20192,25 +20382,12 @@ export default function App() {
             Exceção: delivery + Emprego (ex.: motoboy CLT) mantém o campo de salário. */}
         {(!FUNCOES_DELIVERY.includes(formDiaria.funcao) || formDiaria.tipo_oferta === "emprego") && (
         <>
-        <Secao icone="💰" titulo="Pagamento" />
+        <Secao icone="💰" titulo={ehServ ? "Propostas" : "Pagamento"} />
 
-        <label style={S.label}>
-          {formDiaria.tipo_oferta === "emprego" ? "Salário *" : formDiaria.tipo_oferta === "servico" ? "Valor do serviço (R$) *" : "Valor a pagar pelo dia (R$) *"}
-        </label>
-        {formDiaria.tipo_oferta !== "emprego" && (
-        <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px", display:"flex", alignItems:"center", gap:4 }}>
-          📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>
-            {(() => {
-              const med = MEDIAS_CAMPO_GRANDE[formDiaria.funcao];
-              if (med) return `R$ ${med.min} – R$ ${med.max} (média R$ ${med.media})`;
-              return formDiaria.tipo_oferta === "servico" ? "varia por escopo" : "R$ 120 – R$ 250 por diária";
-            })()}
-          </strong>
-        </p>
-        )}
         {formDiaria.tipo_oferta === "emprego" ? (
           // Emprego: salário é TEXTO (aceita "R$ 1.800", "A combinar", faixa…), gravado em salario_texto.
           <>
+            <label style={S.label}>Salário *</label>
             <input
               {...anchorCampo("salario")}
               style={{ ...S.input, ...estiloErro("salario") }}
@@ -20220,8 +20397,77 @@ export default function App() {
             />
             {erroCampo("salario")}
           </>
+        ) : ehServ ? (
+          <>
+            <label style={S.label}>Como quer receber propostas?</label>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:12 }}>
+              {([
+                { v:"a_combinar", label:"Receber propostas", sub:"Prestador informa o valor" },
+                { v:"a_partir_de", label:"Orçamento máximo", sub:"Tenho uma referência" },
+                { v:"fixo", label:"Valor fixo", sub:"Quero pagar esse valor" },
+              ] as const).map(opt => {
+                const sel = formDiaria.tipo_preco === opt.v;
+                return (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    onClick={() => setFormDiaria(prev => ({ ...prev, tipo_preco: opt.v, valor: opt.v === "a_combinar" ? "" : prev.valor }))}
+                    style={{
+                      padding:"10px 8px",
+                      borderRadius:12,
+                      border: sel ? `2px solid ${cor}` : "1.5px solid var(--border,#e2e8f0)",
+                      background: sel ? `${cor}14` : "var(--bg-2,#fff)",
+                      color: sel ? cor : "var(--text-2,#64748b)",
+                      cursor:"pointer",
+                      fontFamily:"Inter, system-ui, sans-serif",
+                      textAlign:"center" as const,
+                    }}>
+                    <div style={{ fontSize:12, fontWeight:900 }}>{opt.label}</div>
+                    <div style={{ fontSize:10.5, color: sel ? cor : "var(--text-3,#94a3b8)", marginTop:2 }}>{opt.sub}</div>
+                  </button>
+                );
+              })}
+            </div>
+            {formDiaria.tipo_preco === "a_combinar" ? (
+              <div style={{ background:"#eff6ff", border:"1.5px solid #bfdbfe", borderRadius:12, padding:"11px 14px", fontSize:12.5, color:"#1e40af", lineHeight:1.5, marginBottom:8 }}>
+                💬 Você publica a necessidade sem definir preço. Cada profissional interessado envia uma proposta com valor e observação.
+              </div>
+            ) : (
+              <>
+                <label {...anchorCampo("valor")} style={S.label}>
+                  {formDiaria.tipo_preco === "fixo" ? "Valor fixo do serviço (R$) *" : "Orçamento máximo / referência (R$) *"}
+                </label>
+                <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px" }}>
+                  {formDiaria.tipo_preco === "fixo"
+                    ? "Use quando você já sabe exatamente quanto quer pagar."
+                    : "Use para orientar as propostas. O prestador ainda pode explicar se precisar ajustar."}
+                </p>
+                <div style={{ position:"relative" }}>
+                  <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
+                  <input
+                    style={{ ...S.input, paddingLeft:40, ...estiloErro("valor") }}
+                    type="number"
+                    placeholder="0,00"
+                    value={formDiaria.valor}
+                    onChange={e => setFormDiaria({ ...formDiaria, valor: e.target.value })}
+                  />
+                </div>
+                {erroCampo("valor")}
+              </>
+            )}
+          </>
         ) : (
           <>
+            <label style={S.label}>Valor a pagar pelo dia (R$) *</label>
+            <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 8px", display:"flex", alignItems:"center", gap:4 }}>
+              📊 Média da região: <strong style={{ color:"var(--text-1,#0f172a)" }}>
+                {(() => {
+                  const med = MEDIAS_CAMPO_GRANDE[formDiaria.funcao];
+                  if (med) return `R$ ${med.min} – R$ ${med.max} (média R$ ${med.media})`;
+                  return "R$ 120 – R$ 250 por diária";
+                })()}
+              </strong>
+            </p>
             <div {...anchorCampo("valor")} style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--text-2,#64748b)", fontWeight:700, fontSize:15 }}>R$</span>
               <input
@@ -20394,17 +20640,18 @@ export default function App() {
           const endCompleto = formDiaria.rua && formDiaria.numero && formDiaria.bairro && formDiaria.cidade
             ? `${formDiaria.rua}, ${formDiaria.numero}${formDiaria.complemento ? ` — ${formDiaria.complemento}` : ""}, ${formDiaria.bairro}, ${formDiaria.cidade}/${formDiaria.estado}`
             : "";
-          if (!formDiaria.local || !formDiaria.descricao || !formDiaria.data || !formDiaria.horario_inicio || !formDiaria.horario_fim || !formDiaria.valor || !endCompleto) return null;
+          const exigeValorResumo = !ehServ || formDiaria.tipo_preco !== "a_combinar";
+          if (!formDiaria.local || !formDiaria.descricao || !formDiaria.data || !formDiaria.horario_inicio || (!ehServ && !formDiaria.horario_fim) || (exigeValorResumo && !formDiaria.valor) || !endCompleto) return null;
           return (
             <div style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:16, padding:"14px 16px", marginTop:20 }}>
-              <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📋 Resumo da diária</div>
+              <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📋 Resumo {ehServ ? "do serviço" : "da diária"}</div>
               <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
                 {[
                   { k:"Local",    v: formDiaria.local },
                   { k:"Função",   v: formDiaria.funcao || "Qualquer profissional" },
                   { k:"Data",     v: new Date(formDiaria.data+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"short"}) },
-                  { k:"Horário",  v: `${formDiaria.horario_inicio} às ${formDiaria.horario_fim}${duracao ? ` · ${duracao}` : ""}` },
-                  { k:"Valor",    v: `R$ ${Number(formDiaria.valor).toLocaleString("pt-BR")}/dia` },
+                  { k:"Horário",  v: ehServ ? `${formDiaria.horario_inicio} · ${TEMPOS_ESTIMADOS_SERVICO.find(t => String(t.valor) === formDiaria.tempo_estimado_min)?.label || "tempo a combinar"}` : `${formDiaria.horario_inicio} às ${formDiaria.horario_fim}${duracao ? ` · ${duracao}` : ""}` },
+                  { k: ehServ ? "Propostas" : "Valor", v: ehServ && formDiaria.tipo_preco === "a_combinar" ? "Profissionais enviam proposta" : `R$ ${Number(formDiaria.valor).toLocaleString("pt-BR")}${ehServ ? "" : "/dia"}` },
                   { k:"CEP",      v: formDiaria.cep },
                   { k:"Endereço", v: "🔒 " + endCompleto },
                 ].map(r => (

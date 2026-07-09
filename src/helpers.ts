@@ -1370,7 +1370,7 @@ export function montarTextoVaga(v: VagaCompartilhavel): string {
     const tempo = v.tempo_estimado_min
       ? (v.tempo_estimado_min >= 60 ? `${Math.round(v.tempo_estimado_min / 60)}h` : `${v.tempo_estimado_min}min`)
       : "a combinar";
-    linhaValor = typeof v.valor === "number" ? `💰 R$ ${v.valor}  ·  ⏱ ${tempo}` : `⏱ ${tempo}`;
+    linhaValor = typeof v.valor === "number" && v.valor > 0 ? `💰 R$ ${v.valor}  ·  ⏱ ${tempo}` : `💬 Envie sua proposta  ·  ⏱ ${tempo}`;
     linhaQuando = dataBR ? `📅 ${dataBR}${hi ? ` às ${hi}` : ""}` : "";
   } else {
     emoji = "🌞"; titulo = "Vaga de diária";
@@ -1458,6 +1458,7 @@ export function rotuloPrecoVaga(
   opts: { ehDelivery: boolean; ehServico?: boolean },
 ): string {
   if (opts.ehDelivery) return `~R$ ${valor}/dia (estimado)`;
+  if (opts.ehServico && Number(valor) <= 0) return "Recebe propostas";
   return `R$ ${valor}${opts.ehServico ? "" : "/dia"}`;
 }
 
