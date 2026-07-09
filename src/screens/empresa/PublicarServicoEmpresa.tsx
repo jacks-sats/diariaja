@@ -202,7 +202,9 @@ export default function PublicarServicoEmpresa({
         estado: data?.state || "",
         lat: Number.isFinite(lat) ? lat : null,
         lng: Number.isFinite(lng) ? lng : null,
-        geo_preciso: Number.isFinite(lat) && Number.isFinite(lng),
+        // A coordenada do CEP pode ser centroide/aproximada. Enquanto nao houver
+        // geocodificacao por endereco completo, nao usamos isso para bloquear check-in.
+        geo_preciso: false,
         buscando: false,
       });
     } catch {

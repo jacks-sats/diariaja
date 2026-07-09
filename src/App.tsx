@@ -54,6 +54,7 @@ type DiaristaInfoCandidatura = {
   foto_url?: string;
   lat?: number | null;
   lng?: number | null;
+  geo_preciso?: boolean | null;
   categorias?: string[];
   carta?: string;
   curriculo_path?: string;
@@ -113,6 +114,27 @@ import {
   montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar,
   cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta,
 } from "./helpers";
+
+type GeoComPrecisao = {
+  lat?: number | null;
+  lng?: number | null;
+  geo_preciso?: boolean | null;
+};
+
+function coordenadaValida(valor: number | null | undefined): valor is number {
+  return typeof valor === "number" && Number.isFinite(valor);
+}
+
+function distanciaConfiavelKm(origem: GeoComPrecisao | null | undefined, destino: GeoComPrecisao | null | undefined): number {
+  if (!origem || !destino) return Infinity;
+  if (!coordenadaValida(origem.lat) || !coordenadaValida(origem.lng) || !coordenadaValida(destino.lat) || !coordenadaValida(destino.lng)) {
+    return Infinity;
+  }
+  return distanciaParaFiltroRaio(
+    haversineKm(origem.lat, origem.lng, destino.lat, destino.lng),
+    origem.geo_preciso === true && destino.geo_preciso === true,
+  );
+}
 
 // Link oficial do app na Google Play (usado no banner de download da web).
 const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.diariaja.app";
@@ -4607,6 +4629,12 @@ export default function App() {
   // Carrega todos os tickets ordenados por última atualização (visão admin/suporte)
   const carregarAdminTickets = async () => {
     if (!(profile?.is_admin || profile?.is_suporte)) return;
+    const { data: ticketsPainel, error: ticketsPainelErro } = await supabase.rpc("suporte_tickets_painel", { p_limit: 100 });
+    if (!ticketsPainelErro && ticketsPainel) {
+      setAdminTickets(ticketsPainel as (SuporteTicket & { user_nome?: string })[]);
+      return;
+    }
+
     const { data: tickets } = await supabase
       .from("suporte_tickets")
       .select("id, user_id, assunto, status, ultima_resposta_role, created_at, updated_at")
@@ -5533,8 +5561,9 @@ export default function App() {
       nome: profile?.nome || "",
       funcao: profile?.funcao || "",
       foto_url: fotoUrl || profile?.foto_url || "",
-      lat: profile?.lat || null,
-      lng: profile?.lng || null,
+      lat: profile?.lat ?? null,
+      lng: profile?.lng ?? null,
+      geo_preciso: profile?.geo_preciso ?? null,
       categorias: profile?.categorias || [],
       // Só pra vaga de emprego — diária/serviço seguem com 1 clique.
       ...(ehVagaEmprego && cartaVaga.trim() ? { carta: cartaVaga.trim() } : {}),
@@ -11654,11 +11683,9 @@ export default function App() {
     // Distância anunciante→prestador (km). Infinity se faltar geo de qualquer lado —
     // espelha o distKm do lado do prestador (App.tsx ~13830) e garante o fail-open.
     const distKmAnunciante = (d: UserProfile): number => {
-      if (!profile?.lat || !profile?.lng || !d.lat || !d.lng) return Infinity;
       // Fail-open: só corta por raio quando AMBOS têm geo preciso. Sem isso, a
       // distância é falsa (centroide/null) → não esconde ninguém. Coerente com o card.
-      const ambos = profile.geo_preciso === true && d.geo_preciso === true;
-      return distanciaParaFiltroRaio(haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!), ambos);
+      return distanciaConfiavelKm(profile, d);
     };
     const diaristasReaisVisiveis = diaristasReais
       .filter(d => !(d as UserProfile & { oculto?: boolean }).oculto) // auto-moderação: esconde perfis suspensos por denúncias
@@ -11696,9 +11723,8 @@ export default function App() {
         if (nivel) return nivel;
         const foto = Number(!!B.foto_url) - Number(!!A.foto_url);
         if (foto) return foto;
-        const temGeo = !!(profile?.lat && profile?.lng);
-        const distA = temGeo && A.lat && A.lng ? haversineKm(profile!.lat!, profile!.lng!, A.lat!, A.lng!) : Infinity;
-        const distB = temGeo && B.lat && B.lng ? haversineKm(profile!.lat!, profile!.lng!, B.lat!, B.lng!) : Infinity;
+        const distA = distKmAnunciante(A);
+        const distB = distKmAnunciante(B);
         if (distA !== distB) return distA - distB;
         return String(A.id).localeCompare(String(B.id));
       });
@@ -12775,10 +12801,8 @@ export default function App() {
                           const dp = diaristasAceites[dia.diarista_aceite_id];
                           const iniciais = dp?.nome?.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase() || "?";
                           const qtdDiarias = diaristasContagemDiarias[dia.diarista_aceite_id] ?? null;
-                          const distAceito = (profile?.lat && profile?.lng && dp?.lat && dp?.lng)
-                            ? haversineKm(profile.lat!, profile.lng!, dp.lat!, dp.lng!)
-                            : null;
-                          const distAceitoTxt = distAceito !== null
+                          const distAceito = distanciaConfiavelKm(profile, dp);
+                          const distAceitoTxt = Number.isFinite(distAceito)
                             ? `${formatarDistancia(distAceito)} · ~${formatarTempo(tempoEstimadoMin(distAceito))} de moto`
                             : null;
                           return (
@@ -13158,7 +13182,7 @@ export default function App() {
                   .map(c => {
                     const dp = candidatosProfiles[c.diarista_id];
                     // diarista_info: dados embutidos na candidatura (independe de RLS)
-                    const info = (c as any).diarista_info as { nome?:string; funcao?:string; foto_url?:string; lat?:number; lng?:number; carta?:string; curriculo_path?:string; valor_proposta?:number; observacao_proposta?:string } | undefined;
+                    const info = (c as any).diarista_info as { nome?:string; funcao?:string; foto_url?:string; lat?:number; lng?:number; geo_preciso?:boolean | null; carta?:string; curriculo_path?:string; valor_proposta?:number; observacao_proposta?:string } | undefined;
                     const propostaCandidato = info?.valor_proposta && info.valor_proposta > 0
                       ? { valor: info.valor_proposta, observacao: info.observacao_proposta || "" }
                       : null;
@@ -13166,14 +13190,13 @@ export default function App() {
                     const funcao = dp?.funcao || info?.funcao || "";
                     const latD = dp?.lat ?? info?.lat ?? null;
                     const lngD = dp?.lng ?? info?.lng ?? null;
+                    const geoD = dp?.geo_preciso ?? info?.geo_preciso ?? null;
                     const primeiroNome = nome.split(" ")[0];
                     const iniciais = nome !== "Profissional"
                       ? nome.split(" ").map((n:string)=>n[0]).join("").slice(0,2).toUpperCase()
                       : "?";
-                    const distCand = (profile?.lat && profile?.lng && latD && lngD)
-                      ? haversineKm(profile.lat!, profile.lng!, latD, lngD)
-                      : null;
-                    const distCandTxt = distCand !== null
+                    const distCand = distanciaConfiavelKm(profile, { lat: latD, lng: lngD, geo_preciso: geoD });
+                    const distCandTxt = Number.isFinite(distCand)
                       ? `${formatarDistancia(distCand)} · ~${formatarTempo(tempoEstimadoMin(distCand))} de moto`
                       : null;
                     // Foto: prioridade → perfil carregado → info embutida → Storage pela URL do ID
@@ -15359,8 +15382,15 @@ export default function App() {
 
     // ── Helper de distância (retorna Infinity se faltar lat/lng) ─────────────
     const distKm = (d: Diaria): number => {
-      if (!profile?.lat || !profile?.lng || !d.lat || !d.lng) return Infinity;
-      return haversineKm(profile.lat!, profile.lng!, d.lat!, d.lng!);
+      return distanciaConfiavelKm(profile, d);
+    };
+    const compararDistKm = (a: Diaria, b: Diaria): number => {
+      const distA = distKm(a);
+      const distB = distKm(b);
+      if (!Number.isFinite(distA) && !Number.isFinite(distB)) return 0;
+      if (!Number.isFinite(distA)) return 1;
+      if (!Number.isFinite(distB)) return -1;
+      return distA - distB;
     };
 
     const vagasFiltradas = vagasReais
@@ -15376,9 +15406,9 @@ export default function App() {
         if (sortVagas === "maior_valor") return b.valor - a.valor;
         if (sortVagas === "recentes")
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        if (sortVagas === "proximas") return distKm(a) - distKm(b);
+        if (sortVagas === "proximas") return compararDistKm(a, b);
         // Default "feed": (1) distância → (2) recência → (3) valor desc
-        const dDist = distKm(a) - distKm(b);
+        const dDist = compararDistKm(a, b);
         if (Math.abs(dDist) > 0.5) return dDist;                           // diferença <500m empata
         const dRec = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         if (Math.abs(dRec) > 6 * 60 * 60 * 1000) return dRec;              // <6h empata
@@ -15535,10 +15565,8 @@ export default function App() {
               return false;
             }
             // Distância: só vale se ambos têm lat/lng
-            if (profile?.lat && profile?.lng && d.lat && d.lng) {
-              const km = haversineKm(profile.lat, profile.lng, d.lat!, d.lng!);
-              if (km > 10) return false;
-            }
+            const km = distanciaConfiavelKm(profile, d);
+            if (!Number.isFinite(km) || km > 10) return false;
             return true;
           });
           if (vagasRecentes.length === 0) return null;
@@ -16134,8 +16162,8 @@ export default function App() {
                             {(() => {
                               // Bairro vem no feed (o endereço completo NÃO — fica p/ pós-aceite).
                               const localHint = dia.bairro || "";
-                              if (profile?.lat && profile?.lng && dia.lat && dia.lng) {
-                                const km = haversineKm(profile.lat!, profile.lng!, dia.lat!, dia.lng!);
+                              const km = distKm(dia);
+                              if (Number.isFinite(km)) {
                                 const distTxt = `${formatarDistancia(km)} · ~${formatarTempo(tempoEstimadoMin(km))} de moto`;
                                 return (
                                   <span>
@@ -17809,8 +17837,9 @@ export default function App() {
                         <div style={S.modalRow}><span>Bairro</span><strong style={{ color:"var(--text-1,#0f172a)" }}>📍 {vagaConfirm.bairro}</strong></div>
                       )}
                       {/* Distância até o anúncio */}
-                      {profile?.lat && profile?.lng && vagaConfirm.lat && vagaConfirm.lng && (() => {
-                        const km = haversineKm(profile.lat!, profile.lng!, vagaConfirm.lat!, vagaConfirm.lng!);
+                      {(() => {
+                        const km = distanciaConfiavelKm(profile, vagaConfirm);
+                        if (!Number.isFinite(km)) return null;
                         const txt = `${formatarDistancia(km)} · ~${formatarTempo(tempoEstimadoMin(km))} de moto`;
                         return (
                           <div style={S.modalRow}><span>Distância</span><strong style={{ color:"#FF6B35" }}>📍 {txt}</strong></div>
