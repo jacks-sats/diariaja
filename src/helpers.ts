@@ -789,7 +789,7 @@ export function rotuloDistanciaFeed(
   const grid = opts.gridKm ?? 1.1;
   if (!Number.isFinite(km)) return null;
   if (opts.ambosGeoPrecisos === false) return null; // algum lado sem geo preciso (centroide/null)
-  if (opts.perfisNaMesmaCoord >= 3) return null;    // coord de centroide compartilhada → não confiável
+  if (opts.perfisNaMesmaCoord >= 3 && opts.ambosGeoPrecisos !== true) return null; // cluster sem GPS confiavel
   // Dentro do ruído do arredondamento (#226): não dá pra cravar número, mas o
   // dado é bom — em vez do fallback mudo, informa um TETO honesto ("perto").
   if (km < grid * 1.5) return `a menos de ~${Math.ceil(grid * 1.5)} km`;
