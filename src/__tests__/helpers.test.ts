@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   gerarReciboPDF,
+  servicoExigeProposta,
   planoSelecao,
   empregoExigePlanoParaChamar,
   vagaApareceNoFeed,
@@ -1984,5 +1985,21 @@ describe("gerarReciboPDF", () => {
     void profissional;
     const bytes = gerarReciboPDF(semProf);
     expect(bytes.length).toBeGreaterThan(400);
+  });
+});
+
+describe("servicoExigeProposta", () => {
+  it("servico com tipo_preco nao-fixo exige proposta mesmo com valor > 0", () => {
+    expect(servicoExigeProposta({ tipo_oferta: "servico", tipo_preco: "orcamento", valor: 150 })).toBe(true);
+  });
+  it("servico com preco fixo e valor > 0 NAO exige proposta", () => {
+    expect(servicoExigeProposta({ tipo_oferta: "servico", tipo_preco: "fixo", valor: 150 })).toBe(false);
+  });
+  it("legado: servico sem tipo_preco e valor 0 exige proposta", () => {
+    expect(servicoExigeProposta({ tipo_oferta: "servico", valor: 0 })).toBe(true);
+  });
+  it("diaria e emprego nunca exigem proposta", () => {
+    expect(servicoExigeProposta({ tipo_oferta: "diaria", valor: 0 })).toBe(false);
+    expect(servicoExigeProposta({ tipo_oferta: "emprego", tipo_preco: "orcamento" })).toBe(false);
   });
 });

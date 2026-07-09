@@ -111,7 +111,7 @@ import {
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
   montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar,
-  cargaHorariaConvite, gerarReciboPDF,
+  cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta,
 } from "./helpers";
 
 // Link oficial do app na Google Play (usado no banner de download da web).
@@ -5454,7 +5454,7 @@ export default function App() {
       }
     }
 
-    const servicoComProposta = diaria.tipo_oferta === "servico" && Number(diaria.valor || 0) <= 0;
+    const servicoComProposta = servicoExigeProposta(diaria);
     const propostaValorNormalizada = propostaServico.valor.trim().includes(",")
       ? propostaServico.valor.trim().replace(/\./g, "").replace(",", ".")
       : propostaServico.valor.trim();
@@ -12614,7 +12614,7 @@ export default function App() {
                               </button>
                             )}
                             <span style={{ fontWeight:900, fontSize:16, color:negocio.cor }}>
-                              {dia.tipo_oferta === "servico" && Number(dia.valor || 0) <= 0 ? "Propostas" : `R$ ${dia.valor}`}
+                              {servicoExigeProposta(dia) ? "Propostas" : `R$ ${dia.valor}`}
                             </span>
                             {/* Indicador expand/collapse */}
                             <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)", transition:"transform .2s", display:"inline-block", transform: estaExpandida ? "rotate(180deg)" : "rotate(0deg)" }}>▼</span>
@@ -16056,7 +16056,7 @@ export default function App() {
                                   <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>💼 emprego</div>
                                 </>
                               ) : (
-                                dia.tipo_oferta === "servico" && Number(dia.valor || 0) <= 0 ? (
+                                servicoExigeProposta(dia) ? (
                                   <>
                                     <div style={{ fontWeight:900, fontSize:15, color:"#FF6B35", lineHeight:1.15, textAlign:"right" as const }}>Enviar proposta</div>
                                     <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/orçamento</div>
@@ -17772,7 +17772,7 @@ export default function App() {
                         );
                       })()}
                       {(() => {
-                        const servicoRecebeProposta = vagaConfirm.tipo_oferta === "servico" && Number(vagaConfirm.valor || 0) <= 0;
+                        const servicoRecebeProposta = servicoExigeProposta(vagaConfirm);
                         return (
                           <div style={{ ...S.modalRow, borderTop:"2px solid #0f172a", paddingTop:8 }}>
                             <strong>{vagaConfirm.tipo_oferta === "emprego" ? "Salário" : servicoRecebeProposta ? "Forma de contratação" : "Valor oferecido"}</strong>
@@ -17790,7 +17790,7 @@ export default function App() {
                         💡 O endereço completo aparece pra você depois que o anunciante te selecionar e você aceitar o serviço.
                       </div>
 
-                      {vagaConfirm.tipo_oferta === "servico" && Number(vagaConfirm.valor || 0) <= 0 && (
+                      {servicoExigeProposta(vagaConfirm) && (
                         <div style={{ marginTop:14, paddingTop:14, borderTop:"1.5px dashed var(--border,#e2e8f0)" }}>
                           <label style={{ ...S.label, marginBottom:6 }}>Sua proposta (R$) *</label>
                           <input
@@ -17847,7 +17847,7 @@ export default function App() {
                       {/* Trava de maioridade: só libera candidatura com documento (RG/CNH) APROVADO */}
                       {profile?.documento_status === "aprovado" ? (
                         <button style={{ ...S.btnPrimary, background:"#FF6B35", marginTop:16, opacity: enviandoInteresse ? 0.7 : 1 }} disabled={enviandoInteresse} onClick={() => demonstrarInteresse(vagaConfirm)}>
-                          {enviandoInteresse ? "Enviando..." : vagaConfirm.tipo_oferta === "servico" && Number(vagaConfirm.valor || 0) <= 0 ? "💰 Enviar proposta" : "✋ Confirmar interesse"}
+                          {enviandoInteresse ? "Enviando..." : servicoExigeProposta(vagaConfirm) ? "💰 Enviar proposta" : "✋ Confirmar interesse"}
                         </button>
                       ) : (() => {
                         const st = profile?.documento_status;
@@ -17890,9 +17890,9 @@ export default function App() {
               ) : (
                 <div style={{ ...S.sucesso, textAlign:"center" }}>
                   <div style={{ fontSize:52 }}>🙌</div>
-                  <h3 style={S.modalTitle}>{vagaConfirm.tipo_oferta === "servico" && Number(vagaConfirm.valor || 0) <= 0 ? "Proposta enviada!" : "Interesse registrado!"}</h3>
+                  <h3 style={S.modalTitle}>{servicoExigeProposta(vagaConfirm) ? "Proposta enviada!" : "Interesse registrado!"}</h3>
                   <p style={S.modalText}>
-                    {vagaConfirm.tipo_oferta === "servico" && Number(vagaConfirm.valor || 0) <= 0
+                    {servicoExigeProposta(vagaConfirm)
                       ? "O anunciante receberá seu perfil e o valor proposto. Se ele aceitar, você será notificado para combinar e confirmar o serviço."
                       : "O anunciante receberá seu perfil. Se ele demonstrar interesse em você, você será notificado para aceitar o serviço."}
                   </p>

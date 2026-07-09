@@ -1619,3 +1619,16 @@ export function gerarReciboPDF(d: DadosReciboPDF): Uint8Array {
   for (let i = 0; i < pdf.length; i++) bytes[i] = winAnsiByte(pdf[i]);
   return bytes;
 }
+
+// ── Serviço: exige PROPOSTA de valor? ────────────────────────────────────────
+// Um serviço recebe proposta quando o preço NÃO é fixo (tipo_preco 'orcamento'
+// etc.) ou quando não há valor definido (legado: valor 0 = "a combinar").
+// Antes só o valor<=0 contava — serviço com "orçamento máximo" prometia
+// proposta na publicação mas o aceite não pedia. Diária/emprego nunca pedem.
+export function servicoExigeProposta(d: {
+  tipo_oferta?: string | null; tipo_preco?: string | null; valor?: number | string | null;
+}): boolean {
+  if (d.tipo_oferta !== "servico") return false;
+  if (d.tipo_preco && d.tipo_preco !== "fixo") return true;
+  return Number(d.valor || 0) <= 0;
+}
