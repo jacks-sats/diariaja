@@ -1461,6 +1461,15 @@ describe("montarTextoVaga", () => {
     expect(t).not.toContain("/dia");
   });
 
+  it("serviço sem valor: pede proposta em vez de mostrar R$ 0", () => {
+    const t = montarTextoVaga({
+      tipo_oferta: "servico", funcao: "Encanador", valor: 0,
+      tempo_estimado_min: 60, data: "2026-07-02", horario_inicio: "14:00",
+    });
+    expect(t).toContain("💬 Envie sua proposta");
+    expect(t).not.toContain("R$ 0");
+  });
+
   it("emprego: usa salário-texto, contrato e regime (não usa R$ valor)", () => {
     const t = montarTextoVaga({
       tipo_oferta: "emprego", funcao: "Auxiliar", salario_texto: "R$ 1.800",
@@ -1763,6 +1772,9 @@ describe("delivery: estimativa é o preço oficial", () => {
   });
   it("card não-delivery (serviço): 'R$ X' sem /dia", () => {
     expect(rotuloPrecoVaga(80, { ehDelivery: false, ehServico: true })).toBe("R$ 80");
+  });
+  it("card de serviço sem valor: mostra que recebe propostas", () => {
+    expect(rotuloPrecoVaga(0, { ehDelivery: false, ehServico: true })).toBe("Recebe propostas");
   });
 });
 
