@@ -116,6 +116,8 @@ import {
 
 // Link oficial do app na Google Play (usado no banner de download da web).
 const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.diariaja.app";
+const LARGURA_APP_MOVEL = "min(100vw, 720px)";
+const LARGURA_MODAL_MOVEL = "min(100vw, 560px)";
 
 // Compartilha (ou baixa) um PDF já gerado como bytes. Web Share Level 2 anexa
 // o arquivo real (ex.: WhatsApp) quando suportado; senão, dispara o download.
@@ -378,6 +380,10 @@ export default function App() {
   // aqui a flag só serve pra os AVISOS de cobrança ficarem honestos (reverte
   // sozinho ao religar). Lançar/religar = UPDATE app_config.
   const [launchFreeAnunciante, setLaunchFreeAnunciante] = useState(false);
+  // UX atual: não mostrar preço/lançamento no momento de chamar. A mecânica de
+  // cobrança continua pronta em `desbloquearContato`; para ativar cobrança
+  // explícita no futuro, basta ligar esta comunicação.
+  const exibirCobrancaContatoAnunciante = false;
   useEffect(() => {
     supabase.rpc("launch_free_anunciante").then(
       ({ data }) => setLaunchFreeAnunciante(data === true),
@@ -752,6 +758,10 @@ export default function App() {
     mq.addEventListener?.("change", upd);
     return () => mq.removeEventListener?.("change", upd);
   }, []);
+
+  const larguraAppPrincipal = isDesktop ? 1100 : LARGURA_APP_MOVEL;
+  const larguraAppFormulario = isDesktop ? 700 : LARGURA_APP_MOVEL;
+  const larguraAppLeitura = isDesktop ? 760 : LARGURA_APP_MOVEL;
 
   // Desktop: o app é uma coluna centralizada. Sem isso, num monitor largo as
   // laterais ficavam brancas (parecia uma tira no meio). Pintamos o fundo do
@@ -5754,7 +5764,7 @@ export default function App() {
       if (resp.ok && data.liberado_gratis) {
         if (conviteId) setContatosLiberados(prev => new Set([...prev, conviteId]));
         void carregarConvites(sess.user.id, "empregador"); // re-hidrata pago_em
-        setToastSuccess("✅ Chat liberado — grátis no lançamento!");
+        setToastSuccess("✅ Chamada confirmada!");
         setDesbloqueandoContato(false);
         return;
       }
@@ -7730,7 +7740,7 @@ export default function App() {
 
   const modalConfirmLogout = confirmLogout ? (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:9000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmLogout(false)}>
-      <div role="dialog" aria-modal="true" aria-label="Sair da conta" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label="Sair da conta" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }} onClick={e => e.stopPropagation()}>
         <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
         <div style={{ fontSize:32, textAlign:"center" as const, marginBottom:12 }}>🚪</div>
         <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center" as const, marginBottom:8 }}>Sair da conta?</div>
@@ -7845,7 +7855,7 @@ export default function App() {
     </div>
   ) : null;
 
-  // ── Modal de termo de compromisso (R$ 2,50 → liberar contato) ──────────────
+  // ── Modal de termo de compromisso (chamar prestador / liberar contato) ─────
   // Extraído num elemento reutilizável: o MESMO modal precisa renderizar em TODA
   // tela que dispara setModalTermoCompromisso. Hoje os gatilhos são a Home do
   // anunciante e a tela perfil-diarista-real; antes o modal só existia na Home,
@@ -7864,14 +7874,14 @@ export default function App() {
         <ul style={{ fontSize:13, color:"#334155", lineHeight:1.7, margin:"0 0 14px 18px", padding:0 }}>
           <li>É uma <strong>relação autônoma</strong> entre prestador independente e anunciante. NÃO é vínculo de emprego (CLT) nem doméstico (LC 150/2015).</li>
           <li>O DiáriaJá <strong>NÃO intermedia o valor da diária</strong>. Pagamento é combinado e realizado <strong>direto via PIX entre vocês</strong>, fora da plataforma, após a execução.</li>
-          <li>{launchFreeAnunciante ? <>Liberar o chat com o prestador está <strong>grátis no lançamento</strong>.</> : <>A plataforma cobra apenas <strong>R$ 2,50</strong> pra liberar o chat — facilitar a conexão.</>}</li>
+          <li>Após confirmar, o app libera o próximo passo para vocês combinarem pelo chat interno.</li>
           <li>Combinem todas as condições (valor, horário, local, escopo) <strong>antes</strong> da execução.</li>
           <li>Em caso de problema, use o chat do app pra ter registro. NÃO compartilhe contatos externos antes do match.</li>
         </ul>
         <div style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:13, color:"#9a3412", lineHeight:1.6 }}>
-          {launchFreeAnunciante
-            ? <>💡 <strong>Grátis no lançamento:</strong> você não paga taxa de contato. O valor da diária é combinado direto com o prestador (PIX, dinheiro etc.), fora do app.</>
-            : <>⚠️ <strong>O valor da diária NÃO passa pelo app.</strong> Aqui você paga só a taxa de <strong>R$ 2,50</strong> do contato — o pagamento do serviço é combinado direto com o prestador (PIX, dinheiro etc.).</>}
+          {exibirCobrancaContatoAnunciante && !launchFreeAnunciante
+            ? <>⚠️ <strong>O valor da diária NÃO passa pelo app.</strong> Aqui você libera este contato; o pagamento do serviço é combinado direto com o prestador (PIX, dinheiro etc.).</>
+            : <>💡 <strong>Importante:</strong> o valor da diária é combinado direto com o prestador (PIX, dinheiro etc.), fora do app.</>}
         </div>
         <label style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 14px", background:"#f8fafc", borderRadius:12, border:`1.5px solid ${termoCompromissoCheck?"#FF6B35":"#e2e8f0"}`, cursor:"pointer", marginBottom:14 }}>
           <input type="checkbox" checked={termoCompromissoCheck}
@@ -7897,7 +7907,7 @@ export default function App() {
               trackEvento("termo_compromisso_aceito", session?.user?.id, modoAtual);
               desbloquearContato(conviteId);
             }}>
-            {desbloqueandoContato ? "Aguarde..." : "Aceitar e pagar R$ 2,50"}
+            {desbloqueandoContato ? "Aguarde..." : exibirCobrancaContatoAnunciante && !launchFreeAnunciante ? "Aceitar e continuar" : "Confirmar e chamar"}
           </button>
         </div>
       </div>
@@ -8035,7 +8045,7 @@ export default function App() {
 
   // SPLASH
   if (tela === "splash") return (
-    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:480, margin:"0 auto", position:"relative" as const, paddingBottom:150 }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:LARGURA_APP_MOVEL, margin:"0 auto", position:"relative" as const, paddingBottom:150 }}>
       {bannerLancamento}
       {bannerBaixarApp}
       {/* Convite de vaga compartilhada: quem chegou por um link ?vaga=ID ainda
@@ -8177,9 +8187,9 @@ export default function App() {
         </span>
       </div>
 
-      {/* ── CTAs — BARRA FIXA no rodapé: o conteúdo rola por trás (maxWidth 480
-          centralizado). Handlers INALTERADOS. ── */}
-      <div style={{ position:"fixed" as const, bottom:0, left:0, right:0, maxWidth:480, margin:"0 auto", padding:"14px 24px calc(14px + env(safe-area-inset-bottom))", display:"flex", flexDirection:"column" as const, gap:8, background:"linear-gradient(to top, #f8fafc 80%, rgba(248,250,252,0))", zIndex:50 }}>
+      {/* ── CTAs — BARRA FIXA no rodapé: o conteúdo rola por trás com largura
+          responsiva centralizada. Handlers INALTERADOS. ── */}
+      <div style={{ position:"fixed" as const, bottom:0, left:0, right:0, maxWidth:LARGURA_APP_MOVEL, margin:"0 auto", padding:"14px 24px calc(14px + env(safe-area-inset-bottom))", display:"flex", flexDirection:"column" as const, gap:8, background:"linear-gradient(to top, #f8fafc 80%, rgba(248,250,252,0))", zIndex:50 }}>
 
         {/* CTA primário */}
         <button
@@ -8206,7 +8216,7 @@ export default function App() {
       {modalQuemSomos && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.82)", zIndex:9999, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
           onClick={() => setModalQuemSomos(false)}>
-          <div style={{ background:"#0d1a35", borderRadius:"24px 24px 0 0", padding:"28px 24px 48px", maxWidth:480, width:"100%", maxHeight:"88vh", overflowY:"auto" }}
+          <div style={{ background:"#0d1a35", borderRadius:"24px 24px 0 0", padding:"28px 24px 48px", maxWidth:LARGURA_APP_MOVEL, width:"100%", maxHeight:"88vh", overflowY:"auto" }}
             onClick={e => e.stopPropagation()}>
 
             {/* Handle */}
@@ -8284,7 +8294,7 @@ export default function App() {
             <button aria-label="Fechar termos" style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
             <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
           </div>
-          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
+          <div style={{ padding:"20px 20px 60px", maxWidth:LARGURA_APP_MOVEL, margin:"0 auto" }}>
             <p style={{ fontSize:13, color:"#475569", lineHeight:1.7, marginBottom:14 }}>
               A DiáriaJá é uma plataforma digital de anúncios de oportunidades de serviços, que conecta anunciantes e prestadores autônomos. A plataforma não participa da execução do serviço — a relação entre as partes é independente e autônoma.
             </p>
@@ -8307,7 +8317,7 @@ export default function App() {
 
   // LOGIN
   if (tela === "login") return (
-    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 22px 40px", position:"relative" as const }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:LARGURA_APP_MOVEL, margin:"0 auto", padding:"0 22px 40px", position:"relative" as const }}>
 
       <button style={{ background:"#fff", border:"1.5px solid #e2e8f0", color:"#64748b", fontSize:13, fontWeight:700, cursor:"pointer", padding:"8px 14px", marginTop:48, alignSelf:"flex-start", borderRadius:20, fontFamily:"Inter, system-ui, sans-serif" }}
         aria-label="Voltar para a tela inicial"
@@ -8476,7 +8486,7 @@ export default function App() {
 
   // CADASTRO TIPO
   if (tela === "cadastro-tipo") return (
-    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth: isDesktop ? 880 : 480, margin:"0 auto", padding:"0 24px 40px" }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth: isDesktop ? 880 : LARGURA_APP_MOVEL, margin:"0 auto", padding:"0 24px 40px" }}>
 
       <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setTela("splash")}>
         ← Voltar
@@ -8550,7 +8560,7 @@ export default function App() {
 
   // CADASTRO AUTH (email/senha + Google)
   if (tela === "cadastro-auth") return (
-    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", padding:"0 24px 40px" }}>
+    <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:LARGURA_APP_MOVEL, margin:"0 auto", padding:"0 24px 40px" }}>
 
       <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", padding:"52px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => { setAuthError(""); setTela("cadastro-tipo"); }}>
         ← Voltar
@@ -8695,7 +8705,7 @@ export default function App() {
             <button aria-label="Fechar termos" style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
             <div style={{ fontWeight:900, fontSize:17, color:"#0f172a" }}>Termos de Uso — DiáriaJá</div>
           </div>
-          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
+          <div style={{ padding:"20px 20px 60px", maxWidth:LARGURA_APP_MOVEL, margin:"0 auto" }}>
             {(() => {
               const isDiarista = tipo === "diarista";
               const isContratante = tipo === "empregador" || tipo === "empresa";
@@ -8750,7 +8760,7 @@ export default function App() {
     const xpTotal = academyCertificados.reduce((s, c) => s + (academyCursos.find(x => x.id === c.curso_id)?.pontos_score || 0), 0);
     const nivelAc = calcularNivelAcademy(xpTotal);
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
         {/* Header gradiente */}
         <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"48px 20px 28px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
@@ -8849,7 +8859,7 @@ export default function App() {
     if (!academyCursoAberto) { setTela("academy"); return null; }
     const curso = academyCursoAberto;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:`linear-gradient(135deg, ${curso.cor}, ${curso.cor}cc)`, padding:"48px 20px 28px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela("academy")}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
@@ -8923,7 +8933,7 @@ export default function App() {
     if (academyQuizMostrando) {
       // Renderiza QUIZ
       return (
-        <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+        <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
           <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", color:"#0f172a", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
             <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }}
               onClick={() => { setAcademyQuizMostrando(false); setTela("academy-curso"); }}>← Voltar</button>
@@ -9011,7 +9021,7 @@ export default function App() {
     const microOk = !microPergunta || academyMicroResp === microPergunta.correta;
     const podeConcluir = academyTempoRestante <= 0 && academyScrollOk && academyEntendi && microOk;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background: curso ? `linear-gradient(135deg, ${curso.cor}, ${curso.cor}cc)` : "linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"48px 20px 22px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:12 }} onClick={() => setTela("academy-curso")}>← Voltar ao curso</button>
           <div style={{ fontSize:11, fontWeight:700, opacity:0.85, marginBottom:4 }}>Aula {idxAtual+1} de {aulasMod.length}</div>
@@ -9096,7 +9106,7 @@ export default function App() {
     const identidadesConta = (session?.user?.identities ?? []) as { provider?: string }[];
     const semSenhaPropria = identidadesConta.length > 0 && !identidadesConta.some(i => i.provider === "email");
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -9344,7 +9354,7 @@ export default function App() {
         {/* Modal confirmar excluir conta */}
         {confirmDeleteConta && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:500, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmDeleteConta(false)}>
-            <div role="dialog" aria-modal="true" aria-label="Excluir conta" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+            <div role="dialog" aria-modal="true" aria-label="Excluir conta" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               <div style={{ fontSize:32, textAlign:"center", marginBottom:12 }}>🗑️</div>
               <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:8 }}>Excluir conta</div>
@@ -9428,7 +9438,7 @@ export default function App() {
 
         {mostrarTermos && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.8)", zIndex:600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480, maxHeight:"90vh", overflowY:"auto" }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL, maxHeight:"90vh", overflowY:"auto" }}>
               <button style={{ background:"none", border:"none", fontSize:24, cursor:"pointer", display:"block", marginBottom:12 }} onClick={() => setMostrarTermos(false)}>✕</button>
               <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:12 }}>Termos de Uso</div>
               <div style={{ fontSize:13, color:"var(--text-label,#475569)", lineHeight:1.7 }}>
@@ -9761,7 +9771,7 @@ export default function App() {
       },
     ];
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", paddingTop:24, paddingRight:20, paddingBottom:40, paddingLeft:20, fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth: isDesktop ? 560 : 480, margin:"0 auto" }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", paddingTop:24, paddingRight:20, paddingBottom:40, paddingLeft:20, fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth: isDesktop ? 560 : LARGURA_APP_MOVEL, margin:"0 auto" }}>
         <button style={S.back} onClick={() => { setAuthError(""); setTipoPublicacaoEscolhida(null); setTela("home-empregador"); }}>← Voltar</button>
 
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:22 }}>
@@ -9855,7 +9865,7 @@ export default function App() {
     // faqAberta já está no topo do componente (BUG-C1 fix)
     return (
       <>
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
 
         {/* Header — tema claro (alinhado à landing/app) */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", position:"relative", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
@@ -9977,7 +9987,7 @@ export default function App() {
             <button style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B35", padding:0 }} onClick={() => setMostrarTermos(false)}>←</button>
             <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)" }}>Termos de Uso — DiáriaJá</div>
           </div>
-          <div style={{ padding:"20px 20px 60px", maxWidth:480, margin:"0 auto" }}>
+          <div style={{ padding:"20px 20px 60px", maxWidth:LARGURA_APP_MOVEL, margin:"0 auto" }}>
             {[
               { titulo:"1. Apresentação", body:`A DiáriaJá é uma plataforma digital de anúncios de oportunidades de serviços (PWA) que conecta prestadores autônomos a anunciantes (pessoas físicas ou empresas) para serviços pontuais nas categorias: Doméstico, Supermercado, Restaurante, Construção, Eventos, Saúde & Cuidado, Logística e Pet & Animais.\n\nA plataforma não participa da execução do serviço. A DiáriaJá apenas disponibiliza ferramentas para publicação de anúncios e conexão entre usuários.\n\nEste Termo observa: LGPD (Lei nº 13.709/2018), Marco Civil da Internet (Lei nº 12.965/2014), CDC (Lei nº 8.078/1990) e LC nº 150/2015.` },
               { titulo:"2. Natureza da Plataforma", body:`Somos um ambiente digital de divulgação de anúncios. Não prestamos serviços diretamente, não somos empregador dos prestadores, não somos agência de emprego, e não garantimos qualidade, presença ou pagamento externo.\n\nA relação entre prestador e anunciante é independente e autônoma — após o aceite, é de responsabilidade exclusiva das partes.` },
@@ -10129,7 +10139,7 @@ export default function App() {
     };
 
     return (
-      <div style={{ minHeight:"100vh", background:"#f0f2f5", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", padding:"0 20px 40px" }}>
+      <div style={{ minHeight:"100vh", background:"#f0f2f5", fontFamily:"Inter, system-ui, sans-serif", maxWidth:LARGURA_APP_MOVEL, margin:"0 auto", padding:"0 20px 40px" }}>
         <button
           style={{ background:"none", border:"none", color:"#475569", fontSize:15, cursor:"pointer", padding:"32px 0 0", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif", minHeight:44 }}
           onClick={() => {
@@ -11314,7 +11324,7 @@ export default function App() {
       void responderSuporte(txt);
     };
     return (
-      <div style={{ position:"fixed", inset:0, background:"var(--bg-app,#f0f2f5)", zIndex:300, display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto", fontFamily:"Inter, system-ui, sans-serif" }}>
+      <div style={{ position:"fixed", inset:0, background:"var(--bg-app,#f0f2f5)", zIndex:300, display:"flex", flexDirection:"column", maxWidth:LARGURA_APP_MOVEL, margin:"0 auto", fontFamily:"Inter, system-ui, sans-serif" }}>
         {/* Header */}
         <div style={{ background:"linear-gradient(135deg,#8338EC,#FF6B35)", padding:"20px 16px 14px", display:"flex", alignItems:"center", gap:12 }}>
           <button style={{ background:"rgba(255,255,255,.2)", border:"none", color:"#fff", fontSize:20, cursor:"pointer", width:36, height:36, borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center" }} onClick={() => setChatSuporte(false)}>←</button>
@@ -11403,7 +11413,7 @@ export default function App() {
     const dp = candidatosProfiles[diaristaId];
     return (
       <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" }}>
-        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }}>
           <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
           <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>📋 Antes de confirmar...</h3>
           <p style={{ fontSize:14, color:"var(--text-label,#475569)", lineHeight:1.6, marginBottom:16 }}>
@@ -11449,7 +11459,7 @@ export default function App() {
     const propostaTermo = d.tipo_oferta === "servico" ? minhaPropostaPorVaga[d.id] : null;
     return (
       <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.75)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center", fontFamily:"Inter, system-ui, sans-serif" }}>
-        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:480 }}>
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }}>
           <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
           <h3 style={{ fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:12 }}>🤝 Aceitar o serviço</h3>
           <div style={{ background:"#f8fafc", borderRadius:14, padding:"14px 16px", marginBottom:16 }}>
@@ -11683,7 +11693,7 @@ export default function App() {
     }
 
     return (
-      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+      <div style={{ ...S.appShell, maxWidth: larguraAppPrincipal, paddingTop: isDesktop ? 64 : undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
         {bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
@@ -12314,8 +12324,8 @@ export default function App() {
                             {confirmado
                               ? `✅ ${primeiroNome} aceitou o serviço! Chat liberado — combine os detalhes.`
                               : pago
-                                ? `⏳ ${launchFreeAnunciante ? "Contato liberado" : "Pagamento confirmado"}. Aguardando ${primeiroNome} aceitar o serviço pra liberar o chat.`
-                                : `🎉 ${primeiroNome} aceitou! Confirme a diária para liberar o chat interno.`}
+                                ? `⏳ Chamado enviado. Aguardando ${primeiroNome} confirmar o serviço para liberar o chat.`
+                                : `🎉 ${primeiroNome} aceitou! Confirme para chamar e abrir o chat interno.`}
                           </div>
                           <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
                             {confirmado ? (
@@ -12340,7 +12350,7 @@ export default function App() {
                                 style={{ width:"100%", padding:"11px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.7 : 1 }}
                                 disabled={desbloqueandoContato}
                                 onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: primeiroNome, conviteId: c.id })}>
-                                {desbloqueandoContato ? "Aguarde..." : launchFreeAnunciante ? "✅ Confirmar diária — grátis no lançamento" : "✅ Confirmar diária por R$ 2,50"}
+                                {desbloqueandoContato ? "Aguarde..." : "✅ Confirmar e chamar"}
                               </button>
                             )}
                             <button
@@ -12962,7 +12972,7 @@ export default function App() {
         {/* ── Modal Avaliar Prestador Real ── */}
         {modalAvalDiaristaReal && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }}>
               <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>⭐ Avaliar prestador</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20 }}>
                 Como foi a experiência com o profissional em <strong>{modalAvalDiaristaReal.nome_negocio || "sua diária"}</strong>?
@@ -13001,7 +13011,7 @@ export default function App() {
         {/* ── Modal Cancelar Diária (empregador) ── */}
         {modalCancelar && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div role="dialog" aria-modal="true" aria-label="Cancelar diária" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+            <div role="dialog" aria-modal="true" aria-label="Cancelar diária" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }}>
               <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✕ Cancelar diária</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20, lineHeight:1.6 }}>
                 Informe o motivo do cancelamento. O diarista será notificado.
@@ -13030,7 +13040,7 @@ export default function App() {
         {/* ── Modal: Encerrar vaga de emprego (Fase 1) ── */}
         {modalEncerrarVaga && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div role="dialog" aria-modal="true" aria-label="Encerrar vaga" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+            <div role="dialog" aria-modal="true" aria-label="Encerrar vaga" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }}>
               <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>🔒 Encerrar vaga</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20, lineHeight:1.6 }}>
                 A vaga sai do feed e <strong>não recebe mais candidatos</strong>. As conversas com quem você já chamou continuam.
@@ -13052,7 +13062,7 @@ export default function App() {
         {/* ── Modal Interessados (anunciante escolhe 1; até MAX_INTERESSADOS por vaga) ── */}
         {modalCandidatos && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"var(--bg-app,#f0f2f5)", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:480, maxHeight:"82vh", overflow:"auto" }}>
+            <div style={{ background:"var(--bg-app,#f0f2f5)", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:LARGURA_APP_MOVEL, maxHeight:"82vh", overflow:"auto" }}>
               {/* Header fixo */}
               <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"22px 20px 16px", position:"sticky", top:0, zIndex:1 }}>
                 <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)" }}>👥 Interessados</div>
@@ -13062,7 +13072,7 @@ export default function App() {
                 {/* Aviso prévio: a cota grátis do mês acabou — a próxima seleção é paga.
                     Usa o cálculo de UI que já existe (useLimits); a decisão final
                     continua sendo da RPC no servidor. */}
-                {plans.empregador === "gratis" && limits.empregador.cobrancaR1Iminente && (
+                {exibirCobrancaContatoAnunciante && plans.empregador === "gratis" && limits.empregador.cobrancaR1Iminente && (
                   <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:20, padding:"5px 12px", marginTop:8 }}>
                     <span style={{ fontSize:13 }}>💳</span>
                     <span style={{ fontSize:12, color:"#9a3412", fontWeight:700 }}>Sua próxima seleção custa R$ 2,50 (cota grátis do mês usada)</span>
@@ -13251,7 +13261,7 @@ export default function App() {
               return (
                 <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.6)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:10 }}
                   onClick={() => setPerfilCandidato(null)}>
-                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:480, maxHeight:"90vh", overflow:"auto" }}
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:LARGURA_APP_MOVEL, maxHeight:"90vh", overflow:"auto" }}
                     onClick={e => e.stopPropagation()}>
 
                     {/* Header do perfil */}
@@ -13465,7 +13475,7 @@ export default function App() {
         {/* ── Modal Excluir Diária (empregador) ── */}
         {modalExcluir && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div role="dialog" aria-modal="true" aria-label="Excluir diária" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+            <div role="dialog" aria-modal="true" aria-label="Excluir diária" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }}>
               <div style={{ fontSize:48, textAlign:"center", marginBottom:10, lineHeight:1 }}>🗑️</div>
               <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:6, textAlign:"center" }}>Excluir diária?</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16, lineHeight:1.6, textAlign:"center" }}>
@@ -13504,7 +13514,7 @@ export default function App() {
         {/* ── Modal: Editar Diária (empregador) ── */}
         {modalEditarDiaria && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }}>
               <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✏️ Editar diária</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:16 }}>{modalEditarDiaria.segmento}</div>
               <label style={{ fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", marginBottom:6 }}>Função</label>
@@ -13575,7 +13585,7 @@ export default function App() {
           const lblSt = { fontSize:13, fontWeight:700, color:"var(--text-1,#0f172a)", display:"block", margin:"12px 0 6px" } as const;
           return (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:310, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"24px 22px 36px", width:"100%", maxWidth:480, maxHeight:"88vh", overflow:"auto" }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"24px 22px 36px", width:"100%", maxWidth:LARGURA_APP_MOVEL, maxHeight:"88vh", overflow:"auto" }}>
               <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:2 }}>✏️ Editar vaga</div>
               <div style={{ fontSize:12.5, color:"var(--text-2,#64748b)", marginBottom:6 }}>{modalEditarEmprego.segmento}</div>
 
@@ -13733,7 +13743,7 @@ export default function App() {
           return (
             <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:400, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
               onClick={() => setModalPix(null)}>
-              <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 48px", width:"100%", maxWidth:480, boxShadow:"0 -8px 40px rgba(0,0,0,.3)" }}
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 48px", width:"100%", maxWidth:LARGURA_APP_MOVEL, boxShadow:"0 -8px 40px rgba(0,0,0,.3)" }}
                 onClick={e => e.stopPropagation()}>
 
                 {/* Handle */}
@@ -13822,7 +13832,7 @@ export default function App() {
         {promptNotif && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
                onClick={() => { setPromptNotif(false); try { localStorage.setItem("diariaja_push_prompt_dispensado","1"); } catch {} }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 32px", maxWidth:480, width:"100%", textAlign:"center" as const }}
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 32px", maxWidth:LARGURA_APP_MOVEL, width:"100%", textAlign:"center" as const }}
                  onClick={e => e.stopPropagation()}>
               <div style={{ fontSize:52, marginBottom:10 }}>🔔</div>
               <div style={{ fontWeight:900, fontSize:20, color:"var(--text-1,#0f172a)", marginBottom:8 }}>
@@ -13867,21 +13877,26 @@ export default function App() {
                 Liberar contato
               </div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.7, marginBottom:20 }}>
-                Você já usou seus <strong>3 contatos grátis</strong> deste mês. Para falar com este interessado, libere o contato.<br />
-                Escolha como continuar:
+                {exibirCobrancaContatoAnunciante && !launchFreeAnunciante
+                  ? <>Você já usou seus <strong>3 contatos grátis</strong> deste mês. Para falar com este interessado, libere o contato.<br />Escolha como continuar:</>
+                  : <>Confirme para chamar este interessado e combinar os detalhes pelo chat interno.</>}
               </div>
 
               {/* Opção 1 — R$ 1 por este contato */}
               <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
-                <div style={{ fontWeight:800, fontSize:14, color:"#166534", marginBottom:4 }}>💳 Desbloquear este contato — R$ 2,50</div>
+                <div style={{ fontWeight:800, fontSize:14, color:"#166534", marginBottom:4 }}>
+                  {exibirCobrancaContatoAnunciante && !launchFreeAnunciante ? "💳 Desbloquear este contato — R$ 2,50" : "✅ Chamar este interessado"}
+                </div>
                 <div style={{ fontSize:12, color:"#4b7c59", lineHeight:1.5, marginBottom:12 }}>
-                  Pague R$ 2,50 via Mercado Pago (cartão, PIX ou saldo) para selecionar mais um interessado agora.
+                  {exibirCobrancaContatoAnunciante && !launchFreeAnunciante
+                    ? "Pague R$ 2,50 via Mercado Pago (cartão, PIX ou saldo) para selecionar mais um interessado agora."
+                    : "O app registra a chamada e mantém a conversa protegida dentro do chat."}
                 </div>
                 <button
                   style={{ width:"100%", padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: desbloqueandoContato ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoContato ? 0.6 : 1 }}
                   disabled={desbloqueandoContato}
                   onClick={() => desbloquearContato()}>
-                  {desbloqueandoContato ? "Aguarde..." : "Pagar R$ 2,50 e selecionar →"}
+                  {desbloqueandoContato ? "Aguarde..." : exibirCobrancaContatoAnunciante && !launchFreeAnunciante ? "Pagar R$ 2,50 e selecionar →" : "Confirmar e chamar →"}
                 </button>
               </div>
 
@@ -14515,7 +14530,7 @@ export default function App() {
                 {/* Anti-exit aviso */}
                 {antiExitAviso && (
                   <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.7)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-                    <div style={{ background:"#fff", borderRadius:"20px 20px 0 0", padding:"28px 24px 32px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+                    <div style={{ background:"#fff", borderRadius:"20px 20px 0 0", padding:"28px 24px 32px", width:"100%", maxWidth:LARGURA_APP_MOVEL }} onClick={e => e.stopPropagation()}>
                       <div style={{ fontSize:36, textAlign:"center", marginBottom:10 }}>🛡️</div>
                       <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", textAlign:"center", marginBottom:8 }}>Proteção DiáriaJá</div>
                       <div style={{ fontSize:13, color:"#475569", textAlign:"center", lineHeight:1.6, marginBottom:20 }}>
@@ -14930,8 +14945,8 @@ export default function App() {
                             {(() => {
                               const rest = Math.max(0, 3 - limits.empregador.matchesMesUsados);
                               return rest > 0
-                                ? `🔓 ${rest} de 3 contatos grátis este mês`
-                                : `🔓 Contatos grátis do mês usados — próximo R$ 2,50 (ou assine)`;
+                                ? `🔓 ${rest} contato${rest !== 1 ? "s" : ""} disponíve${rest !== 1 ? "is" : "l"} este mês`
+                                : exibirCobrancaContatoAnunciante ? "🔓 Contatos do mês usados — assine para chamar mais" : "🔓 Continue chamando interessados pelo app";
                             })()}
                           </div>
                         </>
@@ -14965,7 +14980,7 @@ export default function App() {
         {/* ── Modal info do perfil (empregador) ── */}
         {modalInfoPerfil && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:350, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => { setModalInfoPerfil(false); setEditandoBio(false); setEditandoFuncoes(false); }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginBottom:20 }}>
                 <div style={{ width:72, height:72, borderRadius:36, background:negocio.cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:24, border:`3px solid ${negocio.cor}`, marginBottom:12 }}>
@@ -15080,7 +15095,7 @@ export default function App() {
         {/* ── Painel de Notificações (empregador) ── */}
         {modalNotif && (
           <div style={S.modalOverlay} onClick={() => setModalNotif(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:LARGURA_APP_MOVEL, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>🔔 Notificações</div>
               {/* Banner de suporte para admin/agente */}
@@ -15139,7 +15154,7 @@ export default function App() {
         {/* ── Bottom sheet: três pontinhos (mais opções) ── */}
         {menuOpcoes && (
           <div style={S.modalOverlay} onClick={() => setMenuOpcoes(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 24px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:LARGURA_APP_MOVEL, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 24px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ padding:"0 16px", display:"flex", flexDirection:"column" as const, gap:10 }}>
                 {tipo === "ambos" && (
@@ -15250,7 +15265,7 @@ export default function App() {
         {/* ── Bottom sheet: trocar de perfil ── */}
         {menuTrocarPerfil && (
           <div style={S.modalOverlay} onClick={() => setMenuTrocarPerfil(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 32px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:LARGURA_APP_MOVEL, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 32px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               {/* Alça */}
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               {/* Modo atual */}
@@ -15368,7 +15383,7 @@ export default function App() {
     };
 
     return (
-      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480, paddingTop: isDesktop ? 64 : undefined, paddingBottom: 76, background: "#f0f2f5" }}>
+      <div style={{ ...S.appShell, maxWidth: larguraAppPrincipal, paddingTop: isDesktop ? 64 : undefined, paddingBottom: 76, background: "#f0f2f5" }}>
         {bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
@@ -15661,7 +15676,7 @@ export default function App() {
           return (
             <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:700, display:"flex", alignItems:"flex-end", justifyContent:"center", padding:0 }}
               onClick={() => { setConvDetalhe(null); setConfirmandoDesistirConvite(false); }}>
-              <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"20px 18px 24px", width:"100%", maxWidth:480, maxHeight:"88vh", overflowY:"auto" as const }}
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"20px 18px 24px", width:"100%", maxWidth:LARGURA_APP_MOVEL, maxHeight:"88vh", overflowY:"auto" as const }}
                 onClick={e => e.stopPropagation()}>
                 <div style={{ width:40, height:4, background:"var(--border,#e2e8f0)", borderRadius:4, margin:"0 auto 14px" }} />
                 <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", marginBottom:4 }}>Detalhes do convite</div>
@@ -16907,7 +16922,7 @@ export default function App() {
                 )}
                 {antiExitAviso && (
                   <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.7)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-                    <div style={{ background:"#fff", borderRadius:"20px 20px 0 0", padding:"28px 24px 32px", width:"100%", maxWidth:480 }}>
+                    <div style={{ background:"#fff", borderRadius:"20px 20px 0 0", padding:"28px 24px 32px", width:"100%", maxWidth:LARGURA_APP_MOVEL }}>
                       <div style={{ fontSize:36, textAlign:"center", marginBottom:10 }}>🛡️</div>
                       <div style={{ fontWeight:900, fontSize:17, color:"#0f172a", textAlign:"center", marginBottom:8 }}>Proteção DiáriaJá</div>
                       <div style={{ fontSize:13, color:"#475569", textAlign:"center", lineHeight:1.6, marginBottom:20 }}>
@@ -17917,7 +17932,7 @@ export default function App() {
         {/* ── Modal Cancelar Diária (diarista) ── */}
         {modalCancelar && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div role="dialog" aria-modal="true" aria-label="Cancelar diária" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+            <div role="dialog" aria-modal="true" aria-label="Cancelar diária" style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }}>
               <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>✕ Cancelar diária</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20, lineHeight:1.6 }}>
                 Informe o motivo para <strong>{modalCancelar.nome_negocio || modalCancelar.segmento}</strong>. O anunciante será notificado.
@@ -18039,7 +18054,7 @@ export default function App() {
         {/* ── Modal Avaliar Empregador ── */}
         {modalAvalEmp && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }}>
               <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:4 }}>⭐ Avaliar anunciante</div>
               <div style={{ fontSize:13, color:"var(--text-2,#64748b)", marginBottom:20 }}>
                 Como foi prestar serviço em <strong>{modalAvalEmp.nome_negocio || modalAvalEmp.segmento}</strong>?
@@ -18145,7 +18160,7 @@ export default function App() {
         {/* ── Modal info do perfil (diarista) ── */}
         {modalInfoPerfil && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:350, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => { setModalInfoPerfil(false); setEditandoBio(false); setEditandoFuncoes(false); }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:480 }} onClick={e => e.stopPropagation()}>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"28px 24px 40px", width:"100%", maxWidth:LARGURA_APP_MOVEL }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               <div style={{ display:"flex", flexDirection:"column", alignItems:"center", marginBottom:20 }}>
                 {fotoUrl
@@ -18313,7 +18328,7 @@ export default function App() {
         {/* ── Bottom sheet: três pontinhos (mais opções) ── */}
         {menuOpcoes && (
           <div style={S.modalOverlay} onClick={() => setMenuOpcoes(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 24px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:LARGURA_APP_MOVEL, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 24px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ padding:"0 16px", display:"flex", flexDirection:"column" as const, gap:10 }}>
                 {tipo === "ambos" && (
@@ -18424,7 +18439,7 @@ export default function App() {
         {/* ── Bottom sheet: trocar de perfil ── */}
         {menuTrocarPerfil && (
           <div style={S.modalOverlay} onClick={() => setMenuTrocarPerfil(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 32px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:LARGURA_APP_MOVEL, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"8px 0 32px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               {/* Alça */}
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               {/* Modo atual */}
@@ -18475,7 +18490,7 @@ export default function App() {
         {/* ── Painel de Notificações (diarista) ── */}
         {modalNotif && (
           <div style={S.modalOverlay} onClick={() => setModalNotif(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:LARGURA_APP_MOVEL, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)", maxHeight:"70vh", overflow:"auto" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:16 }}>🔔 Notificações</div>
               {/* Banner de suporte para admin/agente */}
@@ -18534,7 +18549,7 @@ export default function App() {
         {/* ── Modal Filtro de Anúncios ── */}
         {modalFiltro && (
           <div style={S.modalOverlay} onClick={() => setModalFiltro(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:LARGURA_APP_MOVEL, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
               <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:20 }}>⚙️ Filtrar anúncios</div>
               <div style={{ fontWeight:700, fontSize:13, color:"var(--text-2,#64748b)", marginBottom:10 }}>📅 Data</div>
@@ -18629,7 +18644,7 @@ export default function App() {
 
   // EDITAR PERFIL DIARISTA
   if (tela === "editar-perfil") return (
-    <div style={{ ...S.page, maxWidth: isDesktop ? 700 : 480 }}>
+    <div style={{ ...S.page, maxWidth: larguraAppFormulario }}>
       <button style={S.back} onClick={() => { setCamposDestravadosEdit(new Set()); setTela("configuracoes"); }}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
 
@@ -19177,7 +19192,7 @@ export default function App() {
       (typeof rep.pct_cumpriu_combinado === "number" && rep.pct_cumpriu_combinado < 50)
     ));
     return (
-      <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : 480 }}>
+      <div style={{ ...S.appShell, maxWidth: larguraAppFormulario }}>
         <div style={{ padding:"12px 16px 0" }}>
           <button style={S.back} onClick={() => { setEmpregadorAberto(null); setAvaliacoesEmpAbertas([]); setTela("home-diarista"); }}>← Voltar</button>
         </div>
@@ -19340,7 +19355,7 @@ export default function App() {
     const diariasDaPerfilConc = diaristasContagemDiarias[d.id] || 0;
     const nivelD = nivelDiarista(diariasDaPerfilConc);
     return (
-      <div style={{ ...S.appShell, maxWidth: isDesktop ? 1100 : 480 }}>
+      <div style={{ ...S.appShell, maxWidth: larguraAppPrincipal }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 16px 0" }}>
           <button style={S.back} onClick={() => setTela("home-empregador")}>← Voltar</button>
           <button
@@ -19538,7 +19553,7 @@ export default function App() {
                   <div>
                     <div style={{ fontWeight:800, fontSize:14, color:"#166534" }}>Convite aceito!</div>
                     <div style={{ fontSize:12, color:"#15803d", marginTop:2 }}>
-                      {d.nome.split(" ")[0]} aceitou o serviço. {launchFreeAnunciante ? "Libere o chat de graça pra combinar os detalhes." : "Libere o chat com R$ 2,50 pra combinar os detalhes."}
+                      {d.nome.split(" ")[0]} aceitou o serviço. Confirme para chamar e combinar os detalhes.
                     </div>
                   </div>
                 </div>
@@ -19568,7 +19583,7 @@ export default function App() {
                 ) : aguardandoConfirmacao ? (
                   <div style={{ background:"#eff6ff", borderRadius:14, padding:"14px 16px", textAlign:"center" as const }}>
                     <div style={{ fontSize:20, marginBottom:6 }}>⏳</div>
-                    <div style={{ fontWeight:800, fontSize:13, color:"#1e40af", marginBottom:4 }}>{launchFreeAnunciante ? "Contato liberado!" : "Pagamento confirmado!"}</div>
+                    <div style={{ fontWeight:800, fontSize:13, color:"#1e40af", marginBottom:4 }}>Chamado enviado!</div>
                     <div style={{ fontSize:12, color:"#1d4ed8", lineHeight:1.5 }}>
                       Avisamos {d.nome.split(" ")[0]} pra aceitar o serviço. Assim que aceitar, o chat libera pros dois. 🔔
                     </div>
@@ -19578,9 +19593,7 @@ export default function App() {
                     <div style={{ fontSize:20, marginBottom:6 }}>🔒</div>
                     <div style={{ fontWeight:800, fontSize:13, color:"#92400e", marginBottom:4 }}>Chat bloqueado</div>
                     <div style={{ fontSize:12, color:"#a16207", lineHeight:1.5 }}>
-                      {launchFreeAnunciante
-                        ? <><strong>Grátis no lançamento</strong> — é só {d.nome.split(" ")[0]} aceitar o serviço e o chat libera.<br /></>
-                        : <>Pague <strong>R$ 2,50</strong>. Depois {d.nome.split(" ")[0]} aceita o serviço e o chat libera.<br /></>}
+                      Confirme a chamada para combinar tudo com {d.nome.split(" ")[0]} pelo chat interno.<br />
                       O valor da diária ({conviteAtivo?.valor ? `R$ ${conviteAtivo.valor}` : "combinado"}) você paga direto pra ele via PIX, fora do app.
                     </div>
                   </div>
@@ -19595,7 +19608,7 @@ export default function App() {
                     style={{ ...S.btnPrimary, background:cor, opacity: desbloqueandoContato ? 0.7 : 1 }}
                     disabled={desbloqueandoContato}
                     onClick={() => setModalTermoCompromisso({ alvo: "chat", nome: d.nome.split(" ")[0], conviteId: conviteAtivo?.id })}>
-                    {desbloqueandoContato ? "Aguarde..." : launchFreeAnunciante ? "💬 Liberar chat — grátis no lançamento" : "💳 Pagar R$ 2,50 e liberar chat"}
+                    {desbloqueandoContato ? "Aguarde..." : "💬 Confirmar e chamar"}
                   </button>
                 )}
 
@@ -20017,8 +20030,8 @@ export default function App() {
 
     return (
       // Desktop: formulário em container ~700px centralizado (campos width:100%
-      // acompanham). Mobile: 480px, idêntico ao anterior.
-      <div style={{ minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", paddingTop:24, paddingRight:20, paddingBottom:24, paddingLeft:20, fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth: isDesktop ? 700 : 480, margin:"0 auto" }}>
+      // acompanham). Mobile/tablet: largura fluida do app.
+      <div style={{ minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", paddingTop:24, paddingRight:20, paddingBottom:24, paddingLeft:20, fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth: larguraAppFormulario, margin:"0 auto" }}>
         <button style={S.back} onClick={() => { setAuthError(""); setTela("publicar-opcoes"); }}>← Voltar</button>
 
         {/* Cabeçalho */}
@@ -20693,7 +20706,7 @@ export default function App() {
 
   // EDITAR PERFIL EMPREGADOR
   if (tela === "editar-perfil-empregador") return (
-    <div style={{ ...S.page, maxWidth: isDesktop ? 700 : 480 }}>
+    <div style={{ ...S.page, maxWidth: larguraAppFormulario }}>
       <button style={S.back} onClick={() => { setCamposDestravadosEdit(new Set()); setTela("configuracoes"); }}>← Voltar</button>
       <h2 style={S.pageTitle}>Editar perfil</h2>
 
@@ -21103,7 +21116,7 @@ export default function App() {
     const ult7 = (s: { dia: string; valor: number }[]) => (s || []).slice(-7).reduce((a, b) => a + (b.valor || 0), 0);
     const hojeV = (s: { dia: string; valor: number }[]) => (s && s.length ? s[s.length - 1].valor : 0);
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
         {/* Toasts globais — admin tela não tinha, motivo do bug "click Aprovar sem feedback" */}
         {toastSuccess && <div role="status" aria-live="polite" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastSuccess}</div>}
         {toastError   && <div role="alert" aria-live="assertive" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastError}</div>}
@@ -21602,7 +21615,7 @@ export default function App() {
         {adminDrillTipo && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.78)", zIndex:600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
             onClick={() => setAdminDrillTipo(null)}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:480, maxHeight:"85vh", display:"flex", flexDirection:"column" as const }}
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", width:"100%", maxWidth:LARGURA_APP_MOVEL, maxHeight:"85vh", display:"flex", flexDirection:"column" as const }}
               onClick={e => e.stopPropagation()}>
               {/* Handle + header */}
               <div style={{ padding:"10px 20px 0" }}>
@@ -21838,7 +21851,7 @@ export default function App() {
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     const tk = adminTickets;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
         {/* Header */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
@@ -21934,7 +21947,7 @@ export default function App() {
     };
     const info = statusInfo[docStatus];
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -22071,7 +22084,7 @@ export default function App() {
     };
     const info = statusInfo[antStatus];
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -22177,7 +22190,7 @@ export default function App() {
   if (tela === "meus-tickets") {
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 700 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
             ← Voltar
@@ -22271,7 +22284,7 @@ export default function App() {
       ticketAtivo.status === "aguardando_user"   ? "Aguardando " + (isAdminView ? "usuário" : "você") :
       ticketAtivo.status === "resolvido"         ? "Resolvido" : "Fechado";
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column" }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:LARGURA_APP_MOVEL, margin:"0 auto", display:"flex", flexDirection:"column" }}>
         {/* Header */}
         <div style={{ background:"var(--bg-card,#fff)", padding:"40px 16px 16px", position:"sticky", top:0, zIndex:5, borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
@@ -22378,7 +22391,7 @@ export default function App() {
     // Tela de detalhe do tópico
     if (topicoAtivo) {
       return (
-        <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : 480, paddingBottom:80, background:"var(--bg-app,#f0f2f5)" }}>
+        <div style={{ ...S.appShell, maxWidth: larguraAppFormulario, paddingBottom:80, background:"var(--bg-app,#f0f2f5)" }}>
           <div style={{ background:corAcento, padding:"16px 20px", display:"flex", alignItems:"center", gap:12 }}>
             <button style={{ background:"none", border:"none", color:"#fff", fontSize:22, cursor:"pointer", padding:0 }} onClick={() => setTopicoAtivo(null)}>←</button>
             <div style={{ flex:1 }}>
@@ -22440,7 +22453,7 @@ export default function App() {
           </div>
 
           {/* Input de novo comentário */}
-          <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderTop:"1px solid var(--border,#e2e8f0)", padding:"12px 16px", display:"flex", gap:10, boxSizing:"border-box" as const }}>
+          <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:LARGURA_APP_MOVEL, background:"var(--bg-card,#fff)", borderTop:"1px solid var(--border,#e2e8f0)", padding:"12px 16px", display:"flex", gap:10, boxSizing:"border-box" as const }}>
             <input
               value={novoComentario}
               onChange={e => setNovoComentario(e.target.value)}
@@ -22460,7 +22473,7 @@ export default function App() {
 
     // Lista de tópicos
     return (
-      <div style={{ ...S.appShell, maxWidth: isDesktop ? 700 : 480, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+      <div style={{ ...S.appShell, maxWidth: larguraAppFormulario, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
         {/* Header */}
         <div style={{ background:corAcento, padding:"20px 20px 16px" }}>
           <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
@@ -22623,7 +22636,7 @@ export default function App() {
     const planoAtivo = isEmp ? plans.empregador : plans.diarista;
 
     return (
-      <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", maxWidth: isDesktop ? 760 : 480, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppLeitura, margin:"0 auto", paddingBottom:40 }}>
 
         {/* Header */}
         <div style={{ padding:"52px 24px 0" }}>
@@ -22764,7 +22777,7 @@ const S: Record<string, React.CSSProperties> = {
   logoIcon:         { fontSize:40 },
   logoText:         { fontSize:42, fontWeight:900, color:"#FF6B35", letterSpacing:-1 },
   splashSub:        { color:"var(--text-3,#94a3b8)", fontSize:20, textAlign:"center", lineHeight:1.5, margin:"8px 0 24px" },
-  page:             { minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", padding:"24px 20px", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" },
+  page:             { minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", padding:"24px 20px", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column", width:"100%", maxWidth:LARGURA_APP_MOVEL, margin:"0 auto", overflowX:"hidden" },
   pageTitle:        { fontSize:26, fontWeight:900, color:"var(--text-1,#0f172a)", margin:"16px 0 8px" },
   subTexto:         { color:"var(--text-2,#64748b)", fontSize:14, marginBottom:20 },
   back:             { background:"none", border:"none", color:"#FF6B35", fontSize:16, cursor:"pointer", padding:0, marginBottom:8, fontFamily:"Inter, system-ui, sans-serif" },
@@ -22797,7 +22810,7 @@ const S: Record<string, React.CSSProperties> = {
   toggleAtivo:      { background:"#FF6B35" },
   toggleThumb:      { width:22, height:22, borderRadius:11, background:"var(--bg-card,#fff)", position:"absolute", top:3, left:3, transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.2)" },
   toggleThumbAtivo: { left:23 },
-  appShell:         { minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth:480, margin:"0 auto", paddingBottom:32 },
+  appShell:         { minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", width:"100%", maxWidth:LARGURA_APP_MOVEL, margin:"0 auto", paddingBottom:32, overflowX:"hidden" },
   header:           { padding:"20px 20px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" },
   // (Removidos os tokens dark-first sem uso: headerSub/headerTitle/headerBack/
   //  logoutBtn/avatar — eram código morto e nasceriam escuros no app claro.)
@@ -22834,7 +22847,7 @@ const S: Record<string, React.CSSProperties> = {
   valorGrande:      { fontSize:30, fontWeight:900, color:"var(--text-1,#0f172a)" },
   avaliacaoItem:    { display:"flex", alignItems:"center", padding:"7px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" },
   modalOverlay:     { position:"fixed", inset:0, background:"rgba(15,23,42,0.55)", backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:100 },
-  modal:            { background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 36px", width:"100%", maxWidth:480 },
+  modal:            { background:"var(--bg-card,#fff)", borderRadius:"20px 20px 0 0", padding:"24px 22px 36px", width:"100%", maxWidth:LARGURA_MODAL_MOVEL },
   modalTitle:       { fontSize:19, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:10 },
   modalText:        { color:"var(--text-label,#475569)", fontSize:14, marginBottom:18 },
   modalRow:         { display:"flex", justifyContent:"space-between", padding:"7px 0", color:"var(--text-label,#475569)", fontSize:14 },
@@ -22849,7 +22862,7 @@ const S: Record<string, React.CSSProperties> = {
   perfilInfoRow:    { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" },
   perfilInfoLabel:  { fontSize:12, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 },
   perfilInfoVal:    { fontSize:14, color:"var(--text-1,#0f172a)", fontWeight:600 },
-  bottomNav:        { position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"var(--bg-card,#fff)", borderTop:"1px solid var(--border,#e2e8f0)", display:"flex", zIndex:50 },
+  bottomNav:        { position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:LARGURA_APP_MOVEL, background:"var(--bg-card,#fff)", borderTop:"1px solid var(--border,#e2e8f0)", display:"flex", zIndex:50 },
   bottomNavBtn:     { flex:1, padding:"10px 0", border:"none", background:"none", display:"flex", flexDirection:"column" as const, alignItems:"center", gap:2, fontSize:11, fontWeight:700, color:"var(--text-3,#94a3b8)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" },
   bottomNavAtivo:   { color:"#FF6B35" },
 };
