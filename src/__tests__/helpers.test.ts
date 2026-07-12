@@ -1426,12 +1426,18 @@ describe("vezDoCiclo", () => {
 });
 
 describe("linkVaga", () => {
-  it("com id → link com ?vaga=", () => {
-    expect(linkVaga("abc123")).toBe(`${URL_APP}/?vaga=abc123`);
+  it("com id → rota server-side /vaga/ID (prévia Open Graph)", () => {
+    expect(linkVaga("abc123")).toBe(`${URL_APP}/vaga/abc123`);
   });
-  it("sem id → link genérico do app", () => {
+  it("com ref → acrescenta ?ref= pra rastrear o canal", () => {
+    expect(linkVaga("abc123", "share")).toBe(`${URL_APP}/vaga/abc123?ref=share`);
+    expect(linkVaga("abc123", "copy")).toBe(`${URL_APP}/vaga/abc123?ref=copy`);
+    expect(linkVaga("abc123", "wa")).toBe(`${URL_APP}/vaga/abc123?ref=wa`);
+  });
+  it("sem id → link genérico do app (ref é ignorado)", () => {
     expect(linkVaga(null)).toBe(URL_APP);
     expect(linkVaga(undefined)).toBe(URL_APP);
+    expect(linkVaga(null, "share")).toBe(URL_APP);
   });
 });
 
@@ -1498,9 +1504,14 @@ describe("montarTextoVaga", () => {
     expect(t2.length).toBeLessThan(longa.length + 100);
   });
 
-  it("deep link: com id, o texto termina com ?vaga=ID", () => {
+  it("deep link: com id, o texto termina com /vaga/ID (rota Open Graph)", () => {
     const t = montarTextoVaga({ id: "v-99", tipo_oferta: "servico", funcao: "Pintor" });
-    expect(t.trim().endsWith(`${URL_APP}/?vaga=v-99`)).toBe(true);
+    expect(t.trim().endsWith(`${URL_APP}/vaga/v-99`)).toBe(true);
+  });
+
+  it("deep link com ref: o link do texto carrega o ?ref= do canal", () => {
+    const t = montarTextoVaga({ id: "v-99", tipo_oferta: "servico", funcao: "Pintor" }, "share");
+    expect(t.trim().endsWith(`${URL_APP}/vaga/v-99?ref=share`)).toBe(true);
   });
 
   it("nunca vaza endereço completo nem termina sem o link do app", () => {
