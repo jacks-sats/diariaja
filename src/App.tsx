@@ -6096,9 +6096,11 @@ export default function App() {
       setTermoCienciaCheck(false);
     } catch {
       // Fallback defensivo: usa os limites do client (menos confiável).
-      // Em caso de erro de rede, melhor abrir modal de pagamento (conservador)
-      // do que liberar seleção indevida.
-      if (plans.empregador === "gratis" && limits.empregador.cobrancaR1Iminente) {
+      // Em caso de erro de rede, só faz sentido abrir o modal de cobrança se a
+      // cobrança de contato estiver LIGADA. Com o lançamento grátis (kill-switch
+      // exibirCobrancaContatoAnunciante=false), um mero soluço de rede não pode
+      // barrar uma seleção que é grátis atrás de um upsell — segue pro termo.
+      if (exibirCobrancaContatoAnunciante && plans.empregador === "gratis" && limits.empregador.cobrancaR1Iminente) {
         setSelecaoPendente({ diariaId: diaria.id, diaristaId });
         setModalLimiteContato(true);
         return;
