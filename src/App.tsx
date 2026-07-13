@@ -364,6 +364,17 @@ export default function App() {
   const [propostaServico, setPropostaServico]         = useState({ valor:"", observacao:"" });
   const [candidaturas, setCandidaturas]               = useState<CandidaturaLocal[]>([]);
   const [candidatosProfiles, setCandidatosProfiles]   = useState<Record<string,UserProfile>>({});
+  const candidaturasPorVaga = useMemo(() => {
+    const mapa: Record<string, { todas:CandidaturaLocal[]; pendentes:CandidaturaLocal[]; confirmados:CandidaturaLocal[]; preenchidas:CandidaturaLocal[] }> = {};
+    for (const c of candidaturas) {
+      const item = mapa[c.diaria_id] || (mapa[c.diaria_id] = { todas:[], pendentes:[], confirmados:[], preenchidas:[] });
+      item.todas.push(c);
+      if (c.status === "pendente") item.pendentes.push(c);
+      if (c.status === "confirmado") item.confirmados.push(c);
+      if (c.status === "selecionado" || c.status === "confirmado") item.preenchidas.push(c);
+    }
+    return mapa;
+  }, [candidaturas]);
   const [modalCandidatos, setModalCandidatos]         = useState<Diaria|null>(null);
   const [selecionando, setSelecionando]               = useState(false);
   const [confirmando, setConfirmando]                 = useState(false);
@@ -1413,6 +1424,37 @@ export default function App() {
     })();
   }, [tela, session?.user?.id, recarregarPrest]);
 
+  async function carregarInteressadosEmpregador(ids: string[]) {
+    if (ids.length === 0) {
+      setCandidaturas([]);
+      return;
+    }
+
+    void carregarDislikesPorVaga(ids);
+    const { data: cands, error: errCands } = await supabase
+      .from("candidaturas")
+      .select("id,diaria_id,diarista_id,status,diarista_info")
+      .in("diaria_id", ids)
+      .in("status", ["pendente", "selecionado", "confirmado"]);
+    if (errCands) {
+      console.error("[interessados] falha ao carregar candidaturas:", errCands);
+      setToastError("Não foi possível carregar os interessados. Atualize a tela e tente de novo — se continuar, fale com o suporte.");
+      return;
+    }
+
+    const lista = (cands ?? []) as CandidaturaLocal[];
+    setCandidaturas(lista);
+    if (lista.length > 0) {
+      const dids = [...new Set(lista.map((c) => c.diarista_id))];
+      const { data: profs } = await supabase.rpc("perfis_publicos", { p_ids: dids });
+      if (profs) {
+        const m: Record<string,UserProfile> = {};
+        (profs as unknown as UserProfile[]).forEach((p) => { m[p.id] = p; });
+        setCandidatosProfiles(prev => ({ ...prev, ...m }));
+      }
+    }
+  }
+
   // Carrega as diárias do empregador ao entrar na home
   useEffect(() => {
     if (tela !== "home-empregador" || !session?.user) return;
@@ -1449,6 +1491,11 @@ export default function App() {
 
         setDiarias(data);
 
+        // Interessados são parte central da tela: carregam antes dos feedbacks e
+        // sem esperar consultas auxiliares. Isso reduz a espera no app móvel.
+        const ids = data.map((d:any) => d.id);
+        void carregarInteressadosEmpregador(ids);
+
         // ── Monta as filas de feedback pendente ────────────────────────────
         const expiradas = data.filter((d: any) => d.status === "expirada");
         const concluidas = data.filter((d: any) => d.status === "concluida");
@@ -1471,28 +1518,6 @@ export default function App() {
           setDiariasPosFeedback(concluidas.filter((d: any) => !respondidas.has(d.id)));
         }
 
-        // Carrega candidaturas das diárias do empregador
-        const ids = data.map((d:any) => d.id);
-        if (ids.length > 0) {
-          // Erro engolido aqui fazia o card cair no estado vazio falso
-          // ("Aguardando interessados…") mesmo havendo candidaturas no banco —
-          // o anunciante não via ninguém e não sabia que a carga falhou.
-          // Agora o erro é capturado: registra no console (diagnóstico) e
-          // avisa o anunciante em vez de mentir que a vaga está vazia.
-          const { data: cands, error: errCands } = await supabase.from("candidaturas").select("*").in("diaria_id", ids);
-          if (errCands) {
-            console.error("[interessados] falha ao carregar candidaturas:", errCands);
-            setToastError("Não foi possível carregar os interessados. Atualize a tela e tente de novo — se continuar, fale com o suporte.");
-          } else if (cands && cands.length > 0) {
-            setCandidaturas(cands);
-            const dids = [...new Set(cands.map((c:any) => c.diarista_id))];
-            // C2: perfis de candidatos não trazem telefone/PIX/token — só colunas públicas.
-            const { data: profs } = await supabase.rpc("perfis_publicos", { p_ids: dids });
-            if (profs) { const m: Record<string,UserProfile> = {}; (profs as unknown as UserProfile[]).forEach((p) => { m[p.id] = p; }); setCandidatosProfiles(m); }
-          }
-          // Carrega contagem de dislikes por vaga
-          carregarDislikesPorVaga(ids);
-        }
       }
     })();
     // recarregarPrest: o botão "Tentar de novo" (e qualquer refresh) re-dispara
@@ -2116,7 +2141,7 @@ export default function App() {
   // Sempre que o modal de candidatos abre, garante que os perfis de todos os candidatos estão carregados
   useEffect(() => {
     if (!modalCandidatos) return;
-    const cands = candidaturas.filter(c => c.diaria_id === modalCandidatos.id && c.status === "pendente");
+    const cands = candidaturasPorVaga[modalCandidatos.id]?.pendentes ?? [];
     const faltando = cands.map(c => c.diarista_id).filter(id => !candidatosProfiles[id]);
     if (faltando.length === 0) return;
     (async () => {
@@ -2129,7 +2154,7 @@ export default function App() {
         });
       }
     })();
-  }, [modalCandidatos]);
+  }, [modalCandidatos, candidaturasPorVaga, candidatosProfiles]);
 
   // Item 3-b: ao abrir o modal de uma vaga de EMPREGO, carrega a ÚLTIMA mensagem
   // de cada candidato (preview na lista "Conversas"). RLS deixa o anunciante ler
@@ -4164,7 +4189,7 @@ export default function App() {
     // ?ref= marca o canal de saída pra medir qual converte (lido na chegada).
     const temShareNativo = typeof navigator.share === "function";
     const ref = temShareNativo ? "share" as const : "wa" as const;
-    const texto = montarTextoVaga(dia, ref);
+    const texto = montarTextoVaga(dia, { ref, incluirLink: !temShareNativo });
     const url = linkVaga(dia.id, ref);
     try {
       if (temShareNativo) {
@@ -5694,7 +5719,7 @@ export default function App() {
     // os pendentes e fecha). A diária não é tocada.
     const ehEmprego = diaria.tipo_oferta === "emprego";
     const vagas = diaria.vagas ?? 1;
-    const jaSelecionados = candidaturas.filter(c => c.diaria_id === diaria.id && (c.status === "selecionado" || c.status === "confirmado")).length;
+    const jaSelecionados = candidaturasPorVaga[diaria.id]?.preenchidas.length ?? 0;
     const novoTotal = jaSelecionados + 1;
     const sel = planoSelecao({ ehEmprego, vagas, jaSelecionados });
     const principal = diaria.diarista_aceite_id || diaristaId;
@@ -6091,7 +6116,7 @@ export default function App() {
     // EMPREGO é exceção: chama VÁRIOS candidatos (ilimitado até encerrar a vaga).
     const ehEmpregoSel = diaria.tipo_oferta === "emprego";
     const vagasTotal = diaria.vagas ?? 1;
-    const preenchidas = candidaturas.filter(c => c.diaria_id === diaria.id && (c.status === "selecionado" || c.status === "confirmado")).length;
+    const preenchidas = candidaturasPorVaga[diaria.id]?.preenchidas.length ?? 0;
     if (!ehEmpregoSel && preenchidas >= vagasTotal) {
       setToastError(vagasTotal > 1 ? `Todas as ${vagasTotal} vagas desta diária já foram preenchidas.` : "Esta diária já tem um profissional selecionado.");
       return;
@@ -11982,8 +12007,7 @@ export default function App() {
           <>
             {/* Lembrete de completar perfil — aparece a cada acesso até completar */}
             <BannerCompletarPerfil paraDiarista={false} />
-            {/* PROMO BOAS-VINDAS: novo anunciante tem 30 dias de contatos ilimitados
-                grátis (a partir do cadastro). Servidor é a autoridade — aqui só avisa. */}
+            {/* BOAS-VINDAS: mensagem leve para o novo anunciante. */}
             {(() => {
               if (!profile?.created_at) return null;
               const fimMs = new Date(profile.created_at).getTime() + 30 * 24 * 60 * 60 * 1000;
@@ -11994,9 +12018,9 @@ export default function App() {
                   <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
                     <span style={{ fontSize:22, lineHeight:1 }}>🎁</span>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13.5, fontWeight:900 }}>Boas-vindas! Você está nos seus 30 dias grátis</div>
+                      <div style={{ fontSize:13.5, fontWeight:900 }}>Boas-vindas ao DiáriaJá!</div>
                       <div style={{ fontSize:12, marginTop:2, lineHeight:1.5, opacity:.95 }}>
-                        Contatos <strong>ilimitados de graça</strong> por mais <strong>{diasRest} dia{diasRest > 1 ? "s" : ""}</strong> — selecione quantos profissionais quiser, sem pagar nada.
+                        Publique sua vaga, encontre profissionais disponíveis e converse com quem combina com o seu anúncio.
                       </div>
                     </div>
                   </div>
@@ -12749,7 +12773,7 @@ export default function App() {
                                 contratante e diarista é combinado direto entre eles. */}
                             {/* Multi-vagas: progresso de preenchimento (só quando há mais de 1 vaga) */}
                             {(dia.vagas ?? 1) > 1 && (dia.status === "aberta" || dia.status === "pendente") && (() => {
-                              const preench = candidaturas.filter(c => c.diaria_id === dia.id && (c.status === "selecionado" || c.status === "confirmado")).length;
+                              const preench = candidaturasPorVaga[dia.id]?.preenchidas.length ?? 0;
                               const total = dia.vagas ?? 1;
                               return (
                                 <div style={{ padding:"9px 12px", background:"#eff6ff", color:"#1d4ed8", border:"1.5px solid #bfdbfe", borderRadius:12, fontSize:13, fontWeight:800, display:"flex", alignItems:"center", gap:5, flexShrink:0 }}
@@ -12761,7 +12785,7 @@ export default function App() {
                             {/* Ver interessados — chip na fileira. SÓ diária: no emprego o
                                 botão laranja "Ver X interessados" já faz isso (evita duplicar). */}
                             {dia.status === "aberta" && dia.tipo_oferta !== "emprego" && (() => {
-                              const cands = candidaturas.filter(c => c.diaria_id === dia.id && c.status === "pendente");
+                              const cands = candidaturasPorVaga[dia.id]?.pendentes ?? [];
                               return cands.length > 0 ? (
                                 <button
                                   style={{ flex:1, minWidth:80, padding:"9px 12px", background:"#f5f3ff", color:"#7c3aed", border:"1.5px solid #ddd6fe", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
@@ -12941,7 +12965,7 @@ export default function App() {
 
                         {/* Interessados na diária aberta */}
                         {dia.status === "aberta" && (() => {
-                          const cands = candidaturas.filter(c => c.diaria_id === dia.id && c.status === "pendente");
+                          const cands = candidaturasPorVaga[dia.id]?.pendentes ?? [];
                           return (
                             <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:8 }}>
                               {cands.length > 0 ? (
@@ -13164,7 +13188,7 @@ export default function App() {
               <div style={{ padding:"12px 16px 32px", display:"flex", flexDirection:"column", gap:12 }}>
                 {/* EMPREGO Fase 2: candidatos que CONFIRMARAM — fale com cada um (chat por par) */}
                 {modalCandidatos.tipo_oferta === "emprego" && (() => {
-                  const confirmados = candidaturas.filter(c => c.diaria_id === modalCandidatos.id && c.status === "confirmado" && !usuariosBloqueados.has(c.diarista_id));
+                  const confirmados = (candidaturasPorVaga[modalCandidatos.id]?.confirmados ?? []).filter(c => !usuariosBloqueados.has(c.diarista_id));
                   if (confirmados.length === 0) return null;
                   return (
                     <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:4 }}>
@@ -13211,9 +13235,9 @@ export default function App() {
                     </div>
                   );
                 })()}
-                {candidaturas
+                {(candidaturasPorVaga[modalCandidatos.id]?.pendentes ?? [])
                   // Filtra candidatos bloqueados pelo empregador (UGC safety)
-                  .filter(c => c.diaria_id === modalCandidatos.id && c.status === "pendente" && !usuariosBloqueados.has(c.diarista_id))
+                  .filter(c => !usuariosBloqueados.has(c.diarista_id))
                   .slice(0, 5)
                   .map(c => {
                     const dp = candidatosProfiles[c.diarista_id];
@@ -13308,7 +13332,7 @@ export default function App() {
                       </div>
                     );
                   })}
-                {candidaturas.filter(c => c.diaria_id === modalCandidatos.id && c.status === "pendente").length === 0 && (
+                {(candidaturasPorVaga[modalCandidatos.id]?.pendentes.length ?? 0) === 0 && (
                   <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:14, padding:"24px 0" }}>
                     Nenhum interessado disponível no momento.
                   </div>
@@ -16043,7 +16067,7 @@ export default function App() {
                   const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(dia.funcao));
                   const funcCor = funcCatEntry ? funcCatEntry[1].cor : "#64748b";
                   // Urgência social (FOMO): candidaturas nas últimas 24h pra essa vaga
-                  const candDessaVaga = candidaturas.filter(c => c.diaria_id === dia.id);
+                  const candDessaVaga = candidaturasPorVaga[dia.id]?.todas ?? [];
                   const idadeMs = dia.created_at ? Date.now() - new Date(dia.created_at).getTime() : Infinity;
                   const vagaRecente = idadeMs < 6 * 60 * 60 * 1000; // criada nas últimas 6h
                   // Banner rotativo do Já Decola: aparece após cada 6 cards
@@ -20466,38 +20490,11 @@ export default function App() {
             <div style={{ background:`${cor}10`, border:`1.5px solid ${cor}30`, borderRadius:12, padding:"10px 14px", marginTop:12, fontSize:12, color:"var(--text-2,#64748b)" }}>
               💼 Vaga de emprego — os candidatos se candidatam e você escolhe quem chamar pra entrevista. A contratação é feita diretamente entre vocês.
             </div>
-            {/* Aviso de monetização: publicar é grátis, contato exige plano.
-                Item 8 auditoria 02/07/2026: era INCONDICIONAL — aparecia até pra
-                assinante e pra quem está nos 30 dias grátis, contradizendo o
-                banner verde da home (o servidor LIBERA nesses dois casos — ver
-                promo_boas_vindas_30dias.sql). Agora: assinante não vê nada;
-                trial vê reforço verde; só o grátis pós-trial vê o amarelo. */}
-            {(() => {
-              const assinanteEmp = plans.empregador === "essencial" || plans.empregador === "plus";
-              if (assinanteEmp) return null;
-              // Lançamento grátis ligado → contato liberado pra todos (o servidor
-              // já libera); mostra o aviso positivo no lugar do "precisa Essencial".
-              if (launchFreeAnunciante) return (
-                <div style={{ background:"#fffbeb", border:"1.5px solid #fde68a", borderRadius:12, padding:"10px 14px", marginTop:8, fontSize:12, color:"#92400e", lineHeight:1.5, display:"flex", gap:8, alignItems:"flex-start" }}>
-                  <span style={{ fontSize:15, flexShrink:0 }}>💡</span>
-                  <span><strong>Grátis no lançamento</strong> — publique a vaga e fale com os candidatos sem custo.</span>
-                </div>
-              );
-              const noTrial = !!profile?.created_at &&
-                Date.now() < new Date(profile.created_at).getTime() + 30 * 24 * 60 * 60 * 1000;
-              if (noTrial) return (
-                <div style={{ background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:12, padding:"10px 14px", marginTop:8, fontSize:12, color:"#166534", lineHeight:1.5, display:"flex", gap:8, alignItems:"flex-start" }}>
-                  <span style={{ fontSize:15, flexShrink:0 }}>🎁</span>
-                  <span><strong>Publicar a vaga é grátis.</strong> E nos seus <strong>30 dias de boas-vindas</strong>, falar com os candidatos também é <strong>grátis e ilimitado</strong>.</span>
-                </div>
-              );
-              return (
-                <div style={{ background:"#fffbeb", border:"1.5px solid #fde68a", borderRadius:12, padding:"10px 14px", marginTop:8, fontSize:12, color:"#92400e", lineHeight:1.5, display:"flex", gap:8, alignItems:"flex-start" }}>
-                  <span style={{ fontSize:15, flexShrink:0 }}>💡</span>
-                  <span><strong>Publicar a vaga é grátis.</strong> Para <strong>falar com os candidatos</strong> (selecionar quem chamar), é preciso o plano <strong>Essencial</strong>.</span>
-                </div>
-              );
-            })()}
+            {/* Aviso de publicação: mensagem leve para o novo anunciante. */}
+            <div style={{ background:"#f0fdf4", border:"1.5px solid #bbf7d0", borderRadius:12, padding:"10px 14px", marginTop:8, fontSize:12, color:"#166534", lineHeight:1.5, display:"flex", gap:8, alignItems:"flex-start" }}>
+              <span style={{ fontSize:15, flexShrink:0 }}>🎁</span>
+              <span><strong>Boas-vindas!</strong> Publique sua vaga e converse com candidatos interessados diretamente pelo DiáriaJá.</span>
+            </div>
           </>
         ) : formDiaria.tipo_oferta === "diaria" ? (
           <>

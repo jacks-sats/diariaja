@@ -336,7 +336,7 @@ serve(async (req) => {
       // Rate-limit: 30 pushes / 60s por usuário. Suficiente pra qualquer
       // fluxo natural (notifica candidato selecionado, etc.); bloqueia spam.
       const blocked = await rateLimitOrReject(
-        { key: `send-push:user:${callerId}`, max: 30, windowSeconds: 60, corsHeaders },
+        { key: `send-push:user:${callerId}`, max: 30, windowSeconds: 60, corsHeaders, failClosed: true },
         supabaseUser,
       );
       if (blocked) return blocked;

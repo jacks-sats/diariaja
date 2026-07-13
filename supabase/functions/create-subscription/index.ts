@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
     // Rate-limit: 5 tentativas / hora. Criar assinatura é raro — proteção
     // contra abuso de criação de preapprovals do MP (custo + spam).
     const blocked = await rateLimitOrReject(
-      { key: `create-subscription:user:${user.id}`, max: 5, windowSeconds: 3600, corsHeaders: CORS },
+      { key: `create-subscription:user:${user.id}`, max: 5, windowSeconds: 3600, corsHeaders: CORS, failClosed: true },
       supabaseUser,
     );
     if (blocked) {
