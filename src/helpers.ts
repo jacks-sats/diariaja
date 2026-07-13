@@ -1336,17 +1336,25 @@ export interface VagaCompartilhavel {
   regime?: string | null;
 }
 
-// Link direto pra vaga (deep link). O app lê ?vaga=ID ao abrir e já mostra a
-// vaga. Sem o id, cai no link genérico do app.
-export function linkVaga(id?: string | null): string {
-  return id ? `${URL_APP}/?vaga=${id}` : URL_APP;
+// Canal por onde o link foi compartilhado — vira ?ref= na URL pra medir qual
+// canal converte (lido na chegada e rastreado em analytics).
+export type RefCompartilhamento = "wa" | "share" | "copy";
+
+// Link direto pra vaga. Aponta pra rota server-side /vaga/ID (Open Graph:
+// prévia rica no WhatsApp/Facebook — o robô de prévia não roda JS, então a
+// SPA pura gerava prévia vazia). A rota serve as meta tags + botão que leva
+// o humano pra SPA em /?vaga=ID (deep link antigo, que segue funcionando
+// como fallback pra links já compartilhados). Sem id, cai no link genérico.
+export function linkVaga(id?: string | null, ref?: RefCompartilhamento): string {
+  if (!id) return URL_APP;
+  return `${URL_APP}/vaga/${id}${ref ? `?ref=${ref}` : ""}`;
 }
 
 // Monta o texto "chamariz" que o diarista compartilha fora do app. Trata os três
 // tipos de oferta (diária, serviço pontual e vaga de emprego), com layout limpo
 // (título em negrito do WhatsApp + divisórias) e termina com o link direto da
 // vaga, pra trazer usuários novos.
-export function montarTextoVaga(v: VagaCompartilhavel): string {
+export function montarTextoVaga(v: VagaCompartilhavel, ref?: RefCompartilhamento): string {
   const hi = (v.horario_inicio || "").slice(0, 5);
   const hf = (v.horario_fim || "").slice(0, 5);
   const dataBR = isoParaBR(v.data);
@@ -1395,7 +1403,7 @@ export function montarTextoVaga(v: VagaCompartilhavel): string {
   }
   linhas.push(div);
   linhas.push("👉 Veja os detalhes e candidate-se no app:");
-  linhas.push(linkVaga(v.id));
+  linhas.push(linkVaga(v.id, ref));
   return linhas.join("\n");
 }
 

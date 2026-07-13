@@ -1,4 +1,7 @@
 {
+  "rewrites": [
+    { "source": "/vaga/:id", "destination": "/api/vaga/:id" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

@@ -25,6 +25,7 @@
     "@capgo/capacitor-updater": "^6.45.10",
     "@fontsource/inter": "^5.2.8",
     "@supabase/supabase-js": "^2.39.0",
+    "@vercel/og": "^0.11.1",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^1.16.0",
     "qrcode.react": "^4.2.0",

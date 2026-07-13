@@ -1322,6 +1322,14 @@ export default function App() {
     if (vagaParam) {
       try { localStorage.setItem("diariaja_vaga_deeplink", vagaParam); } catch { /* ok */ }
       setVagaDeepLinkId(vagaParam);
+      // ?ref= = canal do compartilhamento (wa/share/copy) — rastreia a CHEGADA
+      // pelo link pra medir qual canal converte. Falha silenciosa (analytics).
+      const refParam = params.get("ref");
+      if (refParam && /^[a-z_]{1,20}$/.test(refParam)) {
+        trackEvento("vaga_link_aberto", session?.user?.id, profile?.user_type, {
+          diaria_id: vagaParam, ref: refParam,
+        });
+      }
       window.history.replaceState({}, "", window.location.pathname);
     }
   // BUG-M5 fix: inclui session.user.id para reprocessar quando sessão carrega após redirect OAuth
@@ -4134,13 +4142,15 @@ export default function App() {
   // celular e cai pra copiar o texto no desktop. Cada compartilhamento é um
   // anúncio grátis do DiáriaJá → traz usuários novos.
   const compartilharVaga = async (dia: Diaria) => {
-    const texto = montarTextoVaga(dia);
-    const url = linkVaga(dia.id);
+    // ?ref= marca o canal de saída pra medir qual converte (lido na chegada).
+    const ref = typeof navigator.share === "function" ? "share" as const : "copy" as const;
+    const texto = montarTextoVaga(dia, ref);
+    const url = linkVaga(dia.id, ref);
     try {
       if (navigator.share) {
         // `url` separado garante que o app de destino (WhatsApp, etc.) trate o
-        // link da vaga como link clicável — quem abrir sem conta cai no app e é
-        // levado a criar conta (deep link ?vaga=ID).
+        // link da vaga como link clicável — a rota /vaga/ID serve a prévia
+        // Open Graph e leva quem clicar pro app (deep link ?vaga=ID).
         await navigator.share({ title: "Vaga no DiáriaJá", text: texto, url });
       } else {
         // Desktop sem Web Share API: copia o texto (que já termina com o link).
@@ -4148,7 +4158,7 @@ export default function App() {
         setToastSuccess("🔗 Link e texto da vaga copiados! Cole onde quiser.");
       }
       trackEvento("vaga_compartilhada", session?.user?.id, "diarista", {
-        diaria_id: dia.id, tipo_oferta: dia.tipo_oferta,
+        diaria_id: dia.id, tipo_oferta: dia.tipo_oferta, ref,
       });
     } catch { /* usuário cancelou o compartilhamento — ignora */ }
   };
