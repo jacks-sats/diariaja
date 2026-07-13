@@ -115,6 +115,12 @@ import {
   cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta,
 } from "./helpers";
 
+type HomeEmpregadorBundle = {
+  diarias?: Diaria[];
+  candidaturas?: CandidaturaLocal[];
+  perfis?: UserProfile[];
+};
+
 type GeoComPrecisao = {
   lat?: number | null;
   lng?: number | null;
@@ -1424,6 +1430,15 @@ export default function App() {
     })();
   }, [tela, session?.user?.id, recarregarPrest]);
 
+  function mesclarPerfisCandidatos(perfis: UserProfile[]) {
+    if (perfis.length === 0) return;
+    setCandidatosProfiles(prev => {
+      const m = { ...prev };
+      perfis.forEach((p) => { if (p?.id) m[p.id] = p; });
+      return m;
+    });
+  }
+
   async function carregarInteressadosEmpregador(ids: string[]) {
     if (ids.length === 0) {
       setCandidaturas([]);
@@ -1447,24 +1462,44 @@ export default function App() {
     if (lista.length > 0) {
       const dids = [...new Set(lista.map((c) => c.diarista_id))];
       const { data: profs } = await supabase.rpc("perfis_publicos", { p_ids: dids });
-      if (profs) {
-        const m: Record<string,UserProfile> = {};
-        (profs as unknown as UserProfile[]).forEach((p) => { m[p.id] = p; });
-        setCandidatosProfiles(prev => ({ ...prev, ...m }));
-      }
+      if (profs) mesclarPerfisCandidatos(profs as unknown as UserProfile[]);
     }
+  }
+
+  async function carregarHomeEmpregadorBundle(): Promise<Diaria[] | null> {
+    const { data, error } = await supabase.rpc("home_empregador_diarias_interessados");
+    if (error) {
+      const msg = `${error.code ?? ""} ${error.message ?? ""}`.toLowerCase();
+      const funcaoAusente = error.code === "PGRST202" || msg.includes("home_empregador_diarias_interessados");
+      if (!funcaoAusente) console.warn("[home-empregador] pacote rapido indisponivel:", error.message);
+      return null;
+    }
+
+    const pacote = (data ?? {}) as HomeEmpregadorBundle;
+    const diariasPacote = Array.isArray(pacote.diarias) ? pacote.diarias : [];
+    const candidaturasPacote = Array.isArray(pacote.candidaturas) ? pacote.candidaturas : [];
+    const perfisPacote = Array.isArray(pacote.perfis) ? pacote.perfis : [];
+
+    setCandidaturas(candidaturasPacote);
+    mesclarPerfisCandidatos(perfisPacote);
+    void carregarDislikesPorVaga(diariasPacote.map((d) => d.id));
+    return diariasPacote;
   }
 
   // Carrega as diárias do empregador ao entrar na home
   useEffect(() => {
     if (tela !== "home-empregador" || !session?.user) return;
     (async () => {
-      const { data, error } = await supabase
-        .from("diarias")
-        .select("*")
-        .eq("empregador_id", session.user!.id)
-        .neq("status", "cancelada")
-        .order("created_at", { ascending: false });
+      let carregouPacoteRapido = true;
+      let data = await carregarHomeEmpregadorBundle();
+      if (data === null) {
+        carregouPacoteRapido = false;
+        const { data: diariasData, error } = await supabase
+          .from("diarias")
+          .select("*")
+          .eq("empregador_id", session.user!.id)
+          .neq("status", "cancelada")
+          .order("created_at", { ascending: false });
       // Query-MÃE da home do anunciante: se ela falhar, nada abaixo roda (nem
       // candidaturas, nem feedback). Erro engolido aqui = lista de anúncios
       // vazia SILENCIOSA — exatamente o sintoma do incidente de infra de junho
@@ -1473,6 +1508,8 @@ export default function App() {
         console.error("[home-empregador] falha ao carregar diárias:", error);
         setErroDiarias(true);
         return;
+      }
+        data = (diariasData ?? []) as Diaria[];
       }
       setErroDiarias(false);
       if (data) {
@@ -1494,7 +1531,7 @@ export default function App() {
         // Interessados são parte central da tela: carregam antes dos feedbacks e
         // sem esperar consultas auxiliares. Isso reduz a espera no app móvel.
         const ids = data.map((d:any) => d.id);
-        void carregarInteressadosEmpregador(ids);
+        if (!carregouPacoteRapido) void carregarInteressadosEmpregador(ids);
 
         // ── Monta as filas de feedback pendente ────────────────────────────
         const expiradas = data.filter((d: any) => d.status === "expirada");
@@ -2505,6 +2542,10 @@ export default function App() {
     const recarregar = async () => {
       if (document.hidden) return;
       if (modoAtual === "empregador") {
+        const pacoteData = await carregarHomeEmpregadorBundle();
+        if (pacoteData) {
+          setDiarias(pacoteData);
+        } else {
         const { data } = await supabase.from("diarias").select("*")
           .eq("empregador_id", uid).neq("status", "cancelada")
           .order("created_at", { ascending: false });
@@ -2516,15 +2557,20 @@ export default function App() {
         // reload completo. Mesma carga do load inicial (cands + perfis públicos).
         const idsD = (data ?? []).map((d: any) => d.id);
         if (idsD.length > 0) {
-          const { data: cands } = await supabase.from("candidaturas").select("*").in("diaria_id", idsD);
+          const { data: cands } = await supabase
+            .from("candidaturas")
+            .select("id,diaria_id,diarista_id,status,diarista_info")
+            .in("diaria_id", idsD)
+            .in("status", ["pendente", "selecionado", "confirmado"]);
           if (cands) {
-            setCandidaturas(cands);
+            setCandidaturas(cands as CandidaturaLocal[]);
             const dids = [...new Set(cands.map((c: any) => c.diarista_id))].filter(id => !candidatosProfiles[id as string]);
             if (dids.length > 0) {
               const { data: profs } = await supabase.rpc("perfis_publicos", { p_ids: dids });
-              if (profs) setCandidatosProfiles(prev => { const m = { ...prev }; (profs as unknown as UserProfile[]).forEach((p) => { m[p.id] = p; }); return m; });
+              if (profs) mesclarPerfisCandidatos(profs as unknown as UserProfile[]);
             }
           }
+        }
         }
       } else {
         const { data } = await supabase.from("diarias").select("*")
