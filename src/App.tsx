@@ -17488,6 +17488,8 @@ export default function App() {
           const dataFmtD = new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
           const valorHora = minD > 0 ? (d.valor / (minD/60)).toFixed(2) : null;
           const stMapD: Record<string,{bg:string,color:string,txt:string}> = {
+            aberta:       { bg:"#dcfce7", color:"#16a34a", txt:"🟢 Vaga aberta" },
+            pendente:     { bg:"#fef3c7", color:"#d97706", txt:"⏳ Aguardando confirmação" },
             aceita:       { bg:"#dbeafe", color:"#1d4ed8", txt:"⏳ Aguardando início" },
             em_andamento: { bg:"#fef3c7", color:"#d97706", txt:"🔄 Em andamento" },
             concluida:    { bg:"#dcfce7", color:"#16a34a", txt:"✅ Concluída" },
@@ -17495,6 +17497,7 @@ export default function App() {
           };
           const stD = stMapD[d.status] ?? stMapD.aceita;
           const enderecoLiberado = contatoLiberado(d.status);
+          const ehEmpregoD = d.tipo_oferta === "emprego";
           return (
             <div style={S.modalOverlay} onClick={() => setDetalhesDiaria(null)}>
               <div style={{ ...S.modal, maxHeight:"90vh", overflowY:"auto", padding:0 }} onClick={e => e.stopPropagation()}>
@@ -17507,8 +17510,8 @@ export default function App() {
                   <div style={{ flex:1 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
                       <div style={{ fontWeight:900, fontSize:17, color:"#fff", lineHeight:1.2 }}>{d.nome_negocio || d.segmento}</div>
-                      <span title={d.tipo_oferta === "servico" ? "Serviço pontual" : "Diária"} style={{ background:"rgba(255,255,255,.25)", color:"#fff", padding:"2px 7px", borderRadius:10, fontSize:11, fontWeight:800, flexShrink:0 }}>
-                        {d.tipo_oferta === "servico" ? "⚡ SVC" : "🌞 DIA"}
+                      <span title={d.tipo_oferta === "servico" ? "Serviço pontual" : ehEmpregoD ? "Vaga de emprego" : "Diária"} style={{ background:"rgba(255,255,255,.25)", color:"#fff", padding:"2px 7px", borderRadius:10, fontSize:11, fontWeight:800, flexShrink:0 }}>
+                        {d.tipo_oferta === "servico" ? "⚡ SVC" : ehEmpregoD ? "💼 EMPREGO" : "🌞 DIA"}
                       </span>
                     </div>
                     <div style={{ fontSize:12, color:"rgba(255,255,255,.75)" }}>{d.segmento}</div>
@@ -17520,14 +17523,21 @@ export default function App() {
 
                   {/* Blocos rápidos de info */}
                   <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
-                    {[
+                    {(ehEmpregoD ? [
+                      // EMPREGO: salário/contrato/regime — nada de R$ 0 nem 00:00–23:59
+                      // (horários/valor são placeholders no banco pra esse tipo).
+                      { icone:"💰", label:"Salário", val: (d.salario_texto || "").trim() || "A combinar" },
+                      { icone:"📄", label:"Contrato", val: (d.tipo_contrato || "").trim() || "—" },
+                      { icone:"🏢", label:"Regime", val: (d.regime || "").trim() || "—" },
+                      { icone:"📅", label:"Publicada", val: d.created_at ? new Date(d.created_at).toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "—" },
+                    ] : [
                       { icone:"📅", label:"Data", val: new Date(d.data+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) },
                       { icone:"💰", label:"Valor", val: `R$ ${d.valor}` },
                       { icone:"🕐", label: d.tipo_oferta === "servico" ? "Chegada" : "Entrada", val: d.horario_inicio.slice(0,5) },
                       d.tipo_oferta === "servico"
                         ? { icone:"⏱", label:"Tempo", val: d.tempo_estimado_min ? (d.tempo_estimado_min >= 60 ? `${Math.round(d.tempo_estimado_min/60)}h` : `${d.tempo_estimado_min}min`) : "a combinar" }
                         : { icone:"🕔", label:"Saída", val: d.horario_fim ? d.horario_fim.slice(0,5) : "—" },
-                    ].map(b => (
+                    ]).map(b => (
                       <div key={b.label} style={{ background:"var(--bg-surface,#f8fafc)", borderRadius:12, padding:"12px 14px" }}>
                         <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:600, marginBottom:2 }}>{b.icone} {b.label}</div>
                         <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)" }}>{b.val}</div>
@@ -17535,7 +17545,8 @@ export default function App() {
                     ))}
                   </div>
 
-                  {/* Carga horária */}
+                  {/* Carga horária — não vale pra emprego (horários são placeholder) */}
+                  {!ehEmpregoD && (
                   <div style={{ background:`${corD}12`, border:`1.5px solid ${corD}30`, borderRadius:12, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
                     <div>
                       <div style={{ fontSize:11, color:`${corD}cc`, fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>⏱ Carga horária</div>
@@ -17548,6 +17559,16 @@ export default function App() {
                       </div>
                     )}
                   </div>
+                  )}
+
+                  {/* Benefícios (só emprego) */}
+                  {ehEmpregoD && Array.isArray(d.beneficios) && d.beneficios.length > 0 && (
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" as const, marginBottom:14 }}>
+                      {d.beneficios.map(b => (
+                        <span key={b} style={{ background:"#f0fdf4", color:"#166534", border:"1px solid #bbf7d0", padding:"4px 12px", borderRadius:16, fontSize:12, fontWeight:700 }}>🎁 {b}</span>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Função */}
                   {d.funcao && (
@@ -17606,6 +17627,24 @@ export default function App() {
                       onClick={() => { setDetalhesDiaria(null); setQrDiaria(d); }}>
                       📲 Mostrar código de chegada ao anunciante
                     </button>
+                  )}
+
+                  {/* Candidatar — vaga ABERTA vinda do link compartilhado (/vaga/ID →
+                      deep link ?vaga=) abre ESTE modal, que era só de diária já aceita
+                      e não tinha ação nenhuma ("cliquei em quero me candidatar e não
+                      tinha onde"). Reusa o MESMO fluxo do feed (setVagaConfirm). */}
+                  {d.status === "aberta" && profile?.user_type === "diarista" && (
+                    meuInteresse[d.id] ? (
+                      <div style={{ background:"#dcfce7", color:"#15803d", borderRadius:12, padding:"12px 14px", fontWeight:700, fontSize:13, textAlign:"center" as const, marginBottom:10 }}>
+                        ✅ Interesse enviado — aguarde o anunciante
+                      </div>
+                    ) : (
+                      <button
+                        style={{ width:"100%", padding:"14px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10, boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
+                        onClick={() => { setDetalhesDiaria(null); setVagaConfirm(d); setVagaConfirmada(false); setCartaVaga(""); setCurriculoFile(null); }}>
+                        ✋ Tenho interesse
+                      </button>
+                    )
                   )}
 
                   {/* Desistir — também aqui no detalhe (antes só na Agenda), pra
