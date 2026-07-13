@@ -31,7 +31,7 @@ export default async function handler(req: Request) {
   const v = await buscarVagaPublica(id);
 
   const titulo = v ? tituloVaga(v) : "Vagas e serviços perto de você";
-  const valor = v ? valorVaga(v) : "Grátis pra se candidatar";
+  const valor = v ? valorVaga(v) : "Vagas abertas";
   const local = v ? localVaga(v) : "Campo Grande/MS";
   const data = v ? dataBR(v.data) : "";
   // Título longo estoura o card — corta com reticências (Satori não elipsa).

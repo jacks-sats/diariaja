@@ -82,7 +82,6 @@ export default async function handler(req: Request) {
   ${data ? `<p style="font-size:15px;color:#c8d6e5;margin:0 0 4px">📅 ${esc(data)}${v.horario_inicio ? ` às ${esc(String(v.horario_inicio).slice(0, 5))}` : ""}</p>` : ""}
   ${descricao ? `<p style="font-size:15px;color:#e3ebf4;line-height:1.55;margin:16px 0 0">📋 ${esc(descricao)}</p>` : ""}
   <a href="${abrirApp}" style="display:block;text-align:center;margin-top:26px;background:#FF6B35;color:#fff;font-weight:800;font-size:17px;padding:16px 24px;border-radius:14px;text-decoration:none">Quero me candidatar →</a>
-  <p style="font-size:13px;color:#8fa3b8;text-align:center;margin-top:14px">Grátis pra se candidatar · O valor é combinado direto com o anunciante</p>
   <p style="font-size:13px;color:#8fa3b8;text-align:center;margin-top:26px">diariaja.com · Precisou? Achou.</p>
 </main>
 </body>
