@@ -25,9 +25,12 @@ export interface VagaPublica {
 
 const SUPABASE_URL =
   process.env.VITE_SUPABASE_URL || "https://rpszebrrrasoijfdvner.supabase.co";
+// MESMA chave pública do src/supabaseClient.ts (formato novo sb_publishable_).
+// BUG corrigido: o fallback anterior era um JWT inválido → 401 na RPC → a
+// função tratava TODA vaga como inexistente e devolvia 404 (sem card no zap).
 const SUPABASE_ANON_KEY =
   process.env.VITE_SUPABASE_ANON_KEY ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwc3plYnJycmFzb2lqZmR2bmVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg4NzYxMTAsImV4cCI6MjA2NDQ1MjExMH0.4qcSHDBIrPHDHRPnHUdxZLYnMLQI-ApYNVUOtNvhBiE";
+  "sb_publishable_3mVVT4hR6PFU0jbjr6hsvA_eXSbOvST";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
