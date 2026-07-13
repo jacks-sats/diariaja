@@ -846,12 +846,18 @@ export default function App() {
     responsavelNome: "", responsavelCpf: "",
     aceitaTermos: false,
   };
+  function sanitizarRascunhoEmpresa(draft: Partial<FormEmpresa>): Partial<FormEmpresa> {
+    return {
+      nomeFantasia: draft.nomeFantasia || "",
+      razaoSocial: draft.razaoSocial || "",
+    };
+  }
   const [formEmp, setFormEmp] = useState<FormEmpresa>(() => {
-    // Restaura rascunho do localStorage (sem senha/confirmaSenha por segurança)
+    // Restaura rascunho do localStorage sem documento, contato, endereco ou senha.
     try {
       const raw = localStorage.getItem("diariaja_cad_empresa_draft");
       if (!raw) return FORM_EMPRESA_VAZIO;
-      const parsed = JSON.parse(raw) as Partial<FormEmpresa>;
+      const parsed = sanitizarRascunhoEmpresa(JSON.parse(raw) as Partial<FormEmpresa>);
       return { ...FORM_EMPRESA_VAZIO, ...parsed, senha: "", confirmaSenha: "", aceitaTermos: false };
     } catch { return FORM_EMPRESA_VAZIO; }
   });
@@ -1192,8 +1198,7 @@ export default function App() {
   useEffect(() => {
     try {
       // Não salva campos sensíveis nem o aceite de termos.
-      const { senha: _s, confirmaSenha: _c, aceitaTermos: _a, ...safe } = formEmp;
-      void _s; void _c; void _a;
+      const safe = sanitizarRascunhoEmpresa(formEmp);
       localStorage.setItem("diariaja_cad_empresa_draft", JSON.stringify(safe));
     } catch { /* quota cheia ou modo privado: silenciar */ }
   }, [formEmp]);
@@ -1280,7 +1285,7 @@ export default function App() {
     try {
       const raw = localStorage.getItem("diariaja_cad_empresa_draft");
       if (raw) {
-        const d = JSON.parse(raw) as Partial<FormEmpresa>;
+        const d = sanitizarRascunhoEmpresa(JSON.parse(raw) as Partial<FormEmpresa>);
         setFormEmp(prev => ({ ...prev, ...d, senha: "", confirmaSenha: "", aceitaTermos: false }));
       }
     } catch { /* ignore */ }
