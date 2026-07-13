@@ -339,6 +339,8 @@ export default function App() {
   const [desistindoConvite, setDesistindoConvite] = useState(false);
   // Detalhes da diária aceita (modal ao clicar no card)
   const [detalhesDiaria, setDetalhesDiaria] = useState<Diaria | null>(null);
+  // Cards do feed com a descrição EXPANDIDA (o padrão é 2 linhas + "ver mais")
+  const [descExpandidas, setDescExpandidas] = useState<Set<string>>(new Set());
   // Deep link de vaga compartilhada (?vaga=ID): guardado no load, aberto quando
   // sessão/perfil já carregaram.
   const [vagaDeepLinkId, setVagaDeepLinkId] = useState<string | null>(null);
@@ -16195,12 +16197,32 @@ export default function App() {
                             })()}
                           </div>
 
-                          {/* Prévia do que precisa ser feito (2 linhas) — pra ver de relance */}
-                          {dia.descricao && (
-                            <div style={{ fontSize:13, color:"var(--text-1,#0f172a)", marginTop:8, lineHeight:1.45, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" as const, overflow:"hidden" }}>
-                              📋 {dia.descricao}
-                            </div>
-                          )}
+                          {/* Prévia do que precisa ser feito (2 linhas) — toque expande.
+                              Antes o clamp de 2 linhas era definitivo: "não dá para ver a
+                              descrição da vaga" (feedback real de prestador). */}
+                          {dia.descricao && (() => {
+                            const descAberta = descExpandidas.has(dia.id);
+                            const alternarDesc = (e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              setDescExpandidas(prev => {
+                                const n = new Set(prev);
+                                if (n.has(dia.id)) n.delete(dia.id); else n.add(dia.id);
+                                return n;
+                              });
+                            };
+                            return (
+                              <div onClick={alternarDesc} style={{ cursor:"pointer" }}>
+                                <div style={{ fontSize:13, color:"var(--text-1,#0f172a)", marginTop:8, lineHeight:1.45, ...(descAberta ? { whiteSpace:"pre-wrap" as const } : { display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" as const, overflow:"hidden" }) }}>
+                                  📋 {dia.descricao}
+                                </div>
+                                {dia.descricao.length > 80 && (
+                                  <div style={{ fontSize:12, fontWeight:700, color:"#2563eb", marginTop:3 }}>
+                                    {descAberta ? "ver menos ▲" : "ver descrição completa ▼"}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           {/* Delivery info block */}
                           {FUNCOES_DELIVERY.includes(dia.funcao) && dia.valor_por_entrega && (
