@@ -2484,6 +2484,23 @@ export default function App() {
           .eq("empregador_id", uid).neq("status", "cancelada")
           .order("created_at", { ascending: false });
         if (data) setDiarias(data);
+        // Recarrega também as CANDIDATURAS. No iPhone/2º plano o WebSocket do
+        // realtime é suspenso e o INSERT de candidatura se perde — só as diárias
+        // eram re-buscadas aqui, então o anunciante voltava pro app e seguia
+        // vendo "Aguardando interessados…" mesmo com gente candidatada, até dar
+        // reload completo. Mesma carga do load inicial (cands + perfis públicos).
+        const idsD = (data ?? []).map((d: any) => d.id);
+        if (idsD.length > 0) {
+          const { data: cands } = await supabase.from("candidaturas").select("*").in("diaria_id", idsD);
+          if (cands) {
+            setCandidaturas(cands);
+            const dids = [...new Set(cands.map((c: any) => c.diarista_id))].filter(id => !candidatosProfiles[id as string]);
+            if (dids.length > 0) {
+              const { data: profs } = await supabase.rpc("perfis_publicos", { p_ids: dids });
+              if (profs) setCandidatosProfiles(prev => { const m = { ...prev }; (profs as unknown as UserProfile[]).forEach((p) => { m[p.id] = p; }); return m; });
+            }
+          }
+        }
       } else {
         const { data } = await supabase.from("diarias").select("*")
           .eq("diarista_aceite_id", uid)
