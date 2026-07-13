@@ -4143,19 +4143,24 @@ export default function App() {
   // anúncio grátis do DiáriaJá → traz usuários novos.
   const compartilharVaga = async (dia: Diaria) => {
     // ?ref= marca o canal de saída pra medir qual converte (lido na chegada).
-    const ref = typeof navigator.share === "function" ? "share" as const : "copy" as const;
+    const temShareNativo = typeof navigator.share === "function";
+    const ref = temShareNativo ? "share" as const : "wa" as const;
     const texto = montarTextoVaga(dia, ref);
     const url = linkVaga(dia.id, ref);
     try {
-      if (navigator.share) {
+      if (temShareNativo) {
         // `url` separado garante que o app de destino (WhatsApp, etc.) trate o
         // link da vaga como link clicável — a rota /vaga/ID serve a prévia
         // Open Graph e leva quem clicar pro app (deep link ?vaga=ID).
         await navigator.share({ title: "Vaga no DiáriaJá", text: texto, url });
       } else {
-        // Desktop sem Web Share API: copia o texto (que já termina com o link).
-        await navigator.clipboard?.writeText(texto);
-        setToastSuccess("🔗 Link e texto da vaga copiados! Cole onde quiser.");
+        // WebView do app Android (e desktop) NÃO tem a Web Share API — antes
+        // caía em "copiar", que confundia ("cliquei em compartilhar e só
+        // copiou"). Agora abre o WhatsApp direto com o texto pronto (wa.me
+        // resolve pro app no celular e pro WhatsApp Web no desktop). A cópia
+        // fica de backup silencioso pra quem quiser colar em outro lugar.
+        try { await navigator.clipboard?.writeText(texto); } catch { /* ok */ }
+        window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener,noreferrer");
       }
       trackEvento("vaga_compartilhada", session?.user?.id, "diarista", {
         diaria_id: dia.id, tipo_oferta: dia.tipo_oferta, ref,
@@ -16218,15 +16223,25 @@ export default function App() {
                             {(() => {
                               const st = meuInteresse[dia.id];
                               if (st === "pendente") return (
-                                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                                  <div style={{ background:"#dcfce7", color:"#15803d", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:13, flex:1, textAlign:"center" as const }}>
-                                    {propostaFeed ? `✅ Proposta enviada: R$ ${propostaFeed.valor.toLocaleString("pt-BR")}` : "✅ Interesse enviado"}
+                                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                                    <div style={{ background:"#dcfce7", color:"#15803d", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:13, flex:1, textAlign:"center" as const }}>
+                                      {propostaFeed ? `✅ Proposta enviada: R$ ${propostaFeed.valor.toLocaleString("pt-BR")}` : "✅ Interesse enviado"}
+                                    </div>
+                                    <button
+                                      style={{ background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                                      title="Retirar candidatura"
+                                      onClick={e => { e.stopPropagation(); retirarInteresse(dia.id); }}>
+                                      Desistir
+                                    </button>
                                   </div>
+                                  {/* Compartilhar continua disponível após se candidatar —
+                                      quem se candidatou é quem mais divulga (loop viral). */}
                                   <button
-                                    style={{ background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                                    title="Retirar candidatura"
-                                    onClick={e => { e.stopPropagation(); retirarInteresse(dia.id); }}>
-                                    Desistir
+                                    style={{ width:"100%", background:"#eff6ff", color:"#2563eb", border:"1.5px solid #bfdbfe", borderRadius:12, padding:"9px 12px", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}
+                                    title="Compartilhar esta vaga no WhatsApp, Facebook, etc."
+                                    onClick={e => { e.stopPropagation(); compartilharVaga(dia); }}>
+                                    📤 Compartilhar
                                   </button>
                                 </div>
                               );
