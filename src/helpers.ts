@@ -360,6 +360,12 @@ export function traduzirErroBanco(erro: unknown): string {
   if (!m.trim()) return "Não foi possível concluir agora. Tente de novo em instantes.";
 
   if (m.includes("modo_beta")) return "🚀 Isso abre no lançamento (1º de julho). Por enquanto, deixe seu perfil completo!";
+  // Anti double-booking (convites_anti_double_booking.sql) — mensagens próprias,
+  // ANTES das regras genéricas de unique (23505) e check (23514) que mascarariam.
+  if (m.includes("uq_convite_pendente"))
+    return "Você já tem um convite pendente para este profissional nesta data. Aguarde a resposta dele.";
+  if (m.includes("conflito de agenda"))
+    return obj.message || "Conflito de agenda: você já tem um serviço aceito perto desse horário.";
   if (/failed to fetch|networkerror|network error|timeout|fetch|err_internet|offline/.test(m))
     return "Sem conexão. Verifique sua internet e tente de novo.";
   if (/invalid input syntax for type (time|timestamp|date)|date\/time/.test(m))
