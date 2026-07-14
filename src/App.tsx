@@ -12088,7 +12088,6 @@ export default function App() {
               <div style={{ padding:"0 10px 4px", fontSize:11, color:"#94a3b8", fontWeight:950, textTransform:"uppercase" }}>Menu</div>
               {itemMenu("inicio", "Início", <Home size={17} />, true, () => setTabEmpregador("inicio"))}
               {itemMenu("diarias", "Diárias", <Briefcase size={17} />, false, () => setTabEmpregador("diarias"))}
-              {itemMenu("agenda", "Agenda", <CalendarDays size={17} />, false, () => setTabEmpregador("diarias"))}
               {itemMenu("chat", "Chat", <MessageCircle size={17} />, false, () => { setTabEmpregador("chat"); setMsgNaoLidas(0); })}
               {itemMenu("perfil", "Perfil", <User size={17} />, false, () => setTabEmpregador("perfil"))}
             </nav>
@@ -12131,10 +12130,28 @@ export default function App() {
                   </button>
                 )}
               </div>
-              <div style={{ display:"flex", background:"#fff", border:"1px solid #d8e0ea", borderRadius:8, padding:4, gap:4 }}>
-                <button type="button" style={{ border:"none", borderRadius:6, background:"#0f172a", color:"#fff", fontWeight:950, padding:"8px 13px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>Contratante</button>
-                <button type="button" onClick={() => setTela("home-diarista")} style={{ border:"none", borderRadius:6, background:"transparent", color:"#64748b", fontWeight:900, padding:"8px 13px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>Prestador</button>
-              </div>
+              {/* Toggle de papel — mesma regra do menu "Trocar perfil": empresa (PJ)
+                  não pode virar prestador (toggle nem aparece); perfil de prestador
+                  incompleto cai no setup em vez de numa home vazia. */}
+              {profile?.pessoa_tipo !== "juridica" ? (
+                <div style={{ display:"flex", background:"#fff", border:"1px solid #d8e0ea", borderRadius:8, padding:4, gap:4 }}>
+                  <button type="button" style={{ border:"none", borderRadius:6, background:"#0f172a", color:"#fff", fontWeight:950, padding:"8px 13px", cursor:"default", fontFamily:"Inter, system-ui, sans-serif" }}>Contratante</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      hapticTick();
+                      if (profile?.funcao && profile?.valor_diaria) {
+                        setModoAtual("diarista"); setTela("home-diarista");
+                      } else {
+                        setForm(f => ({ ...f, funcao: profile?.funcao || "", valor: String(profile?.valor_diaria || "") }));
+                        setTela("setup-diarista");
+                      }
+                    }}
+                    style={{ border:"none", borderRadius:6, background:"transparent", color:"#64748b", fontWeight:900, padding:"8px 13px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                    Prestador
+                  </button>
+                </div>
+              ) : <span />}
               <button type="button" aria-label="Notificações" onClick={() => { setModalNotif(true); setNotifNaoLidas(0); setTabEmpregador("diarias"); }} style={{ width:42, height:42, border:"1px solid #d8e0ea", borderRadius:8, background:"#fff", color:"#475569", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", position:"relative" }}>
                 <Bell size={18} />
                 {(notifNaoLidas + suporteNaoLidos) > 0 && <span style={{ position:"absolute", top:-6, right:-6, minWidth:18, height:18, padding:"0 5px", borderRadius:999, background:"#ef4444", color:"#fff", fontSize:10, display:"flex", alignItems:"center", justifyContent:"center" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</span>}
@@ -16386,6 +16403,27 @@ export default function App() {
           <p style={{ margin:"6px 0 0", color:"#ffedd5", fontSize:14, fontWeight:800, lineHeight:1.45 }}>{diaristaDesktopMeta.subtitle}</p>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          {/* Toggle de papel (espelho do dashboard do anunciante) — sem ele o
+              usuário "ambos" ficava preso no modo prestador no desktop. Perfil
+              de anunciante incompleto cai no setup, igual ao menu "Trocar perfil". */}
+          <div style={{ display:"flex", background:"rgba(255,255,255,.12)", border:"1px solid rgba(255,255,255,.22)", borderRadius:8, padding:4, gap:4 }}>
+            <button
+              type="button"
+              onClick={() => {
+                hapticTick();
+                if (profile?.nome_negocio && profile?.segmento) {
+                  setNegocio(profile.segmento); setModoAtual("empregador"); setTela("home-empregador");
+                } else {
+                  setForm(f => ({ ...f, nomeNegocio: profile?.nome_negocio || "" }));
+                  setNegocio(null);
+                  setTela("setup-empregador");
+                }
+              }}
+              style={{ border:"none", borderRadius:6, background:"transparent", color:"#ffedd5", fontWeight:900, padding:"7px 12px", fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+              Contratante
+            </button>
+            <button type="button" style={{ border:"none", borderRadius:6, background:"#fff", color:"#0f172a", fontWeight:950, padding:"7px 12px", fontSize:12, cursor:"default", fontFamily:"Inter, system-ui, sans-serif" }}>Prestador</button>
+          </div>
           <span style={{ background:"#fff", color:"#0f172a", borderRadius:999, padding:"8px 12px", fontSize:12, fontWeight:950 }}>
             {vagasDisponiveisDesktop} anúncio{vagasDisponiveisDesktop === 1 ? "" : "s"}
           </span>
