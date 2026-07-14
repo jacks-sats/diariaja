@@ -487,6 +487,18 @@ export default function App() {
     retornantes_7d: number; recorrentes_14d: number; stickiness_pct: number;
     retencao_d1_pct: number; retencao_d7_pct: number; novos_30d: number;
   } | null>(null);
+  type AdminRetencaoPorLadoItem = {
+    tipo: string;
+    total_usuarios: number;
+    ativos_hoje: number;
+    ativos_7d: number;
+    ativos_30d: number;
+    retornantes_7d: number;
+    recorrentes_14d: number;
+    freq_media_14d: number;
+    stickiness_pct: number;
+  };
+  const [adminRetencaoLado, setAdminRetencaoLado] = useState<AdminRetencaoPorLadoItem[]>([]);
   type AdminDrillItem = { id: string; titulo: string; subtitulo: string; badge: string; badge_cor: string; criado_em: string };
   const [adminDrillTipo, setAdminDrillTipo]       = useState<string | null>(null);
   const [adminDrillTitulo, setAdminDrillTitulo]   = useState("");
@@ -801,9 +813,10 @@ export default function App() {
     return () => mq.removeEventListener?.("change", upd);
   }, []);
 
-  const larguraAppPrincipal = isDesktop ? 1100 : LARGURA_APP_MOVEL;
-  const larguraAppFormulario = isDesktop ? 700 : LARGURA_APP_MOVEL;
-  const larguraAppLeitura = isDesktop ? 760 : LARGURA_APP_MOVEL;
+  const larguraAppPrincipal = isDesktop ? "min(1440px, calc(100vw - 48px))" : LARGURA_APP_MOVEL;
+  const larguraAppFormulario = isDesktop ? "min(920px, calc(100vw - 48px))" : LARGURA_APP_MOVEL;
+  const larguraAdmin = isDesktop ? "min(1320px, calc(100vw - 48px))" : LARGURA_APP_MOVEL;
+  const larguraAppLeitura = isDesktop ? "min(1120px, calc(100vw - 48px))" : LARGURA_APP_MOVEL;
 
   // Desktop: o app é uma coluna centralizada. Sem isso, num monitor largo as
   // laterais ficavam brancas (parecia uma tira no meio). Pintamos o fundo do
@@ -813,7 +826,7 @@ export default function App() {
   // No celular (isDesktop=false) nada muda. Reseta ao sair.
   useEffect(() => {
     if (isDesktop) {
-      document.body.style.background = "var(--bg-surface, #f8fafc)";
+      document.body.style.background = "#eef2f6";
     } else {
       document.body.style.background = "";
     }
@@ -4697,7 +4710,7 @@ export default function App() {
       const { data, error } = await supabase.rpc("admin_stats");
       if (!error && data?.[0]) setAdminStats(data[0] as AdminStats);
       // Em paralelo: extras + 2 séries temporais pra os gráficos
-      const [extras, serieU, serieD, retencao, serieA, serieC, novosLado] = await Promise.all([
+      const [extras, serieU, serieD, retencao, serieA, serieC, novosLado, retencaoLado] = await Promise.all([
         supabase.rpc("admin_metricas_extras"),
         supabase.rpc("admin_metricas_serie", { p_metrica: "novos_usuarios", p_dias: 14 }),
         supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_criadas", p_dias: 14 }),
@@ -4705,6 +4718,7 @@ export default function App() {
         supabase.rpc("admin_serie_ativos", { p_dias: 14 }),
         supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_concluidas", p_dias: 14 }),
         supabase.rpc("admin_novos_por_lado"),
+        supabase.rpc("admin_retencao_por_lado"),
       ]);
       if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
       if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
@@ -4716,6 +4730,7 @@ export default function App() {
       if (!serieC.error && serieC.data) setAdminSerieConcluidas(serieC.data);
       // Novos por lado é opcional: degrada se a função SQL ainda não foi aplicada.
       if (!novosLado.error && novosLado.data?.[0]) setAdminNovosLado(novosLado.data[0]);
+      if (!retencaoLado.error && retencaoLado.data) setAdminRetencaoLado(retencaoLado.data as AdminRetencaoPorLadoItem[]);
       // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
       const fin = await supabase.rpc("admin_resumo_financeiro");
       if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
@@ -7670,7 +7685,7 @@ export default function App() {
   type NavItemTopo = { key: string; label: string; icon: React.ReactNode; ativo?: boolean; destaque?: boolean; badge?: number; onClick: () => void };
   const NavTopoDesktop = ({ items, cor }: { items: NavItemTopo[]; cor: string }) => (
     <div style={{ position:"fixed" as const, top:0, left:0, right:0, width:"100%", zIndex:60, background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border,#e2e8f0)", boxShadow:"0 1px 10px rgba(0,0,0,.05)" }}>
-      <div style={{ maxWidth:1100, margin:"0 auto", padding:"0 24px", height:64, display:"flex", alignItems:"center", gap:6 }}>
+      <div style={{ maxWidth:1440, margin:"0 auto", padding:"0 28px", height:68, display:"flex", alignItems:"center", gap:8 }}>
         <div style={{ fontSize:22, fontWeight:900, letterSpacing:-1, marginRight:"auto" }}>
           <span style={{ color:"var(--text-1,#0f172a)" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
@@ -8928,7 +8943,7 @@ export default function App() {
     const xpTotal = academyCertificados.reduce((s, c) => s + (academyCursos.find(x => x.id === c.curso_id)?.pontos_score || 0), 0);
     const nivelAc = calcularNivelAcademy(xpTotal);
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppLeitura, margin:"0 auto", paddingBottom:40 }}>
         {/* Header gradiente */}
         <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"48px 20px 28px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarHome)}>← Voltar</button>
@@ -9027,7 +9042,7 @@ export default function App() {
     if (!academyCursoAberto) { setTela("academy"); return null; }
     const curso = academyCursoAberto;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppLeitura, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background:`linear-gradient(135deg, ${curso.cor}, ${curso.cor}cc)`, padding:"48px 20px 28px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela("academy")}>← Voltar</button>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
@@ -9189,7 +9204,7 @@ export default function App() {
     const microOk = !microPergunta || academyMicroResp === microPergunta.correta;
     const podeConcluir = academyTempoRestante <= 0 && academyScrollOk && academyEntendi && microOk;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppLeitura, margin:"0 auto", paddingBottom:40 }}>
         <div style={{ background: curso ? `linear-gradient(135deg, ${curso.cor}, ${curso.cor}cc)` : "linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"48px 20px 22px", color:"#fff" }}>
           <button style={{ background:"none", border:"none", color:"rgba(255,255,255,.85)", fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:12 }} onClick={() => setTela("academy-curso")}>← Voltar ao curso</button>
           <div style={{ fontSize:11, fontWeight:700, opacity:0.85, marginBottom:4 }}>Aula {idxAtual+1} de {aulasMod.length}</div>
@@ -11858,7 +11873,7 @@ export default function App() {
     }
 
     return (
-      <div style={{ ...S.appShell, maxWidth: larguraAppPrincipal, paddingTop: isDesktop ? 64 : undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" }}>
+      <div style={{ ...S.appShell, maxWidth: larguraAppPrincipal, paddingTop: isDesktop ? 88 : undefined, paddingBottom:isDesktop ? 32 : 76, background:isDesktop ? "#eef2f6" : "var(--bg-app,#f0f2f5)" }}>
         {bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
@@ -14814,7 +14829,7 @@ export default function App() {
           if (!isDesktop) return conversaJSX ?? listaJSX;
           // Desktop: duas colunas
           return (
-            <div style={{ display:"grid", gridTemplateColumns:"360px 1fr", gap:16, padding:"12px 16px 24px", alignItems:"start" as const }}>
+            <div style={{ display:"grid", gridTemplateColumns:"minmax(340px, 390px) minmax(0, 1fr)", gap:20, padding:"20px 24px 32px", alignItems:"start" as const }}>
               <div style={{ maxHeight:"calc(100vh - 130px)", overflowY:"auto" as const }}>{listaJSX}</div>
               <div>
                 {conversaJSX ?? (
@@ -14833,7 +14848,7 @@ export default function App() {
         {tabEmpregador === "perfil" && (
           /* Desktop: coluna de 720px centralizada dentro do shell de 1100.
              Mobile: div sem estilo = layout idêntico ao fragment anterior. */
-          <div style={ isDesktop ? { maxWidth:720, margin:"0 auto", width:"100%" } : undefined }>
+          <div style={ isDesktop ? { maxWidth:1040, margin:"0 auto", width:"100%" } : undefined }>
             {/* Barra + ⚙️ */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
@@ -15587,7 +15602,7 @@ export default function App() {
     };
 
     return (
-      <div style={{ ...S.appShell, maxWidth: larguraAppPrincipal, paddingTop: isDesktop ? 64 : undefined, paddingBottom: 76, background: "#f0f2f5" }}>
+      <div style={{ ...S.appShell, maxWidth: larguraAppPrincipal, paddingTop: isDesktop ? 88 : undefined, paddingBottom:isDesktop ? 32 : 76, background:isDesktop ? "#eef2f6" : "#f0f2f5" }}>
         {bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
@@ -16071,7 +16086,7 @@ export default function App() {
 
             <div
               style={ isDesktop
-                ? { padding:"0 16px 24px", display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(330px, 1fr))", gap:16, alignItems:"start" as const, maxWidth:1100, margin:"0 auto", width:"100%", boxSizing:"border-box" as const, transform:`translateY(${puxando}px)`, transition: puxando === 0 ? "transform .3s" : "none" }
+                ? { padding:"0 16px 24px", display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(330px, 1fr))", gap:16, alignItems:"start" as const, maxWidth:"none", margin:"0 auto", width:"100%", boxSizing:"border-box" as const, transform:`translateY(${puxando}px)`, transition: puxando === 0 ? "transform .3s" : "none" }
                 : { padding:"0 16px 24px", display:"flex", flexDirection:"column" as const, gap:12, transform:`translateY(${puxando}px)`, transition: puxando === 0 ? "transform .3s" : "none" }
               }
               onTouchStart={e => {
@@ -17254,7 +17269,7 @@ export default function App() {
           if (!isDesktop) return conversaJSX ?? listaJSX;
           // Desktop: duas colunas
           return (
-            <div style={{ display:"grid", gridTemplateColumns:"360px 1fr", gap:16, padding:"12px 16px 24px", alignItems:"start" as const }}>
+            <div style={{ display:"grid", gridTemplateColumns:"minmax(340px, 390px) minmax(0, 1fr)", gap:20, padding:"20px 24px 32px", alignItems:"start" as const }}>
               <div style={{ maxHeight:"calc(100vh - 130px)", overflowY:"auto" as const }}>{listaJSX}</div>
               <div>
                 {conversaJSX ?? (
@@ -17288,7 +17303,7 @@ export default function App() {
           return (
           /* Desktop: coluna de 720px centralizada (mesma mecânica do anunciante).
              Mobile: div sem estilo = layout idêntico. */
-          <div style={ isDesktop ? { maxWidth:720, margin:"0 auto", width:"100%" } : undefined }>
+          <div style={ isDesktop ? { maxWidth:1040, margin:"0 auto", width:"100%" } : undefined }>
             {/* Barra de boas-vindas + ⚙️ */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
@@ -21356,12 +21371,49 @@ export default function App() {
         </div>
       );
     };
+
+    const CardRetencaoPorLado = ({ dados }: { dados: AdminRetencaoPorLadoItem[] }) => {
+      const ordenados = [...dados].sort((a, b) => (a.tipo === "empregador" ? -1 : 1) - (b.tipo === "empregador" ? -1 : 1));
+      const labelTipo = (tipo: string) => tipo === "diarista" ? "Prestadores" : "Anunciantes";
+      const corTipo = (tipo: string) => tipo === "diarista" ? "#FF6B35" : "#3A86FF";
+      return (
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10, marginBottom:12 }}>
+            <div style={{ fontSize:12, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Frequencia de retorno por lado</div>
+            <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", fontWeight:800 }}>ultimos 14 dias</div>
+          </div>
+          <div style={{ display:"grid", gap:10 }}>
+            {ordenados.map(item => (
+              <div key={item.tipo} style={{ border:"1px solid var(--border,#e2e8f0)", borderRadius:12, padding:"11px 12px", background:"var(--bg-surface,#f8fafc)" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, marginBottom:9 }}>
+                  <strong style={{ fontSize:13, color:corTipo(item.tipo) }}>{labelTipo(item.tipo)}</strong>
+                  <span style={{ fontSize:12, color:"var(--text-2,#64748b)", fontWeight:800 }}>{item.total_usuarios} usuarios</span>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(4, 1fr)" : "repeat(2, 1fr)", gap:8 }}>
+                  {[
+                    ["Ativos 7d", item.ativos_7d],
+                    ["Voltaram 7d", item.retornantes_7d],
+                    ["Frequencia", `${Number(item.freq_media_14d || 0).toFixed(1)} dias`],
+                    ["Fidelidade", `${item.stickiness_pct || 0}%`],
+                  ].map(([label, valor]) => (
+                    <div key={label} style={{ background:"#fff", border:"1px solid var(--border-sub,#f1f5f9)", borderRadius:10, padding:"8px 9px" }}>
+                      <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", fontWeight:800, textTransform:"uppercase" as const }}>{label}</div>
+                      <div style={{ fontSize:15, color:"var(--text-1,#0f172a)", fontWeight:900, marginTop:2 }}>{valor}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    };
     // Ajudantes pros números do bloco essencial: soma dos últimos 7 dias e
     // valor de hoje (último ponto) de uma série diária [{dia,valor}].
     const ult7 = (s: { dia: string; valor: number }[]) => (s || []).slice(-7).reduce((a, b) => a + (b.valor || 0), 0);
     const hojeV = (s: { dia: string; valor: number }[]) => (s && s.length ? s[s.length - 1].valor : 0);
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAppFormulario, margin:"0 auto", paddingBottom:40 }}>
+      <div style={{ minHeight:"100vh", background:isDesktop ? "#eef2f6" : "var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAdmin, margin:"0 auto", paddingBottom:40, paddingTop:isDesktop ? 24 : 0 }}>
         {/* Toasts globais — admin tela não tinha, motivo do bug "click Aprovar sem feedback" */}
         {toastSuccess && <div role="status" aria-live="polite" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastSuccess}</div>}
         {toastError   && <div role="alert" aria-live="assertive" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastError}</div>}
@@ -21394,7 +21446,7 @@ export default function App() {
             </div>
           )}
           {/* Diárias criadas e concluídas (hoje + 7 dias) — o número mais importante */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+          <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
               <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>📋 Diárias criadas</div>
               <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1, marginTop:3 }}>{hojeV(adminSerieDiarias)} <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>hoje</span></div>
@@ -21409,14 +21461,27 @@ export default function App() {
           {/* Contratantes vs diaristas — desequilíbrio visível */}
           {adminExtras && (
             <div style={{ marginBottom:10 }}>
-              <CardComparacao titulo="Anunciantes vs prestadores" dados={[
+              <CardComparacao titulo="Proporcao da base" dados={[
                 { label:"Prestadores", valor: adminExtras.total_diaristas, cor:"#FF6B35" },
                 { label:"Anunciantes", valor: adminExtras.total_empregadores, cor:"#3A86FF" },
               ]} />
             </div>
           )}
+          {adminRetencaoLado.length > 0 && (
+            <div style={{ marginBottom:10 }}>
+              <CardRetencaoPorLado dados={adminRetencaoLado} />
+            </div>
+          )}
+          {adminRetencao && (
+            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(4, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
+              {cardStat("Ativos 7 dias", adminRetencao.ativos_7d, "#3A86FF", "ðŸ“…")}
+              {cardStat("Voltaram 7d", adminRetencao.retornantes_7d, "#0ea5e9", "â†©ï¸")}
+              {cardStat("Recorrentes", adminRetencao.recorrentes_14d, "#FF6B35", "ðŸ”¥")}
+              {cardStat("Fidelidade", `${adminRetencao.stickiness_pct}%`, "#f59e0b", "ðŸ§²")}
+            </div>
+          )}
           {/* Novos de hoje SEPARADOS por lado */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+          <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
             {cardStat("Prestadores novos hoje", adminNovosLado ? adminNovosLado.diaristas_hoje : "—", "#FF6B35", "🆕")}
             {cardStat("Anunciantes novos hoje", adminNovosLado ? adminNovosLado.empregadores_hoje : "—", "#3A86FF", "🆕")}
           </div>
@@ -21426,7 +21491,7 @@ export default function App() {
             const u = adminFinanceiro.unlocks || {};
             const pl = adminFinanceiro.planos || {};
             return (
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0, 1fr))" : "1fr 1fr", gap:10 }}>
                 {cardStat("Chat liberado — mês", `R$ ${fmt(u.valor_mes)}`, "#16a34a", "💬")}
                 {cardStat("Assinantes ativos", pl.ativos_total ?? 0, "#3A86FF", "⭐")}
               </div>
@@ -21437,7 +21502,7 @@ export default function App() {
         {/* ═══════════ BLOCO 2 — OPERACIONAL (cards) ═══════════ */}
         <div style={{ padding:"4px 16px 8px" }}>
           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>🛠️ Operacional</div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+          <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(5, minmax(0, 1fr))" : "1fr 1fr", gap:10 }}>
             {cardStat("Online agora", adminStats ? adminStats.online_agora : 0, "#16a34a", "🟢", "online_agora")}
             {cardStat("Tickets abertos", adminStats ? adminStats.tickets_abertos : 0, "#ef4444", "📨", "tickets_abertos")}
             {cardStat("KYC pendente", adminDocsPendentes.length, "#f59e0b", "📄")}
