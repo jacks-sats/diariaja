@@ -371,11 +371,12 @@ export default function App() {
   const [candidaturas, setCandidaturas]               = useState<CandidaturaLocal[]>([]);
   const [candidatosProfiles, setCandidatosProfiles]   = useState<Record<string,UserProfile>>({});
   const candidaturasPorVaga = useMemo(() => {
-    const mapa: Record<string, { todas:CandidaturaLocal[]; pendentes:CandidaturaLocal[]; confirmados:CandidaturaLocal[]; preenchidas:CandidaturaLocal[] }> = {};
+    const mapa: Record<string, { todas:CandidaturaLocal[]; pendentes:CandidaturaLocal[]; selecionados:CandidaturaLocal[]; confirmados:CandidaturaLocal[]; preenchidas:CandidaturaLocal[] }> = {};
     for (const c of candidaturas) {
-      const item = mapa[c.diaria_id] || (mapa[c.diaria_id] = { todas:[], pendentes:[], confirmados:[], preenchidas:[] });
+      const item = mapa[c.diaria_id] || (mapa[c.diaria_id] = { todas:[], pendentes:[], selecionados:[], confirmados:[], preenchidas:[] });
       item.todas.push(c);
       if (c.status === "pendente") item.pendentes.push(c);
+      if (c.status === "selecionado") item.selecionados.push(c);
       if (c.status === "confirmado") item.confirmados.push(c);
       if (c.status === "selecionado" || c.status === "confirmado") item.preenchidas.push(c);
     }
@@ -1487,7 +1488,11 @@ export default function App() {
 
     setCandidaturas(candidaturasPacote);
     mesclarPerfisCandidatos(perfisPacote);
-    void carregarDislikesPorVaga(diariasPacote.map((d) => d.id));
+    const idsPacote = diariasPacote.map((d) => d.id);
+    void carregarDislikesPorVaga(idsPacote);
+    if (idsPacote.length > 0 && candidaturasPacote.length === 0) {
+      void carregarInteressadosEmpregador(idsPacote);
+    }
     return diariasPacote;
   }
 
@@ -13016,7 +13021,10 @@ export default function App() {
 
                         {/* Interessados na diária aberta */}
                         {dia.status === "aberta" && (() => {
-                          const cands = candidaturasPorVaga[dia.id]?.pendentes ?? [];
+                          const grupo = candidaturasPorVaga[dia.id];
+                          const cands = dia.tipo_oferta === "emprego"
+                            ? (grupo?.todas ?? []).filter(c => ["pendente", "selecionado", "confirmado"].includes(c.status))
+                            : (grupo?.pendentes ?? []);
                           return (
                             <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:8 }}>
                               {cands.length > 0 ? (
@@ -13286,6 +13294,37 @@ export default function App() {
                     </div>
                   );
                 })()}
+                {modalCandidatos.tipo_oferta === "emprego" && (() => {
+                  const chamados = (candidaturasPorVaga[modalCandidatos.id]?.selecionados ?? []).filter(c => !usuariosBloqueados.has(c.diarista_id));
+                  if (chamados.length === 0) return null;
+                  return (
+                    <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:4 }}>
+                      <div style={{ fontSize:12, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>Chamados aguardando resposta ({chamados.length})</div>
+                      {chamados.map(c => {
+                        const info = (c as { diarista_info?: { nome?:string; foto_url?:string; funcao?:string } }).diarista_info;
+                        const dp = candidatosProfiles[c.diarista_id];
+                        const nome = dp?.nome || info?.nome || "Candidato";
+                        const funcao = dp?.funcao || info?.funcao || "";
+                        const foto = dp?.foto_url || info?.foto_url || "";
+                        const ini = nome.split(" ").filter(Boolean).map(n=>n[0]).join("").slice(0,2).toUpperCase();
+                        return (
+                          <div key={"selecionado-"+c.id} style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"10px 12px", display:"flex", alignItems:"center", gap:12 }}>
+                            <div style={{ position:"relative", width:42, height:42, flexShrink:0 }}>
+                              <div style={{ width:42, height:42, borderRadius:21, background:"#FF6B35", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14 }}>{ini}</div>
+                              {foto && <img src={foto} alt="" onError={e=>{(e.target as HTMLImageElement).style.display="none";}} style={{ position:"absolute", inset:0, width:42, height:42, borderRadius:21, objectFit:"cover" as const }} />}
+                            </div>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>{nome}</div>
+                              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>{funcao || "Candidato"} · aguardando confirmar</div>
+                            </div>
+                            <span style={{ background:"#fffbeb", color:"#92400e", border:"1.5px solid #fde68a", borderRadius:999, padding:"6px 10px", fontSize:12, fontWeight:800, flexShrink:0 }}>Aguardando</span>
+                          </div>
+                        );
+                      })}
+                      <div style={{ height:1, background:"var(--border,#e2e8f0)", margin:"2px 0 0" }} />
+                    </div>
+                  );
+                })()}
                 {(candidaturasPorVaga[modalCandidatos.id]?.pendentes ?? [])
                   // Filtra candidatos bloqueados pelo empregador (UGC safety)
                   .filter(c => !usuariosBloqueados.has(c.diarista_id))
@@ -13383,7 +13422,9 @@ export default function App() {
                       </div>
                     );
                   })}
-                {(candidaturasPorVaga[modalCandidatos.id]?.pendentes.length ?? 0) === 0 && (
+                {((modalCandidatos.tipo_oferta === "emprego"
+                  ? ((candidaturasPorVaga[modalCandidatos.id]?.pendentes.length ?? 0) + (candidaturasPorVaga[modalCandidatos.id]?.selecionados.length ?? 0) + (candidaturasPorVaga[modalCandidatos.id]?.confirmados.length ?? 0))
+                  : (candidaturasPorVaga[modalCandidatos.id]?.pendentes.length ?? 0)) === 0) && (
                   <div style={{ textAlign:"center", color:"var(--text-3,#94a3b8)", fontSize:14, padding:"24px 0" }}>
                     Nenhum interessado disponível no momento.
                   </div>
