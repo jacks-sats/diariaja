@@ -17,11 +17,15 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 export function getClientIp(req: Request): string {
-  // Vercel/Supabase passam o IP real em x-forwarded-for. Pega o primeiro
-  // (cadeia: cliente, proxy1, proxy2, ...).
+  // FIX 2026-07-13 (anti-spoof): usa o ÚLTIMO hop da cadeia, não o primeiro.
+  // O cliente pode ENVIAR um x-forwarded-for forjado; o proxy da plataforma
+  // (Supabase/Deno Deploy) ACRESCENTA o IP real de conexão ao FINAL da cadeia.
+  // Pegando o primeiro, cada request com valor forjado diferente ganhava uma
+  // chave nova de rate-limit — bypass total do limite por IP. Se a plataforma
+  // sobrescreve o header (em vez de acrescentar), último == primeiro: no-op.
   const fwd = req.headers.get("x-forwarded-for") ?? "";
-  const first = fwd.split(",")[0].trim();
-  if (first) return first;
+  const hops = fwd.split(",").map((h) => h.trim()).filter(Boolean);
+  if (hops.length > 0) return hops[hops.length - 1];
   return req.headers.get("x-real-ip") ?? "unknown";
 }
 
