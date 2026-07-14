@@ -145,6 +145,16 @@ function distanciaConfiavelKm(origem: GeoComPrecisao | null | undefined, destino
   );
 }
 
+// Grade de cards pro modo DESKTOP: no lugar da coluna única do celular
+// esticada na tela larga, os cards fluem em colunas de no mínimo `minPx`.
+// alignItems:start evita que um card expandido estique os vizinhos da linha.
+const gridCardsDesktop = (minPx: number): React.CSSProperties => ({
+  display: "grid",
+  gridTemplateColumns: `repeat(auto-fill, minmax(${minPx}px, 1fr))`,
+  gap: 14,
+  alignItems: "start",
+});
+
 // Link oficial do app na Google Play (usado no banner de download da web).
 const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.diariaja.app";
 const LARGURA_APP_MOVEL = "min(100vw, 720px)";
@@ -12653,13 +12663,15 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              {/* Desktop: botões de largura natural (flex:1 na tela larga virava
+                  dois "botões-pílula" gigantes com cara de app esticado). */}
               <div style={{ display:"flex", gap:8 }}>
                 <button onClick={dispensar}
-                  style={{ flex:1, padding:"10px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:40 }}>
+                  style={{ flex: isDesktop ? "0 0 auto" : 1, padding: isDesktop ? "10px 22px" : "10px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:40 }}>
                   ✅ Manter no ar
                 </button>
                 <button onClick={() => { encerrarVagaAntecipado(v); dispensar(); }}
-                  style={{ flex:1, padding:"10px", background:"var(--bg-card,#fff)", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:40 }}>
+                  style={{ flex: isDesktop ? "0 0 auto" : 1, padding: isDesktop ? "10px 22px" : "10px", background:"var(--bg-card,#fff)", color:"#dc2626", border:"1.5px solid #fecaca", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", minHeight:40 }}>
                   🗑️ Tirar do ar
                 </button>
               </div>
@@ -13095,7 +13107,7 @@ export default function App() {
             <div style={{ padding:"20px 16px" }}>
               {/* Botão escanear QR */}
               <button
-                style={{ width:"100%", padding:"14px", background:"#0f172a", color:"#fff", border:"none", borderRadius:16, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:16, boxShadow:"0 4px 14px rgba(0,0,0,.2)" }}
+                style={{ width: employerDesktopMode ? "auto" : "100%", padding: employerDesktopMode ? "13px 26px" : "14px", background:"#0f172a", color:"#fff", border:"none", borderRadius: employerDesktopMode ? 10 : 16, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display: employerDesktopMode ? "inline-flex" : "flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:16, boxShadow:"0 4px 14px rgba(0,0,0,.2)" }}
                 onClick={() => { setScannerAberto(true); setScanMsg(null); }}>
                 📷 Escanear QR Code do prestador
               </button>
@@ -13125,7 +13137,7 @@ export default function App() {
                     <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>🎉 Convites aceitos</span>
                     <span style={{ background:"#dcfce7", color:"#16a34a", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesAceitosAtivos.length}</span>
                   </div>
-                  <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+                  <div style={ employerDesktopMode ? gridCardsDesktop(420) : { display:"flex", flexDirection:"column" as const, gap:10 } }>
                     {convitesAceitosAtivos.map(c => {
                       // Pago = liberou o contato (estado local OU coluna do banco).
                       const pago = contatosLiberados.has(c.id) || !!c.pago_em;
@@ -13204,7 +13216,7 @@ export default function App() {
                     <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>⏳ Aguardando resposta</span>
                     <span style={{ background:"#fef3c7", color:"#d97706", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c => c.status === "pendente" && !conviteExpirou(c)).length}</span>
                   </div>
-                  <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+                  <div style={ employerDesktopMode ? gridCardsDesktop(420) : { display:"flex", flexDirection:"column" as const, gap:10 } }>
                     {convitesEnviados.filter(c => c.status === "pendente" && !conviteExpirou(c)).map(c => {
                       const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
                       return (
@@ -13248,7 +13260,7 @@ export default function App() {
                     <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>⏰ Expirados</span>
                     <span style={{ background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c => c.status === "pendente" && conviteExpirou(c)).length}</span>
                   </div>
-                  <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+                  <div style={ employerDesktopMode ? gridCardsDesktop(420) : { display:"flex", flexDirection:"column" as const, gap:10 } }>
                     {convitesEnviados.filter(c => c.status === "pendente" && conviteExpirou(c)).map(c => {
                       const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
                       return (
@@ -13290,7 +13302,7 @@ export default function App() {
                     <span style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>✗ Recusados</span>
                     <span style={{ background:"#fee2e2", color:"#dc2626", borderRadius:20, padding:"2px 10px", fontSize:11, fontWeight:800 }}>{convitesEnviados.filter(c=>c.status==="recusado").length}</span>
                   </div>
-                  <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+                  <div style={ employerDesktopMode ? gridCardsDesktop(420) : { display:"flex", flexDirection:"column" as const, gap:10 } }>
                     {convitesEnviados.filter(c => c.status === "recusado").map(c => {
                       const dataFmt = c.data_servico ? new Date(c.data_servico+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "";
                       return (
@@ -13385,7 +13397,7 @@ export default function App() {
                   {diariasNaoCanceladas.length === 0 ? "Nenhuma diária publicada ainda." : vazioPorAba[filtroDiarias]}
                 </div>
               ) : (
-                <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                <div style={ employerDesktopMode ? gridCardsDesktop(460) : { display:"flex", flexDirection:"column", gap:12 } }>
                   {diariasFiltradas.map(dia => {
                     const sl = statusLabel[dia.status] ?? statusLabel.aberta;
                     const ehServicoCardEmp = dia.tipo_oferta === "servico";
@@ -13755,7 +13767,7 @@ export default function App() {
               {diarias.filter(d => d.status === "cancelada").length > 0 && (
                 <>
                   <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, margin:"20px 0 10px" }}>✗ Canceladas</div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
+                  <div style={ employerDesktopMode ? { ...gridCardsDesktop(420), marginBottom:16 } : { display:"flex", flexDirection:"column", gap:10, marginBottom:16 } }>
                     {diarias.filter(d => d.status === "cancelada").map(dia => (
                       <div key={dia.id} style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"14px 16px", boxShadow:"0 2px 10px rgba(0,0,0,.07)", borderLeft:"4px solid #ef4444", opacity:0.85 }}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
@@ -13792,7 +13804,7 @@ export default function App() {
               )}
 
               <button
-                style={{ ...S.btnPrimary, background:negocio.cor, marginTop:16 }}
+                style={{ ...S.btnPrimary, background:negocio.cor, marginTop:16, ...(employerDesktopMode ? { width:"auto", padding:"13px 28px", borderRadius:10 } : {}) }}
                 onClick={irPublicarOferta}>
                 + Publicar anúncio
               </button>
@@ -15499,7 +15511,7 @@ export default function App() {
         {tabEmpregador === "perfil" && (
           /* Desktop: coluna de 720px centralizada dentro do shell de 1100.
              Mobile: div sem estilo = layout idêntico ao fragment anterior. */
-          <div style={ isDesktop ? { maxWidth:1040, margin:"0 auto", width:"100%" } : undefined }>
+          <div style={ isDesktop ? { maxWidth:760, margin:"0 auto", width:"100%" } : undefined }>
             {/* Barra + ⚙️ */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
@@ -17570,7 +17582,7 @@ export default function App() {
                     </div>
                     <span style={{ background:"var(--bg-card,#fff)", color:"#FF6B35", fontWeight:900, fontSize:14, borderRadius:20, padding:"2px 10px" }}>{paraConfirmar.length}</span>
                   </div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+                  <div style={ diaristaDesktopMode ? { ...gridCardsDesktop(400), marginBottom:20 } : { display:"flex", flexDirection:"column", gap:10, marginBottom:20 } }>
                     {paraConfirmar.map(d => {
                       const ehSv = d.tipo_oferta === "servico";
                       const propostaEnviada = ehSv ? minhaPropostaPorVaga[d.id] : null;
@@ -17605,7 +17617,7 @@ export default function App() {
               {emAndamento.length > 0 && (
                 <>
                   <div style={{ fontSize:11, fontWeight:800, color:"#d97706", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>🔄 Em andamento agora</div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+                  <div style={ diaristaDesktopMode ? { ...gridCardsDesktop(400), marginBottom:20 } : { display:"flex", flexDirection:"column", gap:10, marginBottom:20 } }>
                     {emAndamento.map(d => <CardDiaria key={d.id} dia={d} />)}
                   </div>
                 </>
@@ -17615,7 +17627,7 @@ export default function App() {
               {pendentes.length > 0 && (
                 <>
                   <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>⏳ Aguardando início</div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+                  <div style={ diaristaDesktopMode ? { ...gridCardsDesktop(400), marginBottom:20 } : { display:"flex", flexDirection:"column", gap:10, marginBottom:20 } }>
                     {pendentes.map(d => <CardDiaria key={d.id} dia={d} />)}
                   </div>
                 </>
@@ -17625,7 +17637,7 @@ export default function App() {
               {concluidas.length > 0 && (
                 <>
                   <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>✅ Concluídas</div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+                  <div style={ diaristaDesktopMode ? { ...gridCardsDesktop(400), marginBottom:20 } : { display:"flex", flexDirection:"column", gap:10, marginBottom:20 } }>
                     {concluidas.map(d => <CardDiaria key={d.id} dia={d} />)}
                   </div>
                 </>
@@ -17635,7 +17647,7 @@ export default function App() {
               {canceladas.length > 0 && (
                 <>
                   <div style={{ fontSize:11, fontWeight:800, color:"var(--text-2,#64748b)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>✗ Canceladas</div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  <div style={ diaristaDesktopMode ? gridCardsDesktop(400) : { display:"flex", flexDirection:"column", gap:10 } }>
                     {canceladas.map(d => <CardDiaria key={d.id} dia={d} />)}
                   </div>
                 </>
@@ -17698,7 +17710,7 @@ export default function App() {
           });
 
           return (
-            <div style={{ padding:"16px 16px 32px" }}>
+            <div style={ diaristaDesktopMode ? { padding:"16px 16px 32px", maxWidth:760, margin:"0 auto", width:"100%", boxSizing:"border-box" as const } : { padding:"16px 16px 32px" } }>
 
               {/* Toggle disponibilidade */}
               <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
@@ -18099,7 +18111,7 @@ export default function App() {
           return (
           /* Desktop: coluna de 720px centralizada (mesma mecânica do anunciante).
              Mobile: div sem estilo = layout idêntico. */
-          <div style={ isDesktop ? { maxWidth:1040, margin:"0 auto", width:"100%" } : undefined }>
+          <div style={ isDesktop ? { maxWidth:760, margin:"0 auto", width:"100%" } : undefined }>
             {/* Barra de boas-vindas + ⚙️ */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
