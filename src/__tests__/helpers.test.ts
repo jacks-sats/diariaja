@@ -1184,6 +1184,17 @@ describe("traduzirErroBanco", () => {
   it("traduz o gate do modo beta", () => {
     expect(traduzirErroBanco("MODO_BETA: ação indisponível")).toContain("lançamento");
   });
+  it("traduz convite pendente duplicado (uq_convite_pendente) antes do genérico 23505", () => {
+    const msg = traduzirErroBanco({ code: "23505", message: 'duplicate key value violates unique constraint "uq_convite_pendente"' });
+    expect(msg).toContain("convite pendente");
+    expect(msg).not.toContain("já está cadastrado");
+  });
+  it("repassa a mensagem do trigger de conflito de agenda (não mascara com o genérico de check)", () => {
+    const original = "Conflito de agenda: você já tem um serviço às 08:00 de 20/07. Deixe pelo menos 1 hora entre o término de um serviço e o início do outro.";
+    expect(traduzirErroBanco({ code: "23514", message: original })).toBe(original);
+    // sem message estruturado (só o padrão no texto cru), usa o fallback próprio
+    expect(traduzirErroBanco("conflito de agenda")).toContain("Conflito de agenda");
+  });
   it("fallback gentil pra erro desconhecido / vazio", () => {
     expect(traduzirErroBanco("")).toMatch(/tente de novo/i);
     expect(traduzirErroBanco("algum erro bizarro xyz")).toMatch(/tente de novo/i);
