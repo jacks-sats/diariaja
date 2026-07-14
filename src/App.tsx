@@ -11948,6 +11948,320 @@ export default function App() {
       }
     }
 
+    const hojeDash = hojeLocalISO();
+    const statusAtivosDash = new Set(["aberta", "pendente", "aceita", "em_andamento"]);
+    const statusInteresseDash = new Set(["pendente", "selecionado", "confirmado"]);
+    const vagasAtivasDash = diarias.filter(d => statusAtivosDash.has(d.status));
+    const vagasListaDash = vagasAtivasDash.slice(0, 3);
+    const candidaturasAtivasDash = candidaturas.filter(c => statusInteresseDash.has(c.status));
+    const interessadosTotalDash = candidaturasAtivasDash.length;
+    const chamadosHojeDash = diarias.filter(d => d.data === hojeDash).length;
+    const respostasDash = candidaturas.filter(c => c.status === "selecionado" || c.status === "confirmado").length;
+    const taxaRespostaDash = interessadosTotalDash > 0 ? Math.round((respostasDash / interessadosTotalDash) * 100) : 0;
+    const profissionaisDash = diaristasReaisVisiveis.slice(0, 4);
+    const interessadosRecentesDash = candidaturasAtivasDash.slice(0, 3);
+    const agendaHojeDash = diarias
+      .filter(d => d.data === hojeDash)
+      .sort((a, b) => (a.horario_inicio || "").localeCompare(b.horario_inicio || ""))
+      .slice(0, 3);
+    const perfilChecksDash = [
+      !!profile?.nome,
+      !!(profile?.cpf || profile?.cnpj),
+      !!(profile?.telefone_verificado || telefoneVerificado),
+      !!profile?.endereco_empregador,
+      !!(negocioSelecionado || profile?.segmento),
+    ];
+    const perfilPctDash = Math.round((perfilChecksDash.filter(Boolean).length / perfilChecksDash.length) * 100);
+    const dashCard: React.CSSProperties = {
+      background:"#fff",
+      border:"1px solid #d8e0ea",
+      borderRadius:8,
+      boxShadow:"0 10px 28px rgba(15,23,42,.06)",
+    };
+    const dashMuted: React.CSSProperties = { color:"#64748b", fontSize:13, fontWeight:700 };
+    const horaDash = (valor?: string | null) => valor ? valor.slice(0, 5) : "--:--";
+    const distanciaDash = (d: UserProfile) => {
+      const km = distKmAnunciante(d);
+      return km === Infinity ? "distância aproximada" : `~${km.toFixed(1).replace(".", ",")} km`;
+    };
+    const candidatosDaVagaDash = (dia: Diaria) => {
+      const grupo = candidaturasPorVaga[dia.id]?.todas ?? [];
+      return grupo.filter(c => statusInteresseDash.has(c.status)).length;
+    };
+    const valorDash = (dia: Diaria) => {
+      if (dia.tipo_oferta === "emprego") return dia.salario_texto || "A combinar";
+      return rotuloPrecoVaga(dia.valor, { ehDelivery: FUNCOES_DELIVERY.includes(dia.funcao), ehServico: dia.tipo_oferta === "servico" });
+    };
+
+    if (isDesktop && tabEmpregador === "inicio") {
+      const itemMenu = (
+        key: string,
+        label: string,
+        icon: React.ReactNode,
+        active: boolean,
+        onClick: () => void,
+      ) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => { hapticTick(); onClick(); }}
+          style={{
+            width:"100%",
+            minHeight:44,
+            display:"flex",
+            alignItems:"center",
+            gap:12,
+            padding:"10px 14px",
+            border:"none",
+            borderRadius:8,
+            background:active ? "#eaf1ff" : "transparent",
+            color:active ? "#2563eb" : "#334155",
+            fontWeight:900,
+            fontSize:15,
+            cursor:"pointer",
+            fontFamily:"Inter, system-ui, sans-serif",
+            textAlign:"left",
+          }}>
+          <span style={{ width:18, display:"inline-flex", justifyContent:"center" }}>{icon}</span>
+          {label}
+        </button>
+      );
+
+      return (
+        <div style={{ minHeight:"100vh", background:"#eaf0f6", color:"#0f172a", fontFamily:"Inter, system-ui, sans-serif", display:"grid", gridTemplateColumns:"248px minmax(0, 1fr) 340px" }}>
+          {toastSuccess && (
+            <div role="status" aria-live="polite" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:800, zIndex:999, boxShadow:"0 4px 20px rgba(0,0,0,.25)", maxWidth:"90vw", textAlign:"center" }}>
+              {toastSuccess}
+            </div>
+          )}
+          {toastError && (
+            <div role="alert" aria-live="assertive" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:800, zIndex:999, boxShadow:"0 4px 20px rgba(220,38,38,.4)", maxWidth:"90vw", textAlign:"center" }}>
+              {toastError}
+            </div>
+          )}
+
+          <aside style={{ minHeight:"100vh", background:"#fff", borderRight:"1px solid #d8e0ea", padding:"22px 16px", display:"flex", flexDirection:"column", gap:24 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, padding:"0 6px" }}>
+              <div style={{ width:34, height:34, borderRadius:8, background:"#ff5a2f", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950, fontSize:20 }}>D</div>
+              <div style={{ fontSize:24, fontWeight:950, letterSpacing:0 }}>
+                Diária<span style={{ color:"#ff5a2f" }}>Já</span>
+              </div>
+            </div>
+
+            <nav style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              <div style={{ padding:"0 10px 4px", fontSize:11, color:"#94a3b8", fontWeight:950, textTransform:"uppercase" }}>Menu</div>
+              {itemMenu("inicio", "Início", <Home size={17} />, true, () => setTabEmpregador("inicio"))}
+              {itemMenu("diarias", "Diárias", <Briefcase size={17} />, false, () => setTabEmpregador("diarias"))}
+              {itemMenu("agenda", "Agenda", <CalendarDays size={17} />, false, () => setTabEmpregador("diarias"))}
+              {itemMenu("chat", "Chat", <MessageCircle size={17} />, false, () => { setTabEmpregador("chat"); setMsgNaoLidas(0); })}
+              {itemMenu("perfil", "Perfil", <User size={17} />, false, () => setTabEmpregador("perfil"))}
+            </nav>
+
+            <button
+              type="button"
+              onClick={irPublicarOferta}
+              style={{ width:"100%", minHeight:46, border:"none", borderRadius:8, background:"#2563eb", color:"#fff", fontSize:15, fontWeight:950, cursor:"pointer", boxShadow:"0 12px 22px rgba(37,99,235,.22)", fontFamily:"Inter, system-ui, sans-serif" }}>
+              Publicar vaga
+            </button>
+
+            <div style={{ marginTop:"auto", ...dashCard, padding:14 }}>
+              <div style={{ fontSize:13, fontWeight:950, marginBottom:6 }}>Perfil verificado</div>
+              <div style={{ fontSize:12, lineHeight:1.45, color:"#475569", marginBottom:12 }}>Documentos, telefone e categoria</div>
+              <div style={{ height:7, background:"#e2e8f0", borderRadius:999, overflow:"hidden" }}>
+                <div style={{ width:`${perfilPctDash}%`, height:"100%", background:"#16a34a", borderRadius:999 }} />
+              </div>
+            </div>
+          </aside>
+
+          <main style={{ padding:"24px 28px 40px", minWidth:0, overflow:"auto" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"minmax(320px, 1fr) auto auto auto", gap:12, alignItems:"center", marginBottom:22 }}>
+              <input
+                aria-label="Buscar"
+                placeholder="Buscar   Nome, categoria, bairro ou diária"
+                style={{ height:44, borderRadius:8, border:"1px solid #d8e0ea", background:"#fff", padding:"0 16px", fontSize:15, color:"#334155", fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
+                onFocus={() => document.getElementById("dash-profissionais")?.scrollIntoView({ behavior:"smooth", block:"start" })}
+              />
+              <div style={{ display:"flex", background:"#fff", border:"1px solid #d8e0ea", borderRadius:8, padding:4, gap:4 }}>
+                <button type="button" style={{ border:"none", borderRadius:6, background:"#0f172a", color:"#fff", fontWeight:950, padding:"8px 13px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>Contratante</button>
+                <button type="button" onClick={() => setTela("home-diarista")} style={{ border:"none", borderRadius:6, background:"transparent", color:"#64748b", fontWeight:900, padding:"8px 13px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>Prestador</button>
+              </div>
+              <button type="button" aria-label="Notificações" onClick={() => { setModalNotif(true); setNotifNaoLidas(0); setTabEmpregador("diarias"); }} style={{ width:42, height:42, border:"1px solid #d8e0ea", borderRadius:8, background:"#fff", color:"#475569", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", position:"relative" }}>
+                <Bell size={18} />
+                {(notifNaoLidas + suporteNaoLidos) > 0 && <span style={{ position:"absolute", top:-6, right:-6, minWidth:18, height:18, padding:"0 5px", borderRadius:999, background:"#ef4444", color:"#fff", fontSize:10, display:"flex", alignItems:"center", justifyContent:"center" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</span>}
+              </button>
+              <button type="button" aria-label="Configurações" onClick={() => setTela("configuracoes")} style={{ width:42, height:42, border:"1px solid #d8e0ea", borderRadius:8, background:"#fff", color:"#475569", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                <MoreVertical size={18} />
+              </button>
+            </div>
+
+            <section style={{ background:"#0f172a", color:"#fff", borderRadius:8, padding:"22px 20px", marginBottom:18, display:"flex", alignItems:"center", justifyContent:"space-between", gap:20 }}>
+              <div>
+                <div style={{ fontSize:24, fontWeight:950, marginBottom:4 }}>{saudacao}, {primeiroNome}.</div>
+                <div style={{ fontSize:15, color:"#dbeafe", fontWeight:800 }}>
+                  {vagasAtivasDash.length} vaga{vagasAtivasDash.length === 1 ? "" : "s"} ativa{vagasAtivasDash.length === 1 ? "" : "s"}, {interessadosTotalDash} interessado{interessadosTotalDash === 1 ? "" : "s"} e resposta média de {taxaRespostaDash || 0}%.
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:10 }}>
+                <button type="button" onClick={() => document.getElementById("dash-profissionais")?.scrollIntoView({ behavior:"smooth", block:"start" })} style={{ border:"none", borderRadius:7, background:"#fff", color:"#1e293b", padding:"12px 18px", fontWeight:950, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>Buscar diaristas</button>
+                <button type="button" onClick={irPublicarOferta} style={{ border:"none", borderRadius:7, background:"#ff5a2f", color:"#fff", padding:"12px 18px", fontWeight:950, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>Publicar anúncio</button>
+              </div>
+            </section>
+
+            <section style={{ display:"grid", gridTemplateColumns:"repeat(4, minmax(0, 1fr))", gap:12, marginBottom:18 }}>
+              {[
+                ["Vagas ativas", vagasAtivasDash.length, "#0f172a"],
+                ["Interessados", interessadosTotalDash, "#ff5a2f"],
+                ["Chamados hoje", chamadosHojeDash, "#0f172a"],
+                ["Taxa de resposta", `${taxaRespostaDash}%`, "#16a34a"],
+              ].map(([label, value, color]) => (
+                <div key={String(label)} style={{ ...dashCard, padding:"18px 16px" }}>
+                  <div style={{ ...dashMuted, marginBottom:8 }}>{label}</div>
+                  <div style={{ fontSize:30, lineHeight:1, fontWeight:950, color:String(color) }}>{value}</div>
+                </div>
+              ))}
+            </section>
+
+            <section style={{ display:"grid", gridTemplateColumns:"minmax(0, 1.65fr) minmax(320px, 1fr)", gap:18 }}>
+              <div style={{ ...dashCard, overflow:"hidden" }}>
+                <div style={{ padding:"14px 16px", borderBottom:"1px solid #d8e0ea", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                  <h2 style={{ margin:0, fontSize:18, fontWeight:950 }}>Minhas vagas</h2>
+                  <button type="button" onClick={irPublicarOferta} style={{ border:"none", borderRadius:7, background:"#2563eb", color:"#fff", padding:"11px 18px", fontSize:15, fontWeight:950, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>Nova vaga</button>
+                </div>
+                <div style={{ display:"flex", gap:8, padding:"12px 16px", borderBottom:"1px solid #e6edf5" }}>
+                  {["Abertas", "Selecionando", "Concluídas", "Expiradas"].map((tab, i) => (
+                    <span key={tab} style={{ border:"1px solid #d8e0ea", borderRadius:999, background:i === 0 ? "#eff6ff" : "#fff", color:i === 0 ? "#2563eb" : "#334155", padding:"6px 12px", fontSize:12, fontWeight:950 }}>{tab}</span>
+                  ))}
+                </div>
+                <div>
+                  {vagasListaDash.length === 0 ? (
+                    <div style={{ padding:28, color:"#64748b", fontWeight:800 }}>Nenhuma vaga ativa agora.</div>
+                  ) : vagasListaDash.map(dia => {
+                    const qtd = candidatosDaVagaDash(dia);
+                    return (
+                      <div key={dia.id} style={{ padding:"22px 16px", borderBottom:"1px solid #e6edf5", display:"grid", gridTemplateColumns:"minmax(0, 1fr) auto", gap:16, alignItems:"center" }}>
+                        <div style={{ minWidth:0 }}>
+                          <div style={{ fontSize:16, fontWeight:950, marginBottom:9, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                            {dia.funcao || dia.segmento || "Anúncio"}
+                          </div>
+                          <div style={{ display:"flex", gap:10, flexWrap:"wrap", ...dashMuted, fontSize:12 }}>
+                            <span>{dia.segmento || negocioSelecionado}</span>
+                            <span>{dia.bairro || dia.nome_negocio || "Região"}</span>
+                            <span>{dia.data === hojeDash ? "Hoje" : isoParaBR(dia.data)}, {horaDash(dia.horario_inicio)}-{horaDash(dia.horario_fim)}</span>
+                            <span style={{ background:qtd > 0 ? "#fff1ed" : "#eafaf0", color:qtd > 0 ? "#ff5a2f" : "#16a34a", borderRadius:999, padding:"4px 10px", fontWeight:950 }}>
+                              {qtd} interessado{qtd === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                          <span style={{ background:"#f1f5f9", borderRadius:999, padding:"6px 12px", fontSize:12, fontWeight:950 }}>{valorDash(dia)}</span>
+                          <button
+                            type="button"
+                            onClick={() => { setModalCandidatos(dia); setTabEmpregador("diarias"); }}
+                            style={{ border:"none", borderRadius:7, background:qtd > 0 ? "#2563eb" : "#fff", color:qtd > 0 ? "#fff" : "#1e293b", borderColor:"#d8e0ea", boxShadow:qtd > 0 ? "none" : "inset 0 0 0 1px #d8e0ea", padding:"12px 18px", minWidth:136, fontSize:15, fontWeight:950, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                            {qtd > 0 ? "Ver candidatos" : "Acompanhar"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div id="dash-profissionais" style={{ ...dashCard, padding:16 }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+                  <h2 style={{ margin:0, fontSize:18, fontWeight:950 }}>Profissionais disponíveis</h2>
+                  <span style={{ border:"1px solid #bfdbfe", background:"#eff6ff", color:"#2563eb", borderRadius:999, padding:"6px 10px", fontSize:12, fontWeight:950 }}>
+                    {filtroRaioKm === Infinity ? "qualquer distância" : `até ${filtroRaioKm} km`}
+                  </span>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(2, minmax(0, 1fr))", gap:12 }}>
+                  {profissionaisDash.length === 0 ? (
+                    <div style={{ gridColumn:"1 / -1", padding:18, color:"#64748b", fontWeight:800 }}>Nenhum profissional encontrado com os filtros atuais.</div>
+                  ) : profissionaisDash.map((d, i) => {
+                    const [bg, fg] = avatarColors[i % avatarColors.length];
+                    const ini = d.nome.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+                    return (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => { setDiaristaSelecionadaReal(d); setTela("perfil-diarista-real"); }}
+                        style={{ minHeight:112, border:"1px solid #d8e0ea", borderRadius:8, background:"#fff", padding:14, display:"flex", alignItems:"center", gap:14, textAlign:"left", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                        <div style={{ width:48, height:48, borderRadius:24, background:bg, color:fg, overflow:"hidden", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950 }}>
+                          {d.foto_url ? <img src={d.foto_url} alt="" loading="lazy" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : ini}
+                        </div>
+                        <div style={{ minWidth:0 }}>
+                          <div style={{ fontSize:15, fontWeight:950, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.nome}</div>
+                          <div style={{ color:"#64748b", fontSize:12, fontWeight:800, marginTop:3 }}>{d.funcao || "Prestador"} {distanciaDash(d)}</div>
+                          {d.disponivel && <div style={{ display:"inline-flex", marginTop:8, color:"#16a34a", background:"#dcfce7", borderRadius:999, padding:"4px 9px", fontSize:12, fontWeight:950 }}>Disponível</div>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+          </main>
+
+          <aside style={{ minHeight:"100vh", background:"#f8fafc", borderLeft:"1px solid #d8e0ea", padding:"24px 16px", display:"flex", flexDirection:"column", gap:14 }}>
+            <div style={{ ...dashCard, padding:16, display:"flex", alignItems:"center", gap:14 }}>
+              <div style={{ width:48, height:48, borderRadius:24, background:"#ff5a2f", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:950 }}>{iniciaisEmp}</div>
+              <div>
+                <div style={{ fontWeight:950, fontSize:16 }}>{primeiroNome}</div>
+                <div style={{ ...dashMuted, fontSize:12 }}>Anunciante verificado</div>
+              </div>
+            </div>
+
+            <div style={{ ...dashCard, padding:16 }}>
+              <h3 style={{ margin:"0 0 14px", fontSize:16, fontWeight:950 }}>Interessados recentes</h3>
+              {interessadosRecentesDash.length === 0 ? (
+                <div style={{ color:"#64748b", fontSize:13, fontWeight:800 }}>Sem interessados novos por enquanto.</div>
+              ) : interessadosRecentesDash.map((cand, i) => {
+                const candProfile = candidatosProfiles[cand.diarista_id];
+                const nomeCand = candProfile?.nome || cand.diarista_info?.nome || "Interessado";
+                const funcCand = candProfile?.funcao || cand.diarista_info?.funcao || "Prestador";
+                const iniCand = nomeCand.split(" ").map(n => n[0]).join("").slice(0, 1).toUpperCase();
+                return (
+                  <button key={cand.id} type="button" onClick={() => { if (candProfile) { setDiaristaSelecionadaReal(candProfile); setTela("perfil-diarista-real"); } }} style={{ width:"100%", border:"none", background:"transparent", padding:i === 0 ? "0 0 10px" : "10px 0", borderTop:i === 0 ? "none" : "1px solid #e6edf5", display:"grid", gridTemplateColumns:"34px minmax(0, 1fr) auto", gap:10, alignItems:"center", textAlign:"left", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                    <span style={{ width:34, height:34, borderRadius:17, background:"#e8efff", color:"#2563eb", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950 }}>{iniCand}</span>
+                    <span style={{ minWidth:0 }}>
+                      <span style={{ display:"block", fontSize:13, fontWeight:950, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{nomeCand}</span>
+                      <span style={{ display:"block", color:"#64748b", fontSize:11, fontWeight:800 }}>{funcCand}</span>
+                    </span>
+                    <span style={{ background:cand.status === "pendente" ? "#dcfce7" : "#fff1ed", color:cand.status === "pendente" ? "#16a34a" : "#ff5a2f", borderRadius:999, padding:"5px 9px", fontSize:11, fontWeight:950 }}>
+                      {cand.status === "pendente" ? "novo" : "chamado"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ ...dashCard, padding:16 }}>
+              <h3 style={{ margin:"0 0 14px", fontSize:16, fontWeight:950 }}>Hoje</h3>
+              {agendaHojeDash.length === 0 ? (
+                <div style={{ color:"#64748b", fontSize:13, fontWeight:800 }}>Nenhum compromisso marcado hoje.</div>
+              ) : agendaHojeDash.map(dia => (
+                <div key={dia.id} style={{ display:"grid", gridTemplateColumns:"14px minmax(0,1fr)", gap:10, alignItems:"start", marginBottom:14 }}>
+                  <span style={{ width:10, height:10, borderRadius:5, background:"#16a34a", marginTop:5 }} />
+                  <div>
+                    <div style={{ fontSize:15, fontWeight:950 }}>{horaDash(dia.horario_inicio)}</div>
+                    <div style={{ color:"#64748b", fontSize:12, fontWeight:800 }}>{dia.funcao || dia.segmento}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ ...dashCard, padding:16 }}>
+              <h3 style={{ margin:"0 0 8px", fontSize:16, fontWeight:950 }}>Saúde da operação</h3>
+              <div style={{ color:"#475569", fontSize:12, fontWeight:800, lineHeight:1.45, marginBottom:14 }}>Resposta rápida aumenta a chance de fechamento.</div>
+              <div style={{ height:7, background:"#e2e8f0", borderRadius:999, overflow:"hidden" }}>
+                <div style={{ width:`${Math.max(8, taxaRespostaDash)}%`, height:"100%", background:"#16a34a", borderRadius:999 }} />
+              </div>
+            </div>
+          </aside>
+        </div>
+      );
+    }
+
     return (
       <div style={{ ...S.appShell, maxWidth: homeShellMax, paddingTop: isDesktop ? 88 : undefined, paddingBottom:isDesktop ? 40 : 76, background:isDesktop ? "#eef2f6" : "var(--bg-app,#f0f2f5)" }}>
         {bannerBaixarApp}
