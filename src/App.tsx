@@ -11840,6 +11840,26 @@ export default function App() {
     const hora = new Date().getHours();
     const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
     const primeiroNome = profile?.nome?.split(" ")[0] || "você";
+    const homeShellMax = isDesktop ? "min(1320px, calc(100vw - 56px))" : larguraAppPrincipal;
+    const desktopPanel: React.CSSProperties = isDesktop
+      ? { border:"1px solid rgba(148,163,184,.18)", borderRadius:24, boxShadow:"0 14px 36px rgba(15,23,42,.08)" }
+      : {};
+    const desktopActionButton = (kind: "primary" | "secondary"): React.CSSProperties => isDesktop
+      ? {
+          minHeight:96,
+          borderRadius:20,
+          padding:"20px 22px",
+          display:"flex",
+          flexDirection:"row" as const,
+          alignItems:"center",
+          justifyContent:"space-between",
+          textAlign:"left" as const,
+          gap:16,
+          fontSize:14,
+          lineHeight:1.35,
+          boxShadow:kind === "primary" ? `0 14px 28px ${negocio.cor}30` : "0 10px 24px rgba(15,23,42,.06)",
+        }
+      : {};
 
     const statusCor: Record<string,{bg:string,color:string}> = {
       aberta:    { bg:"#dcfce7", color:"#16a34a" },
@@ -11929,7 +11949,7 @@ export default function App() {
     }
 
     return (
-      <div style={{ ...S.appShell, maxWidth: larguraAppPrincipal, paddingTop: isDesktop ? 88 : undefined, paddingBottom:isDesktop ? 32 : 76, background:isDesktop ? "#eef2f6" : "var(--bg-app,#f0f2f5)" }}>
+      <div style={{ ...S.appShell, maxWidth: homeShellMax, paddingTop: isDesktop ? 88 : undefined, paddingBottom:isDesktop ? 40 : 76, background:isDesktop ? "#eef2f6" : "var(--bg-app,#f0f2f5)" }}>
         {bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
@@ -12016,16 +12036,23 @@ export default function App() {
         })()}
 
         {/* ── Header ── */}
-        <div style={{ background:"var(--bg-card,#fff)", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+        <div style={{
+          background:isDesktop ? "linear-gradient(135deg,#ffffff 0%,#f8fbff 100%)" : "var(--bg-card,#fff)",
+          padding:isDesktop ? "24px" : "20px 20px 14px",
+          margin:isDesktop ? "18px 16px 0" : 0,
+          boxShadow:isDesktop ? "0 14px 36px rgba(15,23,42,.08)" : "0 2px 8px rgba(0,0,0,.07)",
+          border:isDesktop ? "1px solid rgba(148,163,184,.18)" : undefined,
+          borderRadius:isDesktop ? 24 : 0,
+        }}>
+          <div style={{ display:"flex", alignItems:"center", gap:isDesktop?18:14 }}>
             {/* Avatar + Nome */}
             <div style={{ display:"flex", alignItems:"center", gap:14, flex:1 }}>
-              <div style={{ width:52, height:52, borderRadius:26, background:negocio.cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:18, border:`3px solid ${negocio.cor}`, flexShrink:0, position:"relative" }}>
+              <div style={{ width:isDesktop?60:52, height:isDesktop?60:52, borderRadius:isDesktop?18:26, background:negocio.cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:isDesktop?20:18, border:`3px solid ${negocio.cor}`, flexShrink:0, position:"relative", boxShadow:isDesktop ? `0 12px 24px ${negocio.cor}30` : undefined }}>
                 {iniciaisEmp}
               </div>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:13, color:"var(--text-2,#64748b)", fontWeight:600 }}>{saudacao},</div>
-                <div style={{ fontSize:20, fontWeight:900, color:"var(--text-1,#0f172a)", lineHeight:1.2 }}>
+                <div style={{ fontSize:isDesktop?26:20, fontWeight:900, color:"var(--text-1,#0f172a)", lineHeight:1.15 }}>
                   <span style={{ color:negocio.cor, cursor:"pointer" }} onClick={() => { setModalInfoPerfil(true); setBioDraft(profile?.bio || ""); }}>{primeiroNome}!</span> 👋
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
@@ -12063,7 +12090,7 @@ export default function App() {
           </div>
 
           {/* Chip do segmento — clicável para trocar rapidamente */}
-          <div style={{ display:"flex", gap:8, marginTop:14, alignItems:"center", flexWrap:"wrap" }}>
+          <div style={{ display:"flex", gap:8, marginTop:isDesktop?18:14, alignItems:"center", flexWrap:"wrap" }}>
             <span
               style={{ display:"flex", alignItems:"center", gap:5, background:negocio.cor+"15", color:negocio.cor, padding:"7px 14px", borderRadius:20, fontSize:12, fontWeight:700, border:`1.5px solid ${negocio.cor}35`, cursor:"pointer" }}
               onClick={() => setTela("escolha-negocio")}
@@ -12153,25 +12180,44 @@ export default function App() {
               );
             })()}
             {/* Dois caminhos do contratante: buscar prestadores ou abrir o hub de publicação. */}
-            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2,1fr)" : "1fr 1fr", gap:10, padding:"12px 16px 4px" }}>
+            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2,minmax(0,1fr))" : "1fr 1fr", gap:isDesktop?16:10, padding:isDesktop ? "16px 16px 4px" : "12px 16px 4px" }}>
               <button
-                style={{ flex:1, background:"var(--bg-card,#fff)", border:`2px solid ${negocio.cor}`, color:negocio.cor, borderRadius:14, padding:"12px 8px", fontWeight:800, fontSize:12.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1.25, display:"flex", flexDirection:"column" as const, alignItems:"center", gap:5 }}
+                style={{ flex:1, background:"var(--bg-card,#fff)", border:`2px solid ${negocio.cor}`, color:negocio.cor, borderRadius:14, padding:"12px 8px", fontWeight:800, fontSize:12.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1.25, display:"flex", flexDirection:"column" as const, alignItems:"center", gap:5, ...desktopActionButton("secondary") }}
                 onClick={() => document.getElementById("emp-lista-diaristas")?.scrollIntoView({ behavior:"smooth", block:"start" })}>
-                <span style={{ fontSize:20 }}>🔍</span>
-                Buscar diaristas disponíveis
+                <span style={{ width:isDesktop?48:undefined, height:isDesktop?48:undefined, borderRadius:isDesktop?16:undefined, background:isDesktop?`${negocio.cor}12`:undefined, display:isDesktop?"inline-flex":undefined, alignItems:isDesktop?"center":undefined, justifyContent:isDesktop?"center":undefined, fontSize:20 }}>
+                  {isDesktop ? <Users size={24} /> : "🔍"}
+                </span>
+                <span style={{ display:"flex", flexDirection:"column", gap:3, flex:1 }}>
+                  <span>Buscar diaristas disponíveis</span>
+                  {isDesktop && <span style={{ fontSize:12, fontWeight:650, color:"var(--text-2,#64748b)" }}>Compare perfis verificados por distância e disponibilidade.</span>}
+                </span>
               </button>
               <button
-                style={{ flex:1, background:negocio.cor, border:`2px solid ${negocio.cor}`, color:"#fff", borderRadius:14, padding:"12px 8px", fontWeight:800, fontSize:12.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1.25, display:"flex", flexDirection:"column" as const, alignItems:"center", gap:5, boxShadow:`0 4px 12px ${negocio.cor}44` }}
+                style={{ flex:1, background:negocio.cor, border:`2px solid ${negocio.cor}`, color:"#fff", borderRadius:14, padding:"12px 8px", fontWeight:800, fontSize:12.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1.25, display:"flex", flexDirection:"column" as const, alignItems:"center", gap:5, boxShadow:`0 4px 12px ${negocio.cor}44`, ...desktopActionButton("primary") }}
                 onClick={irPublicarOferta}>
-                <span style={{ fontSize:20 }}>📢</span>
-                Publicar anúncio
+                <span style={{ width:isDesktop?48:undefined, height:isDesktop?48:undefined, borderRadius:isDesktop?16:undefined, background:isDesktop?"rgba(255,255,255,.16)":undefined, display:isDesktop?"inline-flex":undefined, alignItems:isDesktop?"center":undefined, justifyContent:isDesktop?"center":undefined, fontSize:20 }}>
+                  {isDesktop ? <Plus size={26} /> : "📢"}
+                </span>
+                <span style={{ display:"flex", flexDirection:"column", gap:3, flex:1 }}>
+                  <span>Publicar anúncio</span>
+                  {isDesktop && <span style={{ fontSize:12, fontWeight:650, color:"rgba(255,255,255,.86)" }}>Abra uma diária, serviço ou vaga fixa em poucos passos.</span>}
+                </span>
               </button>
             </div>
             {bannerLembreteGeo}
             {/* Filtro de habilidades — sticky pra não sumir ao rolar (degrada sem quebrar) */}
-            <div style={{ background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)", position:"sticky" as const, top:0, zIndex:5 }}>
+            <div style={{
+              background:"var(--bg-card,#fff)",
+              borderBottom:isDesktop ? undefined : "1px solid var(--border-sub,#f1f5f9)",
+              position:"sticky" as const,
+              top:isDesktop ? 88 : 0,
+              zIndex:5,
+              margin:isDesktop ? "14px 16px 0" : 0,
+              overflow:isDesktop ? "hidden" : undefined,
+              ...desktopPanel,
+            }}>
               {/* Linha 1: disponíveis hoje + por categoria */}
-              <div style={{ display:"flex", gap:8, padding:"10px 16px 6px", overflowX:"auto" }}>
+              <div style={{ display:"flex", gap:8, padding:isDesktop ? "14px 16px 8px" : "10px 16px 6px", overflowX:"auto" }}>
                 <button style={{ ...S.filtroBtn, ...(filtroDisp?{ background:negocio.cor, color:"#fff", borderColor:negocio.cor }:{}) }} onClick={()=>setFiltroDisp(!filtroDisp)}>
                   {filtroDisp?"✓ ":""}Disponíveis hoje
                 </button>
@@ -12205,7 +12251,7 @@ export default function App() {
                   (OPCOES_RAIO_KM). Só aparece com geo do anunciante; sem geo o filtro
                   seria no-op (todos caem em Infinity / fail-open). */}
               {profile?.lat && profile?.lng && (
-                <div style={{ display:"flex", gap:8, padding:"0 16px 8px", overflowX:"auto" }}>
+                <div style={{ display:"flex", gap:8, padding:isDesktop ? "0 16px 14px" : "0 16px 8px", overflowX:"auto" }}>
                   {OPCOES_RAIO_KM.map(opt => (
                     <button key={`raio${opt.v}`}
                       style={{ ...S.filtroBtn, whiteSpace:"nowrap", ...(filtroRaioKm===opt.v?{ background:negocio.cor, color:"#fff", borderColor:negocio.cor }:{}) }}
@@ -12219,15 +12265,31 @@ export default function App() {
 
             {/* Legenda da vitrine: foca na pessoa/região, sem mencionar preço
                 (coerente com a vitrine sem preço) — a negociação vai pro perfil. */}
-            <div style={{ padding:"12px 16px 0", fontSize:12.5, color:"var(--text-2,#64748b)", lineHeight:1.5 }}>
-              Veja os profissionais disponíveis na sua região. <strong style={{ color:negocio.cor }}>Toque no perfil</strong> para combinar o valor.
+            <div style={{
+              padding:isDesktop ? "18px 16px 0" : "12px 16px 0",
+              fontSize:12.5,
+              color:"var(--text-2,#64748b)",
+              lineHeight:1.5,
+              display:isDesktop ? "flex" : undefined,
+              alignItems:isDesktop ? "center" : undefined,
+              justifyContent:isDesktop ? "space-between" : undefined,
+              gap:isDesktop ? 16 : undefined,
+            }}>
+              <span>
+                Veja os profissionais disponíveis na sua região. <strong style={{ color:negocio.cor }}>Toque no perfil</strong> para combinar o valor.
+              </span>
+              {isDesktop && (
+                <span style={{ background:"#fff", border:"1px solid rgba(148,163,184,.18)", borderRadius:999, padding:"7px 12px", color:"var(--text-1,#0f172a)", fontWeight:800, whiteSpace:"nowrap" as const }}>
+                  {diaristasReaisVisiveis.length} perfil{diaristasReaisVisiveis.length === 1 ? "" : "s"}
+                </span>
+              )}
             </div>
             {/* Lista de profissionais */}
             {/* Desktop (>1024px): grade de até 3 cards por linha (mesmo card).
                 Favoritos, empty-state, banner e card final ocupam a linha toda.
                 Mobile: coluna única, idêntico ao anterior. */}
             <div id="emp-lista-diaristas" style={ isDesktop
-              ? { padding:"12px 16px 24px", display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(330px, 1fr))", gap:16, alignItems:"start" as const }
+              ? { padding:"16px 16px 28px", display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))", gap:18, alignItems:"stretch" as const }
               : { padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }
             }>
                 {/* Favoritos */}
@@ -12298,12 +12360,23 @@ export default function App() {
                     return (
                       <React.Fragment key={d.id}>
                       <div
-                        style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer" }}
+                        style={{
+                          background:"var(--bg-card,#fff)",
+                          borderRadius:isDesktop?20:18,
+                          padding:isDesktop?18:16,
+                          boxShadow:isDesktop ? "0 12px 30px rgba(15,23,42,.08)" : "0 2px 12px rgba(0,0,0,.07)",
+                          border:isDesktop ? "1px solid rgba(148,163,184,.18)" : undefined,
+                          cursor:"pointer",
+                          minHeight:isDesktop ? 172 : undefined,
+                          height:isDesktop ? "100%" : undefined,
+                          display:isDesktop ? "flex" : undefined,
+                          flexDirection:isDesktop ? "column" as const : undefined,
+                        }}
                         onClick={() => { setDiaristaSelecionadaReal(d); setTela("perfil-diarista-real"); }}>
 
-                        <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
+                        <div style={{ display:"flex", gap:14, alignItems:"flex-start", flex:isDesktop ? 1 : undefined }}>
                           {/* Avatar */}
-                          <div style={{ width:66, height:66, borderRadius:33, background:bg, color:fg, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:20, flexShrink:0, overflow:"hidden", boxShadow:`0 4px 12px ${bg}55` }}>
+                          <div style={{ width:isDesktop?58:66, height:isDesktop?58:66, borderRadius:isDesktop?18:33, background:bg, color:fg, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:20, flexShrink:0, overflow:"hidden", boxShadow:`0 4px 12px ${bg}55` }}>
                             {d.foto_url
                               ? <img loading="lazy" src={d.foto_url} style={{ width:"100%", height:"100%", objectFit:"cover" }} alt="" />
                               : iniciais}
@@ -12312,7 +12385,7 @@ export default function App() {
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                               <div style={{ flex:1, minWidth:0 }}>
-                                <div style={{ fontWeight:900, fontSize:16.5, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>{d.nome}</div>
+                                <div style={{ fontWeight:900, fontSize:isDesktop?16:16.5, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>{d.nome}</div>
                                 <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5, flexWrap:"wrap" }}>
                                   <span style={{ background:funcCor+"18", color:funcCor, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, border:`1px solid ${funcCor}30` }}>
                                     {d.funcao}
@@ -12342,7 +12415,7 @@ export default function App() {
                               </button>
                             </div>
 
-                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:isDesktop?14:10, gap:10 }}>
                               <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
                                 <span style={{ ...S.badge, ...(d.disponivel ? S.badgeVerde : S.badgeCinza), fontSize:11 }}>
                                   {d.disponivel ? "● Disponível hoje" : "● Ocupado"}
@@ -12370,7 +12443,7 @@ export default function App() {
                                 })()}
                               </div>
                               <button
-                                style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"9px 18px", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 10px ${negocio.cor}44` }}
+                                style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:isDesktop?"10px 16px":"9px 18px", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 10px ${negocio.cor}44`, minWidth:isDesktop?92:undefined }}
                                 onClick={e => { e.stopPropagation(); setDiaristaSelecionadaReal(d); setTela("perfil-diarista-real"); }}>
                                 Ver perfil
                               </button>
@@ -12390,12 +12463,23 @@ export default function App() {
 
                 {/* Caminho de saída no fim da lista: se não achou o valor ideal,
                     abre o hub de publicação. */}
-                <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined }}>
-                  <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5, marginBottom:10 }}>
+                <div style={{
+                  background:isDesktop ? "linear-gradient(135deg,#0f172a,#1d4ed8)" : "var(--bg-card,#fff)",
+                  borderRadius:isDesktop?22:16,
+                  padding:isDesktop?"20px 24px":"16px",
+                  textAlign:isDesktop ? "left" as const : "center" as const,
+                  boxShadow:isDesktop ? "0 14px 34px rgba(15,23,42,.14)" : "0 2px 8px rgba(0,0,0,.05)",
+                  gridColumn: isDesktop ? "1 / -1" : undefined,
+                  display:isDesktop ? "flex" : undefined,
+                  alignItems:isDesktop ? "center" : undefined,
+                  justifyContent:isDesktop ? "space-between" : undefined,
+                  gap:isDesktop ? 18 : undefined,
+                }}>
+                  <div style={{ fontSize:13, color:isDesktop ? "#dbeafe" : "var(--text-2,#64748b)", lineHeight:1.5, marginBottom:isDesktop?0:10, fontWeight:isDesktop?650:undefined }}>
                     Não achou o valor ideal? Publique quanto você quer pagar e espere as diaristas aceitarem.
                   </div>
                   <button
-                    style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:"11px 20px", fontWeight:800, fontSize:13.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+                    style={{ background:isDesktop ? "#fff" : negocio.cor, color:isDesktop ? negocio.cor : "#fff", border:"none", borderRadius:12, padding:"11px 20px", fontWeight:800, fontSize:13.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", whiteSpace:isDesktop?"nowrap" as const:undefined }}
                     onClick={irPublicarOferta}>
                     📢 Publicar anúncio
                   </button>
