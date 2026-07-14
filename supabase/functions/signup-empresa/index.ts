@@ -184,7 +184,7 @@ Deno.serve(async (req) => {
   const ip = getClientIp(req);
   const rl = createClient(SUPABASE_URL, SERVICE_KEY);
   const blocked = await rateLimitOrReject(
-    { key: `signup-empresa:ip:${ip}`, max: 5, windowSeconds: 60, corsHeaders: CORS },
+    { key: `signup-empresa:ip:${ip}`, max: 5, windowSeconds: 60, corsHeaders: CORS, failClosed: true },
     rl,
   );
   if (blocked) return blocked;

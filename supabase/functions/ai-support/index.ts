@@ -373,7 +373,7 @@ Deno.serve(async (req) => {
     // uso humano real de suporte; limita custo Groq + protege contra DoS de
     // proxy LLM).
     const blocked = await rateLimitOrReject(
-      { key: `ai-support:user:${user.id}`, max: 6, windowSeconds: 60, corsHeaders: CORS },
+      { key: `ai-support:user:${user.id}`, max: 6, windowSeconds: 60, corsHeaders: CORS, failClosed: true },
       supabaseUser,
     );
     if (blocked) return blocked;

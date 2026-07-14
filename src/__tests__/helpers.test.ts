@@ -1514,6 +1514,12 @@ describe("montarTextoVaga", () => {
     expect(t.trim().endsWith(`${URL_APP}/vaga/v-99?ref=share`)).toBe(true);
   });
 
+  it("compartilhamento nativo: permite enviar o link separado sem duplicar no texto", () => {
+    const t = montarTextoVaga({ id: "v-99", tipo_oferta: "emprego", funcao: "Repositor" }, { incluirLink: false });
+    expect(t).toContain("Veja os detalhes e candidate-se pelo link:");
+    expect(t).not.toContain(`${URL_APP}/vaga/v-99`);
+  });
+
   it("nunca vaza endereço completo nem termina sem o link do app", () => {
     const t = montarTextoVaga({
       tipo_oferta: "diaria", funcao: "Pedreiro", valor: 200,

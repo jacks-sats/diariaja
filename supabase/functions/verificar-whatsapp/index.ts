@@ -47,18 +47,19 @@ function formatarE164(tel: string): string | null {
 
 interface RateLimitOptions { key: string; max: number; windowSeconds: number; }
 async function rateLimitOrReject(opts: RateLimitOptions, supabase: SupabaseClient): Promise<Response | null> {
+  const bloqueio = () => json({ error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." }, 429);
   try {
     const { data, error } = await supabase.rpc("check_rate_limit", {
       p_key: opts.key, p_max: opts.max, p_window_seconds: opts.windowSeconds,
     });
-    if (error) { console.warn("[rate-limit] RPC error, allowing:", error.message); return null; }
+    if (error) { console.warn("[rate-limit] RPC error, blocking:", error.message); return bloqueio(); }
     if (data === false) {
-      return json({ error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." }, 429);
+      return bloqueio();
     }
     return null;
   } catch (e) {
-    console.warn("[rate-limit] thrown, allowing:", e instanceof Error ? e.message : String(e));
-    return null;
+    console.warn("[rate-limit] thrown, blocking:", e instanceof Error ? e.message : String(e));
+    return bloqueio();
   }
 }
 

@@ -55,7 +55,7 @@ serve(async (req) => {
 
     // Anti-abuso: no máximo 3 exclusões por hora por usuário (operação cara).
     const limited = await rateLimitOrReject(
-      { key: `delete-user:user:${userId}`, max: 3, windowSeconds: 3600, corsHeaders },
+      { key: `delete-user:user:${userId}`, max: 3, windowSeconds: 3600, corsHeaders, failClosed: true },
       supabaseAdmin,
     );
     if (limited) return limited;

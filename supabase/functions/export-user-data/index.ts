@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
 
     // Anti-abuso: export é pesado (lê todas as tabelas) — máx. 5 por hora/usuário.
     const limited = await rateLimitOrReject(
-      { key: `export-user-data:user:${uid}`, max: 5, windowSeconds: 3600, corsHeaders: CORS },
+      { key: `export-user-data:user:${uid}`, max: 5, windowSeconds: 3600, corsHeaders: CORS, failClosed: true },
       supabase,
     );
     if (limited) return limited;

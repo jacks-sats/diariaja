@@ -1351,10 +1351,13 @@ export function linkVaga(id?: string | null, ref?: RefCompartilhamento): string 
 }
 
 // Monta o texto "chamariz" que o diarista compartilha fora do app. Trata os três
-// tipos de oferta (diária, serviço pontual e vaga de emprego), com layout limpo
-// (título em negrito do WhatsApp + divisórias) e termina com o link direto da
-// vaga, pra trazer usuários novos.
-export function montarTextoVaga(v: VagaCompartilhavel, ref?: RefCompartilhamento): string {
+// tipos de oferta (diária, serviço pontual e vaga de emprego), com layout limpo.
+// No compartilhamento nativo, o link vai separado para evitar duplicidade.
+export function montarTextoVaga(
+  v: VagaCompartilhavel,
+  refOrOpts: RefCompartilhamento | { ref?: RefCompartilhamento; incluirLink?: boolean } = {},
+): string {
+  const opts = typeof refOrOpts === "string" ? { ref: refOrOpts } : refOrOpts;
   const hi = (v.horario_inicio || "").slice(0, 5);
   const hf = (v.horario_fim || "").slice(0, 5);
   const dataBR = isoParaBR(v.data);
@@ -1362,6 +1365,8 @@ export function montarTextoVaga(v: VagaCompartilhavel, ref?: RefCompartilhamento
   const segmento = (v.segmento || "").trim();
   const bairro = (v.bairro || "").trim();
   const div = "━━━━━━━━━━━━━";
+  const incluirLink = opts.incluirLink !== false;
+  const ref = opts.ref;
 
   let emoji = "🌞";
   let titulo = "Vaga de diária";
@@ -1402,8 +1407,8 @@ export function montarTextoVaga(v: VagaCompartilhavel, ref?: RefCompartilhamento
     linhas.push(`📋 ${descCurta}`);
   }
   linhas.push(div);
-  linhas.push("👉 Veja os detalhes e candidate-se no app:");
-  linhas.push(linkVaga(v.id, ref));
+  linhas.push(incluirLink ? "👉 Veja os detalhes e candidate-se no app:" : "👉 Veja os detalhes e candidate-se pelo link:");
+  if (incluirLink) linhas.push(linkVaga(v.id, ref));
   return linhas.join("\n");
 }
 

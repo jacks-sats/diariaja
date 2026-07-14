@@ -27,6 +27,10 @@ interface RateLimitOptions {
 }
 
 async function rateLimitOrReject(opts: RateLimitOptions, supabase: SupabaseClient): Promise<Response | null> {
+  const bloqueio = () => new Response(
+    JSON.stringify({ error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." }),
+    { status: 429, headers: { "Content-Type": "application/json", "Retry-After": String(opts.windowSeconds), ...(opts.corsHeaders ?? {}) } },
+  );
   try {
     const { data, error } = await supabase.rpc("check_rate_limit", {
       p_key:            opts.key,
@@ -34,19 +38,16 @@ async function rateLimitOrReject(opts: RateLimitOptions, supabase: SupabaseClien
       p_window_seconds: opts.windowSeconds,
     });
     if (error) {
-      console.warn("[rate-limit] RPC error, allowing:", error.message);
-      return null;
+      console.warn("[rate-limit] RPC error, blocking:", error.message);
+      return bloqueio();
     }
     if (data === false) {
-      return new Response(
-        JSON.stringify({ error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." }),
-        { status: 429, headers: { "Content-Type": "application/json", "Retry-After": String(opts.windowSeconds), ...(opts.corsHeaders ?? {}) } },
-      );
+      return bloqueio();
     }
     return null;
   } catch (e) {
-    console.warn("[rate-limit] thrown, allowing:", e instanceof Error ? e.message : String(e));
-    return null;
+    console.warn("[rate-limit] thrown, blocking:", e instanceof Error ? e.message : String(e));
+    return bloqueio();
   }
 }
 
@@ -75,7 +76,7 @@ Deno.serve(async (req) => {
     log(traceId, "01_request_recebida", {
       method:    req.method,
       hasAuth:   !!req.headers.get("Authorization"),
-      tokenPrefix: MP_TOKEN ? MP_TOKEN.slice(0, 8) : "AUSENTE",
+      mpTokenConfigured: !!MP_TOKEN,
     });
 
     const authHeader = req.headers.get("Authorization");
