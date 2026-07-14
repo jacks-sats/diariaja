@@ -9958,7 +9958,7 @@ export default function App() {
       {
         titulo: "Publicar Diária",
         subtitulo: "Contrate para uma diária",
-        icone: <CalendarDays size={23} />,
+        icone: <CalendarDays size={isDesktop ? 28 : 23} />,
         cor: "#ef4444",
         fundo: "#fff1f2",
         novo: false,
@@ -9967,7 +9967,7 @@ export default function App() {
       {
         titulo: "Publicar Serviço",
         subtitulo: "Tarefa pontual com preço combinado",
-        icone: <Clock size={23} />,
+        icone: <Clock size={isDesktop ? 28 : 23} />,
         cor: "#f97316",
         fundo: "#fff7ed",
         novo: false,
@@ -9976,7 +9976,7 @@ export default function App() {
       {
         titulo: "Vaga de Emprego",
         subtitulo: "Vagas fixas e efetivas",
-        icone: <Briefcase size={23} />,
+        icone: <Briefcase size={isDesktop ? 28 : 23} />,
         cor: "#2563eb",
         fundo: "#eff6ff",
         novo: false,
@@ -9985,64 +9985,81 @@ export default function App() {
       {
         titulo: "Serviços para Empresas",
         subtitulo: "Promotores, inventário, auditoria e mais",
-        icone: <Store size={23} />,
+        icone: <Store size={isDesktop ? 28 : 23} />,
         cor: "#16a34a",
         fundo: "#f0fdf4",
         novo: true,
         acao: irPublicarServicoEmpresa,
       },
     ];
+    const publishShellMax = isDesktop ? "min(1120px, calc(100vw - 48px))" : LARGURA_APP_MOVEL;
     return (
-      <div style={{ minHeight:"100vh", background:"var(--bg-surface,#f8fafc)", paddingTop:24, paddingRight:20, paddingBottom:40, paddingLeft:20, fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth: isDesktop ? 560 : LARGURA_APP_MOVEL, margin:"0 auto" }}>
-        <button style={S.back} onClick={() => { setAuthError(""); setTipoPublicacaoEscolhida(null); setTela("home-empregador"); }}>← Voltar</button>
+      <div style={{ minHeight:"100vh", background:isDesktop ? "#eef2f6" : "var(--bg-surface,#f8fafc)", paddingTop:isDesktop?32:24, paddingRight:isDesktop?24:20, paddingBottom:isDesktop?56:40, paddingLeft:isDesktop?24:20, fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth: publishShellMax, margin:"0 auto" }}>
+        <button style={{ ...S.back, marginBottom:isDesktop?18:0 }} onClick={() => { setAuthError(""); setTipoPublicacaoEscolhida(null); setTela("home-empregador"); }}>← Voltar</button>
 
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:22 }}>
+        <div style={{
+          display:"flex",
+          alignItems:isDesktop?"center":"flex-start",
+          justifyContent:"space-between",
+          gap:18,
+          marginBottom:isDesktop?22:22,
+          background:isDesktop ? "linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%)" : "transparent",
+          color:isDesktop ? "#fff" : undefined,
+          borderRadius:isDesktop ? 26 : 0,
+          padding:isDesktop ? "28px 30px" : 0,
+          boxShadow:isDesktop ? "0 18px 42px rgba(15,23,42,.16)" : undefined,
+        }}>
           <div>
-            <div style={{ fontSize:12, fontWeight:800, color:cor, textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:5 }}>
+            <div style={{ fontSize:12, fontWeight:900, color:isDesktop ? "#bfdbfe" : cor, textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:5 }}>
               Publicar anúncio
             </div>
-            <h1 style={{ margin:0, fontSize:24, lineHeight:1.12, color:"var(--text-1,#0f172a)", letterSpacing:0 }}>
+            <h1 style={{ margin:0, fontSize:isDesktop?34:24, lineHeight:1.08, color:isDesktop ? "#fff" : "var(--text-1,#0f172a)", letterSpacing:0 }}>
               O que você precisa?
             </h1>
+            {isDesktop && (
+              <p style={{ margin:"10px 0 0", maxWidth:560, color:"#dbeafe", fontSize:14, lineHeight:1.55, fontWeight:600 }}>
+                Escolha o formato certo para contratar hoje, abrir uma vaga fixa ou chamar serviços para sua empresa.
+              </p>
+            )}
           </div>
-          <div style={{ width:46, height:46, borderRadius:16, background:`${cor}14`, color:cor, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-            <Plus size={25} strokeWidth={2.7} />
+          <div style={{ width:isDesktop?64:46, height:isDesktop?64:46, borderRadius:isDesktop?20:16, background:isDesktop ? "rgba(255,255,255,.14)" : `${cor}14`, color:isDesktop ? "#fff" : cor, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, border:isDesktop ? "1px solid rgba(255,255,255,.2)" : undefined }}>
+            <Plus size={isDesktop?31:25} strokeWidth={2.7} />
           </div>
         </div>
 
-        <div style={{ display:"grid", gap:12 }}>
+        <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0, 1fr))" : "1fr", gap:isDesktop?16:12 }}>
           {opcoes.map(opcao => (
             <button
               key={opcao.titulo}
               style={{
                 width:"100%",
-                minHeight:82,
+                minHeight:isDesktop?148:82,
                 background:"var(--bg-card,#fff)",
-                border:`1.5px solid ${opcao.novo ? "#22c55e" : "var(--border,#e2e8f0)"}`,
-                borderRadius:16,
-                padding:"14px 14px",
+                border:`1.5px solid ${opcao.novo ? "#22c55e" : "rgba(148,163,184,.22)"}`,
+                borderRadius:isDesktop?22:16,
+                padding:isDesktop?"22px 22px":"14px 14px",
                 display:"flex",
                 alignItems:"center",
-                gap:14,
+                gap:isDesktop?18:14,
                 textAlign:"left" as const,
                 cursor:"pointer",
                 fontFamily:"Inter, system-ui, sans-serif",
-                boxShadow: opcao.novo ? "0 8px 20px rgba(34,197,94,.12)" : "0 2px 8px rgba(15,23,42,.05)",
+                boxShadow: opcao.novo ? "0 14px 30px rgba(34,197,94,.14)" : "0 10px 28px rgba(15,23,42,.07)",
               }}
               onClick={() => { hapticTick(); opcao.acao(); }}>
-              <span style={{ width:48, height:48, borderRadius:14, background:opcao.fundo, color:opcao.cor, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+              <span style={{ width:isDesktop?60:48, height:isDesktop?60:48, borderRadius:isDesktop?18:14, background:opcao.fundo, color:opcao.cor, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                 {opcao.icone}
               </span>
               <span style={{ flex:1, minWidth:0 }}>
                 <span style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" as const }}>
-                  <span style={{ fontSize:15, fontWeight:900, color:"var(--text-1,#0f172a)" }}>{opcao.titulo}</span>
+                  <span style={{ fontSize:isDesktop?18:15, fontWeight:900, color:"var(--text-1,#0f172a)" }}>{opcao.titulo}</span>
                   {opcao.novo && (
                     <span style={{ background:"#16a34a", color:"#fff", borderRadius:999, padding:"3px 7px", fontSize:9.5, fontWeight:900, lineHeight:1 }}>
                       NOVO
                     </span>
                   )}
                 </span>
-                <span style={{ display:"block", fontSize:12.5, color:"var(--text-2,#64748b)", fontWeight:600, marginTop:4, lineHeight:1.35 }}>
+                <span style={{ display:"block", fontSize:isDesktop?13.5:12.5, color:"var(--text-2,#64748b)", fontWeight:600, marginTop:5, lineHeight:1.4 }}>
                   {opcao.subtitulo}
                 </span>
               </span>
@@ -19676,9 +19693,26 @@ export default function App() {
     const isFavorito = favoritos.has(d.id);
     const diariasDaPerfilConc = diaristasContagemDiarias[d.id] || 0;
     const nivelD = nivelDiarista(diariasDaPerfilConc);
+    const profileShellMax = isDesktop ? "min(1180px, calc(100vw - 64px))" : LARGURA_APP_MOVEL;
+    const profileCardStyle: React.CSSProperties = isDesktop
+      ? { ...S.section, marginTop:0, padding:"20px", border:"1px solid rgba(148,163,184,.18)", borderBottom:"none", borderRadius:20, boxShadow:"0 10px 28px rgba(15,23,42,.07)" }
+      : S.section;
+    const profileHeroStyle: React.CSSProperties = isDesktop
+      ? { ...S.perfilHeader, alignItems:"stretch", padding:"24px", border:"1px solid rgba(148,163,184,.18)", borderBottom:"none", borderRadius:24, boxShadow:"0 14px 34px rgba(15,23,42,.08)" }
+      : S.perfilHeader;
+    const profileActionStyle: React.CSSProperties = isDesktop
+      ? { padding:0, display:"flex", flexDirection:"column", gap:10 }
+      : { padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 };
+    const profileSideCardStyle: React.CSSProperties = {
+      background:"var(--bg-card,#fff)",
+      border:"1px solid rgba(148,163,184,.18)",
+      borderRadius:22,
+      padding:20,
+      boxShadow:"0 12px 30px rgba(15,23,42,.08)",
+    };
     return (
-      <div style={{ ...S.appShell, maxWidth: larguraAppPrincipal }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 16px 0" }}>
+      <div style={{ ...S.appShell, maxWidth: profileShellMax, paddingTop:isDesktop ? 24 : undefined, paddingBottom:isDesktop ? 48 : undefined, background:isDesktop ? "#eef2f6" : "var(--bg-app,#f0f2f5)" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:isDesktop ? "18px 4px 0" : "12px 16px 0" }}>
           <button style={S.back} onClick={() => setTela("home-empregador")}>← Voltar</button>
           <button
             style={{ background:"none", border:"none", fontSize:28, cursor:"pointer", padding:"8px", lineHeight:1 }}
@@ -19696,16 +19730,18 @@ export default function App() {
         {/* Desktop (>1024px): duas colunas — info principal + foto à esquerda,
             avaliações/ações à direita. Mobile: display:contents nos wrappers =
             DOM extra sem NENHUMA mudança de layout (coluna única igual antes). */}
-        <div style={ isDesktop ? { display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, alignItems:"start" as const, padding:"12px 20px 0" } : { display:"contents" as const } }>
-        <div style={ isDesktop ? { display:"flex", flexDirection:"column" as const } : { display:"contents" as const } }>
+        <div style={ isDesktop ? { display:"grid", gridTemplateColumns:"minmax(0, 1.35fr) minmax(340px, .65fr)", gap:24, alignItems:"start" as const, padding:"16px 4px 0" } : { display:"contents" as const } }>
+        <div style={ isDesktop ? { display:"flex", flexDirection:"column" as const, gap:16 } : { display:"contents" as const } }>
 
-        <div style={S.perfilHeader}>
+        <div style={profileHeroStyle}>
+          <div style={isDesktop ? { display:"flex", alignItems:"center", gap:20, width:"100%" } : { display:"contents" as const }}>
           {d.foto_url
-            ? <img loading="lazy" src={d.foto_url} alt="foto" style={{ width:76, height:76, borderRadius:38, objectFit:"cover", border:`3px solid ${cor}`, marginBottom:10 }} />
-            : <div style={{ ...S.perfilAvatar, background:cor, color:"#fff" }}>{iniciais}</div>
+            ? <img loading="lazy" src={d.foto_url} alt="foto" style={{ width:isDesktop?88:76, height:isDesktop?88:76, borderRadius:isDesktop?24:38, objectFit:"cover", border:`3px solid ${cor}`, marginBottom:isDesktop?0:10, boxShadow:isDesktop ? "0 14px 28px rgba(15,23,42,.16)" : undefined }} />
+            : <div style={{ ...S.perfilAvatar, width:isDesktop?88:S.perfilAvatar.width, height:isDesktop?88:S.perfilAvatar.height, borderRadius:isDesktop?24:S.perfilAvatar.borderRadius, marginBottom:isDesktop?0:S.perfilAvatar.marginBottom, background:cor, color:"#fff", boxShadow:isDesktop ? "0 14px 28px rgba(15,23,42,.16)" : undefined }}>{iniciais}</div>
           }
-          <h2 style={S.perfilNome}>{d.nome}</h2>
-          <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" as const, justifyContent:"center", marginTop:4 }}>
+          <div style={isDesktop ? { flex:1, minWidth:0, textAlign:"left" as const } : { display:"contents" as const }}>
+          <h2 style={{ ...S.perfilNome, ...(isDesktop ? { fontSize:28, lineHeight:1.08, textAlign:"left" as const } : {}) }}>{d.nome}</h2>
+          <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" as const, justifyContent:isDesktop?"flex-start":"center", marginTop:4 }}>
             <div style={S.perfilRamo}>{d.funcao}</div>
             {(d.tem_documento ?? !!(d.cpf || d.cnpj)) && (
               <span style={{ background:"#dcfce7", color:"#16a34a", fontSize:11, fontWeight:800, padding:"2px 9px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:3 }}>
@@ -19724,7 +19760,7 @@ export default function App() {
           {/* Nota pública + trabalho feito (diárias concluídas). Estado vazio
               decente quando o prestador ainda não tem avaliação, e o nº de
               diárias concluídas SEMPRE visível ("o trabalho que ele fez"). */}
-          <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:6, flexWrap:"wrap" as const, justifyContent:"center" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:6, flexWrap:"wrap" as const, justifyContent:isDesktop?"flex-start":"center" }}>
             {avaliacoesDiaristaReal.length > 0 ? (
               <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                 <span style={{ fontSize:16 }}>⭐</span>
@@ -19743,16 +19779,18 @@ export default function App() {
           <div style={{ ...S.badge, ...(d.disponivel ? S.badgeVerde : S.badgeCinza), fontSize:13, marginTop:8 }}>
             {d.disponivel ? "● Disponível hoje" : "● Indisponível hoje"}
           </div>
+          </div>
+          </div>
         </div>
 
         {d.bio && (
-          <div style={S.section}>
+          <div style={profileCardStyle}>
             <div style={S.sectionTitle}>Apresentação</div>
             <p style={{ color:"var(--text-label,#475569)", fontSize:14, lineHeight:1.6, margin:0 }}>{d.bio}</p>
           </div>
         )}
 
-        <div style={S.section}>
+        <div style={profileCardStyle}>
           <div style={S.sectionTitle}>Especialidades</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginTop:4 }}>
             {(d.categorias || []).map(f => {
@@ -19763,7 +19801,7 @@ export default function App() {
           </div>
         </div>
 
-        <div style={S.section}>
+        <div style={profileCardStyle}>
           <div style={S.sectionTitle}>Disponibilidade semanal</div>
           <div style={S.diasRow}>
             {DIAS.map(dia => (
@@ -19774,18 +19812,56 @@ export default function App() {
           </div>
         </div>
 
-        <div style={S.section}>
-          <div style={S.sectionTitle}>Valor por diária</div>
-          <div style={S.valorGrande}>R$ {d.valor_diaria}<span style={{ fontSize:16, color:"var(--text-2,#64748b)" }}> /dia</span></div>
-        </div>
+        {!isDesktop && (
+          <div style={profileCardStyle}>
+            <div style={S.sectionTitle}>Valor por diária</div>
+            <div style={S.valorGrande}>R$ {d.valor_diaria}<span style={{ fontSize:16, color:"var(--text-2,#64748b)" }}> /dia</span></div>
+          </div>
+        )}
 
         </div>
         {/* Coluna direita (desktop): avaliações + denúncia + área de ação */}
-        <div style={ isDesktop ? { display:"flex", flexDirection:"column" as const } : { display:"contents" as const } }>
+        <div style={ isDesktop ? { display:"flex", flexDirection:"column" as const, gap:16, position:"sticky" as const, top:88 } : { display:"contents" as const } }>
+
+        {isDesktop && (
+          <div style={profileSideCardStyle}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:16 }}>
+              <div>
+                <div style={{ fontSize:11, fontWeight:900, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:1 }}>
+                  Resumo
+                </div>
+                <div style={{ fontSize:18, fontWeight:900, color:"var(--text-1,#0f172a)", marginTop:3 }}>
+                  {d.funcao}
+                </div>
+              </div>
+              <span style={{ width:44, height:44, borderRadius:14, background:`${cor}14`, color:cor, display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
+                <Briefcase size={21} strokeWidth={2.5} />
+              </span>
+            </div>
+            <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:16, padding:"14px 16px", marginBottom:12 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.8, marginBottom:5 }}>
+                Valor de referência
+              </div>
+              <div style={{ fontSize:30, fontWeight:950, color:"var(--text-1,#0f172a)", lineHeight:1 }}>
+                R$ {d.valor_diaria}<span style={{ fontSize:13, color:"var(--text-2,#64748b)", fontWeight:800 }}> /dia</span>
+              </div>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              <div style={{ background:"#f0fdf4", color:"#15803d", borderRadius:14, padding:"10px 12px" }}>
+                <div style={{ fontSize:11, fontWeight:900 }}>Status</div>
+                <div style={{ fontSize:12, fontWeight:800, marginTop:3 }}>{d.disponivel ? "Disponível hoje" : "Indisponível"}</div>
+              </div>
+              <div style={{ background:"#eff6ff", color:"#1d4ed8", borderRadius:14, padding:"10px 12px" }}>
+                <div style={{ fontSize:11, fontWeight:900 }}>Histórico</div>
+                <div style={{ fontSize:12, fontWeight:800, marginTop:3 }}>{diariasDaPerfilConc} concluída{diariasDaPerfilConc === 1 ? "" : "s"}</div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Avaliações do diarista */}
         {avaliacoesDiaristaReal.length > 0 && (
-          <div style={S.section}>
+          <div style={profileCardStyle}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
               <div style={S.sectionTitle}>Avaliações</div>
               <div style={{ display:"flex", alignItems:"center", gap:4 }}>
@@ -19809,7 +19885,7 @@ export default function App() {
         )}
 
         {/* Botão denunciar */}
-        <div style={{ padding:"0 20px 4px" }}>
+        <div style={isDesktop ? { padding:"0 2px", textAlign:"right" as const } : { padding:"0 20px 4px" }}>
           <button style={{ background:"none", border:"none", color:"var(--text-3,#94a3b8)", fontSize:12, cursor:"pointer", textDecoration:"underline" }}
             onClick={() => setModalDenunciar({ tipo:"usuario", id:d.id, nome:d.nome })}>
             ⚑ Denunciar perfil
@@ -19828,7 +19904,7 @@ export default function App() {
           if (statusConvite === "pendente") {
             // ── Estado: aguardando resposta ──
             return (
-              <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
+              <div style={profileActionStyle}>
                 <div style={{ background:"#fef3c7", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 }}>
                   <span style={{ fontSize:28 }}>⏳</span>
                   <div>
@@ -19869,7 +19945,7 @@ export default function App() {
             const contatoJaLiberado = convPago && convConfirmado;
             const aguardandoConfirmacao = convPago && !convConfirmado; // pagou, falta o prestador confirmar
             return (
-              <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
+              <div style={profileActionStyle}>
                 <div style={{ background:"#dcfce7", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 }}>
                   <span style={{ fontSize:28 }}>🎉</span>
                   <div>
@@ -19945,7 +20021,7 @@ export default function App() {
 
           // ── Estado padrão: sem convite ativo (ou recusado) ──
           return (
-            <div style={{ padding:"0 20px 32px", display:"flex", flexDirection:"column", gap:10 }}>
+            <div style={profileActionStyle}>
               {statusConvite === "recusado" && (
                 <div style={{ background:"#fee2e2", borderRadius:12, padding:"10px 14px", fontSize:13, color:"#991b1b", fontWeight:700, textAlign:"center" as const }}>
                   😔 {d.nome.split(" ")[0]} não pôde nesta data. Tente outra data ou horário.
