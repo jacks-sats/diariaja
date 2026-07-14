@@ -18,7 +18,7 @@ const GOOGLE_WEB_CLIENT_ID = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID || "";
 import {
   Home, Briefcase, MessageCircle, User, Plus,
   Star, CheckCircle2, AlertTriangle, MapPin,
-  Filter, X, Send,
+  Filter, X, Send, Search,
   Wallet, ShieldCheck, Clock,
   ChevronRight, Inbox, Loader2, CalendarDays, Store,
   Bell, MoreVertical, Smartphone, ClipboardList,
@@ -114,7 +114,7 @@ import {
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
-  montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar,
+  montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar, correspondeBusca,
   cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta,
 } from "./helpers";
 
@@ -240,6 +240,9 @@ export default function App() {
   const [disponivelAgora, setDisponivel]  = useState(false);
   const [filtroFuncao, setFiltroFuncao]   = useState("Todos");
   const [filtroDisp, setFiltroDisp]       = useState(false);
+  // Busca livre do dashboard desktop do anunciante (nome, categoria, bairro ou
+  // vaga). Filtra client-side sobre as listas já carregadas — sem ida ao banco.
+  const [buscaDash, setBuscaDash]         = useState("");
   const [diarias, setDiarias]                     = useState<Diaria[]>([]);
   const [formDiaria, setFormDiaria]               = useState({ local:"", descricao:"", funcao:"", data:"", horario_inicio:"", horario_fim:"", valor:"", cep:"", rua:"", numero:"", complemento:"", bairro:"", cidade:"", estado:"", valor_encostada:"", valor_por_entrega:"", ganho_estimado_dia:"", tipo_oferta:"diaria", tempo_estimado_min:"60", tipo_preco:"fixo", tipo_contrato:"", regime:"", salario:"", beneficios:[] as string[], beneficios_outros:"", mensagem_auto:"" });
   const [buscandoCEP, setBuscandoCEP]             = useState(false);
@@ -11952,13 +11955,36 @@ export default function App() {
     const statusAtivosDash = new Set(["aberta", "pendente", "aceita", "em_andamento"]);
     const statusInteresseDash = new Set(["pendente", "selecionado", "confirmado"]);
     const vagasAtivasDash = diarias.filter(d => statusAtivosDash.has(d.status));
-    const vagasListaDash = vagasAtivasDash.slice(0, 3);
+    // Busca do topo do dashboard desktop (buscaDash). Casa VAGA por função/
+    // segmento/bairro/negócio e PROFISSIONAL por nome/função/categorias/bairro/
+    // cidade. Vazia = tudo passa (correspondeBusca é fail-open).
+    const buscaDashAtiva = buscaDash.trim().length > 0;
+    const vagaCasaBuscaDash = (d: Diaria) =>
+      correspondeBusca(buscaDash, [d.funcao, d.segmento, d.bairro, d.nome_negocio]);
+    // Abas de "Minhas vagas" — mesmos buckets (e mesmo estado filtroDiarias) da
+    // aba Diárias, então "Ver todas" já abre a aba com o filtro correspondente.
+    const bucketsDash: Record<typeof filtroDiarias, Diaria[]> = {
+      ativas:     vagasAtivasDash,
+      concluidas: diarias.filter(d => d.status === "concluida"),
+      expiradas:  diarias.filter(d => d.status === "expirada"),
+    };
+    const vagasBucketDash = bucketsDash[filtroDiarias];
+    const vagasBuscadasDash = vagasBucketDash.filter(vagaCasaBuscaDash);
+    const vagasListaDash = vagasBuscadasDash.slice(0, 3);
+    const vazioVagasDash: Record<typeof filtroDiarias, string> = {
+      ativas:     "Nenhuma vaga ativa agora.",
+      concluidas: "Nenhuma vaga concluída ainda.",
+      expiradas:  "Nenhuma vaga expirada.",
+    };
     const candidaturasAtivasDash = candidaturas.filter(c => statusInteresseDash.has(c.status));
     const interessadosTotalDash = candidaturasAtivasDash.length;
     const chamadosHojeDash = diarias.filter(d => d.data === hojeDash).length;
     const respostasDash = candidaturas.filter(c => c.status === "selecionado" || c.status === "confirmado").length;
     const taxaRespostaDash = interessadosTotalDash > 0 ? Math.round((respostasDash / interessadosTotalDash) * 100) : 0;
-    const profissionaisDash = diaristasReaisVisiveis.slice(0, 4);
+    const profissionaisBuscadosDash = diaristasReaisVisiveis.filter(d =>
+      correspondeBusca(buscaDash, [d.nome, d.funcao, ...(d.categorias ?? []), d.segmento, d.bio]));
+    // Sem busca: vitrine com os 4 mais relevantes. Buscando: até 8 resultados.
+    const profissionaisDash = profissionaisBuscadosDash.slice(0, buscaDashAtiva ? 8 : 4);
     const interessadosRecentesDash = candidaturasAtivasDash.slice(0, 3);
     const agendaHojeDash = diarias
       .filter(d => d.data === hojeDash)
@@ -12075,12 +12101,26 @@ export default function App() {
 
           <main style={{ padding:"24px 28px 40px", minWidth:0, overflow:"auto" }}>
             <div style={{ display:"grid", gridTemplateColumns:"minmax(320px, 1fr) auto auto auto", gap:12, alignItems:"center", marginBottom:22 }}>
-              <input
-                aria-label="Buscar"
-                placeholder="Buscar   Nome, categoria, bairro ou diária"
-                style={{ height:44, borderRadius:8, border:"1px solid #d8e0ea", background:"#fff", padding:"0 16px", fontSize:15, color:"#334155", fontFamily:"Inter, system-ui, sans-serif", outline:"none" }}
-                onFocus={() => document.getElementById("dash-profissionais")?.scrollIntoView({ behavior:"smooth", block:"start" })}
-              />
+              <div style={{ position:"relative", display:"flex", alignItems:"center" }}>
+                <Search size={17} style={{ position:"absolute", left:14, color:"#94a3b8", pointerEvents:"none" }} />
+                <input
+                  aria-label="Buscar por nome, categoria, bairro ou vaga"
+                  placeholder="Buscar por nome, categoria, bairro ou vaga"
+                  value={buscaDash}
+                  onChange={e => setBuscaDash(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Escape") setBuscaDash(""); }}
+                  style={{ width:"100%", height:44, borderRadius:8, border:buscaDashAtiva ? "1px solid #2563eb" : "1px solid #d8e0ea", background:"#fff", padding:buscaDashAtiva ? "0 44px 0 42px" : "0 16px 0 42px", fontSize:15, color:"#334155", fontFamily:"Inter, system-ui, sans-serif", outline:"none", boxSizing:"border-box" }}
+                />
+                {buscaDashAtiva && (
+                  <button
+                    type="button"
+                    aria-label="Limpar busca"
+                    onClick={() => setBuscaDash("")}
+                    style={{ position:"absolute", right:8, width:28, height:28, border:"none", borderRadius:14, background:"#f1f5f9", color:"#475569", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer" }}>
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
               <div style={{ display:"flex", background:"#fff", border:"1px solid #d8e0ea", borderRadius:8, padding:4, gap:4 }}>
                 <button type="button" style={{ border:"none", borderRadius:6, background:"#0f172a", color:"#fff", fontWeight:950, padding:"8px 13px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>Contratante</button>
                 <button type="button" onClick={() => setTela("home-diarista")} style={{ border:"none", borderRadius:6, background:"transparent", color:"#64748b", fontWeight:900, padding:"8px 13px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>Prestador</button>
@@ -12128,13 +12168,27 @@ export default function App() {
                   <button type="button" onClick={irPublicarOferta} style={{ border:"none", borderRadius:7, background:"#2563eb", color:"#fff", padding:"11px 18px", fontSize:15, fontWeight:950, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>Nova vaga</button>
                 </div>
                 <div style={{ display:"flex", gap:8, padding:"12px 16px", borderBottom:"1px solid #e6edf5" }}>
-                  {["Abertas", "Selecionando", "Concluídas", "Expiradas"].map((tab, i) => (
-                    <span key={tab} style={{ border:"1px solid #d8e0ea", borderRadius:999, background:i === 0 ? "#eff6ff" : "#fff", color:i === 0 ? "#2563eb" : "#334155", padding:"6px 12px", fontSize:12, fontWeight:950 }}>{tab}</span>
-                  ))}
+                  {([
+                    { id:"ativas"     as const, label:"Ativas" },
+                    { id:"concluidas" as const, label:"Concluídas" },
+                    { id:"expiradas"  as const, label:"Expiradas" },
+                  ]).map(tab => {
+                    const sel = filtroDiarias === tab.id;
+                    return (
+                      <button key={tab.id} type="button" onClick={() => setFiltroDiarias(tab.id)}
+                        style={{ border:sel ? "1px solid #bfdbfe" : "1px solid #d8e0ea", borderRadius:999, background:sel ? "#eff6ff" : "#fff", color:sel ? "#2563eb" : "#334155", padding:"6px 12px", fontSize:12, fontWeight:950, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                        {tab.label} ({bucketsDash[tab.id].length})
+                      </button>
+                    );
+                  })}
                 </div>
                 <div>
                   {vagasListaDash.length === 0 ? (
-                    <div style={{ padding:28, color:"#64748b", fontWeight:800 }}>Nenhuma vaga ativa agora.</div>
+                    <div style={{ padding:28, color:"#64748b", fontWeight:800 }}>
+                      {buscaDashAtiva && vagasBucketDash.length > 0
+                        ? <>Nenhuma vaga encontrada para “{buscaDash.trim()}”.</>
+                        : vazioVagasDash[filtroDiarias]}
+                    </div>
                   ) : vagasListaDash.map(dia => {
                     const qtd = candidatosDaVagaDash(dia);
                     return (
@@ -12165,18 +12219,32 @@ export default function App() {
                     );
                   })}
                 </div>
+                {vagasBuscadasDash.length > 3 && (
+                  <button type="button" onClick={() => setTabEmpregador("diarias")}
+                    style={{ width:"100%", border:"none", borderTop:"1px solid #e6edf5", background:"transparent", color:"#2563eb", padding:"14px 16px", fontSize:14, fontWeight:950, cursor:"pointer", textAlign:"center", fontFamily:"Inter, system-ui, sans-serif" }}>
+                    Ver todas ({vagasBuscadasDash.length})
+                  </button>
+                )}
               </div>
 
               <div id="dash-profissionais" style={{ ...dashCard, padding:16 }}>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
                   <h2 style={{ margin:0, fontSize:18, fontWeight:950 }}>Profissionais disponíveis</h2>
                   <span style={{ border:"1px solid #bfdbfe", background:"#eff6ff", color:"#2563eb", borderRadius:999, padding:"6px 10px", fontSize:12, fontWeight:950 }}>
-                    {filtroRaioKm === Infinity ? "qualquer distância" : `até ${filtroRaioKm} km`}
+                    {buscaDashAtiva
+                      ? `${profissionaisBuscadosDash.length} resultado${profissionaisBuscadosDash.length === 1 ? "" : "s"}`
+                      : filtroRaioKm === Infinity ? "qualquer distância" : `até ${filtroRaioKm} km`}
                   </span>
                 </div>
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(2, minmax(0, 1fr))", gap:12 }}>
+                {/* auto-fill c/ mínimo de 230px: em painel estreito vira 1 coluna e o
+                    nome não trunca em 2-3 letras (antes eram 2 colunas fixas ~130px). */}
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(230px, 1fr))", gap:12 }}>
                   {profissionaisDash.length === 0 ? (
-                    <div style={{ gridColumn:"1 / -1", padding:18, color:"#64748b", fontWeight:800 }}>Nenhum profissional encontrado com os filtros atuais.</div>
+                    <div style={{ gridColumn:"1 / -1", padding:18, color:"#64748b", fontWeight:800 }}>
+                      {buscaDashAtiva
+                        ? <>Nenhum profissional encontrado para “{buscaDash.trim()}”. Tente outro nome, categoria ou bairro.</>
+                        : "Nenhum profissional encontrado com os filtros atuais."}
+                    </div>
                   ) : profissionaisDash.map((d, i) => {
                     const [bg, fg] = avatarColors[i % avatarColors.length];
                     const ini = d.nome.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
@@ -12191,7 +12259,7 @@ export default function App() {
                         </div>
                         <div style={{ minWidth:0 }}>
                           <div style={{ fontSize:15, fontWeight:950, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.nome}</div>
-                          <div style={{ color:"#64748b", fontSize:12, fontWeight:800, marginTop:3 }}>{d.funcao || "Prestador"} {distanciaDash(d)}</div>
+                          <div style={{ color:"#64748b", fontSize:12, fontWeight:800, marginTop:3 }}>{d.funcao || "Prestador"} · {distanciaDash(d)}</div>
                           {d.disponivel && <div style={{ display:"inline-flex", marginTop:8, color:"#16a34a", background:"#dcfce7", borderRadius:999, padding:"4px 9px", fontSize:12, fontWeight:950 }}>Disponível</div>}
                         </div>
                       </button>

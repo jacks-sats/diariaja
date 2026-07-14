@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   gerarReciboPDF,
   servicoExigeProposta,
+  normalizarBusca,
+  correspondeBusca,
   planoSelecao,
   empregoExigePlanoParaChamar,
   vagaApareceNoFeed,
@@ -2029,5 +2031,46 @@ describe("servicoExigeProposta", () => {
   it("diaria e emprego nunca exigem proposta", () => {
     expect(servicoExigeProposta({ tipo_oferta: "diaria", valor: 0 })).toBe(false);
     expect(servicoExigeProposta({ tipo_oferta: "emprego", tipo_preco: "orcamento" })).toBe(false);
+  });
+});
+
+describe("normalizarBusca", () => {
+  it("remove acentos e baixa a caixa", () => {
+    expect(normalizarBusca("São João")).toBe("sao joao");
+    expect(normalizarBusca("FAXINEIRA")).toBe("faxineira");
+    expect(normalizarBusca("Açaí à Noite")).toBe("acai a noite");
+  });
+  it("apara espaços das pontas", () => {
+    expect(normalizarBusca("  maria  ")).toBe("maria");
+  });
+  it("string vazia continua vazia", () => {
+    expect(normalizarBusca("")).toBe("");
+  });
+});
+
+describe("correspondeBusca (busca do dashboard desktop)", () => {
+  const campos = ["Maria Aparecida", "Faxineira", "Jardim São Conrado", "Campo Grande"];
+  it("busca vazia NAO filtra nada (retorna true)", () => {
+    expect(correspondeBusca("", campos)).toBe(true);
+    expect(correspondeBusca("   ", campos)).toBe(true);
+  });
+  it("encontra por nome, funcao ou bairro, ignorando acento e caixa", () => {
+    expect(correspondeBusca("maria", campos)).toBe(true);
+    expect(correspondeBusca("FAXINEIRA", campos)).toBe(true);
+    expect(correspondeBusca("sao conrado", campos)).toBe(true);
+  });
+  it("varios termos exigem TODOS presentes (AND), mesmo em campos diferentes", () => {
+    expect(correspondeBusca("maria faxineira", campos)).toBe(true);
+    expect(correspondeBusca("maria cozinheira", campos)).toBe(false);
+  });
+  it("termo parcial dentro da palavra tambem casa", () => {
+    expect(correspondeBusca("faxin", campos)).toBe(true);
+  });
+  it("nao encontra termo ausente", () => {
+    expect(correspondeBusca("garcom", campos)).toBe(false);
+  });
+  it("ignora campos nulos/indefinidos/vazios sem quebrar", () => {
+    expect(correspondeBusca("maria", ["Maria", null, undefined, ""])).toBe(true);
+    expect(correspondeBusca("maria", [null, undefined, ""])).toBe(false);
   });
 });

@@ -1639,6 +1639,33 @@ export function gerarReciboPDF(d: DadosReciboPDF): Uint8Array {
   return bytes;
 }
 
+// ── Busca livre (dashboard desktop) ──────────────────────────────────────────
+// Normaliza texto pra comparação de busca: minúsculas, sem acentos, sem
+// espaços nas pontas. "São João" → "sao joao".
+export function normalizarBusca(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim();
+}
+
+// true quando TODOS os termos digitados aparecem em algum dos campos (AND de
+// termos, OR de campos). Busca vazia → true (não filtra nada). Campos nulos/
+// vazios são ignorados. Acentos e caixa não importam de nenhum dos lados.
+export function correspondeBusca(
+  busca: string,
+  campos: Array<string | null | undefined>,
+): boolean {
+  const termos = normalizarBusca(busca).split(/\s+/).filter(Boolean);
+  if (termos.length === 0) return true;
+  const alvo = campos
+    .filter((c): c is string => !!c)
+    .map(normalizarBusca)
+    .join(" ");
+  return termos.every(t => alvo.includes(t));
+}
+
 // ── Serviço: exige PROPOSTA de valor? ────────────────────────────────────────
 // Um serviço recebe proposta quando o preço NÃO é fixo (tipo_preco 'orcamento'
 // etc.) ou quando não há valor definido (legado: valor 0 = "a combinar").
