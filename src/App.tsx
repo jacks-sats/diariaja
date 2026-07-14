@@ -21,6 +21,9 @@ import {
   Filter, X, Send,
   Wallet, ShieldCheck, Clock,
   ChevronRight, Inbox, Loader2, CalendarDays, Store,
+  Bell, MoreVertical, Smartphone, ClipboardList,
+  RefreshCw, Users, FileText, Activity,
+  GraduationCap, Trophy, Rocket,
 } from "lucide-react";
 // QRCodeSVG é carregado sob demanda — economiza ~117KB gzip no startup
 const QRCodeSVG = React.lazy(() =>
@@ -7594,6 +7597,42 @@ export default function App() {
     </svg>
   );
 
+  const DESIGN = {
+    cardBorder: "1px solid rgba(148,163,184,.18)",
+    cardShadowSoft: "0 4px 14px rgba(15,23,42,.06)",
+    controlBorder: "1.5px solid var(--border,#e2e8f0)",
+  } as const;
+  type LucideIconCmp = React.ComponentType<{ size?: number | string; color?: string; strokeWidth?: number | string; style?: React.CSSProperties }>;
+  const IconTile = ({
+    icon: Icon,
+    color,
+    bg,
+    size = 20,
+    box = 42,
+    radius = 12,
+  }: {
+    icon: LucideIconCmp;
+    color: string;
+    bg?: string;
+    size?: number;
+    box?: number;
+    radius?: number;
+  }) => (
+    <span style={{
+      width: box,
+      height: box,
+      borderRadius: radius,
+      background: bg || `${color}18`,
+      color,
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
+    }}>
+      <Icon size={size} strokeWidth={2.4} />
+    </span>
+  );
+
   // ─────────────────────────────────────────────────────────────────────────
   // Helpers visuais de retenção e UX premium (auditoria 26/05 — Fase 2)
   // ─────────────────────────────────────────────────────────────────────────
@@ -7663,15 +7702,15 @@ export default function App() {
   // ── Onda 3: card de erro de carregamento (rede) com "Tentar de novo" ──────
   // Diferencia falha de rede de "lista vazia". Usado nos feeds e no chat.
   const CardErroCarregar = ({ onRetry, texto, compacto }: { onRetry: () => void; texto?: string; compacto?: boolean }) => (
-    <div style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:14, padding: compacto ? "12px 14px" : "24px 20px", textAlign:"center" as const, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
-      {!compacto && <div style={{ fontSize:34, marginBottom:8 }}>⚠️</div>}
+    <div style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:16, padding: compacto ? "12px 14px" : "24px 20px", textAlign:"center" as const, boxShadow:DESIGN.cardShadowSoft }}>
+      {!compacto && <div style={{ display:"flex", justifyContent:"center", marginBottom:10 }}><IconTile icon={AlertTriangle} color="#f97316" box={48} size={24} /></div>}
       <div style={{ fontSize:14, fontWeight:700, color:"#9a3412", marginBottom: compacto ? 10 : 14, lineHeight:1.5 }}>
         {texto || "Não foi possível carregar. Verifique sua conexão e tente de novo."}
       </div>
       <button
-        style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"10px 22px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.35)" }}
+        style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"10px 22px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.35)", display:"inline-flex", alignItems:"center", justifyContent:"center", gap:8 }}
         onClick={onRetry}>
-        🔄 Tentar de novo
+        <RefreshCw size={15} /> Tentar de novo
       </button>
     </div>
   );
@@ -7684,19 +7723,19 @@ export default function App() {
   // toda. No mobile não é renderizada (cada home só monta quando isDesktop).
   type NavItemTopo = { key: string; label: string; icon: React.ReactNode; ativo?: boolean; destaque?: boolean; badge?: number; onClick: () => void };
   const NavTopoDesktop = ({ items, cor }: { items: NavItemTopo[]; cor: string }) => (
-    <div style={{ position:"fixed" as const, top:0, left:0, right:0, width:"100%", zIndex:60, background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border,#e2e8f0)", boxShadow:"0 1px 10px rgba(0,0,0,.05)" }}>
+    <div style={{ position:"fixed" as const, top:0, left:0, right:0, width:"100%", zIndex:60, background:"rgba(255,255,255,.96)", backdropFilter:"blur(10px)", WebkitBackdropFilter:"blur(10px)", borderBottom:DESIGN.cardBorder, boxShadow:"0 8px 24px rgba(15,23,42,.05)" }}>
       <div style={{ maxWidth:1440, margin:"0 auto", padding:"0 28px", height:68, display:"flex", alignItems:"center", gap:8 }}>
         <div style={{ fontSize:22, fontWeight:900, letterSpacing:-1, marginRight:"auto" }}>
           <span style={{ color:"var(--text-1,#0f172a)" }}>Diária</span><span style={{ color:"#FF6B35" }}>Já</span>
         </div>
         {items.map(it => it.destaque ? (
           <button key={it.key} onClick={it.onClick}
-            style={{ display:"flex", alignItems:"center", gap:7, background:cor, color:"#fff", border:"none", borderRadius:12, padding:"10px 18px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 12px ${cor}55`, marginLeft:8 }}>
+            style={{ display:"flex", alignItems:"center", gap:7, background:cor, color:"#fff", border:"none", borderRadius:12, padding:"11px 18px", minHeight:42, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 8px 18px ${cor}40`, marginLeft:8 }}>
             {it.icon}<span>{it.label}</span>
           </button>
         ) : (
           <button key={it.key} onClick={it.onClick}
-            style={{ position:"relative" as const, display:"flex", alignItems:"center", gap:7, background: it.ativo ? cor+"14" : "transparent", color: it.ativo ? cor : "var(--text-2,#64748b)", border:"none", borderRadius:10, padding:"9px 14px", fontSize:14, fontWeight: it.ativo ? 800 : 600, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+            style={{ position:"relative" as const, display:"flex", alignItems:"center", gap:7, background: it.ativo ? cor+"12" : "transparent", color: it.ativo ? cor : "var(--text-2,#64748b)", border:it.ativo ? `1px solid ${cor}24` : "1px solid transparent", borderRadius:12, padding:"9px 14px", minHeight:42, fontSize:14, fontWeight: it.ativo ? 800 : 650, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
             <span style={{ position:"relative" as const, display:"inline-flex", alignItems:"center" }}>
               {it.icon}
               {it.badge && it.badge > 0 ? (
@@ -7714,14 +7753,14 @@ export default function App() {
   // banner; mensagem varia por índice pra não ficar repetitivo.
   const BannerJaDecolaInline = ({ index, paraDiarista }: { index: number; paraDiarista: boolean }) => {
     const mensagensDiarista = [
-      { icone:"🚀", titulo:"Vire prestador 5★",        desc:"Curso rápido em Já Decola · ganhe selo no perfil" },
-      { icone:"⭐", titulo:"Mais avaliações positivas", desc:"Aprenda atendimento em 5 minutos · destaque na busca" },
-      { icone:"🏆", titulo:"Suba de nível na plataforma", desc:"Cursos gratuitos · selos visíveis ao anunciante" },
+      { icon:Rocket, titulo:"Vire prestador 5★",        desc:"Curso rápido em Já Decola · ganhe selo no perfil" },
+      { icon:Star, titulo:"Mais avaliações positivas", desc:"Aprenda atendimento em 5 minutos · destaque na busca" },
+      { icon:Trophy, titulo:"Suba de nível na plataforma", desc:"Cursos gratuitos · selos visíveis ao anunciante" },
     ];
     const mensagensEmpregador = [
-      { icone:"🎓", titulo:"Como contatar com segurança", desc:"Curso rápido em Já Decola · evite golpes e conflitos" },
-      { icone:"🛡️", titulo:"Vire anunciante 5★",            desc:"Boas práticas · selos de confiança no perfil" },
-      { icone:"🚀", titulo:"Crie anúncios que atraem os melhores", desc:"Aprenda em 5 minutos a criar anúncio perfeito" },
+      { icon:GraduationCap, titulo:"Como contatar com segurança", desc:"Curso rápido em Já Decola · evite golpes e conflitos" },
+      { icon:ShieldCheck, titulo:"Vire anunciante 5★",            desc:"Boas práticas · selos de confiança no perfil" },
+      { icon:Rocket, titulo:"Crie anúncios que atraem os melhores", desc:"Aprenda em 5 minutos a criar anúncio perfeito" },
     ];
     const arr = paraDiarista ? mensagensDiarista : mensagensEmpregador;
     const m = arr[index % arr.length];
@@ -7734,13 +7773,13 @@ export default function App() {
           display:"flex", alignItems:"center", gap:12, marginBottom:10,
         }}
         onClick={() => { carregarAcademyCursos(); setTela("academy"); }}>
-        <div style={{ width:44, height:44, background:"rgba(255,255,255,.18)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{m.icone}</div>
+        <IconTile icon={m.icon} color="#fff" bg="rgba(255,255,255,.18)" />
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:10, fontWeight:800, opacity:0.85, letterSpacing:0.3, textTransform:"uppercase" as const }}>Já Decola · Academia</div>
           <div style={{ fontSize:14, fontWeight:900, lineHeight:1.25, marginTop:1 }}>{m.titulo}</div>
           <div style={{ fontSize:11, opacity:0.92, marginTop:2 }}>{m.desc}</div>
         </div>
-        <div style={{ fontSize:20, opacity:0.9, flexShrink:0 }}>→</div>
+        <ChevronRight size={20} style={{ opacity:.9, flexShrink:0 }} />
       </div>
     );
   };
@@ -7766,9 +7805,9 @@ export default function App() {
       ? "Perfil completo aparece primeiro nas buscas e passa mais confiança."
       : "Anunciante com perfil completo atrai prestadores melhores e mais rápido.";
     return (
-      <div style={{ margin:"12px 16px 0", background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:18, padding:"15px 16px", color:"#fff", boxShadow:"0 4px 16px rgba(255,107,53,.3)" }}>
+      <div style={{ margin:"12px 16px 0", background:"linear-gradient(135deg,#FF6B35,#f59e0b)", borderRadius:18, padding:"15px 16px", color:"#fff", boxShadow:"0 8px 24px rgba(255,107,53,.28)" }}>
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-          <div style={{ width:44, height:44, background:"rgba(255,255,255,.18)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>📋</div>
+          <IconTile icon={ClipboardList} color="#fff" bg="rgba(255,255,255,.18)" />
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:14, fontWeight:900, lineHeight:1.25 }}>Complete seu perfil</div>
             <div style={{ fontSize:11, opacity:0.95, marginTop:2, lineHeight:1.35 }}>{ganho}</div>
@@ -7783,12 +7822,12 @@ export default function App() {
         </div>
         <div style={{ display:"flex", gap:8 }}>
           <button
-            style={{ flex:1, background:"#fff", color:"#c2410c", border:"none", borderRadius:12, padding:"10px 14px", fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+            style={{ flex:1, background:"#fff", color:"#c2410c", border:"none", borderRadius:12, padding:"10px 14px", fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
             onClick={() => {
               trackEvento("completar_perfil_banner_click", session?.user?.id, paraDiarista ? "diarista" : "empregador", { pct: comp.pct, pendentes: comp.pendentes.length });
               setTela(telaEdicao);
             }}>
-            Completar agora →
+            Completar agora <ChevronRight size={15} />
           </button>
           <button
             style={{ background:"rgba(255,255,255,.18)", color:"#fff", border:"none", borderRadius:12, padding:"10px 14px", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
@@ -7881,7 +7920,7 @@ export default function App() {
   // versão web/PWA em instalação oficial da Play. Reusado na landing e no splash.
   const bannerBaixarApp = (Capacitor.isNativePlatform() || bannerBaixarFechado) ? null : (
     <div style={{ display:"flex", alignItems:"center", gap:10, background:"#0A1733", color:"#FBF6EF", padding:"10px 14px", fontSize:14, fontWeight:700, borderBottom:"2px solid #FF6B35" }}>
-      <span style={{ fontSize:20, flexShrink:0 }}>📲</span>
+      <Smartphone size={18} style={{ color:"#FF6B35", flexShrink:0 }} />
       <span style={{ flex:1, lineHeight:1.3 }}>
         Já está no Google Play! <span style={{ color:"#FF6B35" }}>Baixe o app oficial do DiáriaJá.</span>
       </span>
@@ -7892,7 +7931,7 @@ export default function App() {
       </a>
       <button onClick={() => { setBannerBaixarFechado(true); try { localStorage.setItem("diariaja_baixar_app_v1", "1"); } catch {} }}
         aria-label="Fechar aviso"
-        style={{ background:"transparent", border:0, color:"#8595BE", fontSize:18, lineHeight:1, cursor:"pointer", padding:4 }}>×</button>
+        style={{ background:"transparent", border:0, color:"#8595BE", lineHeight:1, cursor:"pointer", padding:4, display:"inline-flex", alignItems:"center", justifyContent:"center" }}><X size={16} /></button>
     </div>
   );
 
@@ -11992,18 +12031,16 @@ export default function App() {
                 </svg>
               </button>
               {/* Botão "trocar perfil" agora mora dentro do menu ⋮ (header limpo) */}
-              <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
+              <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:DESIGN.controlBorder, borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--text-2,#64748b)", cursor:"pointer" }}
                 onClick={() => { setModalNotif(true); setNotifNaoLidas(0); }}>
-                🔔
+                <Bell size={20} />
                 {(notifNaoLidas + suporteNaoLidos) > 0 && <div style={{ position:"absolute", top:-4, right:-4, background: suporteNaoLidos > 0 ? "#f59e0b" : "#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</div>}
               </div>
               <button
                 aria-label="Mais opções"
-                style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, gap:3, fontFamily:"Inter, system-ui, sans-serif" }}
+                style={{ background:"var(--bg-surface,#f8fafc)", border:DESIGN.controlBorder, borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, color:"var(--text-2,#64748b)", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => setMenuOpcoes(true)}>
-                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
-                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
-                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+                <MoreVertical size={20} />
               </button>
             </div>
           </div>
@@ -15662,18 +15699,16 @@ export default function App() {
                 </svg>
               </button>
               {/* Botão "trocar perfil" agora mora dentro do menu ⋮ (header limpo) */}
-              <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer" }}
+              <div style={{ position:"relative", background:"var(--bg-surface,#f8fafc)", border:DESIGN.controlBorder, borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--text-2,#64748b)", cursor:"pointer" }}
                 onClick={() => { setModalNotif(true); setNotifNaoLidas(0); }}>
-                🔔
+                <Bell size={20} />
                 {(notifNaoLidas + suporteNaoLidos) > 0 && <div style={{ position:"absolute", top:-4, right:-4, background: suporteNaoLidos > 0 ? "#f59e0b" : "#ef4444", color:"#fff", borderRadius:10, minWidth:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, padding:"0 4px" }}>{(notifNaoLidas + suporteNaoLidos) > 9 ? "9+" : (notifNaoLidas + suporteNaoLidos)}</div>}
               </div>
               <button
                 aria-label="Mais opções"
-                style={{ background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, width:42, height:42, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, gap:3, fontFamily:"Inter, system-ui, sans-serif" }}
+                style={{ background:"var(--bg-surface,#f8fafc)", border:DESIGN.controlBorder, borderRadius:12, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", padding:0, color:"var(--text-2,#64748b)", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => setMenuOpcoes(true)}>
-                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
-                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
-                <span style={{ width:4, height:4, borderRadius:2, background:"var(--text-2,#64748b)", display:"block" }} />
+                <MoreVertical size={20} />
               </button>
             </div>
           </div>
@@ -21306,16 +21341,18 @@ export default function App() {
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     const tk = adminTickets;
     // Card stat clicável que abre drill-down. Se `drillTipo` é null, não é clicável.
-    const cardStat = (label: string, valor: number | string, cor: string, icone: string, drillTipo?: string) => (
+    const cardStat = (label: string, valor: number | string, cor: string, icone: React.ReactNode, drillTipo?: string) => (
       <div role={drillTipo ? "button" : undefined} tabIndex={drillTipo ? 0 : undefined}
-        style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", display:"flex", alignItems:"center", gap:10, cursor: drillTipo ? "pointer" : "default", transition:"transform .1s" }}
-        onClick={() => { if (drillTipo) abrirDrillAdmin(drillTipo, label, icone); }}>
-        <div style={{ width:40, height:40, background:cor+"22", color:cor, borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{icone}</div>
+        style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft, display:"flex", alignItems:"center", gap:10, cursor: drillTipo ? "pointer" : "default", transition:"transform .1s" }}
+        onClick={() => { if (drillTipo) abrirDrillAdmin(drillTipo, label, typeof icone === "string" ? icone : ""); }}>
+        <div style={{ width:40, height:40, background:cor+"18", color:cor, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
+          {typeof icone === "string" ? icone : icone}
+        </div>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>{label}</div>
           <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1 }}>{valor}</div>
         </div>
-        {drillTipo && <span style={{ color:"#cbd5e1", fontSize:16, flexShrink:0 }}>›</span>}
+        {drillTipo && <ChevronRight size={16} style={{ color:"#cbd5e1", flexShrink:0 }} />}
       </div>
     );
 
@@ -21352,7 +21389,7 @@ export default function App() {
     const CardComparacao = ({ titulo, dados }: { titulo: string; dados: { label: string; valor: number; cor: string }[] }) => {
       const total = Math.max(1, dados.reduce((s, d) => s + d.valor, 0));
       return (
-        <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft }}>
           <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:12 }}>{titulo}</div>
           {dados.map(d => {
             const pct = Math.round((d.valor / total) * 100);
@@ -21377,7 +21414,7 @@ export default function App() {
       const labelTipo = (tipo: string) => tipo === "diarista" ? "Prestadores" : "Anunciantes";
       const corTipo = (tipo: string) => tipo === "diarista" ? "#FF6B35" : "#3A86FF";
       return (
-        <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10, marginBottom:12 }}>
             <div style={{ fontSize:12, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Frequencia de retorno por lado</div>
             <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", fontWeight:800 }}>ultimos 14 dias</div>
@@ -21474,16 +21511,16 @@ export default function App() {
           )}
           {adminRetencao && (
             <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(4, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
-              {cardStat("Ativos 7 dias", adminRetencao.ativos_7d, "#3A86FF", "ðŸ“…")}
-              {cardStat("Voltaram 7d", adminRetencao.retornantes_7d, "#0ea5e9", "â†©ï¸")}
-              {cardStat("Recorrentes", adminRetencao.recorrentes_14d, "#FF6B35", "ðŸ”¥")}
-              {cardStat("Fidelidade", `${adminRetencao.stickiness_pct}%`, "#f59e0b", "ðŸ§²")}
+              {cardStat("Ativos 7 dias", adminRetencao.ativos_7d, "#3A86FF", <CalendarDays size={19} />)}
+              {cardStat("Voltaram 7d", adminRetencao.retornantes_7d, "#0ea5e9", <Activity size={19} />)}
+              {cardStat("Recorrentes", adminRetencao.recorrentes_14d, "#FF6B35", <Users size={19} />)}
+              {cardStat("Fidelidade", `${adminRetencao.stickiness_pct}%`, "#f59e0b", <Star size={19} />)}
             </div>
           )}
           {/* Novos de hoje SEPARADOS por lado */}
           <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
-            {cardStat("Prestadores novos hoje", adminNovosLado ? adminNovosLado.diaristas_hoje : "—", "#FF6B35", "🆕")}
-            {cardStat("Anunciantes novos hoje", adminNovosLado ? adminNovosLado.empregadores_hoje : "—", "#3A86FF", "🆕")}
+            {cardStat("Prestadores novos hoje", adminNovosLado ? adminNovosLado.diaristas_hoje : "—", "#FF6B35", <User size={19} />)}
+            {cardStat("Anunciantes novos hoje", adminNovosLado ? adminNovosLado.empregadores_hoje : "—", "#3A86FF", <Store size={19} />)}
           </div>
           {/* Dinheiro: desbloqueios de chat no mês + assinantes ativos */}
           {adminFinanceiro && (() => {
@@ -21492,8 +21529,8 @@ export default function App() {
             const pl = adminFinanceiro.planos || {};
             return (
               <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0, 1fr))" : "1fr 1fr", gap:10 }}>
-                {cardStat("Chat liberado — mês", `R$ ${fmt(u.valor_mes)}`, "#16a34a", "💬")}
-                {cardStat("Assinantes ativos", pl.ativos_total ?? 0, "#3A86FF", "⭐")}
+                {cardStat("Chat liberado — mês", `R$ ${fmt(u.valor_mes)}`, "#16a34a", <MessageCircle size={19} />)}
+                {cardStat("Assinantes ativos", pl.ativos_total ?? 0, "#3A86FF", <Star size={19} />)}
               </div>
             );
           })()}
@@ -21503,11 +21540,11 @@ export default function App() {
         <div style={{ padding:"4px 16px 8px" }}>
           <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>🛠️ Operacional</div>
           <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(5, minmax(0, 1fr))" : "1fr 1fr", gap:10 }}>
-            {cardStat("Online agora", adminStats ? adminStats.online_agora : 0, "#16a34a", "🟢", "online_agora")}
-            {cardStat("Tickets abertos", adminStats ? adminStats.tickets_abertos : 0, "#ef4444", "📨", "tickets_abertos")}
-            {cardStat("KYC pendente", adminDocsPendentes.length, "#f59e0b", "📄")}
-            {cardStat("Verificados", adminDocsVerificados.length, "#16a34a", "✅")}
-            {cardStat("Antecedentes pend.", adminAntecedentesPendentes.length, "#a855f7", "📋")}
+            {cardStat("Online agora", adminStats ? adminStats.online_agora : 0, "#16a34a", <Activity size={19} />, "online_agora")}
+            {cardStat("Tickets abertos", adminStats ? adminStats.tickets_abertos : 0, "#ef4444", <Inbox size={19} />, "tickets_abertos")}
+            {cardStat("KYC pendente", adminDocsPendentes.length, "#f59e0b", <FileText size={19} />)}
+            {cardStat("Verificados", adminDocsVerificados.length, "#16a34a", <ShieldCheck size={19} />)}
+            {cardStat("Antecedentes pend.", adminAntecedentesPendentes.length, "#a855f7", <ClipboardList size={19} />)}
           </div>
         </div>
 
@@ -21562,7 +21599,7 @@ export default function App() {
                     <MiniBars data={serie} cor="#16a34a" label="Desbloqueios de chat (R$1) — por dia" />
                   </div>
                 )}
-                <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft }}>
                   <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:10 }}>Assinantes por plano</div>
                   {porPlano.length === 0 ? (
                     <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>Nenhum plano ativo ainda.</div>
@@ -23093,9 +23130,9 @@ const S: Record<string, React.CSSProperties> = {
   back:             { background:"none", border:"none", color:"#FF6B35", fontSize:16, cursor:"pointer", padding:0, marginBottom:8, fontFamily:"Inter, system-ui, sans-serif" },
   label:            { fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", marginBottom:4, marginTop:12, textTransform:"uppercase", letterSpacing:0.5 },
   input:            { width:"100%", padding:"13px 16px", border:"2px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:16, background:"var(--input-bg,#fff)", color:"var(--text-1,#0f172a)", fontFamily:"Inter, system-ui, sans-serif", boxSizing:"border-box", marginBottom:4, outline:"none" },
-  btnPrimary:       { width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:8 },
-  btnSecondary:     { width:"100%", padding:"13px", background:"transparent", color:"#FF6B35", border:"2px solid #FF6B35", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" },
-  btnGoogle:        { width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"2px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginTop:4 },
+  btnPrimary:       { width:"100%", padding:"15px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", marginTop:8, boxShadow:"0 8px 20px rgba(255,107,53,.28)" },
+  btnSecondary:     { width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"#FF6B35", border:"1.5px solid #FF6B35", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" },
+  btnGoogle:        { width:"100%", padding:"13px", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, fontSize:15, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", justifyContent:"center", marginTop:4, boxShadow:"0 3px 10px rgba(15,23,42,.04)" },
   divider:          { display:"flex", alignItems:"center", gap:10, margin:"16px 0 8px" },
   dividerLine:      { flex:1, height:1, background:"var(--border,#e2e8f0)" },
   dividerText:      { color:"var(--text-3,#94a3b8)", fontSize:13, whiteSpace:"nowrap" },
@@ -23128,11 +23165,11 @@ const S: Record<string, React.CSSProperties> = {
   tab:              { flex:1, padding:"13px", borderTopWidth:0, borderLeftWidth:0, borderRightWidth:0, borderBottomWidth:3, borderBottomStyle:"solid", borderBottomColor:"transparent", background:"none", fontSize:14, fontWeight:700, color:"var(--text-3,#94a3b8)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" },
   tabAtivo:         { borderBottomWidth:3, borderBottomStyle:"solid", borderBottomColor:"#FF6B35", color:"#FF6B35" },
   filtrosRow:       { display:"flex", gap:8, padding:"10px 16px", overflowX:"auto", background:"var(--bg-card,#fff)" },
-  filtroBtn:        { whiteSpace:"nowrap", padding:"6px 13px", borderRadius:20, border:"2px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)", fontSize:12, fontWeight:700, cursor:"pointer", color:"var(--text-label,#475569)", fontFamily:"Inter, system-ui, sans-serif" },
+  filtroBtn:        { whiteSpace:"nowrap", padding:"7px 13px", borderRadius:20, border:"1.5px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)", fontSize:12, fontWeight:800, cursor:"pointer", color:"var(--text-label,#475569)", fontFamily:"Inter, system-ui, sans-serif" },
   filtroBtnAtivo:   { background:"var(--text-1,#0f172a)", color:"#fff", border:"2px solid var(--text-1,#0f172a)" },
   lista:            { padding:"12px 16px", display:"flex", flexDirection:"column", gap:12 },
   vazio:            { textAlign:"center", color:"var(--text-3,#94a3b8)", padding:"32px 0", fontSize:15 },
-  card:             { background:"var(--bg-card,#fff)", borderRadius:16, padding:14, display:"flex", gap:12, alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer" },
+  card:             { background:"var(--bg-card,#fff)", borderRadius:16, padding:14, display:"flex", gap:12, alignItems:"center", border:"1px solid rgba(148,163,184,.18)", boxShadow:"0 4px 14px rgba(15,23,42,.06)", cursor:"pointer" },
   cardAvatar:       { width:50, height:50, borderRadius:25, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:15, flexShrink:0 },
   cardInfo:         { flex:1 },
   cardNome:         { fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" },
