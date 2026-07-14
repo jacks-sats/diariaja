@@ -12262,12 +12262,139 @@ export default function App() {
       );
     }
 
+    const employerDesktopMode = isDesktop && tabEmpregador !== "inicio";
+    const employerDesktopMeta =
+      tabEmpregador === "diarias" ? {
+        title: "Diárias e candidatos",
+        subtitle: "Acompanhe vagas, interessados e conversas abertas em uma visão de operação.",
+        primary: "Publicar vaga",
+      } : tabEmpregador === "chat" ? {
+        title: "Central de conversas",
+        subtitle: "Responda candidatos e mantenha o fechamento das vagas andando.",
+        primary: "Ver diárias",
+      } : {
+        title: "Perfil do anunciante",
+        subtitle: "Dados, confiança e configurações da sua conta contratante.",
+        primary: "Editar perfil",
+      };
+    const employerDesktopNav = (
+      key: "inicio" | "diarias" | "chat" | "perfil",
+      label: string,
+      icon: React.ReactNode,
+      onClick: () => void,
+      badge?: number,
+    ) => {
+      const active = tabEmpregador === key;
+      return (
+        <button
+          key={key}
+          type="button"
+          onClick={() => { hapticTick(); onClick(); }}
+          style={{
+            width:"100%",
+            minHeight:44,
+            display:"flex",
+            alignItems:"center",
+            gap:12,
+            padding:"10px 14px",
+            border:"none",
+            borderRadius:8,
+            background:active ? "#eaf1ff" : "transparent",
+            color:active ? "#2563eb" : "#334155",
+            fontWeight:900,
+            fontSize:15,
+            cursor:"pointer",
+            fontFamily:"Inter, system-ui, sans-serif",
+            textAlign:"left",
+            position:"relative",
+          }}>
+          <span style={{ width:18, display:"inline-flex", justifyContent:"center" }}>{icon}</span>
+          <span style={{ flex:1 }}>{label}</span>
+          {!!badge && badge > 0 && (
+            <span style={{ minWidth:20, height:20, borderRadius:10, background:"#ef4444", color:"#fff", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 6px" }}>
+              {badge > 9 ? "9+" : badge}
+            </span>
+          )}
+        </button>
+      );
+    };
+    const employerDesktopSidebar = employerDesktopMode ? (
+      <aside style={{ position:"fixed", inset:"0 auto 0 0", width:248, background:"#fff", borderRight:"1px solid #d8e0ea", padding:"22px 16px", display:"flex", flexDirection:"column", gap:24, zIndex:45 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"0 6px" }}>
+          <div style={{ width:34, height:34, borderRadius:8, background:"#ff5a2f", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950, fontSize:20 }}>D</div>
+          <div style={{ fontSize:24, fontWeight:950, letterSpacing:0 }}>
+            Diária<span style={{ color:"#ff5a2f" }}>Já</span>
+          </div>
+        </div>
+
+        <nav style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          <div style={{ padding:"0 10px 4px", fontSize:11, color:"#94a3b8", fontWeight:950, textTransform:"uppercase" }}>Menu</div>
+          {employerDesktopNav("inicio", "Início", <Home size={17} />, () => setTabEmpregador("inicio"))}
+          {employerDesktopNav("diarias", "Diárias", <Briefcase size={17} />, () => setTabEmpregador("diarias"))}
+          {employerDesktopNav("chat", "Chat", <MessageCircle size={17} />, () => { setTabEmpregador("chat"); setMsgNaoLidas(0); }, msgNaoLidas)}
+          {employerDesktopNav("perfil", "Perfil", <User size={17} />, () => setTabEmpregador("perfil"))}
+        </nav>
+
+        <button
+          type="button"
+          onClick={irPublicarOferta}
+          style={{ width:"100%", minHeight:46, border:"none", borderRadius:8, background:"#2563eb", color:"#fff", fontSize:15, fontWeight:950, cursor:"pointer", boxShadow:"0 12px 22px rgba(37,99,235,.22)", fontFamily:"Inter, system-ui, sans-serif" }}>
+          Publicar vaga
+        </button>
+
+        <div style={{ marginTop:"auto", ...dashCard, padding:14 }}>
+          <div style={{ fontSize:13, fontWeight:950, marginBottom:6 }}>Operação</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+            <div>
+              <div style={{ fontSize:20, fontWeight:950 }}>{vagasAtivasDash.length}</div>
+              <div style={{ ...dashMuted, fontSize:11 }}>ativas</div>
+            </div>
+            <div>
+              <div style={{ fontSize:20, fontWeight:950, color:"#ff5a2f" }}>{interessadosTotalDash}</div>
+              <div style={{ ...dashMuted, fontSize:11 }}>interessados</div>
+            </div>
+          </div>
+          <div style={{ height:7, background:"#e2e8f0", borderRadius:999, overflow:"hidden" }}>
+            <div style={{ width:`${Math.max(8, perfilPctDash)}%`, height:"100%", background:"#16a34a", borderRadius:999 }} />
+          </div>
+        </div>
+      </aside>
+    ) : null;
+    const employerDesktopHeader = employerDesktopMode ? (
+      <section style={{ margin:"24px 16px 14px", background:"#0f172a", color:"#fff", borderRadius:8, padding:"22px 24px", display:"grid", gridTemplateColumns:"minmax(0, 1fr) auto", gap:18, alignItems:"center", boxShadow:"0 18px 34px rgba(15,23,42,.14)" }}>
+        <div style={{ minWidth:0 }}>
+          <div style={{ fontSize:12, fontWeight:950, color:"#93c5fd", textTransform:"uppercase", marginBottom:6 }}>Área do anunciante</div>
+          <h1 style={{ margin:0, fontSize:28, lineHeight:1.12, fontWeight:950, letterSpacing:0 }}>{employerDesktopMeta.title}</h1>
+          <p style={{ margin:"6px 0 0", color:"#dbeafe", fontSize:14, fontWeight:800, lineHeight:1.45 }}>{employerDesktopMeta.subtitle}</p>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ background:"#fff", color:"#0f172a", borderRadius:999, padding:"8px 12px", fontSize:12, fontWeight:950 }}>
+            {interessadosTotalDash} interessado{interessadosTotalDash === 1 ? "" : "s"}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (tabEmpregador === "perfil") setTela("editar-perfil-empregador");
+              else if (tabEmpregador === "chat") setTabEmpregador("diarias");
+              else irPublicarOferta();
+            }}
+            style={{ border:"none", borderRadius:7, background:"#ff5a2f", color:"#fff", padding:"12px 18px", fontSize:15, fontWeight:950, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+            {employerDesktopMeta.primary}
+          </button>
+        </div>
+      </section>
+    ) : null;
+    const employerShellStyle: React.CSSProperties = employerDesktopMode
+      ? { ...S.appShell, maxWidth:"none", width:"100%", minHeight:"100vh", margin:0, paddingLeft:248, paddingRight:24, paddingTop:0, paddingBottom:40, background:"#eaf0f6", overflowX:"hidden" }
+      : { ...S.appShell, maxWidth:homeShellMax, paddingTop:isDesktop ? 88 : undefined, paddingBottom:isDesktop ? 40 : 76, background:isDesktop ? "#eef2f6" : "var(--bg-app,#f0f2f5)" };
+
     return (
-      <div style={{ ...S.appShell, maxWidth: homeShellMax, paddingTop: isDesktop ? 88 : undefined, paddingBottom:isDesktop ? 40 : 76, background:isDesktop ? "#eef2f6" : "var(--bg-app,#f0f2f5)" }}>
-        {bannerBaixarApp}
+      <div style={employerShellStyle}>
+        {employerDesktopSidebar}
+        {!employerDesktopMode && bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
-        {isDesktop && (
+        {isDesktop && !employerDesktopMode && (
           <NavTopoDesktop cor={negocio.cor} items={[
             { key:"inicio",  label:"Home",    icon:<Home size={18} />,          ativo:tabEmpregador==="inicio",  onClick:()=>{ hapticTick(); setTabEmpregador("inicio"); } },
             { key:"diarias", label:"Diárias", icon:<Briefcase size={18} />,     ativo:tabEmpregador==="diarias", onClick:()=>{ hapticTick(); setTabEmpregador("diarias"); } },
@@ -12349,7 +12476,10 @@ export default function App() {
           );
         })()}
 
+        {employerDesktopHeader}
+
         {/* ── Header ── */}
+        {!employerDesktopMode && (
         <div style={{
           background:isDesktop ? "linear-gradient(135deg,#ffffff 0%,#f8fbff 100%)" : "var(--bg-card,#fff)",
           padding:isDesktop ? "24px" : "20px 20px 14px",
@@ -12413,6 +12543,7 @@ export default function App() {
             </span>
           </div>
         </div>
+        )}
 
         {authError && <div style={{ background:"#fef2f2", color:"#b91c1c", fontSize:13, padding:"8px 16px", borderTop:"1px solid #fecaca" }}>{authError}</div>}
 
@@ -16053,12 +16184,155 @@ export default function App() {
       return d.toLocaleDateString("pt-BR");
     };
 
+    const diaristaDesktopMode = isDesktop;
+    const vagasDisponiveisDesktop = vagasFiltradas.length;
+    const convitesPendentesDesktop = convitesRecebidos.filter(c => c.status === "pendente" && !conviteExpirou(c)).length;
+    const diariasAtivasDesktop = minhasDiarias.filter(d => ["pendente", "selecionado", "confirmado", "em_andamento"].includes(d.status)).length;
+    const diaristaDesktopMeta =
+      tabDiarista === "vagas" ? {
+        title: "Diárias disponíveis",
+        subtitle: "Compare oportunidades por distância, valor e horário antes de aceitar.",
+        primary: "Ver agenda",
+      } : tabDiarista === "agenda" ? {
+        title: "Agenda e ganhos",
+        subtitle: "Acompanhe serviços aceitos, concluídos e próximos compromissos.",
+        primary: "Buscar diárias",
+      } : tabDiarista === "chat" ? {
+        title: "Central de conversas",
+        subtitle: "Mantenha os combinados alinhados com os anunciantes.",
+        primary: "Ver agenda",
+      } : tabDiarista === "perfil" ? {
+        title: "Perfil profissional",
+        subtitle: "Confiança, disponibilidade e apresentação para receber mais convites.",
+        primary: "Editar perfil",
+      } : {
+        title: `${saudacao}, ${primeiroNome}.`,
+        subtitle: `${vagasDisponiveisDesktop} anúncio${vagasDisponiveisDesktop === 1 ? "" : "s"} perto de você e ${novasHoje} novo${novasHoje === 1 ? "" : "s"} hoje.`,
+        primary: "Buscar diárias",
+      };
+    const diaristaDesktopNav = (
+      key: "inicio" | "vagas" | "agenda" | "chat" | "perfil",
+      label: string,
+      icon: React.ReactNode,
+      onClick: () => void,
+      badge?: number,
+    ) => {
+      const active = tabDiarista === key;
+      return (
+        <button
+          key={key}
+          type="button"
+          onClick={() => { hapticTick(); onClick(); }}
+          style={{
+            width:"100%",
+            minHeight:44,
+            display:"flex",
+            alignItems:"center",
+            gap:12,
+            padding:"10px 14px",
+            border:"none",
+            borderRadius:8,
+            background:active ? "#fff1ed" : "transparent",
+            color:active ? "#ff5a2f" : "#334155",
+            fontWeight:900,
+            fontSize:15,
+            cursor:"pointer",
+            fontFamily:"Inter, system-ui, sans-serif",
+            textAlign:"left",
+          }}>
+          <span style={{ width:18, display:"inline-flex", justifyContent:"center" }}>{icon}</span>
+          <span style={{ flex:1 }}>{label}</span>
+          {!!badge && badge > 0 && (
+            <span style={{ minWidth:20, height:20, borderRadius:10, background:"#ef4444", color:"#fff", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 6px" }}>
+              {badge > 9 ? "9+" : badge}
+            </span>
+          )}
+        </button>
+      );
+    };
+    const diaristaDesktopSidebar = diaristaDesktopMode ? (
+      <aside style={{ position:"fixed", inset:"0 auto 0 0", width:248, background:"#fff", borderRight:"1px solid #d8e0ea", padding:"22px 16px", display:"flex", flexDirection:"column", gap:24, zIndex:45 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"0 6px" }}>
+          <div style={{ width:34, height:34, borderRadius:8, background:"#ff5a2f", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950, fontSize:20 }}>D</div>
+          <div style={{ fontSize:24, fontWeight:950, letterSpacing:0 }}>
+            Diária<span style={{ color:"#ff5a2f" }}>Já</span>
+          </div>
+        </div>
+
+        <nav style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          <div style={{ padding:"0 10px 4px", fontSize:11, color:"#94a3b8", fontWeight:950, textTransform:"uppercase" }}>Menu</div>
+          {diaristaDesktopNav("inicio", "Início", <Home size={17} />, () => setTabDiarista("inicio"))}
+          {diaristaDesktopNav("vagas", "Diárias", <Briefcase size={17} />, () => setTabDiarista("vagas"), novasHoje)}
+          {diaristaDesktopNav("agenda", "Agenda", <Clock size={17} />, () => setTabDiarista("agenda"), diariasAtivasDesktop)}
+          {diaristaDesktopNav("chat", "Chat", <MessageCircle size={17} />, () => { setTabDiarista("chat"); setMsgNaoLidas(0); }, msgNaoLidas)}
+          {diaristaDesktopNav("perfil", "Perfil", <User size={17} />, () => setTabDiarista("perfil"))}
+        </nav>
+
+        <button
+          type="button"
+          onClick={() => setTabDiarista("vagas")}
+          style={{ width:"100%", minHeight:46, border:"none", borderRadius:8, background:"#ff5a2f", color:"#fff", fontSize:15, fontWeight:950, cursor:"pointer", boxShadow:"0 12px 22px rgba(255,90,47,.22)", fontFamily:"Inter, system-ui, sans-serif" }}>
+          Buscar diárias
+        </button>
+
+        <div style={{ marginTop:"auto", background:"#fff", border:"1px solid #d8e0ea", borderRadius:8, padding:14, boxShadow:"0 12px 28px rgba(15,23,42,.06)" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
+            <div style={{ width:42, height:42, borderRadius:21, background:"#ff5a2f", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:950, overflow:"hidden" }}>
+              {fotoUrl ? <img src={fotoUrl} alt="" loading="lazy" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : iniciaisNome}
+            </div>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontSize:14, fontWeight:950, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{primeiroNome}</div>
+              <div style={{ fontSize:12, color:"#64748b", fontWeight:800 }}>{profile?.funcao || "Prestador"}</div>
+            </div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <div>
+              <div style={{ fontSize:20, fontWeight:950 }}>{vagasDisponiveisDesktop}</div>
+              <div style={{ fontSize:11, color:"#64748b", fontWeight:900 }}>vagas</div>
+            </div>
+            <div>
+              <div style={{ fontSize:20, fontWeight:950, color:"#16a34a" }}>{convitesPendentesDesktop}</div>
+              <div style={{ fontSize:11, color:"#64748b", fontWeight:900 }}>convites</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    ) : null;
+    const diaristaDesktopHeader = diaristaDesktopMode ? (
+      <section style={{ margin:"24px 16px 14px", background:"#0f172a", color:"#fff", borderRadius:8, padding:"22px 24px", display:"grid", gridTemplateColumns:"minmax(0, 1fr) auto", gap:18, alignItems:"center", boxShadow:"0 18px 34px rgba(15,23,42,.14)" }}>
+        <div style={{ minWidth:0 }}>
+          <div style={{ fontSize:12, fontWeight:950, color:"#fed7aa", textTransform:"uppercase", marginBottom:6 }}>Área do prestador</div>
+          <h1 style={{ margin:0, fontSize:28, lineHeight:1.12, fontWeight:950, letterSpacing:0 }}>{diaristaDesktopMeta.title}</h1>
+          <p style={{ margin:"6px 0 0", color:"#ffedd5", fontSize:14, fontWeight:800, lineHeight:1.45 }}>{diaristaDesktopMeta.subtitle}</p>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ background:"#fff", color:"#0f172a", borderRadius:999, padding:"8px 12px", fontSize:12, fontWeight:950 }}>
+            {vagasDisponiveisDesktop} anúncio{vagasDisponiveisDesktop === 1 ? "" : "s"}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (tabDiarista === "perfil") setTela("editar-perfil");
+              else if (tabDiarista === "vagas") setTabDiarista("agenda");
+              else setTabDiarista("vagas");
+            }}
+            style={{ border:"none", borderRadius:7, background:"#ff5a2f", color:"#fff", padding:"12px 18px", fontSize:15, fontWeight:950, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+            {diaristaDesktopMeta.primary}
+          </button>
+        </div>
+      </section>
+    ) : null;
+    const diaristaShellStyle: React.CSSProperties = diaristaDesktopMode
+      ? { ...S.appShell, maxWidth:"none", width:"100%", minHeight:"100vh", margin:0, paddingLeft:248, paddingRight:24, paddingTop:0, paddingBottom:40, background:"#eaf0f6", overflowX:"hidden" }
+      : { ...S.appShell, maxWidth:larguraAppPrincipal, paddingTop:undefined, paddingBottom:76, background:"#f0f2f5" };
+
     return (
-      <div style={{ ...S.appShell, maxWidth: larguraAppPrincipal, paddingTop: isDesktop ? 88 : undefined, paddingBottom:isDesktop ? 32 : 76, background:isDesktop ? "#eef2f6" : "#f0f2f5" }}>
-        {bannerBaixarApp}
+      <div style={diaristaShellStyle}>
+        {diaristaDesktopSidebar}
+        {!diaristaDesktopMode && bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
-        {isDesktop && (
+        {isDesktop && !diaristaDesktopMode && (
           <NavTopoDesktop cor="#FF6B35" items={[
             { key:"inicio", label:"Home",    icon:<Home size={18} />,          ativo:tabDiarista==="inicio", onClick:()=>{ hapticTick(); setTabDiarista("inicio"); } },
             { key:"vagas",  label:"Diárias", icon:<Briefcase size={18} />,     ativo:tabDiarista==="vagas",  onClick:()=>{ hapticTick(); setTabDiarista("vagas"); } },
@@ -16073,7 +16347,10 @@ export default function App() {
         {modalDenunciarJSX}
         {bannerBeta}
 
+        {diaristaDesktopHeader}
+
         {/* ── Header novo estilo ── */}
+        {!diaristaDesktopMode && (
         <div style={{ background:"var(--bg-card,#fff)", padding:"20px 20px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.07)" }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
             {/* Avatar + Nome */}
@@ -16148,6 +16425,7 @@ export default function App() {
           </div>
           </div>
         </div>
+        )}
 
         {/* Toasts auto-dismiss */}
         {toastSuccess && (
