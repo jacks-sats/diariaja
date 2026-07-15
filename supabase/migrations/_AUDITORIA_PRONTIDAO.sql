@@ -33,11 +33,34 @@ WITH checks AS (
   UNION ALL SELECT 'meu_perfil usa to_jsonb (retorna cep)',
     EXISTS(SELECT 1 FROM pg_proc WHERE proname='meu_perfil' AND pg_get_functiondef(oid) LIKE '%to_jsonb%')
 
-  -- ── pode_selecionar_candidato com cota grátis 0 (R$1 sempre) ───────
-  UNION ALL SELECT 'cobranca R$1 cota 0 (nao tem cota 3)',
+  -- ── Monetização VIGENTE (launch_free_anunciante.sql): 3 contatos grátis/mês
+  --    + R$ 2,50 por extra + promo boas-vindas 30d + flag de lançamento grátis.
+  --    (O modelo antigo "cota 0 / R$1 sempre" foi substituído — se algum destes
+  --    itens der ❌, rode launch_free_anunciante.sql no SQL Editor.) ──────────
+  UNION ALL SELECT 'pode_selecionar_candidato versao vigente (cota 3 gratis/mes)',
     EXISTS(SELECT 1 FROM pg_proc WHERE proname='pode_selecionar_candidato'
-           AND pg_get_functiondef(oid) LIKE '%:= 0%'
-           AND pg_get_functiondef(oid) NOT LIKE '%:= 3%')
+           AND pg_get_functiondef(oid) LIKE '%v_limite_gratis%:= 3%'
+           AND pg_get_functiondef(oid) LIKE '%exige_cobranca_r1%')
+  UNION ALL SELECT 'pode_selecionar_candidato com promo boas-vindas 30d',
+    EXISTS(SELECT 1 FROM pg_proc WHERE proname='pode_selecionar_candidato'
+           AND pg_get_functiondef(oid) LIKE '%promo_boas_vindas%')
+  UNION ALL SELECT 'pode_selecionar_candidato com desvio launch_free',
+    EXISTS(SELECT 1 FROM pg_proc WHERE proname='pode_selecionar_candidato'
+           AND pg_get_functiondef(oid) LIKE '%launch_free_anunciante()%')
+  UNION ALL SELECT 'helper launch_free_anunciante()',
+    EXISTS(SELECT 1 FROM pg_proc WHERE proname='launch_free_anunciante')
+  UNION ALL SELECT 'flag app_config.launch_free_anunciante existe',
+    EXISTS(SELECT 1 FROM app_config WHERE chave='launch_free_anunciante')
+  UNION ALL SELECT 'trigger enforce_limite_selecao (anunciante, autoridade do R$2,50)',
+    EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='trg_enforce_limite_selecao' AND NOT tgisinternal)
+  UNION ALL SELECT 'tabela contatos_desbloqueios (extras R$2,50 do mes)',
+    EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='contatos_desbloqueios')
+
+  -- ── Cota grátis do PRESTADOR (3 diárias concluídas → Essencial R$9,90) ─────
+  UNION ALL SELECT 'rpc contar_diarias_concluidas_diarista',
+    EXISTS(SELECT 1 FROM pg_proc WHERE proname='contar_diarias_concluidas_diarista')
+  UNION ALL SELECT 'trigger enforce_cota_gratis_diarista (3 concluidas)',
+    EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='trg_enforce_cota_gratis_diarista' AND NOT tgisinternal)
 
   -- ── Constraint do status do convite aceita 'confirmado' ────────────
   UNION ALL SELECT 'convites aceita status confirmado',
