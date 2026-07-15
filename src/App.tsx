@@ -6824,6 +6824,15 @@ export default function App() {
       delete semCols.beneficios;
       delete semCols.mensagem_automatica;
       novaInsert = semCols;
+      // O fallback NÃO pode ser invisível (item 5 da auditoria 15/07): ele
+      // mascara migração pendente — a vaga publica, mas perde benefícios,
+      // mensagem automática e o check-in por distância precisa. Registra em
+      // analytics + console pra alguém notar e rodar a migração.
+      console.warn("[publicarDiaria] coluna ausente no banco — republicando sem geo_preciso/beneficios/mensagem_automatica. Rode as migrations pendentes.", error.code, error.message);
+      trackEvento("diaria_insert_fallback_coluna_ausente", session.user.id, "empregador", {
+        erro_code: error.code ?? null,
+        erro_msg: (error.message || "").slice(0, 200),
+      });
       ({ data, error } = await supabase.from("diarias").insert(semCols).select().single());
     }
     if (error) { setAuthError(traduzirErroBanco(error)); setSalvandoDiaria(false); return; }
