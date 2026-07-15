@@ -24,6 +24,12 @@ verify_jwt = false
 [functions.signup-empresa]
 verify_jwt = false
 
+# Cron interno: o pg_cron chama via net.http_post SÓ com x-internal-secret
+# (sem JWT) — ver cron_lembrar_diarias.sql. Com verify_jwt=true o gateway
+# devolve 401 antes do código rodar e o lembrete morre em silêncio.
+[functions.lembrar-diarias]
+verify_jwt = false
+
 # Outras funções deixam o default (verify_jwt = true) — exigem JWT do user
 # como ai-support, delete-user, export-user-data, create-payment,
 # create-contact-payment, create-subscription, mp-health-check,
