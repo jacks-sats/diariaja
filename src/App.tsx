@@ -1376,13 +1376,14 @@ export default function App() {
     if (vagaParam) {
       try { localStorage.setItem("diariaja_vaga_deeplink", vagaParam); } catch { /* ok */ }
       setVagaDeepLinkId(vagaParam);
-      // ?ref= = canal do compartilhamento (wa/share/copy) — rastreia a CHEGADA
-      // pelo link pra medir qual canal converte. Falha silenciosa (analytics).
+      // ?ref= = canal do compartilhamento (wa/share/copy). AQUI só GUARDA: este
+      // efeito roda antes de a sessão restaurar, e a policy de analytics_eventos
+      // (INSERT TO authenticated, user_id = auth.uid()) descarta evento sem
+      // user — trackear agora perdia ~100% das chegadas via WhatsApp. O evento
+      // sai no efeito do deep link, quando sessão+perfil já carregaram.
       const refParam = params.get("ref");
       if (refParam && /^[a-z_]{1,20}$/.test(refParam)) {
-        trackEvento("vaga_link_aberto", session?.user?.id, profile?.user_type, {
-          diaria_id: vagaParam, ref: refParam,
-        });
+        try { localStorage.setItem("diariaja_vaga_deeplink_ref", refParam); } catch { /* ok */ }
       }
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -1399,6 +1400,19 @@ export default function App() {
     if (!vid) { try { vid = localStorage.getItem("diariaja_vaga_deeplink"); } catch { vid = null; } }
     if (!vid || !session?.user || !profile) return;
     let cancelado = false;
+    // Rastreia a CHEGADA pelo link compartilhado AGORA (sessão+perfil prontos —
+    // a policy de analytics_eventos exige user_id = auth.uid()). O ?ref= foi
+    // guardado no load pelo efeito da URL; remove antes do await pra não
+    // duplicar o evento se este efeito re-rodar. Falha silenciosa (analytics).
+    try {
+      const refCanal = localStorage.getItem("diariaja_vaga_deeplink_ref");
+      if (refCanal) {
+        localStorage.removeItem("diariaja_vaga_deeplink_ref");
+        trackEvento("vaga_link_aberto", session.user.id, profile.user_type, {
+          diaria_id: vid, ref: refCanal,
+        });
+      }
+    } catch { /* ok */ }
     (async () => {
       const { data } = await supabase.from("diarias").select("*").eq("id", vid).maybeSingle();
       if (cancelado) return;
