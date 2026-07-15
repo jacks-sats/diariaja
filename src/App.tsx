@@ -6290,16 +6290,37 @@ export default function App() {
       return;
     }
     setConfirmando(true);
-    // EMPREGO: a vaga continua ABERTA (a empresa chama vários); NÃO vira 'aceita'.
-    // Só a candidatura passa a 'confirmado' (libera o chat daquele par pela RLS).
-    if (!ehEmpregoConf) {
-      const { error } = await supabase.from("diarias").update({ status: "aceita" }).eq("id", diaria.id);
-      if (error) { setAuthError(traduzirErroBanco(error)); setConfirmando(false); return; }
+    // Aceite ATÔMICO via RPC confirmar_aceite_diaria (migration
+    // confirmar_aceite_diaria_rpc.sql): diarias→'aceita' + candidatura→
+    // 'confirmado' na MESMA transação. Antes eram 2 UPDATEs em série — se o 2º
+    // falhasse, a diária ficava 'aceita' sem candidatura confirmada e o
+    // chat/contato travava. A própria RPC trata EMPREGO (vaga continua ABERTA,
+    // só a candidatura vira 'confirmado').
+    const { data: resAceite, error: errAceite } = await supabase.rpc("confirmar_aceite_diaria", { p_diaria_id: diaria.id });
+    if (errAceite) {
+      // Fallback de ORDEM DE DEPLOY: RPC ainda não existe no banco (migração
+      // não aplicada) → caminho legado dos 2 UPDATEs, igual antes.
+      const rpcAusente = errAceite.code === "PGRST202" || errAceite.code === "42883"
+        || /confirmar_aceite_diaria/i.test(errAceite.message || "");
+      if (!rpcAusente) { setAuthError(traduzirErroBanco(errAceite)); setConfirmando(false); return; }
+      if (!ehEmpregoConf) {
+        const { error } = await supabase.from("diarias").update({ status: "aceita" }).eq("id", diaria.id);
+        if (error) { setAuthError(traduzirErroBanco(error)); setConfirmando(false); return; }
+      }
+      const { error: errCand } = await supabase.from("candidaturas").update({ status: "confirmado" }).eq("diaria_id", diaria.id).eq("diarista_id", session.user.id);
+      if (errCand) { setAuthError("Não foi possível confirmar. Tente novamente."); setConfirmando(false); return; }
+    } else {
+      const r = resAceite as { ok?: boolean; erro?: string; status?: string } | null;
+      if (!r?.ok) {
+        setAuthError(
+          r?.erro === "nao_e_o_prestador" ? "Este anúncio foi direcionado a outro profissional."
+          : r?.erro === "status_invalido" ? "Este anúncio não está mais aguardando confirmação. Atualize a tela."
+          : r?.erro === "nao_encontrada" ? "Esse anúncio não está mais disponível."
+          : "Não foi possível confirmar. Tente novamente.");
+        setConfirmando(false);
+        return;
+      }
     }
-    // Verifica o erro do 2º update: se a candidatura não sincroniza, o empregador
-    // não vê o diarista como "confirmado" e o fluxo de contato/chat trava.
-    const { error: errCand } = await supabase.from("candidaturas").update({ status: "confirmado" }).eq("diaria_id", diaria.id).eq("diarista_id", session.user.id);
-    if (errCand) { setAuthError("Não foi possível confirmar. Tente novamente."); setConfirmando(false); return; }
     if (!ehEmpregoConf) setMinhasDiarias(prev => prev.map(d => d.id === diaria.id ? { ...d, status: "aceita" } : d));
     setMeuInteresse(prev => ({ ...prev, [diaria.id]: "confirmado" }));
     setConfirmando(false);
