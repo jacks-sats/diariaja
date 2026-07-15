@@ -675,12 +675,6 @@ export default function App() {
   // Contexto da seleção que originou a cobrança R$1 (pra retomar após pagar).
   const [selecaoPendente, setSelecaoPendente] = useState<{ diariaId: string; diaristaId: string } | null>(null);
   const [retomarSelecao, setRetomarSelecao] = useState<{ diariaId: string; diaristaId: string } | null>(null);
-  // Cota de VAGAS DE EMPREGO (plano grátis: 3/mês). Estado vindo da RPC
-  // `pode_postar_vaga_emprego`; o modal abre quando estourou e exige pagar avulso.
-  const [modalLimiteVagaEmprego, setModalLimiteVagaEmprego] = useState(false);
-  const [desbloqueandoVagaEmprego, setDesbloqueandoVagaEmprego] = useState(false);
-  const [cotaVagaEmprego, setCotaVagaEmprego] =
-    useState<{ postadas_mes: number; limite_efetivo: number; exige_pagamento: boolean; plano: string } | null>(null);
   // Prompt de notificações — aparece 1x após o login (não pede sozinho hoje, só
   // num item escondido em Configurações; usuários reclamam que "não pede").
   const [promptNotif, setPromptNotif] = useState(false);
@@ -2968,18 +2962,10 @@ export default function App() {
       }
     }
 
-    // ── Retorno do MP após publicar vaga de emprego avulsa ─────────────────
-    // Só marca um flag aqui; a restauração do rascunho acontece num efeito que
-    // espera o perfil carregar (senão o checkProfile sobrescreveria a navegação).
-    const vagaExtra = urlParams.get("vaga_extra_paga");
-    if (vagaExtra) {
-      window.history.replaceState({}, "", window.location.pathname);
-      if (vagaExtra === "sucesso") {
-        try { localStorage.setItem("diariaja_vaga_extra_retorno", "1"); } catch { /* ignore */ }
-      } else if (vagaExtra === "falha") {
-        setToastError("Pagamento não concluído. Você pode tentar publicar a vaga de novo.");
-      }
-    }
+    // (O retorno ?vaga_extra_paga= do antigo R$ 1/publicação de vaga foi
+    // removido — publicar vaga de emprego é grátis/ilimitado desde
+    // vaga_emprego_publicar_gratis.sql. Se alguém voltar de um link antigo,
+    // a URL é simplesmente ignorada.)
 
     // Se a URL contém erro de auth do Supabase (ex: bad_oauth_state), vai direto para splash
     if (urlParams.get("error") || urlParams.get("error_code")) {
@@ -5906,10 +5892,10 @@ export default function App() {
   // pagamento no backend e libera, sem o usuário sair/reabrir o app.
   // Na WEB/desktop nada muda: segue o redirect (window.location.href) de sempre.
   // Defensivo: se o plugin nativo falhar ao abrir, cai no redirect tradicional.
-  const pagamentoPendenteRef = useRef<"contato" | "vaga" | "assinatura" | null>(null);
+  const pagamentoPendenteRef = useRef<"contato" | "assinatura" | null>(null);
   const abrirCheckoutMP = async (
     url: string,
-    tipo: "contato" | "vaga" | "assinatura",
+    tipo: "contato" | "assinatura",
     opts?: { delayWebMs?: number },
   ) => {
     if (Capacitor.isNativePlatform()) {
@@ -6013,104 +5999,11 @@ export default function App() {
     setDesbloqueandoContato(false);
   };
 
-  // Inicia pagamento avulso pra PUBLICAR uma vaga de emprego além da cota grátis
-  // (3/mês no plano grátis). Mesmo padrão do desbloquearContato: token fresco +
-  // timeout + mensagem de erro real. O webhook (vaga_emprego_unlock::) registra
-  // o desbloqueio; ao voltar, o rascunho é restaurado pra republicar.
-  const desbloquearVagaEmprego = async () => {
-    if (!session?.user) {
-      setToastError("Sessão expirada. Entre novamente e tente outra vez.");
-      return;
-    }
-    const { data: { session: sess } } = await supabase.auth.getSession();
-    if (!sess?.access_token) {
-      setToastError("Sua sessão expirou. Entre novamente e tente outra vez.");
-      return;
-    }
-    setDesbloqueandoVagaEmprego(true);
-    // Garante o rascunho salvo antes de sair pro Mercado Pago (a redireção
-    // perde o state do React; restauramos no retorno ?vaga_extra_paga=sucesso).
-    try { localStorage.setItem("diariaja_rascunho_vaga", JSON.stringify({ formDiaria, negocioSelecionado, vagasDiaria, latDiaria, lngDiaria })); } catch { /* ignore */ }
-    const ac = new AbortController();
-    const timeoutId = setTimeout(() => ac.abort(), 15_000);
-    try {
-      const resp = await fetch(
-        `${SUPABASE_URL}/functions/v1/create-vaga-payment`,
-        {
-          signal: ac.signal,
-          method: "POST",
-          headers: {
-            "Content-Type":  "application/json",
-            "Authorization": `Bearer ${sess.access_token}`,
-            "apikey":        SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({ empregador_id: sess.user.id }),
-        }
-      );
-      const data = await resp.json().catch(() => ({} as { checkout_url?: string; error?: string }));
-      if (resp.ok && data.checkout_url) {
-        await abrirCheckoutMP(data.checkout_url, "vaga");
-        if (Capacitor.isNativePlatform()) setDesbloqueandoVagaEmprego(false);
-        return;
-      }
-      const motivo = data.error || `HTTP ${resp.status}`;
-      setToastError(`❌ Não foi possível gerar link de pagamento: ${motivo}`);
-    } catch (err) {
-      const isAbort = err instanceof Error && err.name === "AbortError";
-      setToastError(isAbort
-        ? "⏱ Demorou muito pra responder. Tenta de novo (a primeira chamada pode ser lenta)."
-        : "❌ Erro de conexão. Verifique sua internet.");
-      console.warn("[desbloquearVagaEmprego] erro:", err instanceof Error ? err.message : String(err));
-    } finally {
-      clearTimeout(timeoutId);
-    }
-    setDesbloqueandoVagaEmprego(false);
-  };
-
-  // Restaura o rascunho de vaga salvo e volta pro form de publicação. Lê o flag
-  // `diariaja_vaga_extra_retorno` (setado no retorno do pagamento) e o rascunho
-  // `diariaja_rascunho_vaga`. Sem dependência de session/profile — só usa setters
-  // estáveis e lê o localStorage na hora. Reusado pelo efeito de retorno (web) e
-  // pelo listener `browserFinished` (app nativo, navegador interno).
-  const restaurarRascunhoVaga = () => {
-    let flag = "";
-    try { flag = localStorage.getItem("diariaja_vaga_extra_retorno") || ""; } catch { /* ignore */ }
-    if (flag !== "1") return;
-    try { localStorage.removeItem("diariaja_vaga_extra_retorno"); } catch { /* ignore */ }
-    try {
-      const raw = localStorage.getItem("diariaja_rascunho_vaga");
-      if (raw) {
-        const r = JSON.parse(raw) as {
-          formDiaria?: typeof formDiaria; negocioSelecionado?: string | null;
-          vagasDiaria?: number; latDiaria?: number | null; lngDiaria?: number | null;
-        };
-        if (r.formDiaria) setFormDiaria(r.formDiaria);
-        if (r.negocioSelecionado !== undefined) setNegocio(r.negocioSelecionado ?? null);
-        if (typeof r.vagasDiaria === "number") setVagasDiaria(r.vagasDiaria);
-        if (r.latDiaria !== undefined) setLatDiaria(r.latDiaria ?? null);
-        if (r.lngDiaria !== undefined) setLngDiaria(r.lngDiaria ?? null);
-      }
-    } catch { /* ignore */ }
-    try { localStorage.removeItem("diariaja_rascunho_vaga"); } catch { /* ignore */ }
-    setTela("criar-diaria");
-    setToastSuccess("✅ Pagamento recebido! Confira os dados e toque em Publicar. (pode levar alguns segundos para liberar)");
-    // Atualiza a cota (o webhook pode levar uns segundos pra registrar o extra).
-    setTimeout(() => {
-      void supabase.rpc("pode_postar_vaga_emprego").then(({ data }) => {
-        const c = data as { postadas_mes?: number; limite_efetivo?: number; exige_pagamento?: boolean; plano?: string } | null;
-        if (c) setCotaVagaEmprego({ postadas_mes: c.postadas_mes ?? 0, limite_efetivo: c.limite_efetivo ?? 3, exige_pagamento: !!c.exige_pagamento, plano: c.plano ?? "gratis" });
-      });
-    }, 1200);
-  };
-
-  // Retorno do pagamento de vaga avulsa (web): espera session+profile prontos
-  // (pra não competir com a navegação do checkProfile) e então restaura o
-  // rascunho. O webhook registra o desbloqueio em paralelo.
-  useEffect(() => {
-    if (!session?.user || !profile) return;
-    restaurarRascunhoVaga();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user, profile]);
+  // (desbloquearVagaEmprego / restaurarRascunhoVaga / create-vaga-payment foram
+  // REMOVIDOS: publicar vaga de emprego é grátis/ilimitado — o gate de cota e o
+  // R$ 1/publicação morreram em vaga_emprego_publicar_gratis.sql, e a RPC
+  // pode_postar_vaga_emprego foi dropada do banco. A monetização da vaga é no
+  // CONTATO: selecionar candidato exige Essencial — ver selecionarCandidato.)
 
   // Retorno do navegador interno (app nativo): quando o usuário fecha o Custom
   // Tab do checkout, o `browserFinished` dispara e reconferimos o pagamento por
@@ -6132,9 +6025,6 @@ export default function App() {
               const uid = data.session?.user?.id;
               if (uid) void checkProfile(uid);
             });
-          } else if (tipo === "vaga") {
-            try { localStorage.setItem("diariaja_vaga_extra_retorno", "1"); } catch { /* ignore */ }
-            restaurarRascunhoVaga();
           }
         });
       } catch { /* plugin ausente — o redirect/fallback cobre */ }
@@ -6142,20 +6032,6 @@ export default function App() {
     return () => { try { sub?.remove(); } catch { /* ignore */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Carrega a cota de vagas de emprego ao abrir o formulário de criação, pra
-  // mostrar o contador "X/3" antes de o anunciante tentar publicar.
-  useEffect(() => {
-    if (tela !== "criar-diaria" || !session?.user) return;
-    (async () => {
-      try {
-        const { data } = await supabase.rpc("pode_postar_vaga_emprego");
-        const c = data as { postadas_mes?: number; limite_efetivo?: number; exige_pagamento?: boolean; plano?: string } | null;
-        if (c) setCotaVagaEmprego({ postadas_mes: c.postadas_mes ?? 0, limite_efetivo: c.limite_efetivo ?? 3, exige_pagamento: !!c.exige_pagamento, plano: c.plano ?? "gratis" });
-      } catch { /* RPC ausente (migration não aplicada) → ignora */ }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tela, session?.user]);
 
   // ── Bloqueio de usuário ────────────────────────────────────────────────────
   // Insere em `usuarios_bloqueados` e atualiza o Set local. Idempotente
@@ -14851,64 +14727,6 @@ export default function App() {
               <button
                 style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                 onClick={() => { setModalLimiteContato(false); setSelecaoPendente(null); }}>
-                Agora não
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Modal: limite de VAGAS DE EMPREGO (grátis 3/mês) ── */}
-        {modalLimiteVagaEmprego && (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:28, padding:"32px 24px", maxWidth:370, width:"100%", textAlign:"center" }}>
-              <div style={{ fontSize:48, marginBottom:10 }}>💼</div>
-              <div style={{ fontWeight:900, fontSize:19, color:"var(--text-1,#0f172a)", marginBottom:6 }}>
-                Limite de vagas de emprego
-              </div>
-              <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.7, marginBottom:20 }}>
-                No plano grátis você publica <strong>3 vagas de emprego por mês</strong>
-                {cotaVagaEmprego ? ` (você já usou ${cotaVagaEmprego.postadas_mes} este mês)` : ""}.<br />
-                Para publicar mais uma agora, escolha:
-              </div>
-
-              {/* Opção 1 — pagar avulso por esta vaga */}
-              <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
-                <div style={{ fontWeight:800, fontSize:14, color:"#166534", marginBottom:4 }}>💳 Publicar esta vaga — R$ 1,00</div>
-                <div style={{ fontSize:12, color:"#4b7c59", lineHeight:1.5, marginBottom:12 }}>
-                  Pague R$ 1 via Mercado Pago (cartão ou PIX) para publicar mais uma vaga de emprego neste mês.
-                </div>
-                <button
-                  style={{ width:"100%", padding:"12px", background:"#16a34a", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor: desbloqueandoVagaEmprego ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", opacity: desbloqueandoVagaEmprego ? 0.6 : 1 }}
-                  disabled={desbloqueandoVagaEmprego}
-                  onClick={() => desbloquearVagaEmprego()}>
-                  {desbloqueandoVagaEmprego ? "Aguarde..." : "Pagar R$ 1,00 e publicar →"}
-                </button>
-              </div>
-
-              {/* Opção 2 — assinar plano (ilimitado). Valor das constants */}
-              {(() => {
-                const ess = PLANOS_EMPREGADOR.find(p => p.id === "essencial");
-                const valor = ess?.valor ?? 24.90;
-                return (
-                  <div style={{ background:"#fff7ed", border:"1.5px solid #fed7aa", borderRadius:16, padding:"16px", marginBottom:10, textAlign:"left" }}>
-                    <div style={{ fontWeight:800, fontSize:14, color:"#9a3412", marginBottom:4 }}>
-                      🚀 Ativar Essencial — R$ {valor.toFixed(2).replace(".", ",")} / 30 dias
-                    </div>
-                    <div style={{ fontSize:12, color:"#7c3b15", lineHeight:1.5, marginBottom:12 }}>
-                      Vagas de emprego ilimitadas, IA Jájá pra criar anúncios, filtros avançados e mais.
-                    </div>
-                    <button
-                      style={{ width:"100%", padding:"12px", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                      onClick={() => { setModalLimiteVagaEmprego(false); setTela("planos"); }}>
-                      Ver planos →
-                    </button>
-                  </div>
-                );
-              })()}
-
-              <button
-                style={{ padding:"10px 20px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", border:"none", borderRadius:12, fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                onClick={() => setModalLimiteVagaEmprego(false)}>
                 Agora não
               </button>
             </div>
