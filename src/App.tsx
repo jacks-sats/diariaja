@@ -117,6 +117,7 @@ import {
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
   montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar, correspondeBusca,
+  correspondeBuscaOportunidade, pontuarBuscaOportunidade,
   cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta, mercatorPixel, rotuloPresencaProfissional, profissionaisVerificadosUnicos,
 } from "./helpers";
 
@@ -1144,6 +1145,7 @@ export default function App() {
   const [filtroRaioKm, setFiltroRaioKm] = useState<number>(20); // raio máximo de distância (Infinity = qualquer)
   const [filtroValorMin, setFiltroValorMin] = useState<number>(0); // R$ mínimo (chip 0/100/150/200)
   const [filtroTipoOportunidade, setFiltroTipoOportunidade] = useState<"todos"|"diaria"|"servico"|"emprego">("todos");
+  const [filtroFuncaoOportunidade, setFiltroFuncaoOportunidade] = useState("minha-profissao");
   const [buscaVaga, setBuscaVaga] = useState("");
   // Pull-to-refresh — tracking de gesto e estado de loading
   const [puxando, setPuxando] = useState(0);      // px puxados (0–100)
@@ -16667,8 +16669,18 @@ export default function App() {
       return distA - distB;
     };
 
-    const termoBuscaVaga = buscaVaga.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const textoBuscaVaga = (d: Diaria) => [
+    const profissaoPrincipalFiltro = (
+      profile?.profissao_principal || profile?.funcao || categoriasSelecionadas[0] || ""
+    ).trim();
+    const funcoesFiltroOportunidade = (() => {
+      if (filtroFuncaoOportunidade === "todas") return [] as string[];
+      if (filtroFuncaoOportunidade === "minha-profissao") {
+        return profissaoPrincipalFiltro ? [profissaoPrincipalFiltro] : [];
+      }
+      const categoria = Object.entries(CATEGORIAS_NEGOCIO).find(([nome]) => nome === filtroFuncaoOportunidade);
+      return categoria ? [...categoria[1].funcoes] : [filtroFuncaoOportunidade];
+    })();
+    const camposBuscaVaga = (d: Diaria) => [
       d.nome_negocio,
       d.segmento,
       d.funcao,
@@ -16678,7 +16690,7 @@ export default function App() {
       d.tipo_contrato,
       d.regime,
       d.salario_texto,
-    ].filter(Boolean).join(" ").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    ];
 
     const vagasFiltradas = vagasReais
       .filter(d => !d.oculto)                    // auto-moderação: oculta vagas suspensas por denúncias
@@ -16690,12 +16702,17 @@ export default function App() {
         }
         return d.tipo_oferta === filtroTipoOportunidade;
       })
-      .filter(d => !d.funcao || categoriasSelecionadas.length === 0 || categoriasSelecionadas.includes(d.funcao))
-      .filter(d => !termoBuscaVaga || textoBuscaVaga(d).includes(termoBuscaVaga))
+      .filter(d => funcoesFiltroOportunidade.length === 0 || !d.funcao || funcoesFiltroOportunidade.includes(d.funcao))
+      .filter(d => correspondeBuscaOportunidade(buscaVaga, camposBuscaVaga(d)))
       .filter(d => filtroDataVaga === "hoje" ? d.data === hojeFmtV : filtroDataVaga === "amanha" ? d.data === amanhaFmtV : true)
       .filter(d => Number(d.valor) >= filtroValorMin)
       .filter(d => distKm(d) <= filtroRaioKm || distKm(d) === Infinity)
       .sort((a, b) => {
+        if (buscaVaga.trim()) {
+          const relevancia = pontuarBuscaOportunidade(buscaVaga, b.funcao, camposBuscaVaga(b))
+            - pontuarBuscaOportunidade(buscaVaga, a.funcao, camposBuscaVaga(a));
+          if (relevancia !== 0) return relevancia;
+        }
         // Atalhos do menu de ordenação
         if (sortVagas === "menor_valor") return a.valor - b.valor;
         if (sortVagas === "maior_valor") return b.valor - a.valor;
@@ -16712,11 +16729,17 @@ export default function App() {
 
     // Contador "X novas hoje na sua região" — vagas criadas após 00:00 hoje + dentro do raio
     const inicioHoje = new Date(); inicioHoje.setHours(0, 0, 0, 0);
-    const novasHoje = vagasReais
-      .filter(d => new Date(d.created_at) >= inicioHoje)
-      .filter(d => distKm(d) <= filtroRaioKm || distKm(d) === Infinity)
-      .length;
-    const filtrosVagaAtivos = filtroTipoOportunidade !== "todos" || sortVagas !== "feed" || filtroDataVaga !== "todas" || filtroRaioKm !== 20 || filtroValorMin > 0;
+    const novasHoje = vagasFiltradas.filter(d => new Date(d.created_at) >= inicioHoje).length;
+    const filtroProfissaoAtivo = funcoesFiltroOportunidade.length > 0;
+    const quantidadeFiltrosVagaAtivos = [
+      filtroTipoOportunidade !== "todos",
+      filtroProfissaoAtivo,
+      filtroDataVaga !== "todas",
+      Number.isFinite(filtroRaioKm) && profile?.lat != null && profile?.lng != null,
+      filtroValorMin > 0,
+      sortVagas !== "feed",
+    ].filter(Boolean).length;
+    const filtrosVagaAtivos = quantidadeFiltrosVagaAtivos > 0;
     const profissionaisVisiveisDiarista = filtrarProfissionais(
       profissionais,
       profile,
@@ -16771,6 +16794,36 @@ export default function App() {
         subtitle: `${vagasDisponiveisDesktop} anúncio${vagasDisponiveisDesktop === 1 ? "" : "s"} perto de você e ${novasHoje} novo${novasHoje === 1 ? "" : "s"} hoje.`,
         primary: "Buscar diárias",
       };
+    const resumoPrestadorInicio = (() => {
+      const concluidas = minhasDiarias.filter(d => d.status === "concluida");
+      const nivel = nivelDiarista(concluidas.length);
+      const top5 = Object.entries(diaristasContagemDiarias).sort((a,b) => b[1] - a[1]).slice(0, 5);
+      const meuRank = top5.findIndex(([id]) => id === session?.user?.id);
+      return (
+        <div style={{ display:"grid", gridTemplateColumns:meuRank >= 0 ? "repeat(3,minmax(0,1fr))" : "repeat(2,minmax(0,1fr))", gap:8, width:"100%", gridColumn:isDesktop ? "1 / -1" : undefined }}>
+          <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}>
+            <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Nível</div>
+            <div style={{ fontWeight:900, fontSize:16, color:nivel.cor, marginTop:2 }}>{nivel.icone} {nivel.nome}</div>
+            <div style={{ fontSize:10, color:"var(--text-2,#64748b)", marginTop:2 }}>{concluidas.length} diária{concluidas.length!==1?"s":""} feita{concluidas.length!==1?"s":""}</div>
+          </div>
+          <button
+            type="button"
+            style={{ background:"linear-gradient(135deg,#0ea5e9,#6366f1)", borderRadius:14, padding:"12px 14px", border:"none", cursor:"pointer", boxShadow:"0 2px 10px rgba(14,165,233,.3)", textAlign:"left", fontFamily:"Inter, system-ui, sans-serif" }}
+            onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
+            <div style={{ fontSize:10, color:"rgba(255,255,255,.7)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Comunidade</div>
+            <div style={{ fontWeight:900, fontSize:16, color:"#fff", marginTop:2 }}>Entrar</div>
+            <div style={{ fontSize:10, color:"rgba(255,255,255,.75)", marginTop:2 }}>dicas e dúvidas</div>
+          </button>
+          {meuRank >= 0 && (
+            <div style={{ background:"linear-gradient(135deg,#7c3aed,#FF6B35)", borderRadius:14, padding:"12px 14px" }}>
+              <div style={{ fontSize:10, color:"rgba(255,255,255,.7)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Ranking CG</div>
+              <div style={{ fontWeight:900, fontSize:16, color:"#fbbf24", marginTop:2 }}>#{meuRank+1}</div>
+              <div style={{ fontSize:10, color:"rgba(255,255,255,.75)", marginTop:2 }}>na cidade</div>
+            </div>
+          )}
+        </div>
+      );
+    })();
     const diaristaDesktopNav = (
       key: "inicio" | "profissionais" | "vagas" | "agenda" | "chat" | "perfil",
       label: string,
@@ -17338,49 +17391,6 @@ export default function App() {
               </button>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setFiltroTipoOportunidade("servico");
-                setTimeout(() => document.getElementById("oportunidades-prestador")?.scrollIntoView({ behavior:"smooth", block:"start" }), 0);
-              }}
-              style={{ width:"calc(100% - 32px)", margin:"8px 16px 0", minHeight:42, borderRadius:12, border:"1.5px solid #bfdbfe", background:"#eff6ff", color:"#1d4ed8", display:"flex", alignItems:"center", justifyContent:"center", gap:7, fontSize:12.5, fontWeight:850, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
-              <Hammer size={15} /> Ver serviços disponíveis
-            </button>
-
-            {/* Stats rápidas: nível + ganhos do mês */}
-            {(() => {
-              const concl = minhasDiarias.filter(d => d.status === "concluida");
-              const nivel = nivelDiarista(concl.length);
-              // Ranking local: top 5 diaristas por diárias concluídas
-              const top5 = Object.entries(diaristasContagemDiarias).sort((a,b)=>b[1]-a[1]).slice(0,5);
-              const meuRank = top5.findIndex(([id]) => id === session?.user?.id);
-              return (
-                <div style={{ margin:"8px 16px 0", display:"flex", gap:8 }}>
-                  <div style={{ flex:1, background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", border:"1.5px solid var(--border,#e2e8f0)", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}>
-                    <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Nível</div>
-                    <div style={{ fontWeight:900, fontSize:16, color:nivel.cor, marginTop:2 }}>{nivel.icone} {nivel.nome}</div>
-                    <div style={{ fontSize:10, color:"var(--text-2,#64748b)", marginTop:2 }}>{concl.length} diária{concl.length!==1?"s":""} feita{concl.length!==1?"s":""}</div>
-                  </div>
-                  {/* Comunidade — no lugar do antigo "Este mês" (o ganho do mês já aparece na aba Diárias) */}
-                  <div role="button" tabIndex={0}
-                    style={{ flex:1, background:"linear-gradient(135deg,#0ea5e9,#6366f1)", borderRadius:14, padding:"12px 14px", border:"none", cursor:"pointer", boxShadow:"0 2px 10px rgba(14,165,233,.3)" }}
-                    onClick={() => { carregarTopicos(filtroComunidade); setTopicoAtivo(null); setTela("comunidade"); }}>
-                    <div style={{ fontSize:10, color:"rgba(255,255,255,.7)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Comunidade</div>
-                    <div style={{ fontWeight:900, fontSize:16, color:"#fff", marginTop:2 }}>🏘️ Entrar</div>
-                    <div style={{ fontSize:10, color:"rgba(255,255,255,.65)", marginTop:2 }}>dicas e dúvidas</div>
-                  </div>
-                  {meuRank >= 0 && (
-                    <div style={{ flex:1, background:"linear-gradient(135deg,#7c3aed,#FF6B35)", borderRadius:14, padding:"12px 14px" }}>
-                      <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.5 }}>Ranking CG</div>
-                      <div style={{ fontWeight:900, fontSize:16, color:"#fbbf24", marginTop:2 }}>#{meuRank+1}</div>
-                      <div style={{ fontSize:10, color:"rgba(255,255,255,.4)", marginTop:2 }}>na cidade</div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
             {/* ── Cabeçalho com contador de novos anúncios + filtros ── */}
             <div id="oportunidades-prestador" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 20px 10px", scrollMarginTop:12 }}>
               <div>
@@ -17395,12 +17405,9 @@ export default function App() {
                   )}
                 </div>
               </div>
-              <button
-                aria-label="Abrir filtros avançados"
-                style={{ display:"inline-flex", alignItems:"center", gap:6, background: filtrosVagaAtivos ? "#FF6B35" : "#fff", border:`1.5px solid ${filtrosVagaAtivos?"#FF6B35":"#e2e8f0"}`, borderRadius:10, padding:"8px 14px", fontSize:12, fontWeight:700, color:filtrosVagaAtivos?"#fff":"#475569", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
-                onClick={() => { hapticTick(); setModalFiltro(true); }}>
-                <Filter size={14} /> Filtros
-              </button>
+              <span style={{ background:"var(--bg-card,#fff)", color:"var(--text-2,#64748b)", border:"1px solid var(--border,#e2e8f0)", borderRadius:999, padding:"7px 10px", fontSize:11, fontWeight:800, whiteSpace:"nowrap" }}>
+                {vagasFiltradas.length} encontrad{vagasFiltradas.length === 1 ? "o" : "os"}
+              </span>
             </div>
 
             <div style={{ padding:"0 16px 8px" }}>
@@ -17409,7 +17416,7 @@ export default function App() {
                 <input
                   value={buscaVaga}
                   onChange={e => setBuscaVaga(e.target.value)}
-                  placeholder="Buscar vaga, serviço, empresa, bairro..."
+                  placeholder="Cargo, empresa, profissão ou bairro..."
                   aria-label="Buscar oportunidades"
                   style={{ width:"100%", height:44, borderRadius:14, border:"1.5px solid var(--border,#e2e8f0)", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", fontSize:14, fontWeight:700, padding:"0 42px 0 42px", outline:"none", boxShadow:"0 2px 8px rgba(15,23,42,.05)", fontFamily:"Inter, system-ui, sans-serif" }}
                 />
@@ -17425,7 +17432,7 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{ padding:"0 16px 8px", display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none" }}>
+            <div style={{ padding:"0 16px 8px", display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:6 }}>
               {([
                 { v:"todos" as const, label:"Todos", Icon:ClipboardList },
                 { v:"diaria" as const, label:"Diárias", Icon:CalendarDays },
@@ -17439,72 +17446,53 @@ export default function App() {
                     type="button"
                     aria-pressed={ativo}
                     onClick={() => { hapticTick(); setFiltroTipoOportunidade(item.v); }}
-                    style={{ flex:"1 0 auto", minWidth:78, minHeight:36, padding:"7px 11px", borderRadius:10, border:`1.5px solid ${ativo ? "#FF6B35" : "var(--border,#e2e8f0)"}`, background:ativo ? "#fff7ed" : "var(--bg-card,#fff)", color:ativo ? "#ea580c" : "var(--text-2,#64748b)", display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, fontSize:12, fontWeight:850, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
-                    <item.Icon size={14} /> {item.label}
+                    style={{ minWidth:0, minHeight:38, padding:"7px 4px", borderRadius:10, border:`1.5px solid ${ativo ? "#FF6B35" : "var(--border,#e2e8f0)"}`, background:ativo ? "#fff7ed" : "var(--bg-card,#fff)", color:ativo ? "#ea580c" : "var(--text-2,#64748b)", display:"inline-flex", alignItems:"center", justifyContent:"center", gap:4, fontSize:11, fontWeight:850, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                    <item.Icon size={13} /> {item.label}
                   </button>
                 );
               })}
             </div>
 
-            {/* ── Chips de filtros rápidos (scroll horizontal) ── */}
-            <div style={{ padding:"0 16px 8px", display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none" }}>
-              {/* Tipo / função — usa o próprio TODAS_AS_FUNCOES filtrado nas mais comuns */}
-              {["Diarista / Faxineira", "Passadeira", "Cozinheira", "Babá", "Motoboy"].map(f => {
-                const ativo = categoriasSelecionadas.includes(f);
-                return (
-                  <button
-                    key={f}
-                    onClick={() => {
-                      hapticTick();
-                      setCategorias(prev => ativo ? prev.filter(c => c !== f) : [...prev, f]);
-                    }}
-                    style={{
-                      flexShrink:0, padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer",
-                      border: ativo ? "1.5px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
-                      background: ativo ? "#FF6B35" : "var(--bg-card,#fff)",
-                      color: ativo ? "#fff" : "var(--text-2,#64748b)",
-                      fontFamily:"Inter, system-ui, sans-serif",
-                    }}>
-                    {f}
-                  </button>
-                );
-              })}
-              {/* Distância */}
-              {OPCOES_RAIO_KM.map(opt => {
-                const ativo = filtroRaioKm === opt.v;
-                return (
-                  <button
-                    key={`km${opt.v}`}
-                    onClick={() => { hapticTick(); setFiltroRaioKm(opt.v); }}
-                    style={{
-                      flexShrink:0, padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer",
-                      border: ativo ? "1.5px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
-                      background: ativo ? "#FF6B35" : "var(--bg-card,#fff)",
-                      color: ativo ? "#fff" : "var(--text-2,#64748b)",
-                      fontFamily:"Inter, system-ui, sans-serif",
-                    }}>
-                    {opt.lab}
-                  </button>
-                );
-              })}
-              {/* Valor mínimo */}
-              {[0, 100, 150, 200].map(v => {
-                const ativo = filtroValorMin === v;
-                return (
-                  <button
-                    key={`val${v}`}
-                    onClick={() => { hapticTick(); setFiltroValorMin(v); }}
-                    style={{
-                      flexShrink:0, padding:"6px 12px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer",
-                      border: ativo ? "1.5px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)",
-                      background: ativo ? "#FF6B35" : "var(--bg-card,#fff)",
-                      color: ativo ? "#fff" : "var(--text-2,#64748b)",
-                      fontFamily:"Inter, system-ui, sans-serif",
-                    }}>
-                    {v === 0 ? "Qualquer valor" : `≥ R$ ${v}`}
-                  </button>
-                );
-              })}
+            {/* Filtros rápidos: decisões frequentes visíveis, detalhes no modal. */}
+            <div style={{ padding:"0 16px 10px", display:"flex", gap:6, flexWrap:"wrap" as const, alignItems:"center" }}>
+              {profissaoPrincipalFiltro && (
+                <button
+                  type="button"
+                  aria-pressed={filtroProfissaoAtivo}
+                  onClick={() => {
+                    hapticTick();
+                    setFiltroFuncaoOportunidade(filtroProfissaoAtivo ? "todas" : "minha-profissao");
+                  }}
+                  style={{ minHeight:34, padding:"6px 10px", borderRadius:10, fontSize:11, fontWeight:800, cursor:"pointer", border:filtroProfissaoAtivo ? "1.5px solid #93c5fd" : "1.5px solid var(--border,#e2e8f0)", background:filtroProfissaoAtivo ? "#eff6ff" : "var(--bg-card,#fff)", color:filtroProfissaoAtivo ? "#1d4ed8" : "var(--text-2,#64748b)", display:"inline-flex", alignItems:"center", gap:5, fontFamily:"Inter, system-ui, sans-serif", maxWidth:"100%" }}>
+                  <Briefcase size={13} />
+                  <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:150 }}>
+                    {filtroFuncaoOportunidade !== "minha-profissao" && filtroFuncaoOportunidade !== "todas" ? filtroFuncaoOportunidade : "Minha profissão"}
+                  </span>
+                </button>
+              )}
+              <button
+                type="button"
+                aria-pressed={filtroDataVaga === "hoje"}
+                onClick={() => { hapticTick(); setFiltroDataVaga(filtroDataVaga === "hoje" ? "todas" : "hoje"); }}
+                style={{ minHeight:34, padding:"6px 10px", borderRadius:10, fontSize:11, fontWeight:800, cursor:"pointer", border:filtroDataVaga === "hoje" ? "1.5px solid #93c5fd" : "1.5px solid var(--border,#e2e8f0)", background:filtroDataVaga === "hoje" ? "#eff6ff" : "var(--bg-card,#fff)", color:filtroDataVaga === "hoje" ? "#1d4ed8" : "var(--text-2,#64748b)", display:"inline-flex", alignItems:"center", gap:5, fontFamily:"Inter, system-ui, sans-serif" }}>
+                <CalendarDays size={13} /> Hoje
+              </button>
+              {profile?.lat != null && profile?.lng != null && (
+                <button
+                  type="button"
+                  aria-pressed={filtroRaioKm === 20}
+                  onClick={() => { hapticTick(); setFiltroRaioKm(filtroRaioKm === 20 ? Infinity : 20); }}
+                  style={{ minHeight:34, padding:"6px 10px", borderRadius:10, fontSize:11, fontWeight:800, cursor:"pointer", border:filtroRaioKm === 20 ? "1.5px solid #93c5fd" : "1.5px solid var(--border,#e2e8f0)", background:filtroRaioKm === 20 ? "#eff6ff" : "var(--bg-card,#fff)", color:filtroRaioKm === 20 ? "#1d4ed8" : "var(--text-2,#64748b)", display:"inline-flex", alignItems:"center", gap:5, fontFamily:"Inter, system-ui, sans-serif" }}>
+                  <MapPin size={13} /> Até 20 km
+                </button>
+              )}
+              <button
+                type="button"
+                aria-label={`Abrir filtros avançados. ${quantidadeFiltrosVagaAtivos} ativos`}
+                onClick={() => { hapticTick(); setModalFiltro(true); }}
+                style={{ minHeight:34, marginLeft:"auto", padding:"6px 11px", borderRadius:10, fontSize:11, fontWeight:850, cursor:"pointer", border:`1.5px solid ${filtrosVagaAtivos ? "#FF6B35" : "var(--border,#e2e8f0)"}`, background:filtrosVagaAtivos ? "#FF6B35" : "var(--bg-card,#fff)", color:filtrosVagaAtivos ? "#fff" : "var(--text-2,#64748b)", display:"inline-flex", alignItems:"center", gap:5, fontFamily:"Inter, system-ui, sans-serif" }}>
+                <Filter size={13} /> Filtros{quantidadeFiltrosVagaAtivos > 0 ? ` · ${quantidadeFiltrosVagaAtivos}` : ""}
+              </button>
             </div>
 
             <div
@@ -17556,18 +17544,18 @@ export default function App() {
                     <Inbox size={36} color="var(--text-3,#94a3b8)" strokeWidth={1.5} />
                   </div>
                   <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:8 }}>
-                    {termoBuscaVaga || filtrosVagaAtivos ? "Nenhum anúncio encontrado" : "Por enquanto, nada por aqui 🌱"}
+                    {buscaVaga.trim() || filtrosVagaAtivos ? "Nenhum anúncio encontrado" : "Por enquanto, nada por aqui 🌱"}
                   </div>
                   <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:20 }}>
-                    {termoBuscaVaga || filtrosVagaAtivos
+                    {buscaVaga.trim() || filtrosVagaAtivos
                       ? "Tente buscar outro termo ou afrouxar os filtros."
                       : "Anúncios chegam o tempo todo. Enquanto isso, deixe seu perfil 100% completo pra aparecer no topo quando o anunciante buscar."}
                   </div>
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
-                    {(termoBuscaVaga || filtrosVagaAtivos) && (
+                    {(buscaVaga.trim() || filtrosVagaAtivos) && (
                       <button
                         style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, padding:"13px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 14px rgba(255,107,53,.4)", minHeight:46 }}
-                        onClick={() => { setBuscaVaga(""); setFiltroTipoOportunidade("todos"); setSortVagas("feed"); setFiltroDataVaga("todas"); setFiltroValorMin(0); setFiltroRaioKm(20); }}>
+                        onClick={() => { setBuscaVaga(""); setFiltroTipoOportunidade("todos"); setFiltroFuncaoOportunidade("minha-profissao"); setSortVagas("feed"); setFiltroDataVaga("todas"); setFiltroValorMin(0); setFiltroRaioKm(20); }}>
                         ✨ Limpar todos os filtros
                       </button>
                     )}
@@ -17876,6 +17864,7 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                    {idx === Math.min(1, vagasFiltradas.length - 1) && resumoPrestadorInicio}
                     {mostrarBannerAposCard && (
                       <div style={{ gridColumn: isDesktop ? "1 / -1" : undefined }}>
                         <BannerJaDecolaInline index={Math.floor(idx / 6)} paraDiarista={true} />
@@ -20334,9 +20323,33 @@ export default function App() {
         {/* ── Modal Filtro de Anúncios ── */}
         {modalFiltro && (
           <div style={S.modalOverlay} onClick={() => setModalFiltro(false)}>
-            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:LARGURA_APP_MOVEL, background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:LARGURA_APP_MOVEL, maxHeight:"min(88vh,760px)", overflowY:"auto", background:"var(--bg-card,#fff)", borderRadius:"24px 24px 0 0", padding:"20px 20px 40px", boxShadow:"0 -8px 32px rgba(0,0,0,.15)" }} onClick={e => e.stopPropagation()}>
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 16px" }} />
-              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:20 }}>⚙️ Filtrar anúncios</div>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:18 }}>
+                <div>
+                  <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)" }}>Filtrar oportunidades</div>
+                  <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>{vagasFiltradas.length} resultado{vagasFiltradas.length === 1 ? "" : "s"} com os filtros atuais</div>
+                </div>
+                <button type="button" aria-label="Fechar filtros" onClick={() => setModalFiltro(false)} style={{ width:34, height:34, border:"none", borderRadius:10, background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-2,#64748b)", display:"grid", placeItems:"center", cursor:"pointer" }}>
+                  <X size={16} />
+                </button>
+              </div>
+              <label htmlFor="filtro-profissao-oportunidade" style={{ display:"block", fontWeight:700, fontSize:13, color:"var(--text-2,#64748b)", marginBottom:8 }}>Profissão ou categoria</label>
+              <select
+                id="filtro-profissao-oportunidade"
+                value={filtroFuncaoOportunidade}
+                onChange={e => setFiltroFuncaoOportunidade(e.target.value)}
+                style={{ width:"100%", minHeight:44, borderRadius:12, border:"1.5px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)", color:"var(--text-1,#0f172a)", padding:"0 12px", fontSize:13, fontWeight:700, marginBottom:20, fontFamily:"Inter, system-ui, sans-serif" }}>
+                <option value="minha-profissao" disabled={!profissaoPrincipalFiltro}>
+                  {profissaoPrincipalFiltro ? `Minha profissão: ${profissaoPrincipalFiltro}` : "Minha profissão não informada"}
+                </option>
+                <option value="todas">Todas as profissões</option>
+                {Object.entries(CATEGORIAS_NEGOCIO).map(([categoria, info]) => (
+                  <optgroup key={categoria} label={categoria}>
+                    {info.funcoes.map(funcao => <option key={`${categoria}-${funcao}`} value={funcao}>{funcao}</option>)}
+                  </optgroup>
+                ))}
+              </select>
               <div style={{ fontWeight:700, fontSize:13, color:"var(--text-2,#64748b)", marginBottom:10 }}>📅 Data</div>
               <div style={{ display:"flex", gap:8, marginBottom:20 }}>
                 {(["todas","hoje","amanha"] as const).map(v => (
@@ -20350,6 +20363,7 @@ export default function App() {
               <div style={{ fontWeight:700, fontSize:13, color:"var(--text-2,#64748b)", marginBottom:10 }}>↕️ Ordenar por</div>
               <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
                 {([
+                  ["feed","Mais relevantes para mim"],
                   ["recentes","🕐 Mais recentes"],
                   ["proximas","📍 Mais próximas"],
                   ["menor_valor","💚 Menor valor"],
@@ -20375,16 +20389,34 @@ export default function App() {
                     />
                     <span style={{ fontWeight:800, fontSize:14, color:"#FF6B35", minWidth:48 }}>{Number.isFinite(filtroRaioKm) ? `${filtroRaioKm} km` : "Qualquer"}</span>
                   </div>
+                  <button
+                    type="button"
+                    aria-pressed={!Number.isFinite(filtroRaioKm)}
+                    onClick={() => setFiltroRaioKm(Infinity)}
+                    style={{ width:"100%", minHeight:38, marginTop:-10, marginBottom:20, borderRadius:10, border:`1.5px solid ${!Number.isFinite(filtroRaioKm) ? "#FF6B35" : "var(--border,#e2e8f0)"}`, background:!Number.isFinite(filtroRaioKm) ? "#fff7ed" : "var(--bg-surface,#f8fafc)", color:!Number.isFinite(filtroRaioKm) ? "#ea580c" : "var(--text-2,#64748b)", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                    Qualquer distância
+                  </button>
                 </>
               )}
+              <label htmlFor="filtro-valor-oportunidade" style={{ display:"block", fontWeight:700, fontSize:13, color:"var(--text-2,#64748b)", marginBottom:8 }}>Valor mínimo</label>
+              <select
+                id="filtro-valor-oportunidade"
+                value={filtroValorMin}
+                onChange={e => setFiltroValorMin(Number(e.target.value))}
+                style={{ width:"100%", minHeight:44, borderRadius:12, border:"1.5px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)", color:"var(--text-1,#0f172a)", padding:"0 12px", fontSize:13, fontWeight:700, marginBottom:20, fontFamily:"Inter, system-ui, sans-serif" }}>
+                <option value={0}>Qualquer valor</option>
+                <option value={100}>A partir de R$ 100</option>
+                <option value={150}>A partir de R$ 150</option>
+                <option value={200}>A partir de R$ 200</option>
+              </select>
               <div style={{ display:"flex", gap:10 }}>
                 <button style={{ flex:1, padding:"11px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, fontWeight:700, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                  onClick={() => { setBuscaVaga(""); setFiltroTipoOportunidade("todos"); setSortVagas("feed"); setFiltroDataVaga("todas"); setFiltroRaioKm(20); setFiltroValorMin(0); }}>
-                  Limpar filtros
+                  onClick={() => { setBuscaVaga(""); setFiltroTipoOportunidade("todos"); setFiltroFuncaoOportunidade("minha-profissao"); setSortVagas("feed"); setFiltroDataVaga("todas"); setFiltroRaioKm(20); setFiltroValorMin(0); }}>
+                  Restaurar padrão
                 </button>
                 <button style={{ flex:2, padding:"11px", background:"#FF6B35", border:"none", borderRadius:12, fontSize:13, fontWeight:800, color:"#fff", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
                   onClick={() => setModalFiltro(false)}>
-                  ✓ Aplicar
+                  Mostrar {vagasFiltradas.length} oportunidade{vagasFiltradas.length === 1 ? "" : "s"}
                 </button>
               </div>
             </div>
