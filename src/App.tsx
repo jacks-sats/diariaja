@@ -155,6 +155,34 @@ const gridCardsDesktop = (minPx: number): React.CSSProperties => ({
   alignItems: "start",
 });
 
+function temaVisualVaga(segmento?: string | null, funcao?: string | null) {
+  const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO)
+    .find(([, info]) => (info.funcoes as readonly string[]).includes(funcao || ""));
+  const categoria = funcCatEntry?.[0] || segmento || "";
+  const key = categoria.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const isDelivery = FUNCOES_DELIVERY.includes(funcao || "");
+
+  if (key.includes("supermercado") || key.includes("varejo")) {
+    return { bg:"#eff6ff", border:"#bfdbfe", accent:"#2563eb", iconBg:"#dbeafe" };
+  }
+  if (key.includes("domestico") || key.includes("limpeza")) {
+    return { bg:"#f5f3ff", border:"#ddd6fe", accent:"#7c3aed", iconBg:"#ede9fe" };
+  }
+  if (key.includes("gastronomia") || key.includes("alimentacao")) {
+    return { bg:"#fffbeb", border:"#fde68a", accent:"#b45309", iconBg:"#fef3c7" };
+  }
+  if (key.includes("construcao") || key.includes("manutencao")) {
+    return { bg:"#fff7ed", border:"#fed7aa", accent:"#ea580c", iconBg:"#ffedd5" };
+  }
+  if (isDelivery || key.includes("delivery") || key.includes("transporte") || key.includes("entrega") || key.includes("logistica")) {
+    return { bg:"#ecfdf5", border:"#bbf7d0", accent:"#047857", iconBg:"#d1fae5" };
+  }
+  if (key.includes("beleza") || key.includes("estetica") || key.includes("bem")) {
+    return { bg:"#fdf2f8", border:"#fbcfe8", accent:"#db2777", iconBg:"#fce7f3" };
+  }
+  return { bg:"#f8fafc", border:"#e2e8f0", accent:"#475569", iconBg:"#eef2f7" };
+}
+
 // Link oficial do app na Google Play (usado no banner de download da web).
 const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.diariaja.app";
 const LARGURA_APP_MOVEL = "min(100vw, 720px)";
@@ -16963,10 +16991,18 @@ export default function App() {
                 vagasFiltradas.map((dia, idx) => {
                   const segInfo = CATEGORIAS_NEGOCIO[dia.segmento as keyof typeof CATEGORIAS_NEGOCIO];
                   const cor = segInfo?.cor || "#FF6B35";
-                  const iniciais = empresaIniciais(dia.nome_negocio || dia.segmento);
+                  const empresaNome = dia.nome_negocio || dia.segmento || "Anunciante";
+                  const tituloVaga = dia.funcao || (dia.tipo_oferta === "emprego" ? "Vaga de emprego" : "Oportunidade");
+                  const iniciais = empresaIniciais(empresaNome);
                   const dataFmt = formatData(dia.data);
                   const ehServicoFeed = dia.tipo_oferta === "servico";
                   const propostaFeed = ehServicoFeed ? minhaPropostaPorVaga[dia.id] : null;
+                  const temaVaga = temaVisualVaga(dia.segmento, dia.funcao);
+                  const valorHeader = dia.tipo_oferta === "emprego"
+                    ? ((dia.salario_texto || "").trim() || "A combinar")
+                    : servicoExigeProposta(dia)
+                      ? "Enviar proposta"
+                      : `${FUNCOES_DELIVERY.includes(dia.funcao) ? "~" : ""}R$ ${dia.valor}`;
                   let duracao = "";
                   if (!ehServicoFeed && dia.horario_fim) {
                     const [h1, m1] = dia.horario_inicio.split(":");
@@ -16983,27 +17019,46 @@ export default function App() {
                   const vagaRecente = idadeMs < 6 * 60 * 60 * 1000; // criada nas últimas 6h
                   // Banner rotativo do Já Decola: aparece após cada 6 cards
                   // (não aparece se for o último card da lista).
+                  const destaqueCard = vagaRecente
+                    ? { bg:"#16a34a", color:"#fff", label:"NOVA" }
+                    : candDessaVaga.length >= 3
+                      ? { bg:"#fff7ed", color:"#c2410c", label:`${candDessaVaga.length} interessados` }
+                      : null;
                   const mostrarBannerAposCard = (idx + 1) % 6 === 0 && idx < vagasFiltradas.length - 1;
 
                   return (
                     <React.Fragment key={dia.id}>
                     <div
-                      style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:16, boxShadow:"0 2px 12px rgba(0,0,0,.07)", cursor:"pointer", position:"relative" as const }}
+                      style={{ background:"var(--bg-card,#fff)", borderRadius:22, padding:0, boxShadow:"0 12px 28px rgba(15,23,42,.08)", cursor:"pointer", position:"relative" as const, overflow:"hidden", border:"1px solid var(--border,#e2e8f0)" }}
                       onClick={() => { setVagaConfirm(dia); setVagaConfirmada(false); setCartaVaga(""); setCurriculoFile(null); }}>
-                      {/* Selos de urgência — no canto superior esquerdo pra não
-                          colidir com o valor da diária que mora no canto direito */}
-                      {vagaRecente && (
-                        <div style={{ position:"absolute" as const, top:10, left:10, background:"#16a34a", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, boxShadow:"0 2px 6px rgba(22,163,74,.3)", zIndex:1 }}>
-                          🆕 NOVA
+                      <div style={{ height:5, background:"#FF6B35" }} />
+                      <div style={{ background:temaVaga.bg, borderBottom:`1px solid ${temaVaga.border}`, padding:"20px 18px 18px", display:"grid", gridTemplateColumns:"auto minmax(0,1fr) auto", alignItems:"center", gap:14 }}>
+                        <div style={{ width:52, height:52, borderRadius:18, background:temaVaga.iconBg, color:temaVaga.accent, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                          <Briefcase size={28} strokeWidth={2.2} />
                         </div>
-                      )}
-                      {!vagaRecente && candDessaVaga.length >= 3 && (
-                        <div style={{ position:"absolute" as const, top:10, left:10, background:"#FF6B35", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:20, boxShadow:"0 2px 6px rgba(255,107,53,.3)", zIndex:1 }}>
-                          🔥 {candDessaVaga.length} interessados
+                        <div style={{ minWidth:0 }}>
+                          <div style={{ fontWeight:950, fontSize:26, lineHeight:1.08, color:"var(--text-1,#0f172a)", overflowWrap:"anywhere" as const }}>
+                            {tituloVaga}
+                          </div>
+                          <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8, flexWrap:"wrap" as const }}>
+                            {destaqueCard && (
+                              <span style={{ background:destaqueCard.bg, color:destaqueCard.color, fontSize:10, fontWeight:900, padding:"3px 9px", borderRadius:999, boxShadow:destaqueCard.color === "#fff" ? "0 4px 10px rgba(22,163,74,.22)" : "none" }}>
+                                {destaqueCard.label}
+                              </span>
+                            )}
+                            {dia.segmento && (
+                              <span style={{ color:temaVaga.accent, fontSize:11, fontWeight:800 }}>
+                                {dia.segmento}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      )}
+                        <div style={{ justifySelf:"end", alignSelf:"start", background:"rgba(255,255,255,.72)", color:"#FF6B35", border:"1px solid rgba(255,107,53,.24)", borderRadius:999, padding:"8px 13px", minWidth:88, maxWidth:132, textAlign:"center" as const, boxShadow:"0 8px 18px rgba(15,23,42,.06)" }}>
+                          <div style={{ fontWeight:950, fontSize:14, lineHeight:1.08, overflowWrap:"anywhere" as const }}>{valorHeader}</div>
+                        </div>
+                      </div>
 
-                      <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
+                      <div style={{ display:"flex", gap:14, alignItems:"flex-start", padding:16 }}>
                         {/* Logo empresa — foto ou iniciais */}
                         {(() => {
                           const emp = empregadoresProfiles[dia.empregador_id];
@@ -17011,7 +17066,7 @@ export default function App() {
                           const fotoEmpSrc = emp?.foto_url || fotoEmpStorage;
                           return (
                             <button
-                              aria-label={`Ver perfil de ${emp?.nome || dia.nome_negocio || "anunciante"}`}
+                              aria-label={`Ver perfil de ${emp?.nome || empresaNome}`}
                               onClick={e => { e.stopPropagation(); abrirPerfilEmpregador(dia.empregador_id); }}
                               style={{ position:"relative", width:60, height:60, flexShrink:0, padding:0, background:"transparent", border:"none", cursor:"pointer", borderRadius:30 }}>
                               <div style={{ width:60, height:60, borderRadius:30, background:cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:iniciais.length > 2 ? 18 : 22, boxShadow:`0 4px 12px ${cor}55`, letterSpacing:"-1px" }}>
@@ -17026,8 +17081,8 @@ export default function App() {
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                             <div style={{ flex:1, minWidth:0 }}>
-                              <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>
-                                {dia.nome_negocio || dia.segmento}
+                              <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", lineHeight:1.25 }}>
+                                {empresaNome}
                               </div>
                               {/* Bairro + tempo desde publicação */}
                               <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>
@@ -17092,26 +17147,6 @@ export default function App() {
                                 )}
                                 <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>· {dia.segmento}</span>
                               </div>
-                            </div>
-                            <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4, flexShrink:0, maxWidth:130 }}>
-                              {dia.tipo_oferta === "emprego" ? (
-                                <>
-                                  <div style={{ fontWeight:900, fontSize:15, color:"#FF6B35", lineHeight:1.15, textAlign:"right" as const }}>{dia.salario_texto || "A combinar"}</div>
-                                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>💼 emprego</div>
-                                </>
-                              ) : (
-                                servicoExigeProposta(dia) ? (
-                                  <>
-                                    <div style={{ fontWeight:900, fontSize:15, color:"#FF6B35", lineHeight:1.15, textAlign:"right" as const }}>Enviar proposta</div>
-                                    <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>/orçamento</div>
-                                  </>
-                                ) : (
-                                  <>
-                                    <div style={{ fontWeight:900, fontSize:22, color:"#FF6B35", lineHeight:1 }}>{FUNCOES_DELIVERY.includes(dia.funcao) ? "~" : ""}R$ {dia.valor}</div>
-                                    <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)" }}>{FUNCOES_DELIVERY.includes(dia.funcao) ? "/dia (estimado)" : dia.tipo_oferta === "servico_empresa" ? "/profissional" : dia.tipo_oferta === "servico" ? "/serviço" : "/dia"}</div>
-                                  </>
-                                )
-                              )}
                             </div>
                           </div>
 
