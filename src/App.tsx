@@ -183,6 +183,24 @@ function temaVisualVaga(segmento?: string | null, funcao?: string | null) {
   return { bg:"#f8fafc", border:"#e2e8f0", accent:"#475569", iconBg:"#eef2f7" };
 }
 
+function textoRepeteTituloVaga(titulo?: string | null, texto?: string | null): boolean {
+  const tokens = (valor?: string | null) => (valor || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map(t => t.trim())
+    .filter(t => t.length > 2 && !["para", "com", "sem", "uma", "uns", "das", "dos"].includes(t))
+    .map(t => t.length > 3 ? t.replace(/[ao]$/, "") : t);
+
+  const tituloTokens = new Set(tokens(titulo));
+  const textoTokens = tokens(texto);
+  if (!tituloTokens.size || !textoTokens.length || textoTokens.length > 4) return false;
+  const repetidos = textoTokens.filter(t => tituloTokens.has(t)).length;
+  return repetidos / textoTokens.length >= 0.75 && repetidos / tituloTokens.size >= 0.75;
+}
+
 // Link oficial do app na Google Play (usado no banner de download da web).
 const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.diariaja.app";
 const LARGURA_APP_MOVEL = "min(100vw, 720px)";
@@ -17003,6 +17021,9 @@ export default function App() {
                     : servicoExigeProposta(dia)
                       ? "Enviar proposta"
                       : `${FUNCOES_DELIVERY.includes(dia.funcao) ? "~" : ""}R$ ${dia.valor}`;
+                  const descricaoUtil = dia.descricao && !textoRepeteTituloVaga(tituloVaga, dia.descricao)
+                    ? dia.descricao
+                    : "";
                   let duracao = "";
                   if (!ehServicoFeed && dia.horario_fim) {
                     const [h1, m1] = dia.horario_inicio.split(":");
@@ -17011,8 +17032,6 @@ export default function App() {
                     if (minTotal < 0) minTotal += 1440; // vira o dia (turno cruza a meia-noite)
                     duracao = minTotal > 0 ? ` · ${Math.floor(minTotal/60)}h${minTotal%60>0?String(minTotal%60).padStart(2,"0")+"min":""}` : "";
                   }
-                  const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(dia.funcao));
-                  const funcCor = funcCatEntry ? funcCatEntry[1].cor : "#64748b";
                   // Urgência social (FOMO): candidaturas nas últimas 24h pra essa vaga
                   const candDessaVaga = candidaturasPorVaga[dia.id]?.todas ?? [];
                   const idadeMs = dia.created_at ? Date.now() - new Date(dia.created_at).getTime() : Infinity;
@@ -17134,19 +17153,13 @@ export default function App() {
                                   </div>
                                 );
                               })()}
-                              <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5, flexWrap:"wrap" }}>
-                                {dia.funcao && (
-                                  <span style={{ background:funcCor+"18", color:funcCor, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, border:`1px solid ${funcCor}30` }}>
-                                    {dia.funcao}
-                                  </span>
-                                )}
-                                {dia.tipo_oferta === "servico_empresa" && (
+                              {dia.tipo_oferta === "servico_empresa" && (
+                                <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6, flexWrap:"wrap" }}>
                                   <span style={{ background:"#fff1f2", color:"#be123c", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:900, border:"1px solid #fecdd3" }}>
                                     EMPRESA
                                   </span>
-                                )}
-                                <span style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>· {dia.segmento}</span>
-                              </div>
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -17187,7 +17200,7 @@ export default function App() {
                           {/* Prévia do que precisa ser feito (2 linhas) — toque expande.
                               Antes o clamp de 2 linhas era definitivo: "não dá para ver a
                               descrição da vaga" (feedback real de prestador). */}
-                          {dia.descricao && (() => {
+                          {descricaoUtil && (() => {
                             const descAberta = descExpandidas.has(dia.id);
                             const alternarDesc = (e: React.MouseEvent) => {
                               e.stopPropagation();
