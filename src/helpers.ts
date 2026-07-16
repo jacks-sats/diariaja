@@ -1737,6 +1737,65 @@ export function correspondeBusca(
   return termos.every(t => alvo.includes(t));
 }
 
+// Busca de oportunidades aceita termos separados e equivalências comuns do
+// trabalho local. Isso mantém a consulta tolerante sem transformar o feed em
+// uma segunda fonte de verdade: os mesmos campos da oportunidade continuam
+// sendo usados tanto para filtrar quanto para ordenar por relevância.
+const GRUPOS_SINONIMOS_OPORTUNIDADE = [
+  ["faxina", "faxineira", "diarista", "limpeza"],
+  ["caixa", "operador de caixa", "operadora de caixa"],
+  ["entrega", "entregador", "motoboy", "delivery"],
+  ["cozinha", "cozinheira", "gastronomia", "restaurante"],
+  ["obra", "pedreiro", "construcao", "manutencao"],
+  ["mercado", "supermercado", "varejo"],
+  ["cuidador", "cuidadora", "acompanhante"],
+].map(grupo => grupo.map(normalizarBusca));
+
+function variantesTermoOportunidade(termo: string): string[] {
+  const grupo = GRUPOS_SINONIMOS_OPORTUNIDADE.find(opcoes =>
+    opcoes.some(opcao => opcao === termo || (termo.length >= 4 && opcao.split(" ").includes(termo))),
+  );
+  return grupo || [termo];
+}
+
+export function correspondeBuscaOportunidade(
+  busca: string,
+  campos: Array<string | null | undefined>,
+): boolean {
+  const termos = normalizarBusca(busca).split(/\s+/).filter(Boolean);
+  if (termos.length === 0) return true;
+  const alvo = campos
+    .filter((campo): campo is string => !!campo)
+    .map(normalizarBusca)
+    .join(" ");
+  return termos.every(termo =>
+    variantesTermoOportunidade(termo).some(variante => alvo.includes(variante)),
+  );
+}
+
+export function pontuarBuscaOportunidade(
+  busca: string,
+  titulo: string | null | undefined,
+  camposSecundarios: Array<string | null | undefined>,
+): number {
+  const consulta = normalizarBusca(busca);
+  if (!consulta) return 0;
+  const tituloNormalizado = normalizarBusca(titulo || "");
+  const secundarios = camposSecundarios
+    .filter((campo): campo is string => !!campo)
+    .map(normalizarBusca)
+    .join(" ");
+  const termos = consulta.split(/\s+/).filter(Boolean);
+
+  let pontos = tituloNormalizado === consulta ? 200 : tituloNormalizado.includes(consulta) ? 100 : 0;
+  for (const termo of termos) {
+    const variantes = variantesTermoOportunidade(termo);
+    if (variantes.some(variante => tituloNormalizado.includes(variante))) pontos += 30;
+    else if (variantes.some(variante => secundarios.includes(variante))) pontos += 8;
+  }
+  return pontos;
+}
+
 // ── Projeção Web Mercator (mapa do painel admin) ─────────────────────────────
 // Converte lat/lng em pixel global do esquema de tiles padrão (OSM/Google):
 // mundo = 256·2^zoom pixels de lado; tile = pixel ÷ 256. Usado pra posicionar

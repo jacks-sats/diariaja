@@ -3,6 +3,8 @@ import {
   gerarReciboPDF,
   servicoExigeProposta,
   normalizarBusca,
+  correspondeBuscaOportunidade,
+  pontuarBuscaOportunidade,
   correspondeBusca,
   planoSelecao,
   empregoExigePlanoParaChamar,
@@ -2125,6 +2127,28 @@ describe("correspondeBusca (busca do dashboard desktop)", () => {
 });
 
 // ── mercatorPixel (mapa do painel admin) ──────────────────────────────────────
+describe("busca inteligente de oportunidades", () => {
+  const campos = ["Motoboy", "Mercado Central", "Supermercado / Varejo", "Centro"];
+
+  it("aceita palavras separadas em campos diferentes", () => {
+    expect(correspondeBuscaOportunidade("motoboy centro", campos)).toBe(true);
+    expect(correspondeBuscaOportunidade("motoboy moreninhas", campos)).toBe(false);
+  });
+
+  it("encontra equivalencias comuns de trabalho local", () => {
+    expect(correspondeBuscaOportunidade("entrega", campos)).toBe(true);
+    expect(correspondeBuscaOportunidade("mercado", campos)).toBe(true);
+    expect(correspondeBuscaOportunidade("faxina", ["Auxiliar de limpeza"])).toBe(true);
+    expect(correspondeBuscaOportunidade("auxiliar de limpeza", ["Auxiliar de limpeza"])).toBe(true);
+  });
+
+  it("prioriza correspondencia no titulo sobre campos secundarios", () => {
+    const titulo = pontuarBuscaOportunidade("motoboy", "Motoboy", ["Mercado Central"]);
+    const secundaria = pontuarBuscaOportunidade("motoboy", "Auxiliar", ["Procura-se motoboy"]);
+    expect(titulo).toBeGreaterThan(secundaria);
+  });
+});
+
 describe("mercatorPixel", () => {
   it("centro do mundo (0,0) no zoom 0 cai no meio do tile unico (128,128)", () => {
     const p = mercatorPixel(0, 0, 0);
