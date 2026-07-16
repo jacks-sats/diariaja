@@ -760,6 +760,7 @@ export default function App() {
   const [filtroDataVaga, setFiltroDataVaga] = useState<"todas"|"hoje"|"amanha">("todas");
   const [filtroRaioKm, setFiltroRaioKm] = useState<number>(20); // raio máximo de distância (Infinity = qualquer)
   const [filtroValorMin, setFiltroValorMin] = useState<number>(0); // R$ mínimo (chip 0/100/150/200)
+  const [filtroTipoOportunidade, setFiltroTipoOportunidade] = useState<"todos"|"diaria"|"servico"|"emprego">("todos");
   const [buscaVaga, setBuscaVaga] = useState("");
   // Pull-to-refresh — tracking de gesto e estado de loading
   const [puxando, setPuxando] = useState(0);      // px puxados (0–100)
@@ -3559,6 +3560,52 @@ export default function App() {
     } finally {
       setSalvandoPerfil(false);
     }
+  };
+
+  const dadosPublicacaoProfissional = () => {
+    const endereco = parseEnderecoEmpregador(profile?.endereco_empregador);
+    const foto = profile?.foto_url || fotoUrl || "";
+    const profissao = (profile?.profissao_principal || profile?.funcao || categoriasSelecionadas[0] || "").trim();
+    const descricao = (profile?.descricao_curta || profile?.bio || form.bio || "").trim().slice(0, 220);
+    const cidade = (profile?.catalogo_cidade || form.cidade || endereco.cidade || "").trim();
+    const bairro = (profile?.catalogo_bairro || form.bairro || endereco.bairro || "").trim();
+    const confiavel = !!(profile?.telefone_verificado || profile?.documento_status === "aprovado");
+    const pendencias = [
+      (!foto || foto.startsWith("data:")) && "foto",
+      !profissao && "profissão",
+      !descricao && "apresentação",
+      !cidade && "cidade",
+      !confiavel && "telefone ou documento verificado",
+    ].filter(Boolean) as string[];
+
+    return { profissao, descricao, cidade, bairro, pendencias };
+  };
+
+  const alternarPerfilEmProfissionais = async () => {
+    const ativar = !aparecerProfissionais;
+    const dados = dadosPublicacaoProfissional();
+    if (ativar && dados.pendencias.length > 0) {
+      setToastError(`Complete seu perfil para aparecer: ${dados.pendencias.join(", ")}.`);
+      setTela("editar-perfil");
+      return;
+    }
+
+    const ok = await saveProfile({
+      visibilidade: ativar
+        ? (profile?.visibilidade === "DESTAQUE" ? "DESTAQUE" : "CATALOGO")
+        : "OFF",
+      profissao_principal: dados.profissao,
+      descricao_curta: dados.descricao,
+      catalogo_cidade: dados.cidade,
+      catalogo_bairro: dados.bairro,
+      catalogo_atualizado_em: new Date().toISOString(),
+    });
+    if (!ok) return;
+
+    setAparecerProfissionais(ativar);
+    setToastSuccess(ativar
+      ? "Seu perfil agora aparece em Profissionais."
+      : "Seu perfil foi removido de Profissionais.");
   };
 
   // Traduz mensagens de erro brutas do Supabase para pt-BR
@@ -12161,6 +12208,10 @@ export default function App() {
         if (distA !== distB) return distA - distB;
         return String(A.id).localeCompare(String(B.id));
       });
+    const filtrosProfissionaisAtivos = !!buscaProfissionais.trim()
+      || filtroDisp
+      || filtroFuncao !== "Todos"
+      || filtroRaioKm !== 20;
 
     // Quantos prestadores compartilham CADA coordenada (já arredondada a 2 casas
     // pela RPC #226). Coord compartilhada por vários = artefato do fallback de
@@ -13162,13 +13213,24 @@ export default function App() {
                 ) : diaristasReaisVisiveis.length === 0 ? (
                   <div style={{ background:"var(--bg-card,#fff)", borderRadius:20, padding:"32px 24px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn: isDesktop ? "1 / -1" : undefined, maxWidth: isDesktop ? 520 : undefined, margin: isDesktop ? "0 auto" : undefined }}>
                     <div style={{ fontSize:56, marginBottom:12 }}>🔍</div>
-                    <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:8 }}>Nenhum profissional ainda</div>
+                    <div style={{ fontWeight:900, fontSize:16, color:"var(--text-1,#0f172a)", marginBottom:8 }}>
+                      {filtrosProfissionaisAtivos ? "Nenhum resultado com esses filtros" : "Nenhum profissional disponível"}
+                    </div>
                     <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:16 }}>
-                      Ainda não há prestadores cadastrados na sua região. Convide um amigo e ajude a plataforma a crescer!
+                      {filtrosProfissionaisAtivos
+                        ? "Tente ampliar a distância, remover a categoria ou mostrar também quem não está disponível agora."
+                        : "Os prestadores aparecerão aqui assim que ativarem o perfil profissional."}
                     </div>
                     <button
                       style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:14, padding:"12px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 14px ${negocio.cor}55` }}
                       onClick={() => {
+                        if (filtrosProfissionaisAtivos) {
+                          setBuscaProfissionais("");
+                          setFiltroDisp(false);
+                          setFiltroFuncao("Todos");
+                          setFiltroRaioKm(20);
+                          return;
+                        }
                         if (navigator.share) {
                           navigator.share({ title:"DiáriaJá", text:"Cadastre-se como prestador no DiáriaJá e ganhe dinheiro!", url:"https://www.diariaja.com" });
                         } else {
@@ -13176,7 +13238,7 @@ export default function App() {
                           setToastSuccess("🔗 Link copiado!");
                         }
                       }}>
-                      📨 Convidar prestador
+                      {filtrosProfissionaisAtivos ? "Limpar filtros" : "Convidar prestador"}
                     </button>
                   </div>
                 ) : (
@@ -16513,6 +16575,13 @@ export default function App() {
     const vagasFiltradas = vagasReais
       .filter(d => !d.oculto)                    // auto-moderação: oculta vagas suspensas por denúncias
       .filter(d => !vagasIgnoradas.has(d.id))   // oculta vagas marcadas como sem interesse
+      .filter(d => {
+        if (filtroTipoOportunidade === "todos") return true;
+        if (filtroTipoOportunidade === "servico") {
+          return d.tipo_oferta === "servico" || d.tipo_oferta === "servico_empresa";
+        }
+        return d.tipo_oferta === filtroTipoOportunidade;
+      })
       .filter(d => !d.funcao || categoriasSelecionadas.length === 0 || categoriasSelecionadas.includes(d.funcao))
       .filter(d => !termoBuscaVaga || textoBuscaVaga(d).includes(termoBuscaVaga))
       .filter(d => filtroDataVaga === "hoje" ? d.data === hojeFmtV : filtroDataVaga === "amanha" ? d.data === amanhaFmtV : true)
@@ -16539,7 +16608,7 @@ export default function App() {
       .filter(d => new Date(d.created_at) >= inicioHoje)
       .filter(d => distKm(d) <= filtroRaioKm || distKm(d) === Infinity)
       .length;
-    const filtrosVagaAtivos = sortVagas !== "feed" || filtroDataVaga !== "todas" || filtroRaioKm !== 20 || filtroValorMin > 0;
+    const filtrosVagaAtivos = filtroTipoOportunidade !== "todos" || sortVagas !== "feed" || filtroDataVaga !== "todas" || filtroRaioKm !== 20 || filtroValorMin > 0;
 
     const empresaIniciais = (nome: string) =>
       nome.split(" ").filter(Boolean).map(n=>n[0]).join("").slice(0,2).toUpperCase() || "🏢";
@@ -17086,6 +17155,48 @@ export default function App() {
               </div>
             </div>
 
+            {(() => {
+              const dados = dadosPublicacaoProfissional();
+              const pronto = dados.pendencias.length === 0;
+              return (
+                <div style={{ margin:"8px 16px 0", background:aparecerProfissionais && pronto ? "#f0fdf4" : "var(--bg-card,#fff)", borderRadius:14, padding:"13px 16px", boxShadow:"0 1px 6px rgba(0,0,0,.07)", border:`1.5px solid ${aparecerProfissionais && pronto ? "#86efac" : "var(--border,#e2e8f0)"}` }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <div style={{ width:38, height:38, borderRadius:12, background:aparecerProfissionais && pronto ? "#dcfce7" : "#eff6ff", color:aparecerProfissionais && pronto ? "#16a34a" : "#2563eb", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                      <Users size={20} />
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>Receber pedidos de orçamento</div>
+                      <div style={{ fontSize:11.5, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.4 }}>
+                        {aparecerProfissionais && pronto
+                          ? "Seu perfil está visível em Profissionais."
+                          : pronto
+                            ? "Ative para clientes encontrarem e chamarem você."
+                            : `Complete: ${dados.pendencias.join(", ")}.`}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={aparecerProfissionais ? "Parar de receber pedidos de orçamento" : "Receber pedidos de orçamento"}
+                      aria-pressed={aparecerProfissionais}
+                      disabled={salvandoPerfil}
+                      onClick={alternarPerfilEmProfissionais}
+                      style={{ ...S.toggle, ...(aparecerProfissionais ? S.toggleAtivo : {}), border:"none", padding:0, flexShrink:0, cursor:salvandoPerfil ? "wait" : "pointer", opacity:salvandoPerfil ? .6 : 1 }}>
+                      <div style={{ ...S.toggleThumb, ...(aparecerProfissionais ? S.toggleThumbAtivo : {}) }} />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFiltroTipoOportunidade("servico");
+                      setTimeout(() => document.getElementById("oportunidades-prestador")?.scrollIntoView({ behavior:"smooth", block:"start" }), 0);
+                    }}
+                    style={{ width:"100%", marginTop:11, minHeight:38, borderRadius:11, border:"1.5px solid #bfdbfe", background:"#eff6ff", color:"#1d4ed8", display:"flex", alignItems:"center", justifyContent:"center", gap:7, fontSize:12.5, fontWeight:850, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                    <Hammer size={15} /> Ver serviços disponíveis
+                  </button>
+                </div>
+              );
+            })()}
+
             {/* Stats rápidas: nível + ganhos do mês */}
             {(() => {
               const concl = minhasDiarias.filter(d => d.status === "concluida");
@@ -17120,7 +17231,7 @@ export default function App() {
             })()}
 
             {/* ── Cabeçalho com contador de novos anúncios + filtros ── */}
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 20px 10px" }}>
+            <div id="oportunidades-prestador" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 20px 10px", scrollMarginTop:12 }}>
               <div>
                 <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Anúncios pra você</div>
                 <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
@@ -17147,8 +17258,8 @@ export default function App() {
                 <input
                   value={buscaVaga}
                   onChange={e => setBuscaVaga(e.target.value)}
-                  placeholder="Buscar vaga, empresa, bairro..."
-                  aria-label="Buscar vaga"
+                  placeholder="Buscar vaga, serviço, empresa, bairro..."
+                  aria-label="Buscar oportunidades"
                   style={{ width:"100%", height:44, borderRadius:14, border:"1.5px solid var(--border,#e2e8f0)", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", fontSize:14, fontWeight:700, padding:"0 42px 0 42px", outline:"none", boxShadow:"0 2px 8px rgba(15,23,42,.05)", fontFamily:"Inter, system-ui, sans-serif" }}
                 />
                 {buscaVaga.trim() && (
@@ -17161,6 +17272,27 @@ export default function App() {
                   </button>
                 )}
               </div>
+            </div>
+
+            <div style={{ padding:"0 16px 8px", display:"flex", gap:6, overflowX:"auto", scrollbarWidth:"none" }}>
+              {([
+                { v:"todos" as const, label:"Todos", Icon:ClipboardList },
+                { v:"diaria" as const, label:"Diárias", Icon:CalendarDays },
+                { v:"servico" as const, label:"Serviços", Icon:Hammer },
+                { v:"emprego" as const, label:"Empregos", Icon:Briefcase },
+              ]).map(item => {
+                const ativo = filtroTipoOportunidade === item.v;
+                return (
+                  <button
+                    key={item.v}
+                    type="button"
+                    aria-pressed={ativo}
+                    onClick={() => { hapticTick(); setFiltroTipoOportunidade(item.v); }}
+                    style={{ flex:"1 0 auto", minWidth:78, minHeight:36, padding:"7px 11px", borderRadius:10, border:`1.5px solid ${ativo ? "#FF6B35" : "var(--border,#e2e8f0)"}`, background:ativo ? "#fff7ed" : "var(--bg-card,#fff)", color:ativo ? "#ea580c" : "var(--text-2,#64748b)", display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, fontSize:12, fontWeight:850, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                    <item.Icon size={14} /> {item.label}
+                  </button>
+                );
+              })}
             </div>
 
             {/* ── Chips de filtros rápidos (scroll horizontal) ── */}
@@ -17284,7 +17416,7 @@ export default function App() {
                     {(termoBuscaVaga || filtrosVagaAtivos) && (
                       <button
                         style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, padding:"13px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 14px rgba(255,107,53,.4)", minHeight:46 }}
-                        onClick={() => { setBuscaVaga(""); setSortVagas("feed"); setFiltroDataVaga("todas"); setFiltroValorMin(0); setFiltroRaioKm(20); }}>
+                        onClick={() => { setBuscaVaga(""); setFiltroTipoOportunidade("todos"); setSortVagas("feed"); setFiltroDataVaga("todas"); setFiltroValorMin(0); setFiltroRaioKm(20); }}>
                         ✨ Limpar todos os filtros
                       </button>
                     )}
@@ -20016,7 +20148,7 @@ export default function App() {
               )}
               <div style={{ display:"flex", gap:10 }}>
                 <button style={{ flex:1, padding:"11px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, fontWeight:700, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                  onClick={() => { setBuscaVaga(""); setSortVagas("feed"); setFiltroDataVaga("todas"); setFiltroRaioKm(20); setFiltroValorMin(0); }}>
+                  onClick={() => { setBuscaVaga(""); setFiltroTipoOportunidade("todos"); setSortVagas("feed"); setFiltroDataVaga("todas"); setFiltroRaioKm(20); setFiltroValorMin(0); }}>
                   Limpar filtros
                 </button>
                 <button style={{ flex:2, padding:"11px", background:"#FF6B35", border:"none", borderRadius:12, fontSize:13, fontWeight:800, color:"#fff", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
