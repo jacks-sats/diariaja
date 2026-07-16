@@ -625,6 +625,7 @@ export default function App() {
   const [filtroDataVaga, setFiltroDataVaga] = useState<"todas"|"hoje"|"amanha">("todas");
   const [filtroRaioKm, setFiltroRaioKm] = useState<number>(20); // raio máximo de distância (Infinity = qualquer)
   const [filtroValorMin, setFiltroValorMin] = useState<number>(0); // R$ mínimo (chip 0/100/150/200)
+  const [buscaVaga, setBuscaVaga] = useState("");
   // Pull-to-refresh — tracking de gesto e estado de loading
   const [puxando, setPuxando] = useState(0);      // px puxados (0–100)
   const [recarregandoFeed, setRecarregandoFeed] = useState(false);
@@ -16159,10 +16160,24 @@ export default function App() {
       return distA - distB;
     };
 
+    const termoBuscaVaga = buscaVaga.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const textoBuscaVaga = (d: Diaria) => [
+      d.nome_negocio,
+      d.segmento,
+      d.funcao,
+      d.bairro,
+      d.descricao,
+      d.tipo_oferta,
+      d.tipo_contrato,
+      d.regime,
+      d.salario_texto,
+    ].filter(Boolean).join(" ").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
     const vagasFiltradas = vagasReais
       .filter(d => !d.oculto)                    // auto-moderação: oculta vagas suspensas por denúncias
       .filter(d => !vagasIgnoradas.has(d.id))   // oculta vagas marcadas como sem interesse
       .filter(d => !d.funcao || categoriasSelecionadas.length === 0 || categoriasSelecionadas.includes(d.funcao))
+      .filter(d => !termoBuscaVaga || textoBuscaVaga(d).includes(termoBuscaVaga))
       .filter(d => filtroDataVaga === "hoje" ? d.data === hojeFmtV : filtroDataVaga === "amanha" ? d.data === amanhaFmtV : true)
       .filter(d => Number(d.valor) >= filtroValorMin)
       .filter(d => distKm(d) <= filtroRaioKm || distKm(d) === Infinity)
@@ -16187,6 +16202,7 @@ export default function App() {
       .filter(d => new Date(d.created_at) >= inicioHoje)
       .filter(d => distKm(d) <= filtroRaioKm || distKm(d) === Infinity)
       .length;
+    const filtrosVagaAtivos = sortVagas !== "feed" || filtroDataVaga !== "todas" || filtroRaioKm !== 20 || filtroValorMin > 0;
 
     const empresaIniciais = (nome: string) =>
       nome.split(" ").filter(Boolean).map(n=>n[0]).join("").slice(0,2).toUpperCase() || "🏢";
@@ -16782,10 +16798,32 @@ export default function App() {
               </div>
               <button
                 aria-label="Abrir filtros avançados"
-                style={{ display:"inline-flex", alignItems:"center", gap:6, background: (sortVagas!=="feed"||filtroDataVaga!=="todas"||filtroRaioKm!==50||filtroValorMin>0) ? "#FF6B35" : "#fff", border:`1.5px solid ${(sortVagas!=="feed"||filtroDataVaga!=="todas"||filtroRaioKm!==50||filtroValorMin>0)?"#FF6B35":"#e2e8f0"}`, borderRadius:10, padding:"8px 14px", fontSize:12, fontWeight:700, color:(sortVagas!=="feed"||filtroDataVaga!=="todas"||filtroRaioKm!==50||filtroValorMin>0)?"#fff":"#475569", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
+                style={{ display:"inline-flex", alignItems:"center", gap:6, background: filtrosVagaAtivos ? "#FF6B35" : "#fff", border:`1.5px solid ${filtrosVagaAtivos?"#FF6B35":"#e2e8f0"}`, borderRadius:10, padding:"8px 14px", fontSize:12, fontWeight:700, color:filtrosVagaAtivos?"#fff":"#475569", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
                 onClick={() => { hapticTick(); setModalFiltro(true); }}>
                 <Filter size={14} /> Filtros
               </button>
+            </div>
+
+            <div style={{ padding:"0 16px 8px" }}>
+              <div style={{ position:"relative" }}>
+                <Search size={17} color="#94a3b8" style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }} />
+                <input
+                  value={buscaVaga}
+                  onChange={e => setBuscaVaga(e.target.value)}
+                  placeholder="Buscar vaga, empresa, bairro..."
+                  aria-label="Buscar vaga"
+                  style={{ width:"100%", height:44, borderRadius:14, border:"1.5px solid var(--border,#e2e8f0)", background:"var(--bg-card,#fff)", color:"var(--text-1,#0f172a)", fontSize:14, fontWeight:700, padding:"0 42px 0 42px", outline:"none", boxShadow:"0 2px 8px rgba(15,23,42,.05)", fontFamily:"Inter, system-ui, sans-serif" }}
+                />
+                {buscaVaga.trim() && (
+                  <button
+                    aria-label="Limpar busca"
+                    type="button"
+                    onClick={() => setBuscaVaga("")}
+                    style={{ position:"absolute", right:8, top:"50%", transform:"translateY(-50%)", width:30, height:30, border:"none", borderRadius:10, background:"#f1f5f9", color:"#64748b", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer" }}>
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* ── Chips de filtros rápidos (scroll horizontal) ── */}
@@ -16898,18 +16936,18 @@ export default function App() {
                     <Inbox size={36} color="var(--text-3,#94a3b8)" strokeWidth={1.5} />
                   </div>
                   <div style={{ fontWeight:900, fontSize:17, color:"var(--text-1,#0f172a)", marginBottom:8 }}>
-                    {categoriasSelecionadas.length > 0 || filtroValorMin > 0 || filtroRaioKm < 50 ? "Nenhum anúncio com esses filtros" : "Por enquanto, nada por aqui 🌱"}
+                    {termoBuscaVaga || filtrosVagaAtivos ? "Nenhum anúncio encontrado" : "Por enquanto, nada por aqui 🌱"}
                   </div>
                   <div style={{ color:"var(--text-2,#64748b)", fontSize:13, lineHeight:1.6, marginBottom:20 }}>
-                    {categoriasSelecionadas.length > 0 || filtroValorMin > 0 || filtroRaioKm < 50
-                      ? "Tente afrouxar os filtros — talvez tenha algo bom logo ao lado."
+                    {termoBuscaVaga || filtrosVagaAtivos
+                      ? "Tente buscar outro termo ou afrouxar os filtros."
                       : "Anúncios chegam o tempo todo. Enquanto isso, deixe seu perfil 100% completo pra aparecer no topo quando o anunciante buscar."}
                   </div>
                   <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
-                    {(categoriasSelecionadas.length > 0 || filtroValorMin > 0 || filtroRaioKm < 50) && (
+                    {(termoBuscaVaga || filtrosVagaAtivos) && (
                       <button
                         style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, padding:"13px 24px", fontSize:14, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 14px rgba(255,107,53,.4)", minHeight:46 }}
-                        onClick={() => { setCategorias([]); setFiltroValorMin(0); setFiltroRaioKm(50); }}>
+                        onClick={() => { setBuscaVaga(""); setSortVagas("feed"); setFiltroDataVaga("todas"); setFiltroValorMin(0); setFiltroRaioKm(20); }}>
                         ✨ Limpar todos os filtros
                       </button>
                     )}
@@ -18568,7 +18606,7 @@ export default function App() {
                       deep link ?vaga=) abre ESTE modal, que era só de diária já aceita
                       e não tinha ação nenhuma ("cliquei em quero me candidatar e não
                       tinha onde"). Reusa o MESMO fluxo do feed (setVagaConfirm). */}
-                  {d.status === "aberta" && profile?.user_type === "diarista" && (
+                  {(["aberta", "ativa"].includes(d.status)) && (profile?.user_type === "diarista" || profile?.user_type === "ambos") && (
                     meuInteresse[d.id] ? (
                       <div style={{ background:"#dcfce7", color:"#15803d", borderRadius:12, padding:"12px 14px", fontWeight:700, fontSize:13, textAlign:"center" as const, marginBottom:10 }}>
                         ✅ Interesse enviado — aguarde o anunciante
@@ -19646,7 +19684,7 @@ export default function App() {
               )}
               <div style={{ display:"flex", gap:10 }}>
                 <button style={{ flex:1, padding:"11px", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, fontSize:13, fontWeight:700, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                  onClick={() => { setSortVagas("recentes"); setFiltroDataVaga("todas"); setFiltroRaioKm(20); }}>
+                  onClick={() => { setBuscaVaga(""); setSortVagas("feed"); setFiltroDataVaga("todas"); setFiltroRaioKm(20); setFiltroValorMin(0); }}>
                   Limpar filtros
                 </button>
                 <button style={{ flex:2, padding:"11px", background:"#FF6B35", border:"none", borderRadius:12, fontSize:13, fontWeight:800, color:"#fff", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
