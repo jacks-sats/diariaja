@@ -988,6 +988,59 @@ export function formatTempoRelativo(
   return `${dd}/${mm}`;
 }
 
+export type RotuloPresencaProfissional = {
+  texto: string;
+  estado: "online" | "recente" | "hoje" | "ontem" | "inativo";
+  cor: string;
+  bg: string;
+};
+
+function mesmoDiaLocal(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
+export function rotuloPresencaProfissional(
+  lastActivityAt: string | Date | null | undefined,
+  disponivel: boolean | undefined = false,
+  agora: Date = new Date(),
+): RotuloPresencaProfissional {
+  const online = { cor: "#16a34a", bg: "#dcfce7" };
+  const recente = { cor: "#15803d", bg: "#e7f8ee" };
+  const hoje = { cor: "#d97706", bg: "#fef3c7" };
+  const neutro = { cor: "#64748b", bg: "#f1f5f9" };
+
+  if (!lastActivityAt) {
+    return disponivel
+      ? { texto: "Disponível hoje", estado: "hoje", ...hoje }
+      : { texto: "Atividade não informada", estado: "inativo", ...neutro };
+  }
+
+  const data = typeof lastActivityAt === "string" ? new Date(lastActivityAt) : lastActivityAt;
+  if (Number.isNaN(data.getTime())) {
+    return disponivel
+      ? { texto: "Disponível hoje", estado: "hoje", ...hoje }
+      : { texto: "Atividade não informada", estado: "inativo", ...neutro };
+  }
+
+  const diffMs = agora.getTime() - data.getTime();
+  const minutos = Math.max(0, Math.floor(diffMs / 60000));
+  if (minutos <= 5) return { texto: "Online agora", estado: "online", ...online };
+  if (minutos < 60) return { texto: `Ativo há ${minutos} minutos`, estado: "recente", ...recente };
+  if (mesmoDiaLocal(data, agora)) return { texto: "Ativo hoje", estado: "hoje", ...hoje };
+
+  const ontem = new Date(agora);
+  ontem.setDate(ontem.getDate() - 1);
+  if (mesmoDiaLocal(data, ontem)) return { texto: "Última atividade ontem", estado: "ontem", ...neutro };
+
+  const dias = Math.floor(minutos / 1440);
+  if (dias < 7) return { texto: `Ativo há ${dias} dias`, estado: "inativo", ...neutro };
+  const dd = String(data.getDate()).padStart(2, "0");
+  const mm = String(data.getMonth() + 1).padStart(2, "0");
+  return { texto: `Última atividade em ${dd}/${mm}`, estado: "inativo", ...neutro };
+}
+
 // ── Máquina de estados do ciclo de vida da diária ───────────────────────────
 // Fonte única de verdade do fluxo de contratação (candidatura e convite), pra
 // poder ser testada fora do App.tsx (que é o monólito não-testado).

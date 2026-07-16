@@ -45,6 +45,7 @@ import {
   hojeLocalISO,
   fimTurno,
   formatTempoRelativo,
+  rotuloPresencaProfissional,
   calcularIdade,
   validarSenhaForte,
   validarPix,
@@ -855,6 +856,26 @@ describe("formatTempoRelativo", () => {
 });
 
 // ── validarCNPJ ──────────────────────────────────────────────────────────────
+describe("rotuloPresencaProfissional", () => {
+  const agora = new Date("2026-07-16T10:00:00");
+
+  it("mostra online quando a atividade e muito recente", () => {
+    expect(rotuloPresencaProfissional("2026-07-16T09:57:00", true, agora).texto).toBe("Online agora");
+  });
+
+  it("mostra atividade em minutos quando passou de cinco minutos", () => {
+    expect(rotuloPresencaProfissional("2026-07-16T09:42:00", true, agora).texto).toBe("Ativo há 18 minutos");
+  });
+
+  it("mostra ativo hoje quando foi no mesmo dia", () => {
+    expect(rotuloPresencaProfissional("2026-07-16T06:20:00", false, agora).texto).toBe("Ativo hoje");
+  });
+
+  it("mostra ultima atividade ontem", () => {
+    expect(rotuloPresencaProfissional("2026-07-15T23:20:00", false, agora).texto).toBe("Última atividade ontem");
+  });
+});
+
 describe("validarCNPJ", () => {
   it("aceita CNPJ válido (com máscara)", () => {
     // CNPJ válido conhecido da Receita: 11.222.333/0001-81

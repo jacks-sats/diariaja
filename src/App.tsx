@@ -117,7 +117,7 @@ import {
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
   montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar, correspondeBusca,
-  cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta, mercatorPixel,
+  cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta, mercatorPixel, rotuloPresencaProfissional,
 } from "./helpers";
 
 type HomeEmpregadorBundle = {
@@ -375,6 +375,7 @@ export default function App() {
   const [agendaSelecionada, setAgenda]          = useState<string[]>([]);
   const [categoriasSelecionadas, setCategorias] = useState<string[]>([]);
   const [disponivelAgora, setDisponivel]  = useState(false);
+  const [aparecerProfissionais, setAparecerProfissionais] = useState(false);
   const [filtroFuncao, setFiltroFuncao]   = useState("Todos");
   const [filtroDisp, setFiltroDisp]       = useState(false);
   // Busca livre do dashboard desktop do anunciante (nome, categoria, bairro ou
@@ -416,6 +417,13 @@ export default function App() {
   const [tipoOfertaManual, setTipoOfertaManual]   = useState(false);
   const [tipoPublicacaoEscolhida, setTipoPublicacaoEscolhida] = useState<"diaria" | "servico" | "emprego" | null>(null);
   const [diaristasReais, setDiaristasReais]       = useState<UserProfile[]>([]);
+  const [visaoInicioEmp, setVisaoInicioEmp]       = useState<"vagas" | "profissionais">("vagas");
+  const [profissionais, setProfissionais]         = useState<UserProfile[]>([]);
+  const [buscaProfissionais, setBuscaProfissionais] = useState("");
+  const [paginaProfissionais, setPaginaProfissionais] = useState(0);
+  const [temMaisProfissionais, setTemMaisProfissionais] = useState(true);
+  const [carregandoProfissionais, setCarregandoProfissionais] = useState(false);
+  const [erroProfissionais, setErroProfissionais] = useState(false);
   const [diaristaSelecionadaReal, setDiaristaSelecionadaReal] = useState<UserProfile | null>(null);
   const [convitesRecebidos, setConvitesRecebidos] = useState<Convite[]>([]);
   const [convitesEnviados, setConvitesEnviados]   = useState<Convite[]>([]);
@@ -1588,7 +1596,8 @@ export default function App() {
 
   // Carrega diaristas reais cadastrados no banco
   useEffect(() => {
-    if (tela !== "home-empregador" || !session?.user) return;
+    if (tela !== "home-empregador" || !session?.user || visaoInicioEmp !== "profissionais") return;
+    let cancelado = false;
     (async () => {
       // Cap em 200 (server-side): o egress de carregar TODOS os prestadores a cada
       // entrada da home cresce linear com a base. A ordenação/relevância
@@ -1600,19 +1609,78 @@ export default function App() {
       // C2 passo B: feed via RPC prestadores_publicos — retorna só dados públicos
       // + derivados (tem_documento, nivel), sem telefone/cpf/cnpj/PIX/token. Filtra
       // por papel (diarista/ambos) e exclui o próprio usuário no servidor.
+      const pageSize = 24;
+      const offset = paginaProfissionais * pageSize;
+      const busca = buscaProfissionais.trim();
+      const categoria = filtroFuncao === "Todos" ? null : filtroFuncao;
       setCarregandoPrest(true);
-      const { data, error } = await supabase.rpc("prestadores_publicos", { p_limit: 200 });
-      setCarregandoPrest(false);
-      // Onda 3: antes só logava no console — o anunciante via "nenhum profissional".
-      if (error) { console.warn("[home-empregador] erro carregando prestadores:", error.message); setErroPrestadores(true); return; }
-      setErroPrestadores(false);
-      if (data) {
-        const lista = (data as unknown as UserProfile[]) ?? [];
-        setDiaristasReais(lista);
-        diaristasReaisRef.current = lista;
+      setCarregandoProfissionais(true);
+      const { data: profData, error: profError } = await supabase.rpc("profissionais_publicos", {
+        p_limit: pageSize,
+        p_offset: offset,
+        p_busca: busca || null,
+        p_categoria: categoria,
+        p_cidade: null,
+      });
+      if (cancelado) return;
+      if (!profError) {
+        const lista = (profData as unknown as UserProfile[]) ?? [];
+        const novaLista = paginaProfissionais === 0 ? lista : [...profissionais, ...lista];
+        setProfissionais(novaLista);
+        setDiaristasReais(novaLista);
+        diaristasReaisRef.current = novaLista;
+        setTemMaisProfissionais(lista.length === pageSize);
+        setErroProfissionais(false);
+        setErroPrestadores(false);
+        setCarregandoPrest(false);
+        setCarregandoProfissionais(false);
+        return;
       }
+
+      const { data: fallbackData, error: fallbackError } = await supabase.rpc("prestadores_publicos", { p_limit: 200 });
+      setCarregandoPrest(false);
+      setCarregandoProfissionais(false);
+      if (cancelado) return;
+      if (fallbackError) {
+        console.warn("[home-empregador] erro carregando profissionais:", profError.message || fallbackError.message);
+        setErroProfissionais(true);
+        setErroPrestadores(true);
+        return;
+      }
+      const termo = busca.toLocaleLowerCase("pt-BR");
+      const listaFallback = ((fallbackData as unknown as UserProfile[]) ?? [])
+        .filter(d => {
+          if (!categoria) return true;
+          const cats = (d.categorias?.length ? d.categorias : [d.funcao]).filter(Boolean);
+          return d.funcao === categoria || d.segmento === categoria || cats.includes(categoria);
+        })
+        .filter(d => {
+          if (!termo) return true;
+          const texto = [d.nome, d.funcao, d.segmento, d.bio, d.profissao_principal, d.descricao_curta, d.catalogo_cidade, d.catalogo_bairro, ...(d.categorias || [])]
+            .filter(Boolean)
+            .join(" ")
+            .toLocaleLowerCase("pt-BR");
+          return texto.includes(termo);
+        });
+      const pagina = listaFallback.slice(offset, offset + pageSize);
+      const novaLista = paginaProfissionais === 0 ? pagina : [...profissionais, ...pagina];
+      setProfissionais(novaLista);
+      setDiaristasReais(novaLista);
+      diaristasReaisRef.current = novaLista;
+      setTemMaisProfissionais(offset + pageSize < listaFallback.length);
+      setErroProfissionais(false);
+      setErroPrestadores(false);
     })();
-  }, [tela, session?.user?.id, recarregarPrest]);
+    return () => { cancelado = true; };
+  }, [tela, session?.user?.id, recarregarPrest, visaoInicioEmp, paginaProfissionais, buscaProfissionais, filtroFuncao]);
+
+  useEffect(() => {
+    setPaginaProfissionais(0);
+    setTemMaisProfissionais(true);
+    setProfissionais([]);
+    setDiaristasReais([]);
+    diaristasReaisRef.current = [];
+  }, [buscaProfissionais, filtroFuncao, visaoInicioEmp]);
 
   function mesclarPerfisCandidatos(perfis: UserProfile[]) {
     if (perfis.length === 0) return;
@@ -2444,13 +2512,22 @@ export default function App() {
         { event: "INSERT", schema: "public", table: "convites", filter: `diarista_id=eq.${userId}` },
         (payload: any) => {
           const novoConvite: Convite = payload.new;
+          const ehOrcamento = novoConvite.tipo_solicitacao === "orcamento";
           setConvitesRecebidos(prev => [novoConvite, ...prev]);
-          setToastSuccess(`📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para uma diária!`);
+          setToastSuccess(ehOrcamento
+            ? `📨 ${novoConvite.contratante_nome || "Um anunciante"} pediu um orçamento!`
+            : `📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para uma diária!`);
           // Registra no sino de Notificações (persistido; toque leva à Agenda).
-          pushNotif(`📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para ${novoConvite.funcao || "uma diária"} — aceite e combine no chat.`, "ok", "home-diarista");
+          pushNotif(ehOrcamento
+            ? `📨 ${novoConvite.contratante_nome || "Um anunciante"} pediu orçamento para ${novoConvite.funcao || "um serviço"} — aceite e combine no chat.`
+            : `📨 ${novoConvite.contratante_nome || "Um anunciante"} te convidou para ${novoConvite.funcao || "uma diária"} — aceite e combine no chat.`,
+            "ok",
+            "home-diarista");
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            mostrarNotificacaoLocal("📨 Novo convite de diária!", {
-              body: `${novoConvite.contratante_nome} quer entrar em contato com você para ${novoConvite.funcao} em ${new Date(novoConvite.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}`,
+            mostrarNotificacaoLocal(ehOrcamento ? "📨 Novo pedido de orçamento!" : "📨 Novo convite de diária!", {
+              body: ehOrcamento
+                ? `${novoConvite.contratante_nome} quer combinar ${novoConvite.funcao || "um serviço"} com você.`
+                : `${novoConvite.contratante_nome} quer entrar em contato com você para ${novoConvite.funcao} em ${new Date(novoConvite.data_servico + "T00:00:00").toLocaleDateString("pt-BR")}`,
               icon: "/vite.svg",
             });
           }
@@ -3301,6 +3378,18 @@ export default function App() {
       setAgenda(data.agenda || []);
       setFotoUrl(data.foto_url || null);
       setCategorias(data.categorias || []);
+      setAparecerProfissionais(data.visibilidade === "CATALOGO" || data.visibilidade === "DESTAQUE");
+      setForm(f => ({
+        ...f,
+        nome: data.nome || f.nome,
+        telefone: data.telefone || f.telefone,
+        funcao: data.funcao || f.funcao,
+        valor: data.valor_diaria ? String(data.valor_diaria) : f.valor,
+        bio: data.bio || f.bio,
+        cep: data.cep || f.cep,
+        bairro: data.catalogo_bairro || f.bairro,
+        cidade: data.catalogo_cidade || f.cidade,
+      }));
       // Carrega contador de contatos desbloqueados deste mês (server-side).
       // Não bloqueia o fluxo se a RPC falhar (fica em 0 = mais restritivo).
       void supabase.rpc("contar_contatos_desbloqueados_mes").then(({ data: cnt }) => {
@@ -3405,6 +3494,12 @@ export default function App() {
       bio: updates.bio ?? profile?.bio ?? form.bio ?? "",
       foto_url: updates.foto_url ?? profile?.foto_url ?? fotoUrl ?? "",
       categorias: updates.categorias ?? profile?.categorias ?? categoriasSelecionadas ?? [],
+      visibilidade: updates.visibilidade ?? profile?.visibilidade ?? "OFF",
+      profissao_principal: updates.profissao_principal ?? profile?.profissao_principal ?? updates.funcao ?? profile?.funcao ?? form.funcao ?? "",
+      descricao_curta: updates.descricao_curta ?? profile?.descricao_curta ?? updates.bio ?? profile?.bio ?? form.bio ?? "",
+      catalogo_cidade: updates.catalogo_cidade ?? profile?.catalogo_cidade ?? form.cidade ?? "",
+      catalogo_bairro: updates.catalogo_bairro ?? profile?.catalogo_bairro ?? form.bairro ?? "",
+      catalogo_atualizado_em: updates.catalogo_atualizado_em ?? profile?.catalogo_atualizado_em,
       geo_preciso: updates.geo_preciso ?? profile?.geo_preciso ?? null,
       lat: updates.lat !== undefined ? updates.lat : (profile?.lat ?? null),
       lng: updates.lng !== undefined ? updates.lng : (profile?.lng ?? null),
@@ -4564,13 +4659,14 @@ export default function App() {
     }
     setEnviandoConvite(true);
     const horarioCompleto = `${formConvite.horario} (${formConvite.cargaHoraria}h de trabalho)`;
+    const especialidadeOrcamento = diaristaSelecionadaReal.profissao_principal || diaristaSelecionadaReal.funcao || "serviço";
     try {
     const { error } = await supabase.from("convites").insert({
       contratante_id:   session.user.id,
       diarista_id:      diaristaSelecionadaReal.id,
       contratante_nome: profile?.nome || "Anunciante",
       diarista_nome:    diaristaSelecionadaReal.nome,
-      funcao:           diaristaSelecionadaReal.funcao,
+      funcao:           especialidadeOrcamento,
       local_servico:    enderecoFinal,
       data_servico:     formConvite.data,
       horario_servico:  horarioCompleto,
@@ -4581,6 +4677,8 @@ export default function App() {
       // Fase B: usa o valor que o anunciante digitou; se vazio, cai no valor de
       // referência do prestador (origem anterior). Só a ORIGEM do valor muda.
       valor:            (Number(formConvite.valor) || diaristaSelecionadaReal.valor_diaria) || null,
+      origem:           "profissionais",
+      tipo_solicitacao: "orcamento",
       status:           "pendente",
     });
     if (error) {
@@ -4591,8 +4689,8 @@ export default function App() {
     // convite fosse enviado com o app do prestador fechado, nada chegava.
     enviarPush(
       [diaristaSelecionadaReal.id],
-      "Novo convite de diária 📨",
-      `${profile?.nome?.split(" ")[0] || "Um anunciante"} te convidou para ${diaristaSelecionadaReal.funcao || "uma diária"}. Abra o app e responda.`,
+      "Novo pedido de orçamento",
+      `${profile?.nome?.split(" ")[0] || "Um anunciante"} quer combinar ${especialidadeOrcamento}. Abra o app e responda.`,
       { tipo: "selecionado", url: "/" },
     );
     setModalConvite(false);
@@ -4600,7 +4698,7 @@ export default function App() {
     // Recarrega convites enviados e vai direto para aba Diárias
     if (session?.user) carregarConvites(session.user.id, "empregador");
     setTabEmpregador("diarias");
-    setToastSuccess(`📨 Convite enviado para ${diaristaSelecionadaReal?.nome}! Aguardando resposta.`);
+    setToastSuccess(`Pedido de orçamento enviado para ${diaristaSelecionadaReal?.nome}. Aguardando resposta.`);
     } finally {
       setEnviandoConvite(false);  // A4: reseta o loading mesmo se o insert rejeitar
     }
@@ -12027,6 +12125,15 @@ export default function App() {
       // Raio escolhido (mesmo seletor do lado do prestador). Fail-open: quem não
       // tem geo cai em Infinity e continua aparecendo. "Qualquer distância" =
       // filtroRaioKm Infinity → distKm <= Infinity sempre passa.
+      .filter(d => {
+        const termo = buscaProfissionais.trim().toLocaleLowerCase("pt-BR");
+        if (!termo) return true;
+        const texto = [d.nome, d.funcao, d.segmento, d.bio, d.profissao_principal, d.descricao_curta, d.catalogo_cidade, d.catalogo_bairro, ...(d.categorias || [])]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase("pt-BR");
+        return texto.includes(termo);
+      })
       .filter(d => distKmAnunciante(d) <= filtroRaioKm || distKmAnunciante(d) === Infinity)
       // Ordenação determinística + por relevância. Critérios, em ordem:
       // 1) atende o SEGMENTO do anunciante (o que ele procura vem primeiro)
@@ -12827,7 +12934,69 @@ export default function App() {
               );
             })()}
             {/* Dois caminhos do contratante: buscar prestadores ou abrir o hub de publicação. */}
-            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2,minmax(0,1fr))" : "1fr 1fr", gap:isDesktop?16:10, padding:isDesktop ? "16px 16px 4px" : "12px 16px 4px" }}>
+            <div style={{ display:"flex", gap:8, padding:"12px 16px 0" }}>
+              {([
+                { key:"vagas" as const, label:"Vagas", sub:"seus anuncios" },
+                { key:"profissionais" as const, label:"Profissionais", sub:"encontrar pessoas" },
+              ]).map(item => {
+                const ativo = visaoInicioEmp === item.key;
+                return (
+                  <button key={item.key}
+                    style={{ flex:1, border:`1.5px solid ${ativo ? negocio.cor : "var(--border,#e2e8f0)"}`, background:ativo ? negocio.cor : "var(--bg-card,#fff)", color:ativo ? "#fff" : "var(--text-label,#475569)", borderRadius:14, padding:"10px 12px", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", textAlign:"left" as const, boxShadow: ativo ? `0 4px 12px ${negocio.cor}33` : "none" }}
+                    onClick={() => { hapticTick(); setVisaoInicioEmp(item.key); }}>
+                    <div style={{ fontSize:14, fontWeight:900 }}>{item.label}</div>
+                    <div style={{ fontSize:11, fontWeight:700, opacity:.8, marginTop:1 }}>{item.sub}</div>
+                  </button>
+                );
+              })}
+            </div>
+            {visaoInicioEmp === "vagas" ? (() => {
+              const anunciosAtivos = diarias.filter(d => ["aberta","pendente","aceita","em_andamento"].includes(d.status));
+              const interessados = candidaturas.filter(c => anunciosAtivos.some(d => d.id === c.diaria_id)).length;
+              return (
+                <div style={{ padding:"12px 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
+                  <div style={{ background:"#0f172a", color:"#fff", borderRadius:18, padding:"18px 18px", boxShadow:"0 8px 22px rgba(15,23,42,.18)" }}>
+                    <div style={{ fontSize:12, fontWeight:800, color:"#93c5fd", textTransform:"uppercase" as const, letterSpacing:.6 }}>Painel de vagas</div>
+                    <div style={{ fontSize:22, fontWeight:950, marginTop:4 }}>O que você precisa hoje?</div>
+                    <div style={{ fontSize:13, color:"#cbd5e1", lineHeight:1.5, marginTop:4 }}>Publique uma vaga ou acompanhe quem já demonstrou interesse.</div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginTop:14 }}>
+                      <div style={{ background:"rgba(255,255,255,.1)", borderRadius:14, padding:"10px" }}><div style={{ fontSize:22, fontWeight:950 }}>{anunciosAtivos.length}</div><div style={{ fontSize:11, color:"#cbd5e1", fontWeight:700 }}>ativas</div></div>
+                      <div style={{ background:"rgba(255,255,255,.1)", borderRadius:14, padding:"10px" }}><div style={{ fontSize:22, fontWeight:950 }}>{interessados}</div><div style={{ fontSize:11, color:"#cbd5e1", fontWeight:700 }}>interessados</div></div>
+                      <div style={{ background:"rgba(255,255,255,.1)", borderRadius:14, padding:"10px" }}><div style={{ fontSize:22, fontWeight:950 }}>{diarias.filter(d => d.status === "concluida").length}</div><div style={{ fontSize:11, color:"#cbd5e1", fontWeight:700 }}>concluídas</div></div>
+                    </div>
+                    <button style={{ width:"100%", marginTop:14, background:"#FF6B35", color:"#fff", border:"none", borderRadius:14, padding:"12px", fontWeight:900, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={irPublicarOferta}>+ Publicar vaga</button>
+                  </div>
+                  {anunciosAtivos.length === 0 ? (
+                    <div style={{ background:"var(--bg-card,#fff)", border:"1px solid var(--border,#e2e8f0)", borderRadius:18, padding:"22px 18px", textAlign:"center" as const }}>
+                      <div style={{ fontSize:34, marginBottom:8 }}>📋</div>
+                      <div style={{ fontSize:16, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Nenhuma vaga ativa</div>
+                      <div style={{ fontSize:13, color:"var(--text-2,#64748b)", lineHeight:1.5, marginTop:4 }}>Quando publicar, seus interessados aparecem aqui quase em tempo real.</div>
+                    </div>
+                  ) : anunciosAtivos.slice(0,4).map(v => {
+                    const qtd = candidaturas.filter(c => c.diaria_id === v.id).length;
+                    return (
+                      <div key={v.id} style={{ background:"var(--bg-card,#fff)", border:"1px solid var(--border,#e2e8f0)", borderRadius:18, padding:16, boxShadow:"0 3px 12px rgba(15,23,42,.06)" }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ fontSize:15, fontWeight:950, color:"var(--text-1,#0f172a)", lineHeight:1.25 }}>{v.funcao || v.segmento}</div>
+                            <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:4 }}>{v.segmento} · {v.bairro || v.nome_negocio || "local a combinar"}</div>
+                          </div>
+                          <span style={{ background:qtd > 0 ? "#ffedd5" : "#f1f5f9", color:qtd > 0 ? "#ea580c" : "#64748b", padding:"5px 10px", borderRadius:999, fontSize:12, fontWeight:900 }}>{qtd} interessado{qtd === 1 ? "" : "s"}</span>
+                        </div>
+                        <button style={{ width:"100%", marginTop:12, background:qtd > 0 ? "#FF6B35" : "#f8fafc", color:qtd > 0 ? "#fff" : "#334155", border:qtd > 0 ? "none" : "1px solid #e2e8f0", borderRadius:12, padding:"10px", fontSize:13, fontWeight:900, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => { setTabEmpregador("diarias"); setFiltroDiarias("ativas"); }}>
+                          {qtd > 0 ? "Ver interessados" : "Acompanhar vaga"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {anunciosAtivos.length > 4 && (
+                    <button style={{ background:"var(--bg-card,#fff)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"12px", fontSize:13, fontWeight:900, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }} onClick={() => setTabEmpregador("diarias")}>Ver todas as vagas</button>
+                  )}
+                </div>
+              );
+            })() : (
+            <>
+            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2,1fr)" : "1fr 1fr", gap:10, padding:"12px 16px 4px" }}>
               <button
                 style={{ flex:1, background:"var(--bg-card,#fff)", border:`2px solid ${negocio.cor}`, color:negocio.cor, borderRadius:14, padding:"12px 8px", fontWeight:800, fontSize:12.5, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1.25, display:"flex", flexDirection:"column" as const, alignItems:"center", gap:5, ...desktopActionButton("secondary") }}
                 onClick={() => document.getElementById("emp-lista-diaristas")?.scrollIntoView({ behavior:"smooth", block:"start" })}>
@@ -12835,7 +13004,7 @@ export default function App() {
                   {isDesktop ? <Users size={24} /> : "🔍"}
                 </span>
                 <span style={{ display:"flex", flexDirection:"column", gap:3, flex:1 }}>
-                  <span>Buscar diaristas disponíveis</span>
+                  <span>Encontrar profissionais</span>
                   {isDesktop && <span style={{ fontSize:12, fontWeight:650, color:"var(--text-2,#64748b)" }}>Compare perfis verificados por distância e disponibilidade.</span>}
                 </span>
               </button>
@@ -12852,6 +13021,21 @@ export default function App() {
               </button>
             </div>
             {bannerLembreteGeo}
+            <div style={{ padding:"8px 16px 8px" }}>
+              <div style={{ background:"var(--bg-card,#fff)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:14, padding:"10px 12px", display:"flex", alignItems:"center", gap:10, boxShadow:"0 2px 8px rgba(15,23,42,.04)" }}>
+                <span style={{ fontSize:18, color:"var(--text-3,#94a3b8)" }}>🔎</span>
+                <input
+                  value={buscaProfissionais}
+                  onChange={e => setBuscaProfissionais(e.target.value)}
+                  placeholder="Buscar por nome, profissão, bairro ou palavra-chave"
+                  style={{ flex:1, border:"none", outline:"none", background:"transparent", fontSize:14, color:"var(--text-1,#0f172a)", fontFamily:"Inter, system-ui, sans-serif", minWidth:0 }}
+                />
+                {buscaProfissionais && (
+                  <button type="button" aria-label="Limpar busca" style={{ border:"none", background:"#f1f5f9", color:"#64748b", borderRadius:999, width:26, height:26, cursor:"pointer", fontWeight:900 }}
+                    onClick={() => setBuscaProfissionais("")}>×</button>
+                )}
+              </div>
+            </div>
             {/* Filtro de habilidades — sticky pra não sumir ao rolar (degrada sem quebrar) */}
             <div style={{
               background:"var(--bg-card,#fff)",
@@ -12866,7 +13050,7 @@ export default function App() {
               {/* Linha 1: disponíveis hoje + por categoria */}
               <div style={{ display:"flex", gap:8, padding:isDesktop ? "14px 16px 8px" : "10px 16px 6px", overflowX:"auto" }}>
                 <button style={{ ...S.filtroBtn, ...(filtroDisp?{ background:negocio.cor, color:"#fff", borderColor:negocio.cor }:{}) }} onClick={()=>setFiltroDisp(!filtroDisp)}>
-                  {filtroDisp?"✓ ":""}Disponíveis hoje
+                  {filtroDisp?"✓ ":""}Ativos agora
                 </button>
                 <button style={{ ...S.filtroBtn, ...(filtroFuncao==="Todos"?{ background:negocio.cor, color:"#fff", borderColor:negocio.cor }:{}) }} onClick={()=>setFiltroFuncao("Todos")}>Todos</button>
                 {Object.entries(CATEGORIAS_NEGOCIO).map(([cat, info]) => (
@@ -13001,6 +13185,7 @@ export default function App() {
                     const iniciais = d.nome.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
                     const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO).find(([, info]) => (info.funcoes as readonly string[]).includes(d.funcao));
                     const funcCor = funcCatEntry ? funcCatEntry[1].cor : bg;
+                    const presenca = rotuloPresencaProfissional(d.last_activity_at, d.disponivel);
                     // Banner rotativo do Já Decola: aparece após cada 6 cards
                     const mostrarBannerAposCard = (i + 1) % 6 === 0 && i < diaristasReaisVisiveis.length - 1;
 
@@ -13035,7 +13220,7 @@ export default function App() {
                                 <div style={{ fontWeight:900, fontSize:isDesktop?16:16.5, color:"var(--text-1,#0f172a)", lineHeight:1.3 }}>{d.nome}</div>
                                 <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5, flexWrap:"wrap" }}>
                                   <span style={{ background:funcCor+"18", color:funcCor, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, border:`1px solid ${funcCor}30` }}>
-                                    {d.funcao}
+                                    {d.profissao_principal || d.funcao}
                                   </span>
                                   {/* Fase A: sinal de confiança (documento) sobe pro card — dado já
                                       trazido pela RPC (tem_documento), sem carga nova. */}
@@ -13051,6 +13236,16 @@ export default function App() {
                                     <span key={f} style={{ color:"var(--text-3,#94a3b8)", fontSize:12 }}>· {f}</span>
                                   ))}
                                 </div>
+                                {(d.catalogo_bairro || d.catalogo_cidade) && (
+                                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", fontWeight:700, marginTop:6 }}>
+                                    📍 {[d.catalogo_bairro, d.catalogo_cidade].filter(Boolean).join(", ")}
+                                  </div>
+                                )}
+                                {(d.descricao_curta || d.bio) && (
+                                  <div style={{ fontSize:12.5, color:"var(--text-label,#475569)", lineHeight:1.45, marginTop:6, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" as const, overflow:"hidden" }}>
+                                    {d.descricao_curta || d.bio}
+                                  </div>
+                                )}
                               </div>
                               {/* Fase A (person-first): PREÇO removido da vitrine — passa a
                                   aparecer só dentro do perfil. No canto fica só a denúncia. */}
@@ -13064,8 +13259,8 @@ export default function App() {
 
                             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:isDesktop?14:10, gap:10 }}>
                               <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
-                                <span style={{ ...S.badge, ...(d.disponivel ? S.badgeVerde : S.badgeCinza), fontSize:11 }}>
-                                  {d.disponivel ? "● Disponível hoje" : "● Ocupado"}
+                                <span style={{ ...S.badge, background:presenca.bg, color:presenca.cor, fontSize:11 }}>
+                                  ● {presenca.texto}
                                 </span>
                                 {profile?.lat && profile?.lng && d.lat && d.lng && (() => {
                                   // Distância honesta: só mostra o número quando AMBOS os lados têm geo
@@ -13083,16 +13278,19 @@ export default function App() {
                                 {/* Fase A: nº de diárias concluídas SÓ quando já conhecido
                                     (diaristasContagemDiarias) — sem forçar carga nova na vitrine. */}
                                 {(() => {
-                                  const q = diaristasContagemDiarias[d.id];
+                                  const q = d.servicos_concluidos ?? diaristasContagemDiarias[d.id];
                                   return q && q > 0 ? (
-                                    <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:700 }}>💼 {q} diária{q > 1 ? "s" : ""}</span>
+                                    <span style={{ fontSize:11, color:"var(--text-2,#64748b)", fontWeight:700 }}>💼 {q} serviço{q > 1 ? "s" : ""}</span>
                                   ) : null;
                                 })()}
+                                {d.nota_media ? (
+                                  <span style={{ fontSize:11, color:"#d97706", fontWeight:800 }}>⭐ {Number(d.nota_media).toFixed(1)}</span>
+                                ) : null}
                               </div>
                               <button
                                 style={{ background:negocio.cor, color:"#fff", border:"none", borderRadius:12, padding:isDesktop?"10px 16px":"9px 18px", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:`0 4px 10px ${negocio.cor}44`, minWidth:isDesktop?92:undefined }}
-                                onClick={e => { e.stopPropagation(); setDiaristaSelecionadaReal(d); setTela("perfil-diarista-real"); }}>
-                                Ver perfil
+                                onClick={e => { e.stopPropagation(); setDiaristaSelecionadaReal(d); setModalConvite(true); setTela("perfil-diarista-real"); }}>
+                                Solicitar orçamento
                               </button>
                             </div>
                           </div>
@@ -13110,6 +13308,15 @@ export default function App() {
 
                 {/* Caminho de saída no fim da lista: se não achou o valor ideal,
                     abre o hub de publicação. */}
+                {diaristasReaisVisiveis.length > 0 && temMaisProfissionais && (
+                  <button
+                    style={{ background:"var(--bg-card,#fff)", color:negocio.cor, border:`1.5px solid ${negocio.cor}`, borderRadius:14, padding:"12px 16px", fontSize:13, fontWeight:900, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", gridColumn: isDesktop ? "1 / -1" : undefined }}
+                    disabled={carregandoProfissionais}
+                    onClick={() => setPaginaProfissionais(p => p + 1)}>
+                    {carregandoProfissionais ? "Carregando..." : "Ver mais profissionais"}
+                  </button>
+                )}
+
                 <div style={{
                   background:isDesktop ? "linear-gradient(135deg,#0f172a,#1d4ed8)" : "var(--bg-card,#fff)",
                   borderRadius:isDesktop?22:16,
@@ -13194,6 +13401,8 @@ export default function App() {
                   );
                 })()}
               </div>
+            </>
+            )}
           </>
         )}
 
@@ -20172,6 +20381,48 @@ export default function App() {
         Mais preciso que o CEP — faz a distância aparecer pros anunciantes. O CEP é atualizado pra bater com o GPS.
       </p>
 
+      {(() => {
+        const temFoto = !!(fotoUrl || profile?.foto_url);
+        const temProfissao = !!(categoriasSelecionadas[0] || form.funcao || profile?.funcao);
+        const temDescricao = !!((form.bio || profile?.bio || "").trim());
+        const temCidade = !!(form.cidade || profile?.catalogo_cidade);
+        const temConfianca = !!(profile?.telefone_verificado || profile?.documento_status === "aprovado");
+        const pendencias = [
+          !temFoto && "foto",
+          !temProfissao && "profissão",
+          !temDescricao && "apresentação",
+          !temCidade && "cidade",
+          !temConfianca && "telefone ou documento verificado",
+        ].filter(Boolean);
+        return (
+          <div style={{ background: aparecerProfissionais ? "#f0fdf4" : "#fff", border:`1.5px solid ${aparecerProfissionais ? "#86efac" : "#e2e8f0"}`, borderRadius:16, padding:"14px", margin:"18px 0", boxShadow: aparecerProfissionais ? "0 10px 24px rgba(34,197,94,.10)" : "none" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:40, height:40, borderRadius:14, background: aparecerProfissionais ? "#dcfce7" : "#f1f5f9", color: aparecerProfissionais ? "#16a34a" : "#64748b", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>
+                👷
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:900, color:"#0f172a" }}>Aparecer em Profissionais</div>
+                <div style={{ fontSize:12, color:"#64748b", marginTop:2, lineHeight:1.4 }}>
+                  Receba pedidos de orçamento de quem procura alguém com sua habilidade.
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label={aparecerProfissionais ? "Desativar Profissionais" : "Ativar Profissionais"}
+                onClick={() => setAparecerProfissionais(v => !v)}
+                style={{ ...S.toggle, ...(aparecerProfissionais ? S.toggleAtivo : {}), flexShrink:0 }}>
+                <div style={{ ...S.toggleThumb, ...(aparecerProfissionais ? S.toggleThumbAtivo : {}) }} />
+              </button>
+            </div>
+            {aparecerProfissionais && pendencias.length > 0 && (
+              <div style={{ marginTop:12, background:"#fffbeb", border:"1px solid #fde68a", borderRadius:12, padding:"10px 12px", fontSize:12, color:"#92400e", lineHeight:1.5 }}>
+                Para aparecer melhor, complete: <strong>{pendencias.join(", ")}</strong>.
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Portfólio de serviços */}
       <div style={{ fontWeight:800, fontSize:12, color:"var(--text-2,#64748b)", margin:"20px 0 8px", textTransform:"uppercase" as const, letterSpacing:0.5 }}>📸 Portfólio (até 3 fotos)</div>
       <p style={{ color:"var(--text-2,#64748b)", fontSize:12, margin:"-4px 0 12px" }}>Fotos de serviços anteriores aumentam suas chances de contato</p>
@@ -20240,6 +20491,14 @@ export default function App() {
         if (form.cep) upd.cep = form.cep;
         // CEP atualizado marca geo_preciso conforme a precisão do geocode (centroide=false).
         if (latPerfilCEP !== null) { upd.lat = latPerfilCEP; upd.lng = lngPerfilCEP; upd.geo_preciso = geoPrecisoParaSalvar("cep", cepPerfilPreciso); }
+        upd.visibilidade = aparecerProfissionais
+          ? (profile?.visibilidade === "DESTAQUE" ? "DESTAQUE" : "CATALOGO")
+          : "OFF";
+        upd.profissao_principal = categoriasSelecionadas[0] || form.funcao || profile?.funcao || "";
+        upd.descricao_curta = (form.bio || profile?.bio || "").trim().slice(0, 220);
+        upd.catalogo_cidade = form.cidade || profile?.catalogo_cidade || "";
+        upd.catalogo_bairro = form.bairro || profile?.catalogo_bairro || "";
+        upd.catalogo_atualizado_em = new Date().toISOString();
         const ok = await saveProfile(upd);
         if (ok) {
           setLatPerfilCEP(null); setLngPerfilCEP(null);
@@ -20565,7 +20824,7 @@ export default function App() {
     const cor = negocio?.cor || "#FF6B35";
     const iniciais = d.nome.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
     const isFavorito = favoritos.has(d.id);
-    const diariasDaPerfilConc = diaristasContagemDiarias[d.id] || 0;
+    const diariasDaPerfilConc = d.servicos_concluidos ?? diaristasContagemDiarias[d.id] ?? 0;
     const nivelD = nivelDiarista(diariasDaPerfilConc);
     const profileShellMax = isDesktop ? "min(1180px, calc(100vw - 64px))" : LARGURA_APP_MOVEL;
     const profileCardStyle: React.CSSProperties = isDesktop
@@ -20647,7 +20906,7 @@ export default function App() {
               <span style={{ color:"var(--text-3,#94a3b8)", fontSize:13, fontWeight:600 }}>⭐ Sem avaliações ainda</span>
             )}
             <span style={{ color:"var(--text-2,#64748b)", fontSize:13, fontWeight:700 }}>
-              💼 {diariasDaPerfilConc} {diariasDaPerfilConc === 1 ? "diária concluída" : "diárias concluídas"}
+              💼 {diariasDaPerfilConc} {diariasDaPerfilConc === 1 ? "serviço concluído" : "serviços concluídos"}
             </span>
           </div>
           <div style={{ ...S.badge, ...(d.disponivel ? S.badgeVerde : S.badgeCinza), fontSize:13, marginTop:8 }}>
@@ -20688,7 +20947,7 @@ export default function App() {
 
         {!isDesktop && (
           <div style={profileCardStyle}>
-            <div style={S.sectionTitle}>Valor por diária</div>
+            <div style={S.sectionTitle}>Valor de referência</div>
             <div style={S.valorGrande}>R$ {d.valor_diaria}<span style={{ fontSize:16, color:"var(--text-2,#64748b)" }}> /dia</span></div>
           </div>
         )}
@@ -20784,14 +21043,14 @@ export default function App() {
                   <div>
                     <div style={{ fontWeight:800, fontSize:14, color:"#92400e" }}>Aguardando confirmação</div>
                     <div style={{ fontSize:12, color:"#a16207", marginTop:2 }}>
-                      {d.nome.split(" ")[0]} ainda não respondeu ao convite.
+                      {d.nome.split(" ")[0]} ainda não respondeu ao pedido.
                     </div>
                   </div>
                 </div>
                 <button
                   style={{ ...S.btnSecondary, color:"#d97706", borderColor:"#f59e0b", opacity:0.7, cursor:"not-allowed" }}
                   disabled>
-                  ⏳ Convite enviado — aguardando resposta
+                  ⏳ Pedido enviado — aguardando resposta
                 </button>
                 {conviteAtivo && (
                   confirmCancelarConvite === conviteAtivo.id ? (
@@ -20804,7 +21063,7 @@ export default function App() {
                     <button
                       style={{ ...S.btnSecondary, color:"#dc2626", borderColor:"#fca5a5", fontSize:12 }}
                       onClick={() => setConfirmCancelarConvite(conviteAtivo.id)}>
-                      🗑️ Cancelar convite
+                      🗑️ Cancelar pedido
                     </button>
                   )
                 )}
@@ -20823,7 +21082,7 @@ export default function App() {
                 <div style={{ background:"#dcfce7", borderRadius:16, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 }}>
                   <span style={{ fontSize:28 }}>🎉</span>
                   <div>
-                    <div style={{ fontWeight:800, fontSize:14, color:"#166534" }}>Convite aceito!</div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"#166534" }}>Pedido aceito!</div>
                     <div style={{ fontSize:12, color:"#15803d", marginTop:2 }}>
                       {d.nome.split(" ")[0]} aceitou o serviço. Confirme para chamar e combinar os detalhes.
                     </div>
@@ -20866,7 +21125,7 @@ export default function App() {
                     <div style={{ fontWeight:800, fontSize:13, color:"#92400e", marginBottom:4 }}>Chat bloqueado</div>
                     <div style={{ fontSize:12, color:"#a16207", lineHeight:1.5 }}>
                       Confirme a chamada para combinar tudo com {d.nome.split(" ")[0]} pelo chat interno.<br />
-                      O valor da diária ({conviteAtivo?.valor ? `R$ ${conviteAtivo.valor}` : "combinado"}) você paga direto pra ele via PIX, fora do app.
+                      O valor combinado ({conviteAtivo?.valor ? `R$ ${conviteAtivo.valor}` : "a combinar"}) você paga direto pra ele via PIX, fora do app.
                     </div>
                   </div>
                 )}
@@ -20887,7 +21146,7 @@ export default function App() {
                 <button
                   style={{ ...S.btnSecondary, color:cor, borderColor:cor, fontSize:12 }}
                   onClick={() => { setModalConvite(true); }}>
-                  📨 Enviar novo convite
+                  📨 Enviar novo pedido
                 </button>
               </div>
             );
@@ -20902,7 +21161,7 @@ export default function App() {
                 </div>
               )}
               <button style={{ ...S.btnPrimary, background:cor }} onClick={() => { setModalConvite(true); }}>
-                📨 Oferecer diária
+                📨 Solicitar orçamento
               </button>
             </div>
           );
@@ -20917,23 +21176,23 @@ export default function App() {
             <div style={{ ...S.modal, maxHeight:"90vh", overflowY:"auto" as const }}>
               {true && (
                 <>
-                  <h3 style={S.modalTitle}>Oferecer diária a {d.nome}</h3>
-                  <p style={S.modalText}>Informe onde e quando você precisa do serviço. O profissional vai confirmar se pode ir.</p>
+                  <h3 style={S.modalTitle}>Solicitar orçamento a {d.nome}</h3>
+                  <p style={S.modalText}>Informe onde, quando e o que você precisa. O profissional aceita e o chat abre para vocês combinarem.</p>
 
                   <div style={S.modalRow}>
-                    <span>Especialidade</span><strong>{d.funcao}</strong>
+                      <span>Especialidade</span><strong>{d.profissao_principal || d.funcao}</strong>
                   </div>
                   {d.valor_diaria && (
                     <div style={S.modalRow}>
-                      <span>Valor do prestador</span>
-                      <strong style={{ color:"#16a34a" }}>R$ {d.valor_diaria}/dia (referência)</strong>
+                      <span>Referência do profissional</span>
+                      <strong style={{ color:"#16a34a" }}>R$ {d.valor_diaria}/dia</strong>
                     </div>
                   )}
                   {/* Fase B: o anunciante define quanto quer pagar por esta diária.
                       Vazio = usa o valor de referência do prestador no convite (mesma
                       origem de antes). NÃO mexe nas transições do convite nem no R$ 2,50. */}
                   <div style={{ marginTop:10, marginBottom:16 }}>
-                    <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>💰 Quanto você quer pagar? (por dia)</label>
+                    <label style={{ fontSize:12, fontWeight:700, color:"var(--text-label,#475569)", display:"block", marginBottom:4 }}>💰 Qual valor você tem em mente?</label>
                     <input
                       value={formConvite.valor}
                       onChange={e => setFormConvite(p => ({ ...p, valor: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
@@ -21079,9 +21338,9 @@ export default function App() {
                     style={{ ...S.btnPrimary, background: betaBloqueado ? "#94a3b8" : cor, marginTop:18, opacity: enviandoConvite ? 0.7 : 1 }}
                     onClick={enviarConvite}
                     disabled={enviandoConvite}
-                    title={betaBloqueado ? "Os convites abrem em 1º de julho" : undefined}
+                    title={betaBloqueado ? "Os pedidos abrem em 1º de julho" : undefined}
                   >
-                    {enviandoConvite ? "Enviando..." : betaBloqueado ? "🔒 Convites abrem em 1º de julho" : "📨 Enviar convite"}
+                    {enviandoConvite ? "Enviando..." : betaBloqueado ? "🔒 Pedidos abrem em 1º de julho" : "📨 Enviar pedido"}
                   </button>
                   <button style={{ ...S.btnSecondary, marginTop:8, color:cor, borderColor:cor }} onClick={() => setModalConvite(false)}>Cancelar</button>
                 </>
@@ -21148,6 +21407,27 @@ export default function App() {
           placeholder="Ex: Tenho 5 anos de experiência como garçom..."
           value={form.bio} onChange={e => setForm({ ...form, bio: e.target.value })} />
 
+        <div style={{ background: aparecerProfissionais ? "#f0fdf4" : "#fff", border:`1.5px solid ${aparecerProfissionais ? "#86efac" : "#e2e8f0"}`, borderRadius:16, padding:"14px", margin:"8px 0 14px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:40, height:40, borderRadius:14, background: aparecerProfissionais ? "#dcfce7" : "#f1f5f9", color: aparecerProfissionais ? "#16a34a" : "#64748b", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>
+              👷
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:14, fontWeight:900, color:"#0f172a" }}>Aparecer em Profissionais</div>
+              <div style={{ fontSize:12, color:"#64748b", marginTop:2, lineHeight:1.4 }}>
+                Contratantes podem encontrar seu perfil e pedir orçamento.
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label={aparecerProfissionais ? "Desativar Profissionais" : "Ativar Profissionais"}
+              onClick={() => setAparecerProfissionais(v => !v)}
+              style={{ ...S.toggle, ...(aparecerProfissionais ? S.toggleAtivo : {}), flexShrink:0 }}>
+              <div style={{ ...S.toggleThumb, ...(aparecerProfissionais ? S.toggleThumbAtivo : {}) }} />
+            </button>
+          </div>
+        </div>
+
         {authError && <p style={S.errorText}>{authError}</p>}
 
         <button
@@ -21165,6 +21445,12 @@ export default function App() {
               funcao: form.funcao,
               valor_diaria: Number(form.valor),
               bio: form.bio || profile?.bio || "",
+              visibilidade: aparecerProfissionais ? (profile?.visibilidade === "DESTAQUE" ? "DESTAQUE" : "CATALOGO") : "OFF",
+              profissao_principal: form.funcao,
+              descricao_curta: (form.bio || profile?.bio || "").trim().slice(0, 220),
+              catalogo_cidade: form.cidade || profile?.catalogo_cidade || "",
+              catalogo_bairro: form.bairro || profile?.catalogo_bairro || "",
+              catalogo_atualizado_em: new Date().toISOString(),
               user_type: "ambos",
             });
             setSalvandoSetup(false);
