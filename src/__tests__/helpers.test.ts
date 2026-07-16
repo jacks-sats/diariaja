@@ -70,6 +70,8 @@ import {
   rotuloPrecoVaga,
   precoDiariaParaSalvar,
   cargaHorariaConvite,
+  mercatorPixel,
+  MERCATOR_LAT_MAX,
 } from "../helpers";
 import { FUNCOES_DELIVERY } from "../constants";
 
@@ -2072,5 +2074,49 @@ describe("correspondeBusca (busca do dashboard desktop)", () => {
   it("ignora campos nulos/indefinidos/vazios sem quebrar", () => {
     expect(correspondeBusca("maria", ["Maria", null, undefined, ""])).toBe(true);
     expect(correspondeBusca("maria", [null, undefined, ""])).toBe(false);
+  });
+});
+
+// ── mercatorPixel (mapa do painel admin) ──────────────────────────────────────
+describe("mercatorPixel", () => {
+  it("centro do mundo (0,0) no zoom 0 cai no meio do tile unico (128,128)", () => {
+    const p = mercatorPixel(0, 0, 0);
+    expect(p.x).toBeCloseTo(128, 6);
+    expect(p.y).toBeCloseTo(128, 6);
+  });
+  it("longitude ±180 encosta nas bordas do mundo", () => {
+    expect(mercatorPixel(0, -180, 0).x).toBeCloseTo(0, 6);
+    expect(mercatorPixel(0, 180, 0).x).toBeCloseTo(256, 6);
+  });
+  it("limite norte do Mercator encosta em y=0 e o sul em y=256", () => {
+    expect(mercatorPixel(MERCATOR_LAT_MAX, 0, 0).y).toBeCloseTo(0, 4);
+    expect(mercatorPixel(-MERCATOR_LAT_MAX, 0, 0).y).toBeCloseTo(256, 4);
+  });
+  it("latitude alem do limite e grampeada (nao vira Infinity/NaN)", () => {
+    const p = mercatorPixel(90, 0, 0);
+    expect(Number.isFinite(p.y)).toBe(true);
+    expect(p.y).toBeCloseTo(0, 4);
+  });
+  it("cada nivel de zoom dobra a escala", () => {
+    const z0 = mercatorPixel(-20.4697, -54.6201, 0); // Campo Grande/MS
+    const z1 = mercatorPixel(-20.4697, -54.6201, 1);
+    expect(z1.x).toBeCloseTo(z0.x * 2, 6);
+    expect(z1.y).toBeCloseTo(z0.y * 2, 6);
+  });
+  it("norte fica acima do sul (y menor) e oeste a esquerda do leste (x menor)", () => {
+    const norte = mercatorPixel(-19, -54.6, 12);
+    const sul   = mercatorPixel(-21, -54.6, 12);
+    const oeste = mercatorPixel(-20.5, -55, 12);
+    const leste = mercatorPixel(-20.5, -54, 12);
+    expect(norte.y).toBeLessThan(sul.y);
+    expect(oeste.x).toBeLessThan(leste.x);
+  });
+  it("Campo Grande no zoom 12 cai no hemisferio oeste/sul do mundo de pixels", () => {
+    const p = mercatorPixel(-20.4697, -54.6201, 12);
+    const mundo = 256 * 2 ** 12;
+    expect(p.x).toBeGreaterThan(0);
+    expect(p.x).toBeLessThan(mundo / 2);   // oeste de Greenwich
+    expect(p.y).toBeGreaterThan(mundo / 2); // sul do equador
+    expect(p.y).toBeLessThan(mundo);
   });
 });

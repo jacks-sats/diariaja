@@ -1666,6 +1666,26 @@ export function correspondeBusca(
   return termos.every(t => alvo.includes(t));
 }
 
+// ── Projeção Web Mercator (mapa do painel admin) ─────────────────────────────
+// Converte lat/lng em pixel global do esquema de tiles padrão (OSM/Google):
+// mundo = 256·2^zoom pixels de lado; tile = pixel ÷ 256. Usado pra posicionar
+// os tiles do OpenStreetMap e as bolhas de demanda sem biblioteca de mapa.
+// Latitude é grampeada ao limite do Mercator (±85.05112878°) — fora disso a
+// fórmula diverge (tan → ∞).
+export const MERCATOR_LAT_MAX = 85.05112878;
+export function mercatorPixel(
+  lat: number,
+  lng: number,
+  zoom: number,
+): { x: number; y: number } {
+  const escala = 256 * Math.pow(2, zoom);
+  const latSegura = Math.max(-MERCATOR_LAT_MAX, Math.min(MERCATOR_LAT_MAX, lat));
+  const x = ((lng + 180) / 360) * escala;
+  const rad = (latSegura * Math.PI) / 180;
+  const y = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * escala;
+  return { x, y };
+}
+
 // ── Serviço: exige PROPOSTA de valor? ────────────────────────────────────────
 // Um serviço recebe proposta quando o preço NÃO é fixo (tipo_preco 'orcamento'
 // etc.) ou quando não há valor definido (legado: valor 0 = "a combinar").
