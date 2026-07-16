@@ -759,18 +759,38 @@ function MapaInterativoAdmin({ celulas, cor, onCelula }: {
     ctx.camada?.remove();
     const grupo = ctx.L.layerGroup();
     const max = Math.max(1, ...cels.map(c => c.total));
+    const raio = (n: number) => 9 + 15 * Math.sqrt(n / max);
     cels.forEach(c => {
-      // Célula 100% aproximada (geo_preciso=false em todos): tracejada e mais
-      // clara — gente empilhada no centroide de CEP/cidade, não endereço real.
-      const soAprox = (c.precisos ?? c.total) === 0;
-      const bolha = ctx.L.circleMarker([c.lat, c.lng], {
-        radius: 9 + 15 * Math.sqrt(c.total / max),
-        color: c0, weight: 2, dashArray: soAprox ? "5 5" : undefined,
-        fillColor: c0, fillOpacity: soAprox ? 0.18 : 0.4,
-      });
-      bolha.bindTooltip(String(c.total), { permanent: true, direction: "center", className: "mapa-admin-rotulo" });
-      bolha.on("click", () => aoTocar?.(c));
-      grupo.addLayer(bolha);
+      // Duas bolhas por célula: o ANEL TRACEJADO é o total (inclui localização
+      // aproximada — centroide de CEP/cidade empilha gente que não está ali de
+      // verdade) e a BOLHA CHEIA por dentro é só quem tem geo_preciso=true.
+      // Célula 100% precisa = só a cheia; 100% aproximada = só a tracejada.
+      // Antes a célula mista aparecia toda cheia — 55 aproximados + 1 preciso
+      // pareciam 56 endereços reais (feedback do dono, 16/07).
+      const precisos = c.precisos ?? c.total;
+      if (c.total > precisos) {
+        const anel = ctx.L.circleMarker([c.lat, c.lng], {
+          radius: raio(c.total),
+          color: c0, weight: 2, dashArray: "5 5",
+          fillColor: c0, fillOpacity: 0.12,
+        });
+        anel.on("click", () => aoTocar?.(c));
+        // Rótulo do total fica no anel quando ele existe (é a bolha maior).
+        anel.bindTooltip(String(c.total), { permanent: true, direction: "center", className: "mapa-admin-rotulo" });
+        grupo.addLayer(anel);
+      }
+      if (precisos > 0) {
+        const cheia = ctx.L.circleMarker([c.lat, c.lng], {
+          radius: raio(precisos),
+          color: c0, weight: 2,
+          fillColor: c0, fillOpacity: 0.45,
+        });
+        cheia.on("click", () => aoTocar?.(c));
+        if (c.total === precisos) {
+          cheia.bindTooltip(String(c.total), { permanent: true, direction: "center", className: "mapa-admin-rotulo" });
+        }
+        grupo.addLayer(cheia);
+      }
     });
     grupo.addTo(ctx.mapa);
     ctx.camada = grupo;
@@ -23642,7 +23662,7 @@ export default function App() {
               const aprox = celulas.reduce((s, c) => s + (c.total - (c.precisos ?? c.total)), 0);
               return aprox > 0 ? (
                 <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, padding:"8px 12px", marginTop:8, fontSize:11, color:"#92400e", lineHeight:1.5 }}>
-                  ⚠️ <b>{aprox}</b> {adminMapaCamada === "demanda" ? "vaga(s)" : "prestador(es)"} com <b>localização aproximada</b> (centroide de CEP/cidade) — são as bolhas <b>tracejadas</b>, geralmente empilhadas no centro. Não significa que estão todos naquele ponto; significa que o app não tem o endereço preciso deles.
+                  ⚠️ <b>{aprox}</b> {adminMapaCamada === "demanda" ? "vaga(s)" : "prestador(es)"} com <b>localização aproximada</b> (centroide de CEP/cidade), geralmente empilhados no centro. No mapa: a <b>bolha cheia</b> é quem tem endereço preciso de verdade; o <b>anel tracejado</b> em volta é o total incluindo os aproximados. Toque na bolha pra ver a lista com o selo de cada um.
                 </div>
               ) : null;
             })()}
