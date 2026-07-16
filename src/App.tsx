@@ -517,12 +517,17 @@ export default function App() {
   const [adminRetencaoLado, setAdminRetencaoLado] = useState<AdminRetencaoPorLadoItem[]>([]);
   // Mapa de demanda por região (RPC admin_demanda_por_regiao). Se a migração
   // ainda não rodou, fica null e a seção simplesmente não aparece.
-  type AdminMapaCelula = { lat: number; lng: number; total: number };
+  // `precisos` (v2) = quantos na célula têm geo_preciso=true; ausente na RPC
+  // v1 → o front trata undefined como "tudo preciso" (comportamento antigo).
+  type AdminMapaCelula = { lat: number; lng: number; total: number; precisos?: number };
   type AdminMapaBairro = { bairro: string; vagas: number; candidaturas: number; valor_medio: number | null };
   type AdminMapaRegiao = { demanda_grade: AdminMapaCelula[]; oferta_grade: AdminMapaCelula[]; top_bairros: AdminMapaBairro[] };
   const [adminMapa, setAdminMapa]             = useState<AdminMapaRegiao | null>(null);
   const [adminMapaDias, setAdminMapaDias]     = useState(30);
   const [adminMapaCamada, setAdminMapaCamada] = useState<"demanda" | "oferta">("demanda");
+  // "Só abertas agora" (default ON): demanda = vagas status='aberta' e não
+  // vencidas — o que o prestador ainda pode pegar. OFF = publicadas no período.
+  const [adminMapaAbertas, setAdminMapaAbertas] = useState(true);
   type AdminDrillItem = { id: string; titulo: string; subtitulo: string; badge: string; badge_cor: string; criado_em: string };
   const [adminDrillTipo, setAdminDrillTipo]       = useState<string | null>(null);
   const [adminDrillTitulo, setAdminDrillTitulo]   = useState("");
@@ -4759,24 +4764,51 @@ export default function App() {
       const fin = await supabase.rpc("admin_resumo_financeiro");
       if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
       // Mapa de demanda por região — opcional (degrada se a RPC não existe).
-      void carregarAdminMapa(adminMapaDias);
+      void carregarAdminMapa(adminMapaDias, adminMapaAbertas);
     } finally {
       setCarregandoAdminStats(false);  // A4
     }
   };
 
-  // Demanda × oferta por região (mapa do painel). Recarregada ao trocar o
-  // período; a RPC devolve grade agregada (2 casas ≈ 1,1 km) + top bairros.
-  const carregarAdminMapa = async (dias: number) => {
+  // Demanda × oferta por região (mapa do painel). Recarregada ao trocar
+  // período/filtro; a RPC devolve grade agregada (2 casas ≈ 1,1 km) + bairros.
+  const carregarAdminMapa = async (dias: number, somenteAbertas: boolean) => {
     if (!profile?.is_admin) return;
-    const { data, error } = await supabase.rpc("admin_demanda_por_regiao", { p_dias: dias });
-    if (!error && data && typeof data === "object") {
+    const aplicar = (data: unknown) => {
+      if (!data || typeof data !== "object") return false;
       const d = data as { demanda_grade?: unknown; oferta_grade?: unknown; top_bairros?: unknown };
       setAdminMapa({
         demanda_grade: Array.isArray(d.demanda_grade) ? d.demanda_grade : [],
         oferta_grade:  Array.isArray(d.oferta_grade)  ? d.oferta_grade  : [],
         top_bairros:   Array.isArray(d.top_bairros)   ? d.top_bairros   : [],
       });
+      return true;
+    };
+    const v2 = await supabase.rpc("admin_demanda_por_regiao", { p_dias: dias, p_somente_abertas: somenteAbertas });
+    if (!v2.error && aplicar(v2.data)) return;
+    // Ordem de deploy: banco ainda na assinatura v1 (só p_dias) → tenta sem o
+    // parâmetro novo. Sem RPC nenhuma, a seção só não aparece.
+    const v1 = await supabase.rpc("admin_demanda_por_regiao", { p_dias: dias });
+    if (!v1.error) aplicar(v1.data);
+  };
+
+  // Toque numa bolha do mapa: abre o drill-down do painel com o CONTEÚDO da
+  // célula — as vagas (demanda) ou os prestadores (oferta) daquela região.
+  const abrirDrillRegiao = async (camada: "demanda" | "oferta", celula: { lat: number; lng: number; total: number }) => {
+    setAdminDrillTipo(`regiao-${camada}`);
+    setAdminDrillTitulo(camada === "demanda" ? "Vagas nesta região" : "Prestadores nesta região");
+    setAdminDrillIcone(camada === "demanda" ? "🔥" : "🧑‍🔧");
+    setAdminDrillLista([]);
+    setCarregandoDrill(true);
+    try {
+      const { data, error } = await supabase.rpc("admin_regiao_detalhe", {
+        p_camada: camada, p_lat: celula.lat, p_lng: celula.lng,
+        p_dias: adminMapaDias, p_somente_abertas: adminMapaAbertas,
+      });
+      if (error) setToastError(traduzirErroBanco(error));
+      else if (data) setAdminDrillLista(data as AdminDrillItem[]);
+    } finally {
+      setCarregandoDrill(false);
     }
   };
 
@@ -22147,7 +22179,7 @@ export default function App() {
     // mapa: viewport fixo centrado em Campo Grande/MS (MVP é uma cidade só),
     // posições via mercatorPixel (helpers.ts). Miolo de 1024×560 centrado num
     // contêiner de 300px — responsivo sem medir nada via JS.
-    const MapaRegioes = ({ celulas, cor, rotulo }: { celulas: { lat: number; lng: number; total: number }[]; cor: string; rotulo: string }) => {
+    const MapaRegioes = ({ celulas, cor, rotulo, onCelula }: { celulas: { lat: number; lng: number; total: number; precisos?: number }[]; cor: string; rotulo: string; onCelula?: (c: { lat: number; lng: number; total: number }) => void }) => {
       const ZOOM = 12, IW = 1024, IH = 560, VH = 300;
       const centro = mercatorPixel(-20.4697, -54.6201, ZOOM); // Campo Grande/MS
       const x0 = centro.x - IW / 2, y0 = centro.y - IH / 2;
@@ -22169,9 +22201,15 @@ export default function App() {
               const left = p.x - x0, top = p.y - y0;
               if (left < -24 || left > IW + 24 || top < -24 || top > IH + 24) return null;
               const r = 7 + 13 * Math.sqrt(c.total / max);
+              // Célula 100% aproximada (centroide de CEP/cidade — geo_preciso
+              // false em todos): tracejada e mais clara, pra não parecer um
+              // "bairro lotado" que na real é gente sem endereço preciso.
+              const soAproximados = (c.precisos ?? c.total) === 0;
               return (
-                <div key={`${c.lat},${c.lng}`} title={`${c.total} ${rotulo}`}
-                  style={{ position:"absolute", left: left - r, top: top - r, width: r * 2, height: r * 2, borderRadius:"50%", background: cor + "66", border:`2px solid ${cor}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, color:"#fff", textShadow:"0 1px 2px rgba(0,0,0,.6)", pointerEvents:"auto" }}>
+                <div key={`${c.lat},${c.lng}`} role="button" tabIndex={0}
+                  title={`${c.total} ${rotulo}${soAproximados ? " (localização aproximada)" : ""} — toque pra ver a lista`}
+                  onClick={() => onCelula?.(c)}
+                  style={{ position:"absolute", left: left - r, top: top - r, width: r * 2, height: r * 2, borderRadius:"50%", background: cor + (soAproximados ? "2e" : "66"), border:`2px ${soAproximados ? "dashed" : "solid"} ${cor}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, color:"#fff", textShadow:"0 1px 2px rgba(0,0,0,.6)", pointerEvents:"auto", cursor: onCelula ? "pointer" : "default" }}>
                   {c.total > 1 ? c.total : ""}
                 </div>
               );
@@ -22441,10 +22479,16 @@ export default function App() {
                 {[7, 30, 90].map(d => (
                   <button key={d}
                     style={{ padding:"4px 10px", borderRadius:8, border:"none", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", background: adminMapaDias === d ? "#0f2a4a" : "var(--bg-subtle,#f1f5f9)", color: adminMapaDias === d ? "#fff" : "var(--text-2,#64748b)" }}
-                    onClick={() => { setAdminMapaDias(d); void carregarAdminMapa(d); }}>
+                    onClick={() => { setAdminMapaDias(d); void carregarAdminMapa(d, adminMapaAbertas); }}>
                     {d}d
                   </button>
                 ))}
+                {/* Só abertas agora: o que o prestador ainda pode pegar (v2) */}
+                <button
+                  style={{ padding:"4px 10px", borderRadius:8, border:"none", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", background: adminMapaAbertas ? "#16a34a" : "var(--bg-subtle,#f1f5f9)", color: adminMapaAbertas ? "#fff" : "var(--text-2,#64748b)" }}
+                  onClick={() => { const v = !adminMapaAbertas; setAdminMapaAbertas(v); void carregarAdminMapa(adminMapaDias, v); }}>
+                  {adminMapaAbertas ? "✓ só abertas" : "todas"}
+                </button>
               </div>
             </div>
             {/* Camadas: demanda (vagas publicadas) × oferta (prestadores cadastrados) */}
@@ -22461,10 +22505,19 @@ export default function App() {
               </button>
             </div>
             {adminMapaCamada === "demanda"
-              ? <MapaRegioes celulas={adminMapa.demanda_grade} cor="#FF6B35" rotulo={`vaga(s) em ${adminMapaDias} dias`} />
-              : <MapaRegioes celulas={adminMapa.oferta_grade} cor="#3A86FF" rotulo="prestador(es) cadastrados" />}
+              ? <MapaRegioes celulas={adminMapa.demanda_grade} cor="#FF6B35" rotulo={adminMapaAbertas ? "vaga(s) abertas" : `vaga(s) em ${adminMapaDias} dias`} onCelula={c => { void abrirDrillRegiao("demanda", c); }} />
+              : <MapaRegioes celulas={adminMapa.oferta_grade} cor="#3A86FF" rotulo="prestador(es) cadastrados" onCelula={c => { void abrirDrillRegiao("oferta", c); }} />}
+            {(() => {
+              const celulas = adminMapaCamada === "demanda" ? adminMapa.demanda_grade : adminMapa.oferta_grade;
+              const aprox = celulas.reduce((s, c) => s + (c.total - (c.precisos ?? c.total)), 0);
+              return aprox > 0 ? (
+                <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, padding:"8px 12px", marginTop:8, fontSize:11, color:"#92400e", lineHeight:1.5 }}>
+                  ⚠️ <b>{aprox}</b> {adminMapaCamada === "demanda" ? "vaga(s)" : "prestador(es)"} com <b>localização aproximada</b> (centroide de CEP/cidade) — são as bolhas <b>tracejadas</b>, geralmente empilhadas no centro. Não significa que estão todos naquele ponto; significa que o app não tem o endereço preciso deles.
+                </div>
+              ) : null;
+            })()}
             <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:6, lineHeight:1.5 }}>
-              Cada bolha é uma célula de ~1,1 km (coordenadas agregadas). Demanda = vagas publicadas no período; oferta = prestadores visíveis com localização. Compare as duas camadas pra achar região com vaga sobrando e prestador faltando (ou o contrário).
+              Cada bolha é uma célula de ~1,1 km (coordenadas agregadas) — <b>toque numa bolha</b> pra ver a lista do que tem nela. Demanda = {adminMapaAbertas ? "vagas abertas agora (dá pra pegar)" : "vagas publicadas no período"}; oferta = prestadores visíveis com localização. Compare as duas camadas pra achar região com vaga sobrando e prestador faltando (ou o contrário).
             </div>
             {/* Ranking de bairros — responde "onde tem mais demanda" num relance */}
             {adminMapa.top_bairros.length > 0 && (
