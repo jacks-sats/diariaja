@@ -19,6 +19,7 @@ export interface Assinatura {
 // Spec: docs/spec-tipo-oferta-diaria-vs-servico.md
 export type TipoOferta = 'diaria' | 'servico' | 'emprego' | 'servico_empresa';
 export type TipoPreco = 'fixo' | 'a_combinar' | 'a_partir_de';
+export type VisibilidadeProfissional = 'OFF' | 'CATALOGO' | 'DESTAQUE';
 
 export interface Diaria {
   id: string;
@@ -136,6 +137,15 @@ export interface UserProfile {
   antecedentes_revisado_em?: string;
   antecedentes_motivo_rejeicao?: string;
   // Heartbeat de presença (painel admin "online agora")
+  visibilidade?: VisibilidadeProfissional | string;
+  profissao_principal?: string;
+  descricao_curta?: string;
+  catalogo_cidade?: string;
+  catalogo_bairro?: string;
+  catalogo_atualizado_em?: string;
+  servicos_concluidos?: number;
+  nota_media?: number | null;
+  total_avaliacoes?: number;
   last_activity_at?: string;
   // PIX do diarista (recebe pagamentos da plataforma)
   pix_chave?: string;
@@ -321,6 +331,8 @@ export interface Convite {
   // convites_carga_horaria.sql). Convites antigos: null (a carga vive só no
   // texto de horario_servico; ver helpers.cargaHorariaConvite).
   carga_horaria?: number | null;
+  origem?: string;
+  tipo_solicitacao?: "diaria" | "servico" | "orcamento" | string;
   status: string;             // 'pendente' | 'aceito' | 'recusado' | 'confirmado'
   created_at: string;
   pago_em?: string | null;                // anunciante pagou (webhook seta)
