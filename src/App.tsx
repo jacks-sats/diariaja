@@ -1597,7 +1597,10 @@ export default function App() {
 
   // Carrega diaristas reais cadastrados no banco
   useEffect(() => {
-    if (tela !== "home-empregador" || !session?.user || visaoInicioEmp !== "profissionais") return;
+    if (tela !== "home-empregador" || !session?.user) return;
+    // O dashboard desktop sempre exibe uma vitrine de profissionais. No mobile,
+    // a consulta continua sob demanda e só roda ao abrir a aba Profissionais.
+    if (!isDesktop && visaoInicioEmp !== "profissionais") return;
     let cancelado = false;
     (async () => {
       // Cap em 200 (server-side): o egress de carregar TODOS os prestadores a cada
@@ -1673,7 +1676,7 @@ export default function App() {
       setErroPrestadores(false);
     })();
     return () => { cancelado = true; };
-  }, [tela, session?.user?.id, recarregarPrest, visaoInicioEmp, paginaProfissionais, buscaProfissionais, filtroFuncao]);
+  }, [tela, session?.user?.id, recarregarPrest, visaoInicioEmp, paginaProfissionais, buscaProfissionais, filtroFuncao, isDesktop]);
 
   useEffect(() => {
     setPaginaProfissionais(0);
