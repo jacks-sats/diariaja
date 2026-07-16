@@ -15446,7 +15446,7 @@ export default function App() {
 
         {/* ── ABA PERFIL ── */}
         {tabEmpregador === "perfil" && (
-          /* Desktop: grid amplo de perfil. Mobile: layout original. */
+          /* Desktop web: grid amplo de perfil, sem herdar a coluna mobile. */
           <div style={ employerDesktopMode ? { display:"grid", gridTemplateColumns:"minmax(360px, 430px) minmax(0, 1fr)", gap:16, padding:"0 16px 32px", alignItems:"start" as const, width:"100%", boxSizing:"border-box" as const } : undefined }>
             {/* Barra + ⚙️ */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)", gridColumn:employerDesktopMode ? "1 / -1" : undefined, borderRadius:employerDesktopMode ? 16 : 0, border:employerDesktopMode ? "1px solid #d8e0ea" : undefined, boxShadow:employerDesktopMode ? "0 12px 28px rgba(15,23,42,.06)" : undefined }}>
