@@ -115,7 +115,7 @@ import {
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
   montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar, correspondeBusca,
-  cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta,
+  cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta, mercatorPixel,
 } from "./helpers";
 
 type HomeEmpregadorBundle = {
@@ -515,6 +515,14 @@ export default function App() {
     stickiness_pct: number;
   };
   const [adminRetencaoLado, setAdminRetencaoLado] = useState<AdminRetencaoPorLadoItem[]>([]);
+  // Mapa de demanda por região (RPC admin_demanda_por_regiao). Se a migração
+  // ainda não rodou, fica null e a seção simplesmente não aparece.
+  type AdminMapaCelula = { lat: number; lng: number; total: number };
+  type AdminMapaBairro = { bairro: string; vagas: number; candidaturas: number; valor_medio: number | null };
+  type AdminMapaRegiao = { demanda_grade: AdminMapaCelula[]; oferta_grade: AdminMapaCelula[]; top_bairros: AdminMapaBairro[] };
+  const [adminMapa, setAdminMapa]             = useState<AdminMapaRegiao | null>(null);
+  const [adminMapaDias, setAdminMapaDias]     = useState(30);
+  const [adminMapaCamada, setAdminMapaCamada] = useState<"demanda" | "oferta">("demanda");
   type AdminDrillItem = { id: string; titulo: string; subtitulo: string; badge: string; badge_cor: string; criado_em: string };
   const [adminDrillTipo, setAdminDrillTipo]       = useState<string | null>(null);
   const [adminDrillTitulo, setAdminDrillTitulo]   = useState("");
@@ -4750,8 +4758,25 @@ export default function App() {
       // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
       const fin = await supabase.rpc("admin_resumo_financeiro");
       if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
+      // Mapa de demanda por região — opcional (degrada se a RPC não existe).
+      void carregarAdminMapa(adminMapaDias);
     } finally {
       setCarregandoAdminStats(false);  // A4
+    }
+  };
+
+  // Demanda × oferta por região (mapa do painel). Recarregada ao trocar o
+  // período; a RPC devolve grade agregada (2 casas ≈ 1,1 km) + top bairros.
+  const carregarAdminMapa = async (dias: number) => {
+    if (!profile?.is_admin) return;
+    const { data, error } = await supabase.rpc("admin_demanda_por_regiao", { p_dias: dias });
+    if (!error && data && typeof data === "object") {
+      const d = data as { demanda_grade?: unknown; oferta_grade?: unknown; top_bairros?: unknown };
+      setAdminMapa({
+        demanda_grade: Array.isArray(d.demanda_grade) ? d.demanda_grade : [],
+        oferta_grade:  Array.isArray(d.oferta_grade)  ? d.oferta_grade  : [],
+        top_bairros:   Array.isArray(d.top_bairros)   ? d.top_bairros   : [],
+      });
     }
   };
 
@@ -22117,6 +22142,47 @@ export default function App() {
       );
     };
 
+    // Mapa estático de regiões — tiles do OpenStreetMap (CSP já libera o host)
+    // + bolhas proporcionais por célula da grade (~1,1 km). Sem biblioteca de
+    // mapa: viewport fixo centrado em Campo Grande/MS (MVP é uma cidade só),
+    // posições via mercatorPixel (helpers.ts). Miolo de 1024×560 centrado num
+    // contêiner de 300px — responsivo sem medir nada via JS.
+    const MapaRegioes = ({ celulas, cor, rotulo }: { celulas: { lat: number; lng: number; total: number }[]; cor: string; rotulo: string }) => {
+      const ZOOM = 12, IW = 1024, IH = 560, VH = 300;
+      const centro = mercatorPixel(-20.4697, -54.6201, ZOOM); // Campo Grande/MS
+      const x0 = centro.x - IW / 2, y0 = centro.y - IH / 2;
+      const tiles: { tx: number; ty: number }[] = [];
+      for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + IW) / 256); tx++)
+        for (let ty = Math.floor(y0 / 256); ty <= Math.floor((y0 + IH) / 256); ty++)
+          tiles.push({ tx, ty });
+      const max = Math.max(1, ...celulas.map(c => c.total));
+      return (
+        <div style={{ position:"relative", width:"100%", height:VH, overflow:"hidden", borderRadius:14, background:"#dbe4ec", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+          <div style={{ position:"absolute", left:"50%", top:"50%", width:IW, height:IH, transform:"translate(-50%,-50%)" }}>
+            {tiles.map(({ tx, ty }) => (
+              <img key={`${tx}-${ty}`} alt="" width={256} height={256} loading="lazy"
+                src={`https://tile.openstreetmap.org/${ZOOM}/${tx}/${ty}.png`}
+                style={{ position:"absolute", left: tx * 256 - x0, top: ty * 256 - y0, width:256, height:256 }} />
+            ))}
+            {celulas.map(c => {
+              const p = mercatorPixel(c.lat, c.lng, ZOOM);
+              const left = p.x - x0, top = p.y - y0;
+              if (left < -24 || left > IW + 24 || top < -24 || top > IH + 24) return null;
+              const r = 7 + 13 * Math.sqrt(c.total / max);
+              return (
+                <div key={`${c.lat},${c.lng}`} title={`${c.total} ${rotulo}`}
+                  style={{ position:"absolute", left: left - r, top: top - r, width: r * 2, height: r * 2, borderRadius:"50%", background: cor + "66", border:`2px solid ${cor}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, color:"#fff", textShadow:"0 1px 2px rgba(0,0,0,.6)", pointerEvents:"auto" }}>
+                  {c.total > 1 ? c.total : ""}
+                </div>
+              );
+            })}
+          </div>
+          {/* Atribuição obrigatória da licença dos tiles */}
+          <div style={{ position:"absolute", right:6, bottom:4, fontSize:9, color:"#475569", background:"rgba(255,255,255,.78)", padding:"1px 6px", borderRadius:6 }}>© OpenStreetMap</div>
+        </div>
+      );
+    };
+
     // Card de barra horizontal — comparação (ex: diaristas vs empregadores)
     const CardComparacao = ({ titulo, dados }: { titulo: string; dados: { label: string; valor: number; cor: string }[] }) => {
       const total = Math.max(1, dados.reduce((s, d) => s + d.valor, 0));
@@ -22363,6 +22429,70 @@ export default function App() {
               <MiniBars data={adminSerieUsuarios} cor="#3A86FF" label="Novos usuários por dia" />
               <MiniBars data={adminSerieDiarias} cor="#f59e0b" label="Diárias criadas por dia" />
             </div>
+          </div>
+        )}
+
+        {/* ── DEMANDA POR REGIÃO — mapa de calor + ranking de bairros ── */}
+        {adminMapa && (
+          <div style={{ padding:"4px 16px 16px" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:10, flexWrap:"wrap" as const }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🗺️ Demanda por região</div>
+              <div style={{ display:"flex", gap:6 }}>
+                {[7, 30, 90].map(d => (
+                  <button key={d}
+                    style={{ padding:"4px 10px", borderRadius:8, border:"none", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", background: adminMapaDias === d ? "#0f2a4a" : "var(--bg-subtle,#f1f5f9)", color: adminMapaDias === d ? "#fff" : "var(--text-2,#64748b)" }}
+                    onClick={() => { setAdminMapaDias(d); void carregarAdminMapa(d); }}>
+                    {d}d
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Camadas: demanda (vagas publicadas) × oferta (prestadores cadastrados) */}
+            <div style={{ display:"flex", gap:6, marginBottom:10 }}>
+              <button
+                style={{ flex:1, padding:"7px 10px", borderRadius:10, border: adminMapaCamada === "demanda" ? "2px solid #FF6B35" : "1.5px solid var(--border,#e2e8f0)", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", background: adminMapaCamada === "demanda" ? "#FF6B3518" : "var(--bg-card,#fff)", color: adminMapaCamada === "demanda" ? "#FF6B35" : "var(--text-2,#64748b)" }}
+                onClick={() => setAdminMapaCamada("demanda")}>
+                🔥 Demanda ({adminMapa.demanda_grade.reduce((s, c) => s + c.total, 0)} vagas)
+              </button>
+              <button
+                style={{ flex:1, padding:"7px 10px", borderRadius:10, border: adminMapaCamada === "oferta" ? "2px solid #3A86FF" : "1.5px solid var(--border,#e2e8f0)", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", background: adminMapaCamada === "oferta" ? "#3A86FF18" : "var(--bg-card,#fff)", color: adminMapaCamada === "oferta" ? "#3A86FF" : "var(--text-2,#64748b)" }}
+                onClick={() => setAdminMapaCamada("oferta")}>
+                🧑‍🔧 Oferta ({adminMapa.oferta_grade.reduce((s, c) => s + c.total, 0)} prestadores)
+              </button>
+            </div>
+            {adminMapaCamada === "demanda"
+              ? <MapaRegioes celulas={adminMapa.demanda_grade} cor="#FF6B35" rotulo={`vaga(s) em ${adminMapaDias} dias`} />
+              : <MapaRegioes celulas={adminMapa.oferta_grade} cor="#3A86FF" rotulo="prestador(es) cadastrados" />}
+            <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:6, lineHeight:1.5 }}>
+              Cada bolha é uma célula de ~1,1 km (coordenadas agregadas). Demanda = vagas publicadas no período; oferta = prestadores visíveis com localização. Compare as duas camadas pra achar região com vaga sobrando e prestador faltando (ou o contrário).
+            </div>
+            {/* Ranking de bairros — responde "onde tem mais demanda" num relance */}
+            {adminMapa.top_bairros.length > 0 && (
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", marginTop:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:12 }}>
+                  <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)" }}>🏆 Bairros com mais vagas</div>
+                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>últimos {adminMapaDias} dias</div>
+                </div>
+                {(() => {
+                  const maxVagas = Math.max(1, ...adminMapa.top_bairros.map(b => b.vagas));
+                  return adminMapa.top_bairros.map((b, i) => (
+                    <div key={b.bairro} style={{ marginBottom:9 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:8, fontSize:12, marginBottom:3 }}>
+                        <span style={{ color:"var(--text-1,#0f172a)", fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>
+                          <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:800, marginRight:6 }}>{i + 1}º</span>{b.bairro}
+                        </span>
+                        <span style={{ color:"var(--text-2,#64748b)", fontWeight:700, flexShrink:0, fontSize:11 }}>
+                          <b style={{ color:"#FF6B35" }}>{b.vagas}</b> vaga{b.vagas === 1 ? "" : "s"} · {b.candidaturas} cand.{b.valor_medio ? ` · ~R$ ${b.valor_medio}` : ""}
+                        </span>
+                      </div>
+                      <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:4, height:6, overflow:"hidden" }}>
+                        <div style={{ background:"#FF6B35", height:6, width:`${Math.round((b.vagas / maxVagas) * 100)}%`, borderRadius:4, transition:"width .4s" }} />
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            )}
           </div>
         )}
 
