@@ -73,8 +73,34 @@ import {
   cargaHorariaConvite,
   mercatorPixel,
   MERCATOR_LAT_MAX,
+  profissionaisVerificadosUnicos,
 } from "../helpers";
 import { FUNCOES_DELIVERY } from "../constants";
+
+describe("profissionaisVerificadosUnicos", () => {
+  it("mantém um registro por profissional e preserva a ordem recebida", () => {
+    const itens = profissionaisVerificadosUnicos([
+      { user_id: "p1", user_type: "diarista", revisado_em: "mais recente" },
+      { user_id: "p1", user_type: "diarista", revisado_em: "antigo" },
+      { user_id: "p2", user_type: "ambos", revisado_em: "recente" },
+    ]);
+
+    expect(itens).toEqual([
+      { user_id: "p1", user_type: "diarista", revisado_em: "mais recente" },
+      { user_id: "p2", user_type: "ambos", revisado_em: "recente" },
+    ]);
+  });
+
+  it("não inclui anunciantes nem registros sem usuário", () => {
+    const itens = profissionaisVerificadosUnicos([
+      { user_id: "a1", user_type: "empregador" },
+      { user_id: "", user_type: "diarista" },
+      { user_id: "p1", user_type: "diarista" },
+    ]);
+
+    expect(itens).toEqual([{ user_id: "p1", user_type: "diarista" }]);
+  });
+});
 
 // ── validarCPF ────────────────────────────────────────────────────────────────
 describe("validarCPF", () => {
