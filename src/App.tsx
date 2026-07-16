@@ -24,6 +24,8 @@ import {
   Bell, MoreVertical, Smartphone, ClipboardList,
   RefreshCw, Users, FileText, Activity,
   GraduationCap, Trophy, Rocket,
+  Bike, Scooter, Utensils, Hammer, Sparkles, Scissors, ShoppingCart,
+  Car, Truck, HeartPulse, Leaf, Megaphone,
 } from "lucide-react";
 // QRCodeSVG é carregado sob demanda — economiza ~117KB gzip no startup
 const QRCodeSVG = React.lazy(() =>
@@ -181,6 +183,85 @@ function temaVisualVaga(segmento?: string | null, funcao?: string | null) {
     return { bg:"#fdf2f8", border:"#fbcfe8", accent:"#db2777", iconBg:"#fce7f3" };
   }
   return { bg:"#f8fafc", border:"#e2e8f0", accent:"#475569", iconBg:"#eef2f7" };
+}
+
+function iconeVisualVaga(segmento?: string | null, funcao?: string | null, size = 28) {
+  const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO)
+    .find(([, info]) => (info.funcoes as readonly string[]).includes(funcao || ""));
+  const categoria = funcCatEntry?.[0] || segmento || "";
+  const key = `${categoria} ${funcao || ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  const common = { size, strokeWidth: 2.2 };
+  if (key.includes("bicicleta")) return <Bike {...common} />;
+  if (key.includes("motoboy") || key.includes("delivery")) return <Scooter {...common} />;
+  if (key.includes("carro") || key.includes("van")) return <Car {...common} />;
+  if (key.includes("caminhao") || key.includes("carga") || key.includes("logistica") || key.includes("entrega")) return <Truck {...common} />;
+  if (key.includes("gastronomia") || key.includes("alimentacao") || key.includes("cozinha") || key.includes("garcom") || key.includes("pizzaiolo") || key.includes("churrasqueiro") || key.includes("lanchonete")) return <Utensils {...common} />;
+  if (key.includes("supermercado") || key.includes("varejo") || key.includes("caixa") || key.includes("loja") || key.includes("empacotador")) return <ShoppingCart {...common} />;
+  if (key.includes("domestico") || key.includes("baba") || key.includes("jardineiro")) return <Home {...common} />;
+  if (key.includes("limpeza") || key.includes("faxineira") || key.includes("passadeira")) return <Sparkles {...common} />;
+  if (key.includes("construcao") || key.includes("manutencao") || key.includes("pedreiro") || key.includes("eletricista") || key.includes("encanador") || key.includes("pintor")) return <Hammer {...common} />;
+  if (key.includes("beleza") || key.includes("estetica") || key.includes("manicure") || key.includes("barbeiro") || key.includes("cabeleireiro")) return <Scissors {...common} />;
+  if (key.includes("saude") || key.includes("cuidado") || key.includes("idoso") || key.includes("enfermagem")) return <HeartPulse {...common} />;
+  if (key.includes("agro") || key.includes("rural")) return <Leaf {...common} />;
+  if (key.includes("comercial") || key.includes("vendas") || key.includes("promotor")) return <Megaphone {...common} />;
+  if (key.includes("seguranca") || key.includes("porteiro") || key.includes("vigia")) return <ShieldCheck {...common} />;
+  if (key.includes("administrativo") || key.includes("escritorio") || key.includes("recepcionista")) return <ClipboardList {...common} />;
+  if (key.includes("eventos") || key.includes("festas")) return <CalendarDays {...common} />;
+  return <Briefcase {...common} />;
+}
+
+function visualTipoOferta(d: Pick<Diaria, "tipo_oferta" | "tipo_preco" | "valor">) {
+  if (d.tipo_oferta === "emprego") {
+    return {
+      curto: "Vaga fixa",
+      label: "Vaga de emprego",
+      valorLabel: "Salário",
+      cta: "✋ Quero me candidatar",
+      modalTitle: "Candidatar-se à vaga",
+      bg: "#eff6ff",
+      color: "#1d4ed8",
+      border: "#bfdbfe",
+    };
+  }
+  if (d.tipo_oferta === "servico") {
+    const comProposta = servicoExigeProposta(d);
+    return {
+      curto: "Serviço",
+      label: "Serviço pontual",
+      valorLabel: comProposta ? "Proposta" : "Valor",
+      cta: comProposta ? "💰 Enviar proposta" : "✋ Tenho interesse",
+      modalTitle: comProposta ? "Enviar proposta" : "Demonstrar interesse",
+      bg: "#ecfdf5",
+      color: "#047857",
+      border: "#bbf7d0",
+    };
+  }
+  if (d.tipo_oferta === "servico_empresa") {
+    return {
+      curto: "Empresa",
+      label: "Serviço para empresas",
+      valorLabel: "Valor",
+      cta: "✋ Tenho interesse",
+      modalTitle: "Demonstrar interesse",
+      bg: "#fff1f2",
+      color: "#be123c",
+      border: "#fecdd3",
+    };
+  }
+  return {
+    curto: "Diária",
+    label: "Diária",
+    valorLabel: "Valor da diária",
+    cta: "✋ Tenho interesse",
+    modalTitle: "Demonstrar interesse na diária",
+    bg: "#fff7ed",
+    color: "#c2410c",
+    border: "#fed7aa",
+  };
 }
 
 function textoRepeteTituloVaga(titulo?: string | null, texto?: string | null): boolean {
@@ -17007,15 +17088,13 @@ export default function App() {
                 </div>
               ) : (
                 vagasFiltradas.map((dia, idx) => {
-                  const segInfo = CATEGORIAS_NEGOCIO[dia.segmento as keyof typeof CATEGORIAS_NEGOCIO];
-                  const cor = segInfo?.cor || "#FF6B35";
                   const empresaNome = dia.nome_negocio || dia.segmento || "Anunciante";
                   const tituloVaga = dia.funcao || (dia.tipo_oferta === "emprego" ? "Vaga de emprego" : "Oportunidade");
-                  const iniciais = empresaIniciais(empresaNome);
                   const dataFmt = formatData(dia.data);
                   const ehServicoFeed = dia.tipo_oferta === "servico";
                   const propostaFeed = ehServicoFeed ? minhaPropostaPorVaga[dia.id] : null;
                   const temaVaga = temaVisualVaga(dia.segmento, dia.funcao);
+                  const tipoOfertaCard = visualTipoOferta(dia);
                   const valorHeader = dia.tipo_oferta === "emprego"
                     ? ((dia.salario_texto || "").trim() || "A combinar")
                     : servicoExigeProposta(dia)
@@ -17053,13 +17132,16 @@ export default function App() {
                       <div style={{ height:5, background:"#FF6B35" }} />
                       <div style={{ background:temaVaga.bg, borderBottom:`1px solid ${temaVaga.border}`, padding:"20px 18px 18px", display:"grid", gridTemplateColumns:"auto minmax(0,1fr) auto", alignItems:"center", gap:14 }}>
                         <div style={{ width:52, height:52, borderRadius:18, background:temaVaga.iconBg, color:temaVaga.accent, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                          <Briefcase size={28} strokeWidth={2.2} />
+                          {iconeVisualVaga(dia.segmento, dia.funcao)}
                         </div>
                         <div style={{ minWidth:0 }}>
                           <div style={{ fontWeight:950, fontSize:26, lineHeight:1.08, color:"var(--text-1,#0f172a)", overflowWrap:"anywhere" as const }}>
                             {tituloVaga}
                           </div>
                           <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8, flexWrap:"wrap" as const }}>
+                            <span style={{ background:tipoOfertaCard.bg, color:tipoOfertaCard.color, border:`1px solid ${tipoOfertaCard.border}`, fontSize:10, fontWeight:950, padding:"3px 9px", borderRadius:999, textTransform:"uppercase" as const, letterSpacing:0.2 }}>
+                              {tipoOfertaCard.curto}
+                            </span>
                             {destaqueCard && (
                               <span style={{ background:destaqueCard.bg, color:destaqueCard.color, fontSize:10, fontWeight:900, padding:"3px 9px", borderRadius:999, boxShadow:destaqueCard.color === "#fff" ? "0 4px 10px rgba(22,163,74,.22)" : "none" }}>
                                 {destaqueCard.label}
@@ -17073,30 +17155,14 @@ export default function App() {
                           </div>
                         </div>
                         <div style={{ justifySelf:"end", alignSelf:"start", background:"rgba(255,255,255,.72)", color:"#FF6B35", border:"1px solid rgba(255,107,53,.24)", borderRadius:999, padding:"8px 13px", minWidth:88, maxWidth:132, textAlign:"center" as const, boxShadow:"0 8px 18px rgba(15,23,42,.06)" }}>
+                          <div style={{ fontSize:9, fontWeight:900, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.35, marginBottom:2 }}>
+                            {tipoOfertaCard.valorLabel}
+                          </div>
                           <div style={{ fontWeight:950, fontSize:14, lineHeight:1.08, overflowWrap:"anywhere" as const }}>{valorHeader}</div>
                         </div>
                       </div>
 
-                      <div style={{ display:"flex", gap:14, alignItems:"flex-start", padding:16 }}>
-                        {/* Logo empresa — foto ou iniciais */}
-                        {(() => {
-                          const emp = empregadoresProfiles[dia.empregador_id];
-                          const fotoEmpStorage = supabase.storage.from("avatars").getPublicUrl(`${dia.empregador_id}.jpg`).data.publicUrl;
-                          const fotoEmpSrc = emp?.foto_url || fotoEmpStorage;
-                          return (
-                            <button
-                              aria-label={`Ver perfil de ${emp?.nome || empresaNome}`}
-                              onClick={e => { e.stopPropagation(); abrirPerfilEmpregador(dia.empregador_id); }}
-                              style={{ position:"relative", width:60, height:60, flexShrink:0, padding:0, background:"transparent", border:"none", cursor:"pointer", borderRadius:30 }}>
-                              <div style={{ width:60, height:60, borderRadius:30, background:cor, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:iniciais.length > 2 ? 18 : 22, boxShadow:`0 4px 12px ${cor}55`, letterSpacing:"-1px" }}>
-                                {iniciais}
-                              </div>
-                              <img loading="lazy" src={fotoEmpSrc} alt="" onError={e => { (e.target as HTMLImageElement).style.display="none"; }}
-                                style={{ position:"absolute", inset:0, width:60, height:60, borderRadius:30, objectFit:"cover" as const, border:`3px solid ${cor}` }} />
-                            </button>
-                          );
-                        })()}
-
+                      <div style={{ padding:16 }}>
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                             <div style={{ flex:1, minWidth:0 }}>
@@ -17290,7 +17356,7 @@ export default function App() {
                                   <button
                                     style={{ width:"100%", background:"#FF6B35", color:"#fff", border:"none", borderRadius:12, padding:"12px 22px", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:"0 4px 12px rgba(255,107,53,.4)" }}
                                     onClick={e => { e.stopPropagation(); setVagaConfirm(dia); setVagaConfirmada(false); setCartaVaga(""); setCurriculoFile(null); }}>
-                                    ✋ Tenho interesse
+                                    {tipoOfertaCard.cta}
                                   </button>
                                   <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
                                     <button
@@ -18748,6 +18814,7 @@ export default function App() {
                       <div style={{ background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:12, padding:"12px 14px", marginBottom:14 }}>
                         {[
                           { k:"Local",   v: vagaConfirm.nome_negocio || vagaConfirm.segmento },
+                          { k:"Tipo",    v: visualTipoOferta(vagaConfirm).label },
                           { k:"Função",  v: vagaConfirm.funcao || "—" },
                           { k:"Data",    v: new Date(vagaConfirm.data+"T12:00:00").toLocaleDateString("pt-BR") },
                           { k:"Horário", v: vagaConfirm.tipo_oferta === "servico" ? `${vagaConfirm.horario_inicio.slice(0,5)} · serviço pontual` : `${vagaConfirm.horario_inicio.slice(0,5)} – ${vagaConfirm.horario_fim.slice(0,5)}` },
@@ -18806,7 +18873,7 @@ export default function App() {
                   ) : (
                     /* Modal de interesse */
                     <>
-                      <h3 style={S.modalTitle}>✋ Demonstrar interesse</h3>
+                      <h3 style={S.modalTitle}>{visualTipoOferta(vagaConfirm).modalTitle}</h3>
                       {/* Foto + nome do anunciante */}
                       {(() => {
                         const emp = empregadoresProfiles[vagaConfirm.empregador_id];
@@ -18896,6 +18963,10 @@ export default function App() {
                         Ao demonstrar interesse, o anunciante receberá seu perfil e poderá te selecionar para o anúncio.
                       </p>
                       <div style={S.modalRow}><span>Local</span><strong>{vagaConfirm.nome_negocio || vagaConfirm.segmento}</strong></div>
+                      <div style={S.modalRow}>
+                        <span>Tipo</span>
+                        <strong style={{ color:visualTipoOferta(vagaConfirm).color }}>{visualTipoOferta(vagaConfirm).label}</strong>
+                      </div>
                       <div style={S.modalRow}><span>Função</span><strong>{vagaConfirm.funcao || "—"}</strong></div>
                       {/* O que precisa ser feito — pra ninguém aceitar sem saber a tarefa */}
                       {vagaConfirm.descricao && (
@@ -18940,7 +19011,7 @@ export default function App() {
                         const servicoRecebeProposta = servicoExigeProposta(vagaConfirm);
                         return (
                           <div style={{ ...S.modalRow, borderTop:"2px solid #0f172a", paddingTop:8 }}>
-                            <strong>{vagaConfirm.tipo_oferta === "emprego" ? "Salário" : servicoRecebeProposta ? "Forma de contratação" : "Valor oferecido"}</strong>
+                            <strong>{servicoRecebeProposta ? "Forma de contratação" : visualTipoOferta(vagaConfirm).valorLabel}</strong>
                             <strong style={{ color:"#FF6B35", fontSize:17 }}>
                               {vagaConfirm.tipo_oferta === "emprego"
                                 ? (vagaConfirm.salario_texto || "A combinar")
@@ -19012,7 +19083,7 @@ export default function App() {
                       {/* Trava de maioridade: só libera candidatura com documento (RG/CNH) APROVADO */}
                       {profile?.documento_status === "aprovado" ? (
                         <button style={{ ...S.btnPrimary, background:"#FF6B35", marginTop:16, opacity: enviandoInteresse ? 0.7 : 1 }} disabled={enviandoInteresse} onClick={() => demonstrarInteresse(vagaConfirm)}>
-                          {enviandoInteresse ? "Enviando..." : servicoExigeProposta(vagaConfirm) ? "💰 Enviar proposta" : "✋ Confirmar interesse"}
+                          {enviandoInteresse ? "Enviando..." : servicoExigeProposta(vagaConfirm) ? "💰 Enviar proposta" : vagaConfirm.tipo_oferta === "emprego" ? "📨 Enviar candidatura" : "✋ Confirmar interesse"}
                         </button>
                       ) : (() => {
                         const st = profile?.documento_status;
