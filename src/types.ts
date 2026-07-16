@@ -333,6 +333,9 @@ export interface Convite {
   carga_horaria?: number | null;
   origem?: string;
   tipo_solicitacao?: "diaria" | "servico" | "orcamento" | string;
+  descricao_pedido?: string | null;
+  preferencia_data?: "hoje" | "amanha" | "esta_semana" | "data" | string | null;
+  fotos_paths?: string[];
   status: string;             // 'pendente' | 'aceito' | 'recusado' | 'confirmado'
   created_at: string;
   pago_em?: string | null;                // anunciante pagou (webhook seta)

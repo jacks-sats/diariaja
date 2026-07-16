@@ -38,6 +38,7 @@ type Props = {
   profile: UserProfile | null;
   negocioSelecionado: string | null;
   isDesktop: boolean;
+  profissionalAlvo?: UserProfile | null;
   onVoltar: () => void;
   onPublicado: (diaria: Diaria) => void;
   onErro: (mensagem: string) => void;
@@ -122,6 +123,7 @@ export default function PublicarServicoEmpresa({
   profile,
   negocioSelecionado,
   isDesktop,
+  profissionalAlvo = null,
   onVoltar,
   onPublicado,
   onErro,
@@ -160,7 +162,8 @@ export default function PublicarServicoEmpresa({
     [modeloServico],
   );
 
-  const totalEstimado = numeroValor(valor) * qtdPromotores;
+  const quantidadeProfissionais = profissionalAlvo ? 1 : qtdPromotores;
+  const totalEstimado = numeroValor(valor) * quantidadeProfissionais;
   const lojaPrincipal = lojas[0];
 
   const atualizarLoja = (index: number, patch: Partial<LojaForm>) => {
@@ -218,7 +221,7 @@ export default function PublicarServicoEmpresa({
     if (!dataServico) return "Informe a data do serviço.";
     if (!inicio || !fim) return "Informe início e término.";
     if (numeroValor(valor) <= 0) return "Informe o valor da diária.";
-    if (qtdPromotores < 1 || qtdPromotores > 20) return "A quantidade de profissionais deve ficar entre 1 e 20.";
+    if (quantidadeProfissionais < 1 || quantidadeProfissionais > 20) return "A quantidade de profissionais deve ficar entre 1 e 20.";
     if (atividades.length === 0) return "Escolha pelo menos uma atividade do serviço.";
     const lojaInvalida = lojas.find((loja) => !loja.nome_loja.trim() || !loja.endereco.trim() || !loja.cidade.trim());
     if (lojaInvalida) return "Preencha nome, endereço e cidade de todas as lojas.";
@@ -255,8 +258,9 @@ export default function PublicarServicoEmpresa({
       horario_inicio: inicio,
       horario_fim: fim,
       valor: numeroValor(valor),
-      status: "aberta",
-      vagas: qtdPromotores,
+      status: profissionalAlvo ? "pendente" : "aberta",
+      diarista_aceite_id: profissionalAlvo?.id ?? null,
+      vagas: quantidadeProfissionais,
       vagas_preenchidas: 0,
       endereco,
       bairro: lojaPrincipal.bairro || null,
@@ -390,11 +394,17 @@ export default function PublicarServicoEmpresa({
 
         <div style={{ marginTop: 16, borderRadius: 18, padding: 18, background: "linear-gradient(135deg,#e11d48,#ef4444)", color: "#fff" }}>
           <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: 0.4, textTransform: "uppercase" }}>Serviços para Empresas</div>
-          <h1 style={{ margin: "4px 0 4px", fontSize: 24, lineHeight: 1.15 }}>Publicar operação de trade</h1>
+          <h1 style={{ margin: "4px 0 4px", fontSize: 24, lineHeight: 1.15 }}>{profissionalAlvo ? "Oferecer operação de trade" : "Publicar operação de trade"}</h1>
           <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45, opacity: 0.9 }}>
             Roteiro de lojas, checklist, fotos e comprovação para supermercados, atacarejos e indústrias.
           </p>
         </div>
+
+        {profissionalAlvo && (
+          <div style={{ marginTop: 12, borderRadius: 14, padding: "12px 14px", background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", fontSize: 13, fontWeight: 800 }}>
+            Oportunidade direcionada somente para {profissionalAlvo.nome}.
+          </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6, margin: "14px 0" }}>
           {[1, 2, 3, 4, 5, 6].map((n) => (
@@ -515,12 +525,20 @@ export default function PublicarServicoEmpresa({
               <label style={labelBase}>Valor por profissional *</label>
               <input style={inputBase} type="number" inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Ex: 120" />
 
-              <label style={labelBase}>Quantidade de profissionais</label>
-              <div style={{ display: "grid", gridTemplateColumns: "48px 1fr 48px", gap: 8, alignItems: "center" }}>
-                <button type="button" style={stepperBtn} onClick={() => setQtdPromotores((v) => Math.max(1, v - 1))}>−</button>
-                <div style={{ ...inputBase, textAlign: "center", fontWeight: 900 }}>{qtdPromotores}</div>
-                <button type="button" style={{ ...stepperBtn, background: "#e11d48", color: "#fff" }} onClick={() => setQtdPromotores((v) => Math.min(20, v + 1))}>+</button>
-              </div>
+              {profissionalAlvo ? (
+                <div style={{ ...inputBase, marginTop: 14, background: "#f8fafc", fontWeight: 850 }}>
+                  Profissional convidado: {profissionalAlvo.nome}
+                </div>
+              ) : (
+                <>
+                  <label style={labelBase}>Quantidade de profissionais</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "48px 1fr 48px", gap: 8, alignItems: "center" }}>
+                    <button type="button" style={stepperBtn} onClick={() => setQtdPromotores((v) => Math.max(1, v - 1))}>−</button>
+                    <div style={{ ...inputBase, textAlign: "center", fontWeight: 900 }}>{qtdPromotores}</div>
+                    <button type="button" style={{ ...stepperBtn, background: "#e11d48", color: "#fff" }} onClick={() => setQtdPromotores((v) => Math.min(20, v + 1))}>+</button>
+                  </div>
+                </>
+              )}
 
               <label style={labelBase}>Instruções adicionais</label>
               <textarea style={{ ...inputBase, height: 90, resize: "none" }} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder={modeloServico?.observacaoPlaceholder || "Ex: retirar material na portaria, falar com gerente do setor, levar documento"} />
@@ -607,7 +625,7 @@ export default function PublicarServicoEmpresa({
                   ["Data", dataServico || "—"],
                   ["Horário", `${inicio} às ${fim}`],
                   ["Lojas", String(lojas.length)],
-                  ["Profissionais", String(qtdPromotores)],
+                  ["Profissionais", profissionalAlvo ? profissionalAlvo.nome : String(qtdPromotores)],
                   ["Atividades", atividades.length ? atividades.join(", ") : "—"],
                   ["Checklist", `${checklist.length} itens`],
                   ["Valor por profissional", valor ? `R$ ${numeroValor(valor).toLocaleString("pt-BR")}` : "—"],
@@ -628,7 +646,7 @@ export default function PublicarServicoEmpresa({
             {passo > 1 && botaoNav(passo - 1, "Voltar")}
             {passo < 6 ? botaoNav(passo + 1, "Continuar") : (
               <button type="button" disabled={salvando} onClick={publicar} style={{ ...botaoPrimario, opacity: salvando ? 0.65 : 1 }}>
-                {salvando ? "Publicando..." : "Publicar serviço empresarial"}
+                {salvando ? (profissionalAlvo ? "Enviando..." : "Publicando...") : (profissionalAlvo ? "Oferecer serviço empresarial" : "Publicar serviço empresarial")}
               </button>
             )}
           </div>
