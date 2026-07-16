@@ -15446,11 +15446,10 @@ export default function App() {
 
         {/* ── ABA PERFIL ── */}
         {tabEmpregador === "perfil" && (
-          /* Desktop: coluna de 720px centralizada dentro do shell de 1100.
-             Mobile: div sem estilo = layout idêntico ao fragment anterior. */
-          <div style={ isDesktop ? { maxWidth:760, margin:"0 auto", width:"100%" } : undefined }>
+          /* Desktop: grid amplo de perfil. Mobile: layout original. */
+          <div style={ employerDesktopMode ? { display:"grid", gridTemplateColumns:"minmax(360px, 430px) minmax(0, 1fr)", gap:16, padding:"0 16px 32px", alignItems:"start" as const, width:"100%", boxSizing:"border-box" as const } : undefined }>
             {/* Barra + ⚙️ */}
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)", gridColumn:employerDesktopMode ? "1 / -1" : undefined, borderRadius:employerDesktopMode ? 16 : 0, border:employerDesktopMode ? "1px solid #d8e0ea" : undefined, boxShadow:employerDesktopMode ? "0 12px 28px rgba(15,23,42,.06)" : undefined }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
               <button
                 style={{ background:"var(--bg-subtle,#f1f5f9)", border:"none", borderRadius:12, padding:"8px 14px", fontSize:14, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:6 }}
@@ -15460,7 +15459,7 @@ export default function App() {
             </div>
 
             {/* Foto + nome + rating */}
-            <div style={S.perfilHeader}>
+            <div style={employerDesktopMode ? { ...S.perfilHeader, borderRadius:16, border:"1px solid #d8e0ea", boxShadow:"0 12px 28px rgba(15,23,42,.06)", minHeight:292, justifyContent:"center" } : S.perfilHeader}>
               <input ref={fotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
                 onChange={e => e.target.files?.[0] && handleFotoUpload(e.target.files[0])} />
               <div style={{ position:"relative", cursor:"pointer", marginBottom:10 }} onClick={() => fotoInputRef.current?.click()}>
@@ -15496,6 +15495,7 @@ export default function App() {
               </div>
             </div>
 
+            <div style={employerDesktopMode ? { gridColumn:2, minWidth:0, display:"flex", flexDirection:"column", gap:12 } : undefined}>
             {/* ── SCORE de reputação do contratante (número único, holístico) ── */}
             {(() => {
               // Completude do perfil (mesmos itens do card de completude abaixo).
@@ -15785,6 +15785,7 @@ export default function App() {
               <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setConfirmLogout(true)}>
                 Sair da conta
               </button>
+            </div>
             </div>
           </div>
         )}
@@ -17705,10 +17706,10 @@ export default function App() {
           });
 
           return (
-            <div style={ diaristaDesktopMode ? { padding:"16px 16px 32px", maxWidth:760, margin:"0 auto", width:"100%", boxSizing:"border-box" as const } : { padding:"16px 16px 32px" } }>
+            <div style={ diaristaDesktopMode ? { padding:"16px 16px 32px", width:"100%", boxSizing:"border-box" as const, display:"grid", gridTemplateColumns:"minmax(320px, 380px) minmax(0, 1fr)", gap:16, alignItems:"start" as const } : { padding:"16px 16px 32px" } }>
 
               {/* Toggle disponibilidade */}
-              <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:diaristaDesktopMode ? 0 : 16, display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn:diaristaDesktopMode ? 1 : undefined }}>
                 <div>
                   <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Disponível agora</div>
                   <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Apareça para os anunciantes</div>
@@ -17719,7 +17720,7 @@ export default function App() {
               </div>
 
               {/* Dias disponíveis */}
-              <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:20, boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:diaristaDesktopMode ? 0 : 20, boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn:diaristaDesktopMode ? 1 : undefined }}>
                 <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Dias que costumo prestar serviço</div>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
                   {DIAS.map(dia=>(
@@ -17729,10 +17730,11 @@ export default function App() {
               </div>
 
               {/* Diárias agendadas */}
-              <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:12 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:12, gridColumn:diaristaDesktopMode ? 2 : undefined }}>
                 📅 Diárias agendadas · {agendadas.length}
               </div>
 
+              <div style={diaristaDesktopMode ? { gridColumn:2 } : undefined}>
               {agendadas.length === 0 ? (
                 <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"32px 20px", textAlign:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
                   <div style={{ fontSize:40, marginBottom:10 }}>📭</div>
@@ -17865,6 +17867,7 @@ export default function App() {
                   </div>
                 ))
               )}
+              </div>
             </div>
           );
         })()}
@@ -18104,11 +18107,10 @@ export default function App() {
           // pela RPC `criar_oauth_state('mercadopago')`. URL antiga ficou abaixo
           // pra referência se algum botão de "Conectar MP" for reativado.
           return (
-          /* Desktop: coluna de 720px centralizada (mesma mecânica do anunciante).
-             Mobile: div sem estilo = layout idêntico. */
-          <div style={ isDesktop ? { maxWidth:760, margin:"0 auto", width:"100%" } : undefined }>
+          /* Desktop: grid amplo de perfil. Mobile: layout original. */
+          <div style={ diaristaDesktopMode ? { display:"grid", gridTemplateColumns:"minmax(360px, 430px) minmax(0, 1fr)", gap:16, padding:"0 16px 32px", alignItems:"start" as const, width:"100%", boxSizing:"border-box" as const } : undefined }>
             {/* Barra de boas-vindas + ⚙️ */}
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 20px 8px", background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border-sub,#f1f5f9)", gridColumn:diaristaDesktopMode ? "1 / -1" : undefined, borderRadius:diaristaDesktopMode ? 16 : 0, border:diaristaDesktopMode ? "1px solid #d8e0ea" : undefined, boxShadow:diaristaDesktopMode ? "0 12px 28px rgba(15,23,42,.06)" : undefined }}>
               <div style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Meu Perfil</div>
               <button
                 style={{ background:"var(--bg-subtle,#f1f5f9)", border:"none", borderRadius:12, padding:"8px 14px", fontSize:14, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", display:"flex", alignItems:"center", gap:6 }}
@@ -18119,7 +18121,7 @@ export default function App() {
 
             {/* Banner foto */}
             {!fotoUrl && (
-              <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"12px 20px", display:"flex", alignItems:"center", gap:12, cursor:"pointer" }}
+              <div style={{ background:"linear-gradient(135deg,#FF6B35,#f59e0b)", padding:"12px 20px", display:"flex", alignItems:"center", gap:12, cursor:"pointer", gridColumn:diaristaDesktopMode ? "1 / -1" : undefined, borderRadius:diaristaDesktopMode ? 16 : 0, boxShadow:diaristaDesktopMode ? "0 12px 28px rgba(15,23,42,.06)" : undefined }}
                 onClick={() => fotoInputRef.current?.click()}>
                 <span style={{ fontSize:24 }}>📸</span>
                 <div style={{ flex:1 }}>
@@ -18131,7 +18133,7 @@ export default function App() {
             )}
 
             {/* Card de perfil */}
-            <div style={{ ...S.perfilHeader, paddingBottom:20 }}>
+            <div style={diaristaDesktopMode ? { ...S.perfilHeader, paddingBottom:20, borderRadius:16, border:"1px solid #d8e0ea", boxShadow:"0 12px 28px rgba(15,23,42,.06)", minHeight:320, justifyContent:"center" } : { ...S.perfilHeader, paddingBottom:20 }}>
               <input ref={fotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:"none" }}
                 onChange={e => e.target.files?.[0] && handleFotoUpload(e.target.files[0])} />
               <div style={{ position:"relative", cursor:"pointer", marginBottom:10 }} onClick={() => fotoInputRef.current?.click()}>
@@ -18188,6 +18190,7 @@ export default function App() {
               </div>
             </div>
 
+            <div style={diaristaDesktopMode ? { gridColumn:2, minWidth:0, display:"flex", flexDirection:"column", gap:12 } : undefined}>
             {/* Completude do perfil — checklist com % */}
             {(() => {
               const comp = calcCompletude(
@@ -18443,6 +18446,7 @@ export default function App() {
               <button style={{ ...S.btnSecondary, color:"var(--text-2,#64748b)", borderColor:"var(--border,#e2e8f0)" }} onClick={() => setConfirmLogout(true)}>
                 Sair da conta
               </button>
+            </div>
             </div>
           </div>
           );
