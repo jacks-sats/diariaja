@@ -118,7 +118,7 @@ import {
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
   montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar, correspondeBusca,
   correspondeBuscaOportunidade, pontuarBuscaOportunidade,
-  cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta, mercatorPixel, rotuloPresencaProfissional, profissionaisVerificadosUnicos,
+  cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta, rotuloPresencaProfissional, profissionaisVerificadosUnicos,
 } from "./helpers";
 
 type HomeEmpregadorBundle = {
@@ -730,6 +730,93 @@ async function trackEvento(
   } catch {
     // Analytics não é crítico — falhas silenciosas
   }
+}
+
+// ── Mapa interativo do painel admin (Leaflet, carregado sob demanda) ─────────
+// Estilo Uber/99: arrastar, pinça pra zoom, toque na bolha abre o drill-down.
+// O Leaflet entra por import() dinâmico — vira chunk próprio e o usuário comum
+// não baixa um byte; os tiles são os MESMOS do OpenStreetMap já liberados no
+// CSP. Definido no NÍVEL DO MÓDULO (não dentro do render do App) porque o
+// Leaflet guarda estado imperativo no DOM — recriar o componente a cada render
+// destruiria e recriaria o mapa.
+type MapaCelulaAdmin = { lat: number; lng: number; total: number; precisos?: number };
+function MapaInterativoAdmin({ celulas, cor, onCelula }: {
+  celulas: MapaCelulaAdmin[];
+  cor: string;
+  onCelula?: (c: MapaCelulaAdmin) => void;
+}) {
+  const divRef  = useRef<HTMLDivElement | null>(null);
+  const mapaRef = useRef<{ L: typeof import("leaflet"); mapa: import("leaflet").Map; camada: import("leaflet").LayerGroup | null } | null>(null);
+  const [pronto, setPronto] = useState(false);
+  // Dados/callbacks mais recentes pro redesenho, sem re-inicializar o mapa.
+  const dadosRef = useRef({ celulas, cor, onCelula });
+  dadosRef.current = { celulas, cor, onCelula };
+
+  const desenhar = () => {
+    const ctx = mapaRef.current;
+    if (!ctx) return;
+    const { celulas: cels, cor: c0, onCelula: aoTocar } = dadosRef.current;
+    ctx.camada?.remove();
+    const grupo = ctx.L.layerGroup();
+    const max = Math.max(1, ...cels.map(c => c.total));
+    cels.forEach(c => {
+      // Célula 100% aproximada (geo_preciso=false em todos): tracejada e mais
+      // clara — gente empilhada no centroide de CEP/cidade, não endereço real.
+      const soAprox = (c.precisos ?? c.total) === 0;
+      const bolha = ctx.L.circleMarker([c.lat, c.lng], {
+        radius: 9 + 15 * Math.sqrt(c.total / max),
+        color: c0, weight: 2, dashArray: soAprox ? "5 5" : undefined,
+        fillColor: c0, fillOpacity: soAprox ? 0.18 : 0.4,
+      });
+      bolha.bindTooltip(String(c.total), { permanent: true, direction: "center", className: "mapa-admin-rotulo" });
+      bolha.on("click", () => aoTocar?.(c));
+      grupo.addLayer(bolha);
+    });
+    grupo.addTo(ctx.mapa);
+    ctx.camada = grupo;
+  };
+
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      const L = await import("leaflet");
+      await import("leaflet/dist/leaflet.css");
+      if (cancelado || !divRef.current || mapaRef.current) return;
+      // Rótulo central das bolhas (tooltip permanente sem "balão") — 1x por página.
+      if (!document.getElementById("mapa-admin-css")) {
+        const st = document.createElement("style");
+        st.id = "mapa-admin-css";
+        st.textContent = ".mapa-admin-rotulo{background:transparent;border:none;box-shadow:none;color:#fff;font-weight:900;font-size:11px;text-shadow:0 1px 2px rgba(0,0,0,.65);pointer-events:none;}";
+        document.head.appendChild(st);
+      }
+      const mapa = L.map(divRef.current, { center: [-20.4697, -54.6201], zoom: 12 }); // Campo Grande/MS
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(mapa);
+      mapaRef.current = { L, mapa, camada: null };
+      setPronto(true);
+      desenhar();
+      // Enquadra os dados na 1ª carga (com margem); depois o admin navega livre.
+      const cels = dadosRef.current.celulas;
+      if (cels.length > 0) {
+        mapa.fitBounds(L.latLngBounds(cels.map(c => [c.lat, c.lng] as [number, number])).pad(0.25), { maxZoom: 14 });
+      }
+    })();
+    return () => { cancelado = true; mapaRef.current?.mapa.remove(); mapaRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Troca de camada/período/dados → só redesenha as bolhas (mapa fica onde está).
+  useEffect(() => { desenhar(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [celulas, cor]);
+
+  return (
+    <div style={{ position: "relative", width: "100%", height: 340, borderRadius: 14, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,.06)", background: "#dbe4ec" }}>
+      <div ref={divRef} style={{ position: "absolute", inset: 0 }} />
+      {!pronto && (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#64748b" }}>
+          Carregando mapa…
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Verificação por WhatsApp (Edge Function verificar-whatsapp → Twilio Verify).
@@ -23137,53 +23224,6 @@ export default function App() {
       );
     };
 
-    // Mapa estático de regiões — tiles do OpenStreetMap (CSP já libera o host)
-    // + bolhas proporcionais por célula da grade (~1,1 km). Sem biblioteca de
-    // mapa: viewport fixo centrado em Campo Grande/MS (MVP é uma cidade só),
-    // posições via mercatorPixel (helpers.ts). Miolo de 1024×560 centrado num
-    // contêiner de 300px — responsivo sem medir nada via JS.
-    const MapaRegioes = ({ celulas, cor, rotulo, onCelula }: { celulas: { lat: number; lng: number; total: number; precisos?: number }[]; cor: string; rotulo: string; onCelula?: (c: { lat: number; lng: number; total: number }) => void }) => {
-      const ZOOM = 12, IW = 1024, IH = 560, VH = 300;
-      const centro = mercatorPixel(-20.4697, -54.6201, ZOOM); // Campo Grande/MS
-      const x0 = centro.x - IW / 2, y0 = centro.y - IH / 2;
-      const tiles: { tx: number; ty: number }[] = [];
-      for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + IW) / 256); tx++)
-        for (let ty = Math.floor(y0 / 256); ty <= Math.floor((y0 + IH) / 256); ty++)
-          tiles.push({ tx, ty });
-      const max = Math.max(1, ...celulas.map(c => c.total));
-      return (
-        <div style={{ position:"relative", width:"100%", height:VH, overflow:"hidden", borderRadius:14, background:"#dbe4ec", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
-          <div style={{ position:"absolute", left:"50%", top:"50%", width:IW, height:IH, transform:"translate(-50%,-50%)" }}>
-            {tiles.map(({ tx, ty }) => (
-              <img key={`${tx}-${ty}`} alt="" width={256} height={256} loading="lazy"
-                src={`https://tile.openstreetmap.org/${ZOOM}/${tx}/${ty}.png`}
-                style={{ position:"absolute", left: tx * 256 - x0, top: ty * 256 - y0, width:256, height:256 }} />
-            ))}
-            {celulas.map(c => {
-              const p = mercatorPixel(c.lat, c.lng, ZOOM);
-              const left = p.x - x0, top = p.y - y0;
-              if (left < -24 || left > IW + 24 || top < -24 || top > IH + 24) return null;
-              const r = 7 + 13 * Math.sqrt(c.total / max);
-              // Célula 100% aproximada (centroide de CEP/cidade — geo_preciso
-              // false em todos): tracejada e mais clara, pra não parecer um
-              // "bairro lotado" que na real é gente sem endereço preciso.
-              const soAproximados = (c.precisos ?? c.total) === 0;
-              return (
-                <div key={`${c.lat},${c.lng}`} role="button" tabIndex={0}
-                  title={`${c.total} ${rotulo}${soAproximados ? " (localização aproximada)" : ""} — toque pra ver a lista`}
-                  onClick={() => onCelula?.(c)}
-                  style={{ position:"absolute", left: left - r, top: top - r, width: r * 2, height: r * 2, borderRadius:"50%", background: cor + (soAproximados ? "2e" : "66"), border:`2px ${soAproximados ? "dashed" : "solid"} ${cor}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:900, color:"#fff", textShadow:"0 1px 2px rgba(0,0,0,.6)", pointerEvents:"auto", cursor: onCelula ? "pointer" : "default" }}>
-                  {c.total > 1 ? c.total : ""}
-                </div>
-              );
-            })}
-          </div>
-          {/* Atribuição obrigatória da licença dos tiles */}
-          <div style={{ position:"absolute", right:6, bottom:4, fontSize:9, color:"#475569", background:"rgba(255,255,255,.78)", padding:"1px 6px", borderRadius:6 }}>© OpenStreetMap</div>
-        </div>
-      );
-    };
-
     // Card de barra horizontal — comparação (ex: diaristas vs empregadores)
     const CardComparacao = ({ titulo, dados }: { titulo: string; dados: { label: string; valor: number; cor: string }[] }) => {
       const total = Math.max(1, dados.reduce((s, d) => s + d.valor, 0));
@@ -23595,8 +23635,8 @@ export default function App() {
               </button>
             </div>
             {adminMapaCamada === "demanda"
-              ? <MapaRegioes celulas={adminMapa.demanda_grade} cor="#FF6B35" rotulo={adminMapaAbertas ? "vaga(s) abertas" : `vaga(s) em ${adminMapaDias} dias`} onCelula={c => { void abrirDrillRegiao("demanda", c); }} />
-              : <MapaRegioes celulas={adminMapa.oferta_grade} cor="#3A86FF" rotulo="prestador(es) cadastrados" onCelula={c => { void abrirDrillRegiao("oferta", c); }} />}
+              ? <MapaInterativoAdmin celulas={adminMapa.demanda_grade} cor="#FF6B35" onCelula={c => { void abrirDrillRegiao("demanda", c); }} />
+              : <MapaInterativoAdmin celulas={adminMapa.oferta_grade} cor="#3A86FF" onCelula={c => { void abrirDrillRegiao("oferta", c); }} />}
             {(() => {
               const celulas = adminMapaCamada === "demanda" ? adminMapa.demanda_grade : adminMapa.oferta_grade;
               const aprox = celulas.reduce((s, c) => s + (c.total - (c.precisos ?? c.total)), 0);
@@ -23607,7 +23647,7 @@ export default function App() {
               ) : null;
             })()}
             <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:6, lineHeight:1.5 }}>
-              Cada bolha é uma célula de ~1,1 km (coordenadas agregadas) — <b>toque numa bolha</b> pra ver a lista do que tem nela. Demanda = {adminMapaAbertas ? "vagas abertas agora (dá pra pegar)" : "vagas publicadas no período"}; oferta = prestadores visíveis com localização. Compare as duas camadas pra achar região com vaga sobrando e prestador faltando (ou o contrário).
+              <b>Arraste</b> e faça <b>pinça pra zoom</b>, como no Uber — e <b>toque numa bolha</b> pra ver a lista do que tem nela. Cada bolha é uma célula de ~1,1 km (coordenadas agregadas). Demanda = {adminMapaAbertas ? "vagas abertas agora (dá pra pegar)" : "vagas publicadas no período"}; oferta = prestadores visíveis com localização. Compare as duas camadas pra achar região com vaga sobrando e prestador faltando (ou o contrário).
             </div>
             {/* Ranking de bairros — responde "onde tem mais demanda" num relance */}
             {adminMapa.top_bairros.length > 0 && (
