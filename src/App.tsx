@@ -117,7 +117,7 @@ import {
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
   calcularNivelAcademy, contatoLiberado, faseCiclo, vezDoCiclo, documentoAprovado,
   montarTextoVaga, linkVaga, rotuloPrecoVaga, precoDiariaParaSalvar, planoSelecao, extrairPrimeiroLink, mensagemDoPar, correspondeBusca,
-  cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta, mercatorPixel, rotuloPresencaProfissional,
+  cargaHorariaConvite, gerarReciboPDF, servicoExigeProposta, mercatorPixel, rotuloPresencaProfissional, profissionaisVerificadosUnicos,
 } from "./helpers";
 
 type HomeEmpregadorBundle = {
@@ -130,6 +130,14 @@ type GeoComPrecisao = {
   lat?: number | null;
   lng?: number | null;
   geo_preciso?: boolean | null;
+};
+
+type AdminDocumentoVerificado = {
+  user_id: string;
+  nome: string;
+  user_type: string;
+  documento_url: string;
+  documento_revisado_em: string;
 };
 
 function coordenadaValida(valor: number | null | undefined): valor is number {
@@ -739,6 +747,7 @@ export default function App() {
   const [categoriasSelecionadas, setCategorias] = useState<string[]>([]);
   const [disponivelAgora, setDisponivel]  = useState(false);
   const [aparecerProfissionais, setAparecerProfissionais] = useState(false);
+  const disponivelParaOportunidades = disponivelAgora && aparecerProfissionais;
   const [filtroFuncao, setFiltroFuncao]   = useState("Todos");
   const [filtroDisp, setFiltroDisp]       = useState(false);
   // Busca livre do dashboard desktop do anunciante (nome, categoria, bairro ou
@@ -994,6 +1003,12 @@ export default function App() {
     taxa_conclusao_pct: number; cursos_concluidos: number; candidaturas_total: number;
     avaliacoes_medias_dia: number; assinaturas_ativas: number;
   } | null>(null);
+  const [adminContadoresOportunidades, setAdminContadoresOportunidades] = useState<{
+    total_usuarios: number;
+    total_diarias: number;
+    total_servicos: number;
+    total_vagas_emprego: number;
+  } | null>(null);
   const [adminSerieUsuarios, setAdminSerieUsuarios] = useState<{ dia: string; valor: number }[]>([]);
   const [adminSerieDiarias, setAdminSerieDiarias]   = useState<{ dia: string; valor: number }[]>([]);
   const [adminSerieAtivos, setAdminSerieAtivos]     = useState<{ dia: string; valor: number }[]>([]);
@@ -1107,7 +1122,8 @@ export default function App() {
   const [enviandoAntecedentes, setEnviandoAntecedentes] = useState(false);
   const [adminDocsPendentes, setAdminDocsPendentes] = useState<{user_id:string; nome:string; user_type:string; documento_url:string; documento_enviado_em:string}[]>([]);
   // Admin — usuários com documento já verificado (KYC aprovado)
-  const [adminDocsVerificados, setAdminDocsVerificados] = useState<{user_id:string; nome:string; user_type:string; documento_url:string; documento_revisado_em:string}[]>([]);
+  const [adminDocsVerificados, setAdminDocsVerificados] = useState<AdminDocumentoVerificado[]>([]);
+  const [modalAdminVerificados, setModalAdminVerificados] = useState(false);
   const [docRevisao, setDocRevisao]               = useState<{user_id:string; nome:string; url:string; signedUrl?:string; erro?:string} | null>(null);
   const [docImgErro, setDocImgErro]               = useState(false);
   const [docMotivoRejeicao, setDocMotivoRejeicao] = useState("");
@@ -3986,33 +4002,6 @@ export default function App() {
     return { profissao, descricao, cidade, bairro, pendencias };
   };
 
-  const alternarPerfilEmProfissionais = async () => {
-    const ativar = !aparecerProfissionais;
-    const dados = dadosPublicacaoProfissional();
-    if (ativar && dados.pendencias.length > 0) {
-      setToastError(`Complete seu perfil para aparecer: ${dados.pendencias.join(", ")}.`);
-      setTela("editar-perfil");
-      return;
-    }
-
-    const ok = await saveProfile({
-      visibilidade: ativar
-        ? (profile?.visibilidade === "DESTAQUE" ? "DESTAQUE" : "CATALOGO")
-        : "OFF",
-      profissao_principal: dados.profissao,
-      descricao_curta: dados.descricao,
-      catalogo_cidade: dados.cidade,
-      catalogo_bairro: dados.bairro,
-      catalogo_atualizado_em: new Date().toISOString(),
-    });
-    if (!ok) return;
-
-    setAparecerProfissionais(ativar);
-    setToastSuccess(ativar
-      ? "Seu perfil agora aparece em Profissionais."
-      : "Seu perfil foi removido de Profissionais.");
-  };
-
   // Traduz mensagens de erro brutas do Supabase para pt-BR
   const traduzirErroAuth = (msg: string): string => {
     const m = msg.toLowerCase();
@@ -5530,7 +5519,7 @@ export default function App() {
       const { data, error } = await supabase.rpc("admin_stats");
       if (!error && data?.[0]) setAdminStats(data[0] as AdminStats);
       // Em paralelo: extras + 2 séries temporais pra os gráficos
-      const [extras, serieU, serieD, retencao, serieA, serieC, novosLado, retencaoLado] = await Promise.all([
+      const [extras, serieU, serieD, retencao, serieA, serieC, novosLado, retencaoLado, contadores] = await Promise.all([
         supabase.rpc("admin_metricas_extras"),
         supabase.rpc("admin_metricas_serie", { p_metrica: "novos_usuarios", p_dias: 14 }),
         supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_criadas", p_dias: 14 }),
@@ -5539,6 +5528,7 @@ export default function App() {
         supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_concluidas", p_dias: 14 }),
         supabase.rpc("admin_novos_por_lado"),
         supabase.rpc("admin_retencao_por_lado"),
+        supabase.rpc("admin_contadores_oportunidades"),
       ]);
       if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
       if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
@@ -5551,6 +5541,15 @@ export default function App() {
       // Novos por lado é opcional: degrada se a função SQL ainda não foi aplicada.
       if (!novosLado.error && novosLado.data?.[0]) setAdminNovosLado(novosLado.data[0]);
       if (!retencaoLado.error && retencaoLado.data) setAdminRetencaoLado(retencaoLado.data as AdminRetencaoPorLadoItem[]);
+      if (!contadores.error && contadores.data?.[0]) {
+        const c = contadores.data[0];
+        setAdminContadoresOportunidades({
+          total_usuarios: Number(c.total_usuarios || 0),
+          total_diarias: Number(c.total_diarias || 0),
+          total_servicos: Number(c.total_servicos || 0),
+          total_vagas_emprego: Number(c.total_vagas_emprego || 0),
+        });
+      }
       // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
       const fin = await supabase.rpc("admin_resumo_financeiro");
       if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
@@ -6060,7 +6059,9 @@ export default function App() {
     if (!profile?.is_admin) return;
     const { data, error } = await supabase.rpc("admin_documentos_verificados");
     if (error) setToastError(traduzirErroBanco(error));
-    else if (data) setAdminDocsVerificados(data as any);
+    else if (data) setAdminDocsVerificados(
+      profissionaisVerificadosUnicos(data as AdminDocumentoVerificado[]),
+    );
   };
 
   // Anunciante: abre o currículo (PDF) de um candidato de vaga via URL assinada.
@@ -8361,17 +8362,48 @@ export default function App() {
     }
   };
 
-  // Salva disponibilidade no banco ao clicar no toggle
+  // Um único controle governa as duas faces da disponibilidade: aparecer no
+  // feed de oportunidades e poder ser encontrado em Profissionais.
   const handleToggleDisponivel = async () => {
-    const valorAnterior = disponivelAgora;
-    const novoValor = !disponivelAgora;
-    setDisponivel(novoValor);  // otimista
-    const ok = await saveProfile({ disponivel: novoValor });
-    if (!ok) {
-      // M5: reverte o toggle se o save falhar, pra UI não divergir do banco.
-      setDisponivel(valorAnterior);
-      setToastError("Não foi possível salvar a disponibilidade. Tente de novo.");
+    const disponivelAnterior = disponivelAgora;
+    const catalogoAnterior = aparecerProfissionais;
+    const novoValor = !disponivelParaOportunidades;
+    const dados = dadosPublicacaoProfissional();
+
+    if (novoValor && dados.pendencias.length > 0) {
+      setToastError(`Complete seu perfil para ficar disponível: ${dados.pendencias.join(", ")}.`);
+      setTela("editar-perfil");
+      return;
     }
+
+    setDisponivel(novoValor);
+    setAparecerProfissionais(novoValor);
+
+    const atualizacao: Partial<UserProfile> = {
+      disponivel: novoValor,
+      visibilidade: novoValor
+        ? (profile?.visibilidade === "DESTAQUE" ? "DESTAQUE" : "CATALOGO")
+        : "OFF",
+    };
+    if (novoValor) {
+      atualizacao.profissao_principal = dados.profissao;
+      atualizacao.descricao_curta = dados.descricao;
+      atualizacao.catalogo_cidade = dados.cidade;
+      atualizacao.catalogo_bairro = dados.bairro;
+      atualizacao.catalogo_atualizado_em = new Date().toISOString();
+    }
+
+    const ok = await saveProfile(atualizacao);
+    if (!ok) {
+      setDisponivel(disponivelAnterior);
+      setAparecerProfissionais(catalogoAnterior);
+      setToastError("Não foi possível salvar a disponibilidade. Tente de novo.");
+      return;
+    }
+
+    setToastSuccess(novoValor
+      ? "Você está disponível para clientes e anunciantes."
+      : "Sua disponibilidade foi pausada.");
   };
 
   // Salva agenda no banco ao clicar num dia
@@ -17287,58 +17319,34 @@ export default function App() {
             <div style={{ margin:"12px 16px 0", background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 1px 6px rgba(0,0,0,.07)", border:"1.5px solid var(--border,#e2e8f0)" }}>
               <div>
                 <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>
-                  {disponivelAgora ? "🟢 Disponível agora" : "⚫ Indisponível"}
+                  {disponivelParaOportunidades ? "🟢 Disponível agora" : "⚫ Indisponível"}
                 </div>
                 <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
-                  {disponivelAgora ? "Você aparece para os empregadores" : "Toque para aparecer para empregadores"}
+                  {disponivelParaOportunidades
+                    ? "Você aparece para clientes e anunciantes"
+                    : "Ative para receber serviços e oportunidades"}
                 </div>
               </div>
-              <div style={{ ...S.toggle, ...(disponivelAgora ? S.toggleAtivo : {}) }} onClick={handleToggleDisponivel}>
-                <div style={{ ...S.toggleThumb, ...(disponivelAgora ? S.toggleThumbAtivo : {}) }} />
-              </div>
+              <button
+                type="button"
+                aria-label={disponivelParaOportunidades ? "Pausar disponibilidade" : "Ficar disponível"}
+                aria-pressed={disponivelParaOportunidades}
+                disabled={salvandoPerfil}
+                onClick={handleToggleDisponivel}
+                style={{ ...S.toggle, ...(disponivelParaOportunidades ? S.toggleAtivo : {}), border:"none", padding:0, flexShrink:0, cursor:salvandoPerfil ? "wait" : "pointer", opacity:salvandoPerfil ? .6 : 1 }}>
+                <div style={{ ...S.toggleThumb, ...(disponivelParaOportunidades ? S.toggleThumbAtivo : {}) }} />
+              </button>
             </div>
 
-            {(() => {
-              const dados = dadosPublicacaoProfissional();
-              const pronto = dados.pendencias.length === 0;
-              return (
-                <div style={{ margin:"8px 16px 0", background:aparecerProfissionais && pronto ? "#f0fdf4" : "var(--bg-card,#fff)", borderRadius:14, padding:"13px 16px", boxShadow:"0 1px 6px rgba(0,0,0,.07)", border:`1.5px solid ${aparecerProfissionais && pronto ? "#86efac" : "var(--border,#e2e8f0)"}` }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-                    <div style={{ width:38, height:38, borderRadius:12, background:aparecerProfissionais && pronto ? "#dcfce7" : "#eff6ff", color:aparecerProfissionais && pronto ? "#16a34a" : "#2563eb", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                      <Users size={20} />
-                    </div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontWeight:900, fontSize:14, color:"var(--text-1,#0f172a)" }}>Receber solicitações de serviço</div>
-                      <div style={{ fontSize:11.5, color:"var(--text-2,#64748b)", marginTop:2, lineHeight:1.4 }}>
-                        {aparecerProfissionais && pronto
-                          ? "Seu perfil está visível em Profissionais."
-                          : pronto
-                            ? "Ative para clientes encontrarem e chamarem você."
-                            : `Complete: ${dados.pendencias.join(", ")}.`}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      aria-label={aparecerProfissionais ? "Parar de receber solicitações de serviço" : "Receber solicitações de serviço"}
-                      aria-pressed={aparecerProfissionais}
-                      disabled={salvandoPerfil}
-                      onClick={alternarPerfilEmProfissionais}
-                      style={{ ...S.toggle, ...(aparecerProfissionais ? S.toggleAtivo : {}), border:"none", padding:0, flexShrink:0, cursor:salvandoPerfil ? "wait" : "pointer", opacity:salvandoPerfil ? .6 : 1 }}>
-                      <div style={{ ...S.toggleThumb, ...(aparecerProfissionais ? S.toggleThumbAtivo : {}) }} />
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFiltroTipoOportunidade("servico");
-                      setTimeout(() => document.getElementById("oportunidades-prestador")?.scrollIntoView({ behavior:"smooth", block:"start" }), 0);
-                    }}
-                    style={{ width:"100%", marginTop:11, minHeight:38, borderRadius:11, border:"1.5px solid #bfdbfe", background:"#eff6ff", color:"#1d4ed8", display:"flex", alignItems:"center", justifyContent:"center", gap:7, fontSize:12.5, fontWeight:850, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
-                    <Hammer size={15} /> Ver serviços disponíveis
-                  </button>
-                </div>
-              );
-            })()}
+            <button
+              type="button"
+              onClick={() => {
+                setFiltroTipoOportunidade("servico");
+                setTimeout(() => document.getElementById("oportunidades-prestador")?.scrollIntoView({ behavior:"smooth", block:"start" }), 0);
+              }}
+              style={{ width:"calc(100% - 32px)", margin:"8px 16px 0", minHeight:42, borderRadius:12, border:"1.5px solid #bfdbfe", background:"#eff6ff", color:"#1d4ed8", display:"flex", alignItems:"center", justifyContent:"center", gap:7, fontSize:12.5, fontWeight:850, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+              <Hammer size={15} /> Ver serviços disponíveis
+            </button>
 
             {/* Stats rápidas: nível + ganhos do mês */}
             {(() => {
@@ -18338,11 +18346,17 @@ export default function App() {
               <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", marginBottom:diaristaDesktopMode ? 0 : 16, display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,.05)", gridColumn:diaristaDesktopMode ? 1 : undefined }}>
                 <div>
                   <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)" }}>Disponível agora</div>
-                  <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Apareça para os anunciantes</div>
+                  <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Apareça para clientes e anunciantes</div>
                 </div>
-                <div style={{ ...S.toggle, ...(disponivelAgora?S.toggleAtivo:{}) }} onClick={handleToggleDisponivel}>
-                  <div style={{ ...S.toggleThumb, ...(disponivelAgora?S.toggleThumbAtivo:{}) }} />
-                </div>
+                <button
+                  type="button"
+                  aria-label={disponivelParaOportunidades ? "Pausar disponibilidade" : "Ficar disponível"}
+                  aria-pressed={disponivelParaOportunidades}
+                  disabled={salvandoPerfil}
+                  style={{ ...S.toggle, ...(disponivelParaOportunidades?S.toggleAtivo:{}), border:"none", padding:0, cursor:salvandoPerfil ? "wait" : "pointer", opacity:salvandoPerfil ? .6 : 1 }}
+                  onClick={handleToggleDisponivel}>
+                  <div style={{ ...S.toggleThumb, ...(disponivelParaOportunidades?S.toggleThumbAtivo:{}) }} />
+                </button>
               </div>
 
               {/* Dias disponíveis */}
@@ -22999,20 +23013,35 @@ export default function App() {
     const voltarTela = modoAtual === "diarista" ? "home-diarista" : "home-empregador";
     const tk = adminTickets;
     // Card stat clicável que abre drill-down. Se `drillTipo` é null, não é clicável.
-    const cardStat = (label: string, valor: number | string, cor: string, icone: React.ReactNode, drillTipo?: string) => (
-      <div role={drillTipo ? "button" : undefined} tabIndex={drillTipo ? 0 : undefined}
-        style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft, display:"flex", alignItems:"center", gap:10, cursor: drillTipo ? "pointer" : "default", transition:"transform .1s" }}
-        onClick={() => { if (drillTipo) abrirDrillAdmin(drillTipo, label, typeof icone === "string" ? icone : ""); }}>
-        <div style={{ width:40, height:40, background:cor+"18", color:cor, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
-          {typeof icone === "string" ? icone : icone}
+    const cardStat = (
+      label: string,
+      valor: number | string,
+      cor: string,
+      icone: React.ReactNode,
+      drillTipo?: string,
+      onActivate?: () => void,
+    ) => {
+      const interativo = !!(drillTipo || onActivate);
+      const ativar = () => {
+        if (onActivate) onActivate();
+        else if (drillTipo) abrirDrillAdmin(drillTipo, label, typeof icone === "string" ? icone : "");
+      };
+      return (
+        <div role={interativo ? "button" : undefined} tabIndex={interativo ? 0 : undefined}
+          style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft, display:"flex", alignItems:"center", gap:10, cursor: interativo ? "pointer" : "default", transition:"transform .1s" }}
+          onClick={interativo ? ativar : undefined}
+          onKeyDown={interativo ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ativar(); } } : undefined}>
+          <div style={{ width:40, height:40, background:cor+"18", color:cor, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
+            {icone}
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>{label}</div>
+            <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1 }}>{valor}</div>
+          </div>
+          {interativo && <ChevronRight size={16} style={{ color:"#cbd5e1", flexShrink:0 }} />}
         </div>
-        <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>{label}</div>
-          <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1 }}>{valor}</div>
-        </div>
-        {drillTipo && <ChevronRight size={16} style={{ color:"#cbd5e1", flexShrink:0 }} />}
-      </div>
-    );
+      );
+    };
 
     // Mini-gráfico de barras CSS puro pra séries temporais
     const MiniBars = ({ data, cor, label }: { data: { dia: string; valor: number }[]; cor: string; label: string }) => {
@@ -23181,21 +23210,27 @@ export default function App() {
 
         {/* ═══════════ BLOCO 1 — ESSENCIAL (sempre visível) ═══════════ */}
         <div style={{ padding:"16px 16px 4px" }}>
+          <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(4, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
+            {cardStat("Usuários", adminContadoresOportunidades?.total_usuarios ?? adminStats?.total_usuarios ?? "—", "#3A86FF", <Users size={19} />, "usuarios_total")}
+            {cardStat("Diárias", adminContadoresOportunidades?.total_diarias ?? "—", "#f59e0b", <CalendarDays size={19} />)}
+            {cardStat("Serviços", adminContadoresOportunidades?.total_servicos ?? "—", "#16a34a", <Hammer size={19} />)}
+            {cardStat("Vagas de emprego", adminContadoresOportunidades?.total_vagas_emprego ?? "—", "#a855f7", <Briefcase size={19} />)}
+          </div>
           {/* Frase de estado pra bater o olho */}
           {adminExtras && (
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", marginBottom:10, fontSize:13.5, fontWeight:800, color:"var(--text-1,#0f172a)", lineHeight:1.45, textAlign:"center" as const }}>
-              {ult7(adminSerieDiarias)} diárias esta semana · {adminExtras.total_empregadores} contratantes · {adminExtras.total_diaristas} diaristas
+              {ult7(adminSerieDiarias)} oportunidades esta semana · {adminExtras.total_empregadores} contratantes · {adminExtras.total_diaristas} prestadores
             </div>
           )}
-          {/* Diárias criadas e concluídas (hoje + 7 dias) — o número mais importante */}
+          {/* Oportunidades criadas e concluídas (hoje + 7 dias) */}
           <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
-              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>📋 Diárias criadas</div>
+              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>📋 Oportunidades criadas</div>
               <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1, marginTop:3 }}>{hojeV(adminSerieDiarias)} <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>hoje</span></div>
               <div style={{ fontSize:12, color:"var(--text-2,#64748b)", fontWeight:700, marginTop:2 }}>{ult7(adminSerieDiarias)} em 7 dias</div>
             </div>
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
-              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>✅ Diárias concluídas</div>
+              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>✅ Oportunidades concluídas</div>
               <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1, marginTop:3 }}>{hojeV(adminSerieConcluidas)} <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>hoje</span></div>
               <div style={{ fontSize:12, color:"var(--text-2,#64748b)", fontWeight:700, marginTop:2 }}>{ult7(adminSerieConcluidas)} em 7 dias</div>
             </div>
@@ -23248,7 +23283,14 @@ export default function App() {
             {cardStat("Online agora", adminStats ? adminStats.online_agora : 0, "#16a34a", <Activity size={19} />, "online_agora")}
             {cardStat("Tickets abertos", adminStats ? adminStats.tickets_abertos : 0, "#ef4444", <Inbox size={19} />, "tickets_abertos")}
             {cardStat("KYC pendente", adminDocsPendentes.length, "#f59e0b", <FileText size={19} />)}
-            {cardStat("Verificados", adminDocsVerificados.length, "#16a34a", <ShieldCheck size={19} />)}
+            {cardStat(
+              "Profissionais verificados",
+              adminDocsVerificados.length,
+              "#16a34a",
+              <ShieldCheck size={19} />,
+              undefined,
+              () => setModalAdminVerificados(true),
+            )}
             {cardStat("Antecedentes pend.", adminAntecedentesPendentes.length, "#a855f7", <ClipboardList size={19} />)}
           </div>
         </div>
@@ -23270,7 +23312,7 @@ export default function App() {
               {cardStat("Online agora", adminStats.online_agora, "#16a34a", "🟢", "online_agora")}
               {cardStat("Novos hoje", adminStats.novos_hoje, "#FF6B35", "✨", "novos_hoje")}
               {cardStat("Últimos 7 dias", adminStats.novos_semana, "#a855f7", "📈", "novos_semana")}
-              {cardStat("Diárias ativas", adminStats.diarias_ativas, "#f59e0b", "💼", "diarias_ativas")}
+              {cardStat("Oportunidades ativas", adminStats.diarias_ativas, "#f59e0b", "💼", "diarias_ativas")}
               {cardStat("Tickets abertos", adminStats.tickets_abertos, "#ef4444", "📨", "tickets_abertos")}
             </div>
           ) : (
@@ -23334,7 +23376,7 @@ export default function App() {
             <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📊 Tendências (14 dias)</div>
             <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
               <MiniBars data={adminSerieUsuarios} cor="#3A86FF" label="Novos usuários por dia" />
-              <MiniBars data={adminSerieDiarias} cor="#f59e0b" label="Diárias criadas por dia" />
+              <MiniBars data={adminSerieDiarias} cor="#f59e0b" label="Oportunidades criadas por dia" />
             </div>
           </div>
         )}
@@ -23471,7 +23513,7 @@ export default function App() {
                 ]}
               />
               <CardComparacao
-                titulo="Funil de diárias"
+                titulo="Funil de oportunidades"
                 dados={[
                   { label:"Concluídas ✓", valor: adminExtras.diarias_concluidas, cor:"#16a34a" },
                   { label:"Canceladas ✗", valor: adminExtras.diarias_canceladas, cor:"#ef4444" },
@@ -23485,7 +23527,7 @@ export default function App() {
                 {cardStat("Assinaturas ativas", adminExtras.assinaturas_ativas, "#a855f7", "💎")}
                 {cardStat("Cursos concluídos", adminExtras.cursos_concluidos, "#FF6B35", "🎓")}
                 {cardStat("Avaliação média", adminExtras.avaliacoes_medias_dia ? `${Number(adminExtras.avaliacoes_medias_dia).toFixed(1)}★` : "—", "#fbbf24", "⭐")}
-                {cardStat("Total diárias", adminExtras.diarias_total, "#64748b", "💼")}
+                {cardStat("Total oportunidades", adminExtras.diarias_total, "#64748b", "💼")}
               </div>
             </div>
           </div>
@@ -23565,40 +23607,6 @@ export default function App() {
                       </div>
                     </div>
                     <span style={{ background:"rgba(245,158,11,.18)", color:"#f59e0b", fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>Revisar</span>
-                  </div>
-                </div>
-              );})}
-            </div>
-          )}
-        </div>
-
-        {/* Documentos verificados (KYC aprovado) */}
-        <div style={{ padding:"4px 16px 24px" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>✅ Documentos verificados</div>
-            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{adminDocsVerificados.length} verificado{adminDocsVerificados.length !== 1 ? "s" : ""}</div>
-          </div>
-          {adminDocsVerificados.length === 0 ? (
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
-              Nenhum usuário com documento verificado ainda.
-            </div>
-          ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              {adminDocsVerificados.map(d => { const tipoDoc = /\/cnh_/i.test(d.documento_url) ? "CNH" : /\/rg_/i.test(d.documento_url) ? "RG" : "Documento"; return (
-                <div key={d.user_id}
-                  style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", cursor:"pointer", borderLeft:"4px solid #16a34a" }}
-                  onClick={() => abrirDocParaRevisao(d)}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontWeight:800, fontSize:14, color:"var(--text-1,#0f172a)", display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
-                        {d.nome || "Usuário"}
-                        <span style={{ background:"rgba(58,134,255,.14)", color:"#3A86FF", fontSize:10, fontWeight:900, borderRadius:6, padding:"1px 7px", textTransform:"uppercase" as const, letterSpacing:0.3 }}>{tipoDoc}</span>
-                      </div>
-                      <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
-                        {d.user_type === "diarista" ? "👷 Prestador" : "🏢 Anunciante"} · Verificado {d.documento_revisado_em ? new Date(d.documento_revisado_em).toLocaleDateString("pt-BR") : "—"}
-                      </div>
-                    </div>
-                    <span style={{ background:"rgba(22,163,74,.16)", color:"#16a34a", fontSize:10, fontWeight:900, borderRadius:8, padding:"3px 8px", textTransform:"uppercase" as const, letterSpacing:0.3, flexShrink:0 }}>Verificado</span>
                   </div>
                 </div>
               );})}
@@ -23784,6 +23792,99 @@ export default function App() {
                         <div style={{ fontSize:11, color:"var(--text-2,#64748b)" }}>{item.subtitulo}</div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: profissionais com documento verificado */}
+        {modalAdminVerificados && (
+          <div
+            style={{
+              position:"fixed",
+              inset:0,
+              background:"rgba(15,23,42,.72)",
+              zIndex:650,
+              display:"flex",
+              alignItems:isDesktop ? "center" : "flex-end",
+              justifyContent:"center",
+              padding:isDesktop ? 24 : 0,
+            }}
+            onClick={() => setModalAdminVerificados(false)}>
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="titulo-profissionais-verificados"
+              style={{
+                background:"var(--bg-card,#fff)",
+                borderRadius:isDesktop ? 20 : "22px 22px 0 0",
+                width:"100%",
+                maxWidth:isDesktop ? 680 : LARGURA_APP_MOVEL,
+                maxHeight:isDesktop ? "82vh" : "88vh",
+                display:"flex",
+                flexDirection:"column" as const,
+                boxShadow:"0 24px 60px rgba(15,23,42,.28)",
+              }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ padding:"18px 20px 14px", borderBottom:"1px solid var(--border-sub,#f1f5f9)", display:"flex", alignItems:"center", gap:12 }}>
+                <div style={{ width:42, height:42, borderRadius:12, background:"rgba(22,163,74,.12)", color:"#16a34a", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                  <ShieldCheck size={22} />
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div id="titulo-profissionais-verificados" style={{ fontSize:17, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Profissionais verificados</div>
+                  <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                    {adminDocsVerificados.length} {adminDocsVerificados.length === 1 ? "perfil único" : "perfis únicos"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  title="Fechar"
+                  aria-label="Fechar profissionais verificados"
+                  onClick={() => setModalAdminVerificados(false)}
+                  style={{ width:38, height:38, borderRadius:10, border:"1px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)", color:"var(--text-2,#64748b)", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0 }}>
+                  <X size={19} />
+                </button>
+              </div>
+
+              <div style={{ overflowY:"auto" as const, padding:"14px 16px 20px" }}>
+                {adminDocsVerificados.length === 0 ? (
+                  <div style={{ padding:"36px 18px", textAlign:"center" as const }}>
+                    <ShieldCheck size={34} style={{ color:"#cbd5e1", marginBottom:10 }} />
+                    <div style={{ fontSize:14, fontWeight:800, color:"var(--text-1,#0f172a)" }}>Nenhum profissional verificado</div>
+                    <div style={{ fontSize:12, color:"var(--text-2,#64748b)", marginTop:5 }}>Os profissionais aprovados aparecerão aqui, sem repetição.</div>
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                    {adminDocsVerificados.map(d => {
+                      const tipoDoc = /\/cnh_/i.test(d.documento_url) ? "CNH" : /\/rg_/i.test(d.documento_url) ? "RG" : "Documento";
+                      const perfil = d.user_type === "ambos" ? "Prestador e anunciante" : "Prestador";
+                      return (
+                        <button
+                          type="button"
+                          key={d.user_id}
+                          onClick={() => {
+                            setModalAdminVerificados(false);
+                            void abrirDocParaRevisao(d);
+                          }}
+                          style={{ width:"100%", background:"var(--bg-surface,#f8fafc)", border:"1px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px 13px", display:"flex", alignItems:"center", gap:11, textAlign:"left" as const, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                          <div style={{ width:38, height:38, borderRadius:11, background:"rgba(22,163,74,.12)", color:"#16a34a", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                            <ShieldCheck size={19} />
+                          </div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:7, flexWrap:"wrap" as const }}>
+                              <span style={{ fontSize:13.5, fontWeight:850, color:"var(--text-1,#0f172a)", overflow:"hidden" as const, textOverflow:"ellipsis" as const, whiteSpace:"nowrap" as const, maxWidth:"100%" }}>{d.nome || "Profissional"}</span>
+                              <span style={{ background:"rgba(58,134,255,.12)", color:"#2563eb", fontSize:9.5, fontWeight:900, borderRadius:6, padding:"2px 7px", textTransform:"uppercase" as const }}>{tipoDoc}</span>
+                            </div>
+                            <div style={{ fontSize:11.5, color:"var(--text-2,#64748b)", marginTop:3 }}>
+                              {perfil} · Verificado {d.documento_revisado_em ? new Date(d.documento_revisado_em).toLocaleDateString("pt-BR") : "—"}
+                            </div>
+                          </div>
+                          <ChevronRight size={17} style={{ color:"#94a3b8", flexShrink:0 }} />
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>

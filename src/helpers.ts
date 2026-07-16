@@ -19,6 +19,24 @@ export function codigoPresenca(diariaId: string): string {
   return String(h % 10000).padStart(4, "0");
 }
 
+// O painel admin trabalha com perfis, não com documentos. Mesmo que uma RPC
+// antiga ou uma futura junção devolva mais de uma linha por pessoa, exibimos
+// somente o registro mais recente (a consulta já vem ordenada) e apenas quem
+// pode atuar como profissional.
+export function profissionaisVerificadosUnicos<
+  T extends { user_id: string; user_type?: string | null },
+>(itens: readonly T[]): T[] {
+  const vistos = new Set<string>();
+  const tiposProfissional = new Set(["diarista", "ambos"]);
+
+  return itens.filter(item => {
+    if (!item?.user_id || !tiposProfissional.has(item.user_type || "")) return false;
+    if (vistos.has(item.user_id)) return false;
+    vistos.add(item.user_id);
+    return true;
+  });
+}
+
 // ── Gamificação: nível do diarista ───────────────────────────────────────────
 export function nivelDiarista(diariasFeitas: number): {
   nome: string; cor: string; icone: string; proximo: number; atual: number;
