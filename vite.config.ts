@@ -17,6 +17,10 @@ export default defineConfig({
             if (id.includes("qrcode")) return "qr-gen";
             // Ícones Lucide em chunk próprio (tree-shaken)
             if (id.includes("lucide-react")) return "icons";
+            // Leaflet (mapa do painel admin) em chunk próprio: só entra por
+            // import() dinâmico, então SÓ o admin baixa — no vendor, iria
+            // pra todo usuário.
+            if (id.includes("leaflet")) return "mapa";
             // Restante de node_modules
             return "vendor";
           }
