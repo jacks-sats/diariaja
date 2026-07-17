@@ -141,6 +141,28 @@ type AdminDocumentoVerificado = {
   documento_revisado_em: string;
 };
 
+type AdminSecao = "dashboard" | "usuarios" | "oportunidades" | "financeiro" | "suporte";
+
+type AdminFunilConversao = {
+  periodo_dias: number;
+  publicadas: number;
+  com_interesse: number;
+  com_conversa: number;
+  contratadas: number;
+  concluidas: number;
+};
+
+function normalizarAdminFunil(valor: Record<string, unknown>): AdminFunilConversao {
+  return {
+    periodo_dias: Number(valor.periodo_dias || 30),
+    publicadas: Number(valor.publicadas || 0),
+    com_interesse: Number(valor.com_interesse || 0),
+    com_conversa: Number(valor.com_conversa || 0),
+    contratadas: Number(valor.contratadas || 0),
+    concluidas: Number(valor.concluidas || 0),
+  };
+}
+
 function coordenadaValida(valor: number | null | undefined): valor is number {
   return typeof valor === "number" && Number.isFinite(valor);
 }
@@ -1015,7 +1037,9 @@ export default function App() {
   const [adminSerieAtivos, setAdminSerieAtivos]     = useState<{ dia: string; valor: number }[]>([]);
   const [adminSerieConcluidas, setAdminSerieConcluidas] = useState<{ dia: string; valor: number }[]>([]);
   const [adminNovosLado, setAdminNovosLado]         = useState<{ diaristas_hoje: number; empregadores_hoje: number; diaristas_7d: number; empregadores_7d: number } | null>(null);
-  const [mostrarAvancadasAdmin, setMostrarAvancadasAdmin] = useState(false);
+  const [adminSecao, setAdminSecao]                 = useState<AdminSecao>("dashboard");
+  const [adminFunil, setAdminFunil]                 = useState<AdminFunilConversao | null>(null);
+  const [adminFunilDias, setAdminFunilDias]         = useState(30);
   const [adminRetencao, setAdminRetencao]           = useState<{
     ativos_hoje: number; ativos_7d: number; ativos_30d: number;
     retornantes_7d: number; recorrentes_14d: number; stickiness_pct: number;
@@ -5513,6 +5537,12 @@ export default function App() {
 
   // ── PAINEL ADMIN + TICKETS DE SUPORTE ────────────────────────────────────
 
+  const carregarAdminFunil = async (dias: number) => {
+    if (!profile?.is_admin) return;
+    const { data, error } = await supabase.rpc("admin_funil_conversao", { p_dias: dias });
+    if (!error && data?.[0]) setAdminFunil(normalizarAdminFunil(data[0] as Record<string, unknown>));
+  };
+
   // Stats agregadas — só admin executa (RLS no banco também valida)
   const carregarAdminStats = async () => {
     if (!profile?.is_admin) return;
@@ -5521,7 +5551,7 @@ export default function App() {
       const { data, error } = await supabase.rpc("admin_stats");
       if (!error && data?.[0]) setAdminStats(data[0] as AdminStats);
       // Em paralelo: extras + 2 séries temporais pra os gráficos
-      const [extras, serieU, serieD, retencao, serieA, serieC, novosLado, retencaoLado, contadores] = await Promise.all([
+      const [extras, serieU, serieD, retencao, serieA, serieC, novosLado, retencaoLado, contadores, funil] = await Promise.all([
         supabase.rpc("admin_metricas_extras"),
         supabase.rpc("admin_metricas_serie", { p_metrica: "novos_usuarios", p_dias: 14 }),
         supabase.rpc("admin_metricas_serie", { p_metrica: "diarias_criadas", p_dias: 14 }),
@@ -5531,6 +5561,7 @@ export default function App() {
         supabase.rpc("admin_novos_por_lado"),
         supabase.rpc("admin_retencao_por_lado"),
         supabase.rpc("admin_contadores_oportunidades"),
+        supabase.rpc("admin_funil_conversao", { p_dias: adminFunilDias }),
       ]);
       if (!extras.error && extras.data?.[0]) setAdminExtras(extras.data[0]);
       if (!serieU.error && serieU.data) setAdminSerieUsuarios(serieU.data);
@@ -5552,6 +5583,8 @@ export default function App() {
           total_vagas_emprego: Number(c.total_vagas_emprego || 0),
         });
       }
+      // Funil opcional: o restante do painel continua útil mesmo antes da migração.
+      if (!funil.error && funil.data?.[0]) setAdminFunil(normalizarAdminFunil(funil.data[0] as Record<string, unknown>));
       // Resumo financeiro (assinantes + desbloqueios de chat R$1, por dia/mês)
       const fin = await supabase.rpc("admin_resumo_financeiro");
       if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
@@ -23211,210 +23244,324 @@ export default function App() {
         </div>
       );
     };
+
+    const CardFunilConversao = ({ dados }: { dados: AdminFunilConversao }) => {
+      const etapas: { label: string; valor: number; cor: string; icone: React.ReactNode }[] = [
+        { label:"Publicadas", valor:dados.publicadas, cor:"#3A86FF", icone:<ClipboardList size={17} /> },
+        { label:"Receberam interesse", valor:dados.com_interesse, cor:"#0ea5e9", icone:<Users size={17} /> },
+        { label:"Tiveram conversa", valor:dados.com_conversa, cor:"#8b5cf6", icone:<MessageCircle size={17} /> },
+        { label:"Geraram contratação", valor:dados.contratadas, cor:"#f59e0b", icone:<Briefcase size={17} /> },
+        { label:"Foram concluídas", valor:dados.concluidas, cor:"#16a34a", icone:<CheckCircle2 size={17} /> },
+      ];
+      const base = Math.max(1, dados.publicadas);
+      const conversaoFinal = dados.publicadas > 0 ? Math.round((dados.concluidas / dados.publicadas) * 100) : 0;
+      return (
+        <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"16px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16, marginBottom:16 }}>
+            <div>
+              <div style={{ fontSize:15, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Conversão do funil</div>
+              <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:3 }}>Acompanhamento cumulativo das oportunidades publicadas</div>
+            </div>
+            <div style={{ flexShrink:0, textAlign:"right" as const }}>
+              <div style={{ fontSize:24, lineHeight:1, color:"#16a34a", fontWeight:950 }}>{conversaoFinal}%</div>
+              <div style={{ fontSize:9.5, color:"var(--text-3,#94a3b8)", fontWeight:800, textTransform:"uppercase" as const, marginTop:3 }}>até conclusão</div>
+            </div>
+          </div>
+          <div style={{ display:"grid", gap:12 }}>
+            {etapas.map((etapa, indice) => {
+              const percentual = dados.publicadas > 0 ? Math.round((etapa.valor / base) * 100) : 0;
+              const anterior = indice > 0 ? etapas[indice - 1].valor : etapa.valor;
+              const perda = indice > 0 ? Math.max(0, anterior - etapa.valor) : 0;
+              return (
+                <div key={etapa.label}>
+                  <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:5 }}>
+                    <span style={{ width:30, height:30, display:"flex", alignItems:"center", justifyContent:"center", borderRadius:9, color:etapa.cor, background:etapa.cor + "18", flexShrink:0 }}>{etapa.icone}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:10 }}>
+                        <strong style={{ fontSize:12.5, color:"var(--text-1,#0f172a)" }}>{etapa.label}</strong>
+                        <span style={{ fontSize:13, color:"var(--text-1,#0f172a)", fontWeight:900 }}>{etapa.valor}</span>
+                      </div>
+                      <div style={{ display:"flex", justifyContent:"space-between", gap:10, marginTop:2, fontSize:10.5, color:"var(--text-3,#94a3b8)" }}>
+                        <span>{percentual}% das publicadas</span>
+                        {indice > 0 && <span>{perda > 0 ? `${perda} não avançaram` : "sem perda"}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ marginLeft:39, height:6, background:"var(--bg-subtle,#f1f5f9)", borderRadius:4, overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:`${percentual}%`, background:etapa.cor, borderRadius:4, transition:"width .35s" }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ marginTop:14, paddingTop:12, borderTop:"1px solid var(--border-sub,#f1f5f9)", fontSize:10.5, lineHeight:1.5, color:"var(--text-2,#64748b)" }}>
+            Uma conversa só é contada quando os dois lados enviam mensagem. Contratações e conclusões são exibidas apenas quando avançaram pelas etapas anteriores.
+          </div>
+        </div>
+      );
+    };
+
     // Ajudantes pros números do bloco essencial: soma dos últimos 7 dias e
     // valor de hoje (último ponto) de uma série diária [{dia,valor}].
     const ult7 = (s: { dia: string; valor: number }[]) => (s || []).slice(-7).reduce((a, b) => a + (b.valor || 0), 0);
     const hojeV = (s: { dia: string; valor: number }[]) => (s && s.length ? s[s.length - 1].valor : 0);
+    const fmtAdmin = (n: unknown) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits:2, maximumFractionDigits:2 });
+    const adminNavegacao: { id: AdminSecao; label: string; icone: React.ReactNode }[] = [
+      { id:"dashboard", label:"Dashboard", icone:<Activity size={17} /> },
+      { id:"usuarios", label:"Usuários", icone:<Users size={17} /> },
+      { id:"oportunidades", label:"Oportunidades", icone:<Briefcase size={17} /> },
+      { id:"financeiro", label:"Financeiro", icone:<Wallet size={17} /> },
+      { id:"suporte", label:"Suporte", icone:<Inbox size={17} /> },
+    ];
+    const adminMeta: Record<AdminSecao, { titulo: string; descricao: string }> = {
+      dashboard: { titulo:"Dashboard executivo", descricao:"O que está acontecendo e onde você precisa agir." },
+      usuarios: { titulo:"Usuários", descricao:"Crescimento, composição, atividade e retenção da base." },
+      oportunidades: { titulo:"Oportunidades", descricao:"Oferta, procura, conversão e distribuição regional." },
+      financeiro: { titulo:"Financeiro", descricao:"Receitas, assinaturas e desbloqueios de conversa." },
+      suporte: { titulo:"Suporte e confiança", descricao:"Tickets, verificações, antecedentes e equipe." },
+    };
     return (
       <div style={{ minHeight:"100vh", background:isDesktop ? "#eef2f6" : "var(--bg-app,#f0f2f5)", fontFamily:"Inter, system-ui, sans-serif", maxWidth: larguraAdmin, margin:"0 auto", paddingBottom:40, paddingTop:isDesktop ? 24 : 0 }}>
         {/* Toasts globais — admin tela não tinha, motivo do bug "click Aprovar sem feedback" */}
         {toastSuccess && <div role="status" aria-live="polite" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#0f172a", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastSuccess}</div>}
         {toastError   && <div role="alert" aria-live="assertive" style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:"#dc2626", color:"#fff", borderRadius:24, padding:"10px 22px", fontSize:14, fontWeight:700, zIndex:9999, maxWidth:"90vw", textAlign:"center" as const }}>{toastError}</div>}
-        {/* Header */}
-        <div style={{ background:"var(--bg-card,#fff)", padding:"48px 20px 24px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
+        {/* Cabeçalho e navegação orientada por contexto */}
+        <div style={{ background:"var(--bg-card,#fff)", padding:isDesktop ? "24px 24px 18px" : "42px 20px 20px", borderBottom:"1px solid var(--border,#e2e8f0)" }}>
           <button style={{ background:"none", border:"none", color:"#64748b", fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", padding:0, marginBottom:16 }} onClick={() => setTela(voltarTela)}>
             ← Voltar
           </button>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:50, height:50, background:"#FF6B3518", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26 }}>👑</div>
-            <div>
-              <div style={{ fontSize:22, fontWeight:900, color:"#0f172a" }}>Painel Admin</div>
-              <div style={{ fontSize:13, color:"#64748b" }}>Visão geral e suporte</div>
+            <div style={{ width:48, height:48, background:"#0f172a", color:"#fff", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Activity size={23} /></div>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontSize:11, color:"#3A86FF", fontWeight:900, textTransform:"uppercase" as const }}>Painel Admin</div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#0f172a", lineHeight:1.15 }}>{adminMeta[adminSecao].titulo}</div>
+              <div style={{ fontSize:12.5, color:"#64748b", marginTop:3 }}>{adminMeta[adminSecao].descricao}</div>
             </div>
             <button
               title="Recarregar" aria-label="Recarregar"
-              style={{ marginLeft:"auto", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", color:"#64748b", borderRadius:10, padding:"8px 12px", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
+              style={{ marginLeft:"auto", width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", background:"var(--bg-surface,#f8fafc)", border:"1.5px solid var(--border,#e2e8f0)", color:"#64748b", borderRadius:10, cursor:"pointer", flexShrink:0 }}
               onClick={() => { carregarAdminStats(); carregarAdminTickets(); carregarDocsPendentes(); carregarDocsVerificados(); carregarAntecedentesPendentes(); }}>
-              {carregandoAdminStats ? "⏳" : "🔄"}
+              {carregandoAdminStats ? <Loader2 size={18} className="spin" /> : <RefreshCw size={18} />}
             </button>
           </div>
         </div>
 
-        {/* ═══════════ BLOCO 1 — ESSENCIAL (sempre visível) ═══════════ */}
-        <div style={{ padding:"16px 16px 4px" }}>
-          <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(4, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
-            {cardStat("Usuários", adminContadoresOportunidades?.total_usuarios ?? adminStats?.total_usuarios ?? "—", "#3A86FF", <Users size={19} />, "usuarios_total")}
-            {cardStat("Diárias", adminContadoresOportunidades?.total_diarias ?? "—", "#f59e0b", <CalendarDays size={19} />)}
-            {cardStat("Serviços", adminContadoresOportunidades?.total_servicos ?? "—", "#16a34a", <Hammer size={19} />)}
-            {cardStat("Vagas de emprego", adminContadoresOportunidades?.total_vagas_emprego ?? "—", "#a855f7", <Briefcase size={19} />)}
-          </div>
-          {/* Frase de estado pra bater o olho */}
-          {adminExtras && (
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)", marginBottom:10, fontSize:13.5, fontWeight:800, color:"var(--text-1,#0f172a)", lineHeight:1.45, textAlign:"center" as const }}>
-              {ult7(adminSerieDiarias)} oportunidades esta semana · {adminExtras.total_empregadores} contratantes · {adminExtras.total_diaristas} prestadores
-            </div>
-          )}
-          {/* Oportunidades criadas e concluídas (hoje + 7 dias) */}
-          <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
-              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>📋 Oportunidades criadas</div>
-              <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1, marginTop:3 }}>{hojeV(adminSerieDiarias)} <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>hoje</span></div>
-              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", fontWeight:700, marginTop:2 }}>{ult7(adminSerieDiarias)} em 7 dias</div>
-            </div>
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px", boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
-              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3 }}>✅ Oportunidades concluídas</div>
-              <div style={{ fontSize:22, color:"var(--text-1,#0f172a)", fontWeight:900, lineHeight:1.1, marginTop:3 }}>{hojeV(adminSerieConcluidas)} <span style={{ fontSize:12, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>hoje</span></div>
-              <div style={{ fontSize:12, color:"var(--text-2,#64748b)", fontWeight:700, marginTop:2 }}>{ult7(adminSerieConcluidas)} em 7 dias</div>
-            </div>
-          </div>
-          {/* Contratantes vs diaristas — desequilíbrio visível */}
-          {adminExtras && (
-            <div style={{ marginBottom:10 }}>
-              <CardComparacao titulo="Proporcao da base" dados={[
-                { label:"Prestadores", valor: adminExtras.total_diaristas, cor:"#FF6B35" },
-                { label:"Anunciantes", valor: adminExtras.total_empregadores, cor:"#3A86FF" },
-              ]} />
-            </div>
-          )}
-          {adminRetencaoLado.length > 0 && (
-            <div style={{ marginBottom:10 }}>
-              <CardRetencaoPorLado dados={adminRetencaoLado} />
-            </div>
-          )}
-          {adminRetencao && (
-            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(4, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
-              {cardStat("Ativos 7 dias", adminRetencao.ativos_7d, "#3A86FF", <CalendarDays size={19} />)}
-              {cardStat("Voltaram 7d", adminRetencao.retornantes_7d, "#0ea5e9", <Activity size={19} />)}
-              {cardStat("Recorrentes", adminRetencao.recorrentes_14d, "#FF6B35", <Users size={19} />)}
-              {cardStat("Fidelidade", `${adminRetencao.stickiness_pct}%`, "#f59e0b", <Star size={19} />)}
-            </div>
-          )}
-          {/* Novos de hoje SEPARADOS por lado */}
-          <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
-            {cardStat("Prestadores novos hoje", adminNovosLado ? adminNovosLado.diaristas_hoje : "—", "#FF6B35", <User size={19} />)}
-            {cardStat("Anunciantes novos hoje", adminNovosLado ? adminNovosLado.empregadores_hoje : "—", "#3A86FF", <Store size={19} />)}
-          </div>
-          {/* Dinheiro: desbloqueios de chat no mês + assinantes ativos */}
-          {adminFinanceiro && (() => {
-            const fmt = (n: unknown) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            const u = adminFinanceiro.unlocks || {};
-            const pl = adminFinanceiro.planos || {};
-            return (
-              <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0, 1fr))" : "1fr 1fr", gap:10 }}>
-                {cardStat("Chat liberado — mês", `R$ ${fmt(u.valor_mes)}`, "#16a34a", <MessageCircle size={19} />)}
-                {cardStat("Assinantes ativos", pl.ativos_total ?? 0, "#3A86FF", <Star size={19} />)}
-              </div>
-            );
-          })()}
-        </div>
-
-        {/* ═══════════ BLOCO 2 — OPERACIONAL (cards) ═══════════ */}
-        <div style={{ padding:"4px 16px 8px" }}>
-          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>🛠️ Operacional</div>
-          <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(5, minmax(0, 1fr))" : "1fr 1fr", gap:10 }}>
-            {cardStat("Online agora", adminStats ? adminStats.online_agora : 0, "#16a34a", <Activity size={19} />, "online_agora")}
-            {cardStat("Tickets abertos", adminStats ? adminStats.tickets_abertos : 0, "#ef4444", <Inbox size={19} />, "tickets_abertos")}
-            {cardStat("KYC pendente", adminDocsPendentes.length, "#f59e0b", <FileText size={19} />)}
-            {cardStat(
-              "Profissionais verificados",
-              adminDocsVerificados.length,
-              "#16a34a",
-              <ShieldCheck size={19} />,
-              undefined,
-              () => setModalAdminVerificados(true),
-            )}
-            {cardStat("Antecedentes pend.", adminAntecedentesPendentes.length, "#a855f7", <ClipboardList size={19} />)}
+        <div style={{ background:"var(--bg-card,#fff)", borderBottom:"1px solid var(--border,#e2e8f0)", overflowX:"auto" as const, scrollbarWidth:"none" as const }}>
+          <div role="tablist" aria-label="Áreas do painel" style={{ minWidth:isDesktop ? undefined : 660, display:"grid", gridTemplateColumns:"repeat(5, minmax(120px, 1fr))", gap:6, padding:"8px 16px" }}>
+            {adminNavegacao.map(item => {
+              const ativa = adminSecao === item.id;
+              return (
+                <button key={item.id} role="tab" aria-selected={ativa}
+                  onClick={() => setAdminSecao(item.id)}
+                  style={{ minHeight:42, border:"none", borderRadius:10, padding:"8px 10px", display:"flex", alignItems:"center", justifyContent:"center", gap:7, background:ativa ? "#0f172a" : "transparent", color:ativa ? "#fff" : "#64748b", fontSize:12.5, fontWeight:850, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", whiteSpace:"nowrap" as const }}>
+                  {item.icone}{item.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* ═══════════ BLOCO 3 — MÉTRICAS AVANÇADAS (recolhível, nada apagado) ═══════════ */}
-        <div style={{ padding:"4px 16px 8px" }}>
-          <button onClick={() => setMostrarAvancadasAdmin(v => !v)}
-            style={{ width:"100%", background:"var(--bg-card,#fff)", border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, padding:"12px", fontSize:13, fontWeight:800, color:"var(--text-2,#64748b)", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
-            {mostrarAvancadasAdmin ? "▲ Ocultar métricas avançadas" : "▼ Ver métricas avançadas"}
-          </button>
-        </div>
-        {mostrarAvancadasAdmin && (<>
-        {/* Stats em grid */}
-        <div style={{ padding:"16px" }}>
-          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>Visão geral</div>
-          {adminStats ? (
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              {cardStat("Usuários", adminStats.total_usuarios, "#3A86FF", "👥", "usuarios_total")}
-              {cardStat("Online agora", adminStats.online_agora, "#16a34a", "🟢", "online_agora")}
-              {cardStat("Novos hoje", adminStats.novos_hoje, "#FF6B35", "✨", "novos_hoje")}
-              {cardStat("Últimos 7 dias", adminStats.novos_semana, "#a855f7", "📈", "novos_semana")}
-              {cardStat("Oportunidades ativas", adminStats.diarias_ativas, "#f59e0b", "💼", "diarias_ativas")}
-              {cardStat("Tickets abertos", adminStats.tickets_abertos, "#ef4444", "📨", "tickets_abertos")}
-            </div>
-          ) : (
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
-              {carregandoAdminStats ? "Carregando estatísticas…" : "Toque em 🔄 pra carregar."}
-            </div>
-          )}
-        </div>
-
-        {/* ── 💰 Financeiro ── */}
-        <div style={{ padding:"0 16px 16px" }}>
-          <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>💰 Financeiro</div>
-          {adminFinanceiro ? (() => {
-            const fmt = (n: unknown) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            const u = adminFinanceiro.unlocks || {};
-            const pl = adminFinanceiro.planos || {};
-            const serie = Array.isArray(adminFinanceiro.unlocks_serie)
-              ? adminFinanceiro.unlocks_serie.map((d: { dia: string; valor: number }) => ({ dia: String(d.dia), valor: Number(d.valor) }))
-              : [];
-            const porPlano = Array.isArray(pl.por_plano) ? pl.por_plano : [];
+        <div style={{ padding:"18px 16px 4px" }}>
+          {adminSecao === "dashboard" && (() => {
+            const u = adminFinanceiro?.unlocks || {};
+            const pl = adminFinanceiro?.planos || {};
+            const receitaMes = Number(u.valor_mes || 0) + Number(pl.valor_estimado || 0);
+            const pendencias = [
+              { label:"Tickets aguardando", valor:adminStats?.tickets_abertos || 0, cor:"#ef4444", icone:<Inbox size={18} /> },
+              { label:"Documentos para revisar", valor:adminDocsPendentes.length, cor:"#f59e0b", icone:<FileText size={18} /> },
+              { label:"Antecedentes para revisar", valor:adminAntecedentesPendentes.length, cor:"#8b5cf6", icone:<ClipboardList size={18} /> },
+            ].filter(item => item.valor > 0);
             return (
               <>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-                  {cardStat("Chat liberado — mês", `R$ ${fmt(u.valor_mes)}`, "#16a34a", "💬")}
-                  {cardStat("Chat liberado — hoje", `R$ ${fmt(u.valor_hoje)}`, "#22c55e", "📅")}
-                  {cardStat("Assinantes ativos", pl.ativos_total ?? 0, "#3A86FF", "⭐")}
-                  {cardStat("Planos/mês (estim.)", `R$ ${fmt(pl.valor_estimado)}`, "#FF6B35", "🔁")}
+                <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Indicadores essenciais</div>
+                <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(3, minmax(0, 1fr))" : "1fr 1fr", gap:10 }}>
+                  {cardStat("Usuários", adminContadoresOportunidades?.total_usuarios ?? adminStats?.total_usuarios ?? "—", "#3A86FF", <Users size={19} />, undefined, () => setAdminSecao("usuarios"))}
+                  {cardStat("Online agora", adminStats?.online_agora ?? "—", "#16a34a", <Activity size={19} />, undefined, () => setAdminSecao("usuarios"))}
+                  {cardStat("Oportunidades ativas", adminStats?.diarias_ativas ?? "—", "#f59e0b", <Briefcase size={19} />, undefined, () => setAdminSecao("oportunidades"))}
+                  {cardStat("Receita do mês", adminFinanceiro ? `R$ ${fmtAdmin(receitaMes)}` : "—", "#16a34a", <Wallet size={19} />, undefined, () => setAdminSecao("financeiro"))}
+                  {cardStat("Assinantes", adminFinanceiro ? (pl.ativos_total ?? 0) : (adminExtras?.assinaturas_ativas ?? "—"), "#8b5cf6", <Star size={19} />, undefined, () => setAdminSecao("financeiro"))}
+                  {cardStat("Tickets", adminStats?.tickets_abertos ?? "—", "#ef4444", <Inbox size={19} />, undefined, () => setAdminSecao("suporte"))}
                 </div>
-                {serie.length > 0 && (
-                  <div style={{ marginBottom:10 }}>
-                    <MiniBars data={serie} cor="#16a34a" label="Desbloqueios de chat (R$1) — por dia" />
+                <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:8, lineHeight:1.5 }}>Receita do mês soma desbloqueios confirmados e o valor mensal estimado dos planos ativos.</div>
+
+                <div style={{ marginTop:20, marginBottom:10, display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
+                  <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const }}>Precisa de atenção</div>
+                  <button onClick={() => setAdminSecao("suporte")} style={{ background:"none", border:"none", color:"#3A86FF", fontSize:11.5, fontWeight:850, cursor:"pointer" }}>Abrir suporte</button>
+                </div>
+                {pendencias.length === 0 ? (
+                  <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:12, padding:"14px 16px", color:"#166534", display:"flex", alignItems:"center", gap:10, fontSize:13, fontWeight:800 }}>
+                    <CheckCircle2 size={20} /> Nenhuma pendência operacional agora.
+                  </div>
+                ) : (
+                  <div style={{ display:"grid", gridTemplateColumns:isDesktop ? `repeat(${Math.min(3, pendencias.length)}, minmax(0, 1fr))` : "1fr", gap:10 }}>
+                    {pendencias.map(item => (
+                      <button key={item.label} onClick={() => setAdminSecao("suporte")}
+                        style={{ background:"var(--bg-card,#fff)", border:DESIGN.cardBorder, borderRadius:12, padding:"12px 14px", display:"flex", alignItems:"center", gap:10, textAlign:"left" as const, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:DESIGN.cardShadowSoft }}>
+                        <span style={{ width:36, height:36, borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", background:item.cor + "18", color:item.cor }}>{item.icone}</span>
+                        <span style={{ flex:1, color:"var(--text-1,#0f172a)", fontSize:12.5, fontWeight:800 }}>{item.label}</span>
+                        <strong style={{ color:item.cor, fontSize:18 }}>{item.valor}</strong>
+                      </button>
+                    ))}
                   </div>
                 )}
-        <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft }}>
-                  <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:10 }}>Assinantes por plano</div>
-                  {porPlano.length === 0 ? (
-                    <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>Nenhum plano ativo ainda.</div>
-                  ) : porPlano.map((p: { plano: string; user_type: string; qtd: number }) => (
-                    <div key={`${p.user_type}-${p.plano}`} style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"5px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
-                      <span style={{ color:"var(--text-2,#64748b)" }}>{p.user_type === "diarista" ? "👷 Prestador" : "🏢 Anunciante"} · {p.plano}</span>
-                      <strong style={{ color:"var(--text-1,#0f172a)" }}>{p.qtd}</strong>
-                    </div>
-                  ))}
-                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:10 }}>
-                    <span>Total acumulado (chat liberado)</span>
-                    <strong>R$ {fmt(u.valor_total)} · {u.total ?? 0}x</strong>
-                  </div>
-                </div>
               </>
             );
-          })() : (
-            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13, boxShadow:"0 2px 8px rgba(0,0,0,.06)" }}>
-              {carregandoAdminStats ? "Carregando financeiro…" : "Toque em 🔄 pra carregar."}
-            </div>
+          })()}
+
+          {adminSecao === "usuarios" && (
+            <>
+              <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Base de usuários</div>
+              <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(4, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
+                {cardStat("Total de usuários", adminContadoresOportunidades?.total_usuarios ?? adminStats?.total_usuarios ?? "—", "#3A86FF", <Users size={19} />, "usuarios_total")}
+                {cardStat("Online agora", adminStats?.online_agora ?? "—", "#16a34a", <Activity size={19} />, "online_agora")}
+                {cardStat("Novos hoje", adminStats?.novos_hoje ?? "—", "#FF6B35", <User size={19} />, "novos_hoje")}
+                {cardStat("Novos em 7 dias", adminStats?.novos_semana ?? "—", "#8b5cf6", <CalendarDays size={19} />, "novos_semana")}
+                {cardStat("Prestadores", adminExtras?.total_diaristas ?? "—", "#FF6B35", <User size={19} />)}
+                {cardStat("Anunciantes PF", adminExtras ? Math.max(0, adminExtras.total_empregadores - adminExtras.total_pj) : "—", "#3A86FF", <Users size={19} />)}
+                {cardStat("Empresas PJ", adminExtras?.total_pj ?? "—", "#8b5cf6", <Store size={19} />)}
+              </div>
+              {adminNovosLado && (
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft, marginBottom:10 }}>
+                  <div style={{ fontSize:12, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:10 }}>Novos usuários por perfil</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(4, minmax(0,1fr))", gap:8 }}>
+                    {[
+                      ["Prestadores hoje", adminNovosLado.diaristas_hoje, "#FF6B35"],
+                      ["Anunciantes hoje", adminNovosLado.empregadores_hoje, "#3A86FF"],
+                      ["Prestadores 7d", adminNovosLado.diaristas_7d, "#FF6B35"],
+                      ["Anunciantes 7d", adminNovosLado.empregadores_7d, "#3A86FF"],
+                    ].map(([label, valor, cor]) => (
+                      <div key={String(label)} style={{ minWidth:0, borderLeft:`3px solid ${cor}`, paddingLeft:8 }}>
+                        <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", fontWeight:800 }}>{label}</div>
+                        <div style={{ fontSize:18, color:"var(--text-1,#0f172a)", fontWeight:900 }}>{valor}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {adminExtras && <CardComparacao titulo="Composição da base" dados={[
+                { label:"Prestadores", valor:adminExtras.total_diaristas, cor:"#FF6B35" },
+                { label:"Anunciantes PF", valor:Math.max(0, adminExtras.total_empregadores - adminExtras.total_pj), cor:"#3A86FF" },
+                { label:"Empresas PJ", valor:adminExtras.total_pj, cor:"#8b5cf6" },
+              ]} />}
+            </>
+          )}
+
+          {adminSecao === "oportunidades" && (
+            <>
+              <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Visão geral</div>
+              <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(4, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
+                {cardStat("Diárias", adminContadoresOportunidades?.total_diarias ?? "—", "#f59e0b", <CalendarDays size={19} />)}
+                {cardStat("Serviços", adminContadoresOportunidades?.total_servicos ?? "—", "#16a34a", <Hammer size={19} />)}
+                {cardStat("Vagas de emprego", adminContadoresOportunidades?.total_vagas_emprego ?? "—", "#8b5cf6", <Briefcase size={19} />)}
+                {cardStat("Ativas agora", adminStats?.diarias_ativas ?? "—", "#3A86FF", <Activity size={19} />, "diarias_ativas")}
+              </div>
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft, marginBottom:14 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(4, minmax(0,1fr))", gap:8 }}>
+                  {[
+                    ["Criadas hoje", hojeV(adminSerieDiarias)],
+                    ["Criadas em 7d", ult7(adminSerieDiarias)],
+                    ["Concluídas hoje", hojeV(adminSerieConcluidas)],
+                    ["Concluídas em 7d", ult7(adminSerieConcluidas)],
+                  ].map(([label, valor]) => (
+                    <div key={String(label)} style={{ minWidth:0 }}>
+                      <div style={{ fontSize:10, color:"var(--text-3,#94a3b8)", fontWeight:800 }}>{label}</div>
+                      <div style={{ fontSize:18, color:"var(--text-1,#0f172a)", fontWeight:900, marginTop:2 }}>{valor}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, margin:"18px 0 10px" }}>
+                <div>
+                  <div style={{ fontSize:14, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Do anúncio à conclusão</div>
+                  <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Onde as oportunidades deixam de avançar</div>
+                </div>
+                <div style={{ display:"flex", gap:5 }}>
+                  {[7,30,90].map(d => <button key={d} onClick={() => { setAdminFunilDias(d); setAdminFunil(null); void carregarAdminFunil(d); }}
+                    style={{ border:"none", borderRadius:8, padding:"6px 9px", background:adminFunilDias === d ? "#0f172a" : "var(--bg-card,#fff)", color:adminFunilDias === d ? "#fff" : "#64748b", fontSize:10.5, fontWeight:850, cursor:"pointer" }}>{d}d</button>)}
+                </div>
+              </div>
+              {adminFunil ? <CardFunilConversao dados={adminFunil} /> : (
+                <div style={{ background:"var(--bg-card,#fff)", border:DESIGN.cardBorder, borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:12.5 }}>
+                  {carregandoAdminStats ? "Carregando o funil…" : "Funil indisponível. Verifique se a migração do painel foi aplicada."}
+                </div>
+              )}
+            </>
           )}
         </div>
 
-        {/* ── GRÁFICOS — séries temporais de 14 dias ── */}
-        {adminStats && (
+        {/* Visões detalhadas: cada métrica aparece apenas no contexto correto. */}
+        <>
+        {adminSecao === "financeiro" && (
           <div style={{ padding:"4px 16px 16px" }}>
-            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📊 Tendências (14 dias)</div>
-            <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
+            {adminFinanceiro ? (() => {
+              const u = adminFinanceiro.unlocks || {};
+              const pl = adminFinanceiro.planos || {};
+              const receitaMes = Number(u.valor_mes || 0) + Number(pl.valor_estimado || 0);
+              const serie = Array.isArray(adminFinanceiro.unlocks_serie)
+                ? adminFinanceiro.unlocks_serie.map((d: { dia: string; valor: number }) => ({ dia:String(d.dia), valor:Number(d.valor) }))
+                : [];
+              const porPlano = Array.isArray(pl.por_plano) ? pl.por_plano : [];
+              return (
+                <>
+                  <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Receita e assinaturas</div>
+                  <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(3, minmax(0, 1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
+                    {cardStat("Receita do mês", `R$ ${fmtAdmin(receitaMes)}`, "#16a34a", <Wallet size={19} />)}
+                    {cardStat("Chat liberado — hoje", `R$ ${fmtAdmin(u.valor_hoje)}`, "#22c55e", <Activity size={19} />)}
+                    {cardStat("Chat liberado — mês", `R$ ${fmtAdmin(u.valor_mes)}`, "#0ea5e9", <MessageCircle size={19} />)}
+                    {cardStat("Assinantes ativos", pl.ativos_total ?? 0, "#3A86FF", <Star size={19} />)}
+                    {cardStat("Planos/mês (estim.)", `R$ ${fmtAdmin(pl.valor_estimado)}`, "#FF6B35", <Store size={19} />)}
+                    {cardStat("Receita acumulada chat", `R$ ${fmtAdmin(u.valor_total)}`, "#8b5cf6", <ClipboardList size={19} />)}
+                  </div>
+                  <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, padding:"9px 12px", marginBottom:10, fontSize:10.5, color:"#92400e", lineHeight:1.5 }}>
+                    A receita de planos é uma estimativa baseada nas assinaturas ativas. Desbloqueios de chat usam os pagamentos confirmados.
+                  </div>
+                  {serie.length > 0 && <div style={{ marginBottom:10 }}><MiniBars data={serie} cor="#16a34a" label="Desbloqueios de chat por dia" /></div>}
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 16px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft }}>
+                    <div style={{ fontSize:12, fontWeight:900, color:"var(--text-1,#0f172a)", marginBottom:10 }}>Assinantes por plano</div>
+                    {porPlano.length === 0 ? (
+                      <div style={{ fontSize:12, color:"var(--text-3,#94a3b8)" }}>Nenhum plano ativo ainda.</div>
+                    ) : porPlano.map((p: { plano: string; user_type: string; qtd: number }) => (
+                      <div key={`${p.user_type}-${p.plano}`} style={{ display:"flex", justifyContent:"space-between", gap:12, fontSize:13, padding:"7px 0", borderBottom:"1px solid var(--border-sub,#f1f5f9)" }}>
+                        <span style={{ color:"var(--text-2,#64748b)" }}>{p.user_type === "diarista" ? "Prestador" : "Anunciante"} · {p.plano}</span>
+                        <strong style={{ color:"var(--text-1,#0f172a)" }}>{p.qtd}</strong>
+                      </div>
+                    ))}
+                    <div style={{ display:"flex", justifyContent:"space-between", gap:12, fontSize:12, color:"var(--text-3,#94a3b8)", marginTop:10 }}>
+                      <span>Desbloqueios acumulados</span><strong>{u.total ?? 0} · R$ {fmtAdmin(u.valor_total)}</strong>
+                    </div>
+                  </div>
+                </>
+              );
+            })() : (
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:13 }}>
+                {carregandoAdminStats ? "Carregando financeiro…" : "Dados financeiros indisponíveis."}
+              </div>
+            )}
+          </div>
+        )}
+
+        {adminSecao === "usuarios" && adminStats && (
+          <div style={{ padding:"4px 16px 16px" }}>
+            <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Crescimento e atividade</div>
+            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "1fr 1fr" : "1fr", gap:10 }}>
               <MiniBars data={adminSerieUsuarios} cor="#3A86FF" label="Novos usuários por dia" />
+              <MiniBars data={adminSerieAtivos} cor="#16a34a" label="Usuários ativos por dia" />
+            </div>
+          </div>
+        )}
+
+        {adminSecao === "oportunidades" && adminStats && (
+          <div style={{ padding:"4px 16px 16px" }}>
+            <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Tendências de oportunidades</div>
+            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "1fr 1fr" : "1fr", gap:10 }}>
               <MiniBars data={adminSerieDiarias} cor="#f59e0b" label="Oportunidades criadas por dia" />
+              <MiniBars data={adminSerieConcluidas} cor="#16a34a" label="Oportunidades concluídas por dia" />
             </div>
           </div>
         )}
 
         {/* ── DEMANDA POR REGIÃO — mapa de calor + ranking de bairros ── */}
-        {adminMapa && (
+        {adminSecao === "oportunidades" && adminMapa && (
           <div style={{ padding:"4px 16px 16px" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:10, flexWrap:"wrap" as const }}>
               <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5 }}>🗺️ Demanda por região</div>
@@ -23492,80 +23639,80 @@ export default function App() {
           </div>
         )}
 
-        {/* ── RETENÇÃO & ATIVIDADE — quem volta e quem é recorrente ── */}
-        {adminRetencao && (
+        {/* Retenção fica concentrada na visão de usuários. */}
+        {adminSecao === "usuarios" && adminRetencao && (
           <div style={{ padding:"4px 16px 16px" }}>
-            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>🔁 Retenção & atividade</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              {cardStat("Ativos hoje", adminRetencao.ativos_hoje, "#16a34a", "🟢")}
-              {cardStat("Ativos 7 dias", adminRetencao.ativos_7d, "#3A86FF", "📅")}
-              {cardStat("Ativos 30 dias", adminRetencao.ativos_30d, "#a855f7", "🗓️")}
-              {cardStat("Recorrentes", adminRetencao.recorrentes_14d, "#FF6B35", "🔥")}
-              {cardStat("Voltaram (7d)", adminRetencao.retornantes_7d, "#0ea5e9", "↩️")}
-              {cardStat("Fidelidade", `${adminRetencao.stickiness_pct}%`, "#f59e0b", "🧲")}
-              {cardStat("Retenção D1", `${adminRetencao.retencao_d1_pct}%`, "#16a34a", "1️⃣")}
-              {cardStat("Retenção D7", `${adminRetencao.retencao_d7_pct}%`, "#a855f7", "7️⃣")}
+            <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Retenção e frequência</div>
+            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(4, minmax(0,1fr))" : "1fr 1fr", gap:10 }}>
+              {cardStat("Ativos hoje", adminRetencao.ativos_hoje, "#16a34a", <Activity size={19} />)}
+              {cardStat("Ativos 7 dias", adminRetencao.ativos_7d, "#3A86FF", <CalendarDays size={19} />)}
+              {cardStat("Ativos 30 dias", adminRetencao.ativos_30d, "#8b5cf6", <Users size={19} />)}
+              {cardStat("Recorrentes", adminRetencao.recorrentes_14d, "#FF6B35", <RefreshCw size={19} />)}
+              {cardStat("Voltaram em 7d", adminRetencao.retornantes_7d, "#0ea5e9", <User size={19} />)}
+              {cardStat("Fidelidade", `${adminRetencao.stickiness_pct}%`, "#f59e0b", <Star size={19} />)}
+              {cardStat("Retenção D1", `${adminRetencao.retencao_d1_pct}%`, "#16a34a", <CalendarDays size={19} />)}
+              {cardStat("Retenção D7", `${adminRetencao.retencao_d7_pct}%`, "#8b5cf6", <CalendarDays size={19} />)}
             </div>
-            {/* Legenda curta — o dono pediu essas definições explicadas */}
             <div style={{ background:"var(--bg-card,#fff)", borderRadius:12, padding:"12px 14px", marginTop:10, boxShadow:"0 2px 8px rgba(0,0,0,.06)", fontSize:11, color:"var(--text-2,#64748b)", lineHeight:1.6 }}>
-              <div><b>🔥 Recorrentes</b> = abriram o app em <b>7+ dias diferentes nos últimos 14</b> (o "dia sim, dia não").</div>
-              <div><b>↩️ Voltaram (7d)</b> = vieram em 2+ dias distintos na última semana.</div>
-              <div><b>🧲 Fidelidade</b> = dos ativos no mês, quantos voltaram hoje (ativos hoje ÷ ativos 30 dias).</div>
-              <div><b>1️⃣/7️⃣ Retenção D1/D7</b> = dos que se cadastraram, quantos voltaram no dia seguinte / em até 7 dias.</div>
+              <div><b>Recorrentes</b> abriram o app em 7 ou mais dias diferentes nos últimos 14 dias.</div>
+              <div><b>Voltaram em 7d</b> acessaram o app em pelo menos dois dias distintos na última semana.</div>
+              <div><b>Fidelidade</b> compara ativos de hoje com a base ativa dos últimos 30 dias.</div>
+              <div><b>D1 e D7</b> medem o retorno de novos usuários no dia seguinte e em até sete dias.</div>
             </div>
-            <div style={{ marginTop:10 }}>
-              <MiniBars data={adminSerieAtivos} cor="#16a34a" label="Usuários ativos por dia" />
-            </div>
+            {adminRetencaoLado.length > 0 && <div style={{ marginTop:10 }}><CardRetencaoPorLado dados={adminRetencaoLado} /></div>}
             {adminRetencao.ativos_30d === 0 && (
               <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, padding:"10px 12px", marginTop:10, fontSize:11, color:"#92400e", lineHeight:1.5 }}>
-                ℹ️ O histórico de atividade começou a ser gravado agora. Esses números vão "encher" conforme os usuários forem abrindo o app nos próximos dias.
+                O histórico de atividade começou a ser gravado recentemente. Os indicadores ganham precisão conforme os usuários voltam ao app.
               </div>
             )}
           </div>
         )}
 
-        {/* ── MÉTRICAS EXTRAS — distribuição + funil de conclusão ── */}
-        {adminExtras && (
+        {adminSecao === "usuarios" && adminExtras && (
           <div style={{ padding:"4px 16px 16px" }}>
-            <div style={{ fontSize:11, fontWeight:800, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:10 }}>📈 Distribuição & funil</div>
-            <div style={{ display:"flex", flexDirection:"column" as const, gap:10 }}>
-              <CardComparacao
-                titulo="Tipos de usuário"
-                dados={[
-                  { label:"Prestadores", valor: adminExtras.total_diaristas, cor:"#FF6B35" },
-                  { label:"Anunciantes PF", valor: Math.max(0, adminExtras.total_empregadores - adminExtras.total_pj), cor:"#3A86FF" },
-                  { label:"Empresas PJ", valor: adminExtras.total_pj, cor:"#a855f7" },
-                ]}
-              />
-              <CardComparacao
-                titulo="KYC dos usuários"
-                dados={[
-                  { label:"Aprovados", valor: adminExtras.total_kyc_aprovado, cor:"#16a34a" },
-                  { label:"Em análise", valor: adminExtras.total_kyc_pendente, cor:"#f59e0b" },
-                ]}
-              />
-              <CardComparacao
-                titulo="Funil de oportunidades"
-                dados={[
-                  { label:"Concluídas ✓", valor: adminExtras.diarias_concluidas, cor:"#16a34a" },
-                  { label:"Canceladas ✗", valor: adminExtras.diarias_canceladas, cor:"#ef4444" },
-                  { label:"Em andamento", valor: Math.max(0, adminExtras.diarias_total - adminExtras.diarias_concluidas - adminExtras.diarias_canceladas), cor:"#f59e0b" },
-                ]}
-              />
-              {/* Cards de números curtos */}
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-                {cardStat("Taxa conclusão", `${adminExtras.taxa_conclusao_pct}%`, "#16a34a", "📊")}
-                {cardStat("Candidaturas", adminExtras.candidaturas_total, "#3A86FF", "📝")}
-                {cardStat("Assinaturas ativas", adminExtras.assinaturas_ativas, "#a855f7", "💎")}
-                {cardStat("Cursos concluídos", adminExtras.cursos_concluidos, "#FF6B35", "🎓")}
-                {cardStat("Avaliação média", adminExtras.avaliacoes_medias_dia ? `${Number(adminExtras.avaliacoes_medias_dia).toFixed(1)}★` : "—", "#fbbf24", "⭐")}
-                {cardStat("Total oportunidades", adminExtras.diarias_total, "#64748b", "💼")}
-              </div>
+            <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Qualidade da comunidade</div>
+            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0,1fr))" : "1fr 1fr", gap:10 }}>
+              {cardStat("Cursos concluídos", adminExtras.cursos_concluidos, "#FF6B35", <GraduationCap size={19} />)}
+              {cardStat("Avaliação média", adminExtras.avaliacoes_medias_dia ? `${Number(adminExtras.avaliacoes_medias_dia).toFixed(1)}★` : "—", "#fbbf24", <Star size={19} />)}
             </div>
           </div>
         )}
-        </>)}
-        {/* fim do BLOCO 3 — métricas avançadas recolhíveis */}
+
+        {adminSecao === "oportunidades" && adminExtras && (
+          <div style={{ padding:"4px 16px 16px" }}>
+            <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Resultado das oportunidades</div>
+            <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(4, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
+              {cardStat("Total", adminExtras.diarias_total, "#64748b", <Briefcase size={19} />)}
+              {cardStat("Concluídas", adminExtras.diarias_concluidas, "#16a34a", <CheckCircle2 size={19} />)}
+              {cardStat("Canceladas", adminExtras.diarias_canceladas, "#ef4444", <X size={19} />)}
+              {cardStat("Taxa de conclusão", `${adminExtras.taxa_conclusao_pct}%`, "#0ea5e9", <Activity size={19} />)}
+              {cardStat("Candidaturas", adminExtras.candidaturas_total, "#3A86FF", <FileText size={19} />)}
+            </div>
+            <CardComparacao titulo="Situação das oportunidades" dados={[
+              { label:"Concluídas", valor:adminExtras.diarias_concluidas, cor:"#16a34a" },
+              { label:"Canceladas", valor:adminExtras.diarias_canceladas, cor:"#ef4444" },
+              { label:"Demais status", valor:Math.max(0, adminExtras.diarias_total - adminExtras.diarias_concluidas - adminExtras.diarias_canceladas), cor:"#f59e0b" },
+            ]} />
+          </div>
+        )}
+        </>
+
+        {adminSecao === "suporte" && (
+        <>
+        <div style={{ padding:"16px 16px 10px" }}>
+          <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Fila operacional</div>
+          <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(5, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:10 }}>
+            {cardStat("Tickets abertos", adminStats?.tickets_abertos ?? 0, "#ef4444", <Inbox size={19} />, "tickets_abertos")}
+            {cardStat("KYC pendente", adminDocsPendentes.length, "#f59e0b", <FileText size={19} />)}
+            {cardStat("Profissionais verificados", adminDocsVerificados.length, "#16a34a", <ShieldCheck size={19} />, undefined, () => setModalAdminVerificados(true))}
+            {cardStat("Antecedentes pendentes", adminAntecedentesPendentes.length, "#8b5cf6", <ClipboardList size={19} />)}
+            {cardStat("Agentes de suporte", equipeSuporte.length, "#3A86FF", <Users size={19} />)}
+          </div>
+          {adminExtras && <CardComparacao titulo="Situação do KYC na base" dados={[
+            { label:"Aprovados", valor:adminExtras.total_kyc_aprovado, cor:"#16a34a" },
+            { label:"Em análise", valor:adminExtras.total_kyc_pendente, cor:"#f59e0b" },
+          ]} />}
+        </div>
 
         {/* Lista de tickets */}
         <div style={{ padding:"4px 16px 16px" }}>
@@ -23781,6 +23928,8 @@ export default function App() {
             </div>
           </div>
         </div>
+        </>
+        )}
 
         {/* ── Modal drill-down: lista detalhada do card clicado ── */}
         {adminDrillTipo && (
