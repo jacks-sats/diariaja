@@ -475,32 +475,40 @@ const gridCardsDesktop = (minPx: number): React.CSSProperties => ({
   alignItems: "start",
 });
 
-function temaVisualVaga(segmento?: string | null, funcao?: string | null) {
+function temaVisualVaga(segmento?: string | null, funcao?: string | null, dark = false) {
   const funcCatEntry = Object.entries(CATEGORIAS_NEGOCIO)
     .find(([, info]) => (info.funcoes as readonly string[]).includes(funcao || ""));
   const categoria = funcCatEntry?.[0] || segmento || "";
   const key = categoria.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const isDelivery = FUNCOES_DELIVERY.includes(funcao || "");
 
+  // Paleta CLARA por categoria + a cor de destaque a usar no DARK (a clara \u00e9
+  // saturada demais/escura pra ler no fundo escuro \u2014 o accentDark \u00e9 a vers\u00e3o
+  // pastel clara que l\u00ea bem). No dark o fundo do header vira um tom do pr\u00f3prio
+  // accent sobre o card escuro (n\u00e3o mais o pastel claro que "n\u00e3o escurecia").
+  let pal: { bg: string; border: string; accent: string; accentDark: string; iconBg: string };
   if (key.includes("supermercado") || key.includes("varejo")) {
-    return { bg:"#eff6ff", border:"#bfdbfe", accent:"#2563eb", iconBg:"#dbeafe" };
+    pal = { bg:"#eff6ff", border:"#bfdbfe", accent:"#2563eb", accentDark:"#93c5fd", iconBg:"#dbeafe" };
+  } else if (key.includes("domestico") || key.includes("limpeza")) {
+    pal = { bg:"#f5f3ff", border:"#ddd6fe", accent:"#7c3aed", accentDark:"#c4b5fd", iconBg:"#ede9fe" };
+  } else if (key.includes("gastronomia") || key.includes("alimentacao")) {
+    pal = { bg:"#fffbeb", border:"#fde68a", accent:"#b45309", accentDark:"#fcd34d", iconBg:"#fef3c7" };
+  } else if (key.includes("construcao") || key.includes("manutencao")) {
+    pal = { bg:"#fff7ed", border:"#fed7aa", accent:"#ea580c", accentDark:"#fdba74", iconBg:"#ffedd5" };
+  } else if (isDelivery || key.includes("delivery") || key.includes("transporte") || key.includes("entrega") || key.includes("logistica")) {
+    pal = { bg:"#ecfdf5", border:"#bbf7d0", accent:"#047857", accentDark:"#6ee7b7", iconBg:"#d1fae5" };
+  } else if (key.includes("beleza") || key.includes("estetica") || key.includes("bem")) {
+    pal = { bg:"#fdf2f8", border:"#fbcfe8", accent:"#db2777", accentDark:"#f9a8d4", iconBg:"#fce7f3" };
+  } else {
+    pal = { bg:"#f8fafc", border:"#e2e8f0", accent:"#475569", accentDark:"#cbd5e1", iconBg:"#eef2f7" };
   }
-  if (key.includes("domestico") || key.includes("limpeza")) {
-    return { bg:"#f5f3ff", border:"#ddd6fe", accent:"#7c3aed", iconBg:"#ede9fe" };
+
+  if (dark) {
+    // Fundo/borda derivados do accent sobre o card escuro (hex + alpha). O texto
+    // do card usa var(--text-1) (claro) e l\u00ea bem sobre esse tom.
+    return { bg: pal.accent + "24", border: pal.accent + "4d", accent: pal.accentDark, iconBg: pal.accent + "3a" };
   }
-  if (key.includes("gastronomia") || key.includes("alimentacao")) {
-    return { bg:"#fffbeb", border:"#fde68a", accent:"#b45309", iconBg:"#fef3c7" };
-  }
-  if (key.includes("construcao") || key.includes("manutencao")) {
-    return { bg:"#fff7ed", border:"#fed7aa", accent:"#ea580c", iconBg:"#ffedd5" };
-  }
-  if (isDelivery || key.includes("delivery") || key.includes("transporte") || key.includes("entrega") || key.includes("logistica")) {
-    return { bg:"#ecfdf5", border:"#bbf7d0", accent:"#047857", iconBg:"#d1fae5" };
-  }
-  if (key.includes("beleza") || key.includes("estetica") || key.includes("bem")) {
-    return { bg:"#fdf2f8", border:"#fbcfe8", accent:"#db2777", iconBg:"#fce7f3" };
-  }
-  return { bg:"#f8fafc", border:"#e2e8f0", accent:"#475569", iconBg:"#eef2f7" };
+  return { bg: pal.bg, border: pal.border, accent: pal.accent, iconBg: pal.iconBg };
 }
 
 function iconeVisualVaga(segmento?: string | null, funcao?: string | null, size = 28) {
@@ -17149,8 +17157,8 @@ export default function App() {
       </section>
     ) : null;
     const diaristaShellStyle: React.CSSProperties = diaristaDesktopMode
-      ? { ...S.appShell, maxWidth:"none", width:"100%", minHeight:"100vh", margin:0, paddingLeft:248, paddingRight:24, paddingTop:0, paddingBottom:40, background:"#eaf0f6", overflowX:"hidden" }
-      : { ...S.appShell, maxWidth:larguraAppPrincipal, paddingTop:undefined, paddingBottom:76, background:"#f0f2f5" };
+      ? { ...S.appShell, maxWidth:"none", width:"100%", minHeight:"100vh", margin:0, paddingLeft:248, paddingRight:24, paddingTop:0, paddingBottom:40, background:"var(--bg-app,#eaf0f6)", overflowX:"hidden" }
+      : { ...S.appShell, maxWidth:larguraAppPrincipal, paddingTop:undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" };
 
     return (
       <div style={diaristaShellStyle}>
@@ -17760,7 +17768,7 @@ export default function App() {
                   const dataFmt = formatData(dia.data);
                   const ehServicoFeed = dia.tipo_oferta === "servico";
                   const propostaFeed = ehServicoFeed ? minhaPropostaPorVaga[dia.id] : null;
-                  const temaVaga = temaVisualVaga(dia.segmento, dia.funcao);
+                  const temaVaga = temaVisualVaga(dia.segmento, dia.funcao, darkMode);
                   const tipoOfertaCard = visualTipoOferta(dia);
                   const valorHeader = dia.tipo_oferta === "emprego"
                     ? ((dia.salario_texto || "").trim() || "A combinar")
@@ -17806,7 +17814,7 @@ export default function App() {
                             {tituloVaga}
                           </div>
                           <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8, flexWrap:"wrap" as const }}>
-                            <span style={{ background:tipoOfertaCard.bg, color:tipoOfertaCard.color, border:`1px solid ${tipoOfertaCard.border}`, fontSize:10, fontWeight:950, padding:"3px 9px", borderRadius:999, textTransform:"uppercase" as const, letterSpacing:0.2 }}>
+                            <span style={{ background: darkMode ? tipoOfertaCard.color + "26" : tipoOfertaCard.bg, color: darkMode ? "#f1f5f9" : tipoOfertaCard.color, border:`1px solid ${darkMode ? tipoOfertaCard.color + "55" : tipoOfertaCard.border}`, fontSize:10, fontWeight:950, padding:"3px 9px", borderRadius:999, textTransform:"uppercase" as const, letterSpacing:0.2 }}>
                               {tipoOfertaCard.curto}
                             </span>
                             {destaqueCard && (
@@ -17821,8 +17829,8 @@ export default function App() {
                             )}
                           </div>
                         </div>
-                        <div style={{ justifySelf:"end", alignSelf:"start", background:"rgba(255,255,255,.72)", color:"#FF6B35", border:"1px solid rgba(255,107,53,.24)", borderRadius:999, padding:"8px 13px", minWidth:88, maxWidth:132, textAlign:"center" as const, boxShadow:"0 8px 18px rgba(15,23,42,.06)" }}>
-                          <div style={{ fontSize:9, fontWeight:900, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.35, marginBottom:2 }}>
+                        <div style={{ justifySelf:"end", alignSelf:"start", background: darkMode ? "rgba(255,107,53,.16)" : "rgba(255,255,255,.72)", color: darkMode ? "#fdba74" : "#FF6B35", border: darkMode ? "1px solid rgba(255,107,53,.4)" : "1px solid rgba(255,107,53,.24)", borderRadius:999, padding:"8px 13px", minWidth:88, maxWidth:132, textAlign:"center" as const, boxShadow:"0 8px 18px rgba(15,23,42,.06)" }}>
+                          <div style={{ fontSize:9, fontWeight:900, color: darkMode ? "rgba(253,186,116,.75)" : "var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.35, marginBottom:2 }}>
                             {tipoOfertaCard.valorLabel}
                           </div>
                           <div style={{ fontWeight:950, fontSize:14, lineHeight:1.08, overflowWrap:"anywhere" as const }}>{valorHeader}</div>
