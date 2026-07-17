@@ -17157,8 +17157,8 @@ export default function App() {
       </section>
     ) : null;
     const diaristaShellStyle: React.CSSProperties = diaristaDesktopMode
-      ? { ...S.appShell, maxWidth:"none", width:"100%", minHeight:"100vh", margin:0, paddingLeft:248, paddingRight:24, paddingTop:0, paddingBottom:40, background:"#eaf0f6", overflowX:"hidden" }
-      : { ...S.appShell, maxWidth:larguraAppPrincipal, paddingTop:undefined, paddingBottom:76, background:"#f0f2f5" };
+      ? { ...S.appShell, maxWidth:"none", width:"100%", minHeight:"100vh", margin:0, paddingLeft:248, paddingRight:24, paddingTop:0, paddingBottom:40, background:"var(--bg-app,#eaf0f6)", overflowX:"hidden" }
+      : { ...S.appShell, maxWidth:larguraAppPrincipal, paddingTop:undefined, paddingBottom:76, background:"var(--bg-app,#f0f2f5)" };
 
     return (
       <div style={diaristaShellStyle}>
@@ -17814,7 +17814,7 @@ export default function App() {
                             {tituloVaga}
                           </div>
                           <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8, flexWrap:"wrap" as const }}>
-                            <span style={{ background:tipoOfertaCard.bg, color:tipoOfertaCard.color, border:`1px solid ${tipoOfertaCard.border}`, fontSize:10, fontWeight:950, padding:"3px 9px", borderRadius:999, textTransform:"uppercase" as const, letterSpacing:0.2 }}>
+                            <span style={{ background: darkMode ? tipoOfertaCard.color + "26" : tipoOfertaCard.bg, color: darkMode ? "#f1f5f9" : tipoOfertaCard.color, border:`1px solid ${darkMode ? tipoOfertaCard.color + "55" : tipoOfertaCard.border}`, fontSize:10, fontWeight:950, padding:"3px 9px", borderRadius:999, textTransform:"uppercase" as const, letterSpacing:0.2 }}>
                               {tipoOfertaCard.curto}
                             </span>
                             {destaqueCard && (
