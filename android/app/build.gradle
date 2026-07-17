@@ -24,6 +24,22 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Assinatura de release lida de ENV (injetada pelo CI — workflow android-aab.yml).
+    // NUNCA commitar a keystore nem as senhas: tudo vem de GitHub Secrets em runtime.
+    // Sem as envs (build local / Android Studio), o bloco fica vazio e NÃO é referenciado
+    // abaixo — então `assembleRelease`/Generate Signed Bundle seguem funcionando como hoje
+    // (você assina manualmente pelo Android Studio).
+    signingConfigs {
+        release {
+            def ksPath = System.getenv("DIARIAJA_KEYSTORE_PATH")
+            if (ksPath) {
+                storeFile file(ksPath)
+                storePassword System.getenv("DIARIAJA_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("DIARIAJA_KEY_ALIAS")
+                keyPassword System.getenv("DIARIAJA_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
             // IMPORTANTE: minifyEnabled FICA DESLIGADO.
@@ -35,6 +51,12 @@ android {
             minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Só assina com a release key quando o CI forneceu a keystore via env.
+            // Localmente (sem env) o AAB sai sem essa config — o Android Studio
+            // aplica a assinatura no "Generate Signed Bundle".
+            if (System.getenv("DIARIAJA_KEYSTORE_PATH")) {
+                signingConfig signingConfigs.release
+            }
         }
         debug {
             // Mantém debug rápido — sem ofuscação

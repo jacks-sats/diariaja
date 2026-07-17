@@ -1,0 +1,123 @@
+name: Android AAB (release assinado)
+
+# Gera o Android App Bundle (.aab) ASSINADO pra subir na Play Console, sem
+# depender do Android Studio. Disparo MANUAL (workflow_dispatch) — release é
+# decisão consciente, não acontece a cada push.
+#
+# Pré-requisitos (uma vez), em Settings → Secrets and variables → Actions:
+#   ANDROID_KEYSTORE_BASE64    → sua upload keystore (.jks) em base64
+#                                 (a MESMA já cadastrada no Play App Signing).
+#                                 Gerar:  base64 -w0 upload-keystore.jks > ks.txt
+#   ANDROID_KEYSTORE_PASSWORD  → senha do keystore (storePassword)
+#   ANDROID_KEY_ALIAS          → alias da chave (ex.: "upload")
+#   ANDROID_KEY_PASSWORD       → senha da chave (keyPassword; costuma ser igual à do store)
+# (Opcionais, mas recomendados — mesmas do OTA, pra o bundle web não sair com
+#  as features desligadas):
+#   VITE_GOOGLE_WEB_CLIENT_ID, VITE_VAPID_PUBLIC_KEY,
+#   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+#
+# Enquanto ANDROID_KEYSTORE_BASE64 NÃO existir, o job roda e PULA tudo (fica
+# verde) — não quebra nada. Depois de configurado, passa a gerar o AAB.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: "versionCode (INTEIRO, deve ser MAIOR que o último publicado na Play)"
+        required: true
+        type: string
+      version_name:
+        description: "versionName visível (ex.: 1.2.0)"
+        required: true
+        default: "1.2.0"
+        type: string
+
+concurrency:
+  group: aab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-aab:
+    name: build + assinar AAB
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checar se a keystore está configurada
+        id: guard
+        run: |
+          if [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "has_keystore=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=AAB pulado::ANDROID_KEYSTORE_BASE64 não configurado. Configure os secrets de assinatura em Settings → Secrets para gerar o AAB."
+          else
+            echo "has_keystore=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Node 20
+        if: steps.guard.outputs.has_keystore == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: JDK 17 (Temurin)
+        if: steps.guard.outputs.has_keystore == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Instalar dependências
+        if: steps.guard.outputs.has_keystore == 'true'
+        run: npm ci
+
+      - name: Build web (dist/)
+        if: steps.guard.outputs.has_keystore == 'true'
+        # Mesmas envs do OTA: sem elas o bundle embarcado no AAB sai com as
+        # chaves VITE_* vazias e desliga login Google nativo / Web Push.
+        # (VITE_SUPABASE_URL/ANON_KEY têm fallback no código; passamos por clareza.)
+        env:
+          VITE_GOOGLE_WEB_CLIENT_ID: ${{ secrets.VITE_GOOGLE_WEB_CLIENT_ID }}
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: npm run build
+
+      - name: Capacitor sync (copia dist/ + aplica capacitor.config)
+        if: steps.guard.outputs.has_keystore == 'true'
+        run: npx cap sync android
+
+      - name: Decodificar keystore
+        if: steps.guard.outputs.has_keystore == 'true'
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+
+      - name: Gerar AAB de release assinado
+        if: steps.guard.outputs.has_keystore == 'true'
+        working-directory: android
+        # versionCode/versionName vêm dos inputs do disparo; assinatura vem dos
+        # secrets via env (lidas no app/build.gradle → signingConfigs.release).
+        env:
+          DIARIAJA_VERSION_CODE: ${{ inputs.version_code }}
+          DIARIAJA_VERSION_NAME: ${{ inputs.version_name }}
+          DIARIAJA_KEYSTORE_PATH: ${{ runner.temp }}/upload-keystore.jks
+          DIARIAJA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          DIARIAJA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          DIARIAJA_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew bundleRelease --no-daemon
+
+      - name: Limpar keystore do runner
+        if: always() && steps.guard.outputs.has_keystore == 'true'
+        run: rm -f "$RUNNER_TEMP/upload-keystore.jks"
+
+      - name: Publicar o .aab como artefato
+        if: steps.guard.outputs.has_keystore == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: diariaja-${{ inputs.version_name }}-${{ inputs.version_code }}-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
