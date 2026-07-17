@@ -14714,6 +14714,7 @@ export default function App() {
                       : null;
                     const nome = dp?.nome || info?.nome || "Profissional";
                     const funcao = dp?.funcao || info?.funcao || "";
+                    const bairroCand = [dp?.catalogo_bairro, dp?.catalogo_cidade].filter(Boolean).join(" · ");
                     const latD = dp?.lat ?? info?.lat ?? null;
                     const lngD = dp?.lng ?? info?.lng ?? null;
                     const geoD = dp?.geo_preciso ?? info?.geo_preciso ?? null;
@@ -14753,6 +14754,7 @@ export default function App() {
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontWeight:900, fontSize:15, color:"var(--text-1,#0f172a)" }}>{primeiroNome}</div>
                           {funcao && <div style={{ fontSize:12, color:"#FF6B35", fontWeight:700, marginTop:2 }}>{funcao}</div>}
+                          {bairroCand && <div style={{ fontSize:11.5, color:"var(--text-2,#64748b)", fontWeight:600, marginTop:2 }}>🏘️ {bairroCand}</div>}
                           {distCandTxt
                             ? <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:2 }}>📍 {distCandTxt}</div>
                             : <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginTop:2 }}>Toque para ver perfil completo →</div>
@@ -21510,6 +21512,12 @@ export default function App() {
               💼 {diariasDaPerfilConc} {diariasDaPerfilConc === 1 ? "serviço concluído" : "serviços concluídos"}
             </span>
           </div>
+          {(d.catalogo_bairro || d.catalogo_cidade) && (
+            <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:8, justifyContent:isDesktop?"flex-start":"center", color:"var(--text-2,#64748b)", fontSize:13, fontWeight:700 }}>
+              <MapPin size={14} style={{ flexShrink:0 }} />
+              {[d.catalogo_bairro, d.catalogo_cidade].filter(Boolean).join(" · ")}
+            </div>
+          )}
           <div style={{ ...S.badge, ...(d.disponivel ? S.badgeVerde : S.badgeCinza), fontSize:13, marginTop:8 }}>
             {d.disponivel ? "● Disponível hoje" : "● Indisponível hoje"}
           </div>
