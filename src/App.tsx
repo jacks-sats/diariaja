@@ -814,8 +814,12 @@ function MapaInterativoAdmin({ celulas, cor, onCelula }: {
       mapaRef.current = { L, mapa, camada: null };
       setPronto(true);
       desenhar();
-      // Enquadra os dados na 1ª carga (com margem); depois o admin navega livre.
-      const cels = dadosRef.current.celulas;
+      // Enquadra na 1ª carga SÓ o que está na região de Campo Grande (~75 km).
+      // Havia cadastros de São Paulo na base — enquadrar TUDO abria o mapa na
+      // escala do Brasil e a cidade inteira virava "uma bolha só" (bug 16/07).
+      // Fora da região fica acessível arrastando/zoom; um aviso lista o total.
+      const cels = dadosRef.current.celulas.filter(c =>
+        Math.abs(c.lat - (-20.4697)) < 0.7 && Math.abs(c.lng - (-54.6201)) < 0.7);
       if (cels.length > 0) {
         mapa.fitBounds(L.latLngBounds(cels.map(c => [c.lat, c.lng] as [number, number])).pad(0.25), { maxZoom: 14 });
       }
