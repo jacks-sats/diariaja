@@ -111,7 +111,7 @@ import {
   detectarContatoExterno, validarCPF, validarCNPJ, maskCPF, maskCNPJ, maskTelefone, haversineKm,
   maskData, isoParaBR, brParaIso, gerarHorarios, protocoloContato,
   validarTituloDiaria, validarEmail, validarTelefone, erroTelefoneSave, vagaExpirou, vagaProximaDeVencer, checkinDentroDaJanela, diariaNoShow, conviteExpirou, duracaoTurnoMin,
-  formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, geoPrecisoParaSalvar, parseEnderecoReverso, deveMostrarLembreteGeo, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
+  formatarDistancia, rotuloDistanciaFeed, distanciaParaFiltroRaio, geoPrecisoParaSalvar, parseEnderecoReverso, deveMostrarLembreteGeo, lembreteGeoSilenciado, tempoEstimadoMin, formatarTempo, formatTempoRelativo,
   calcularNivelConfiabilidade, calcScoreEmpregador, academiaPctPorXp, calcularIdade, validarSenhaForte, validarPix, hojeLocalISO, fimTurno,
   calcScoreBreakdown, calcCompletude, completudeEditavel, calcConquistas, codigoPresenca,
   parseEnderecoEmpregador, verificarConteudoProibido, verificarDiscriminacao, traduzirErroBanco,
@@ -1476,14 +1476,17 @@ export default function App() {
     setMeiBannerOculto(true);
   };
 
-  // Lembrete (1x) pra atualizar a localização — quem está com geo_preciso != true
-  // não aparece/não vê distância certa no feed. Dismissível; some sozinho quando
-  // a pessoa recaptura (geo_preciso vira true). Banner, nunca push/modal.
+  // Lembrete pra atualizar a localização — quem está com geo_preciso != true não
+  // aparece/não vê distância certa no feed. Dismissível, mas NÃO pra sempre:
+  // silencia por LEMBRETE_GEO_SILENCIO_DIAS (7) e volta a lembrar quem continua
+  // sem localização precisa (nudge da base antiga sem virar spam). Some sozinho
+  // quando a pessoa recaptura (geo_preciso vira true). Banner, nunca push/modal.
   const [lembreteGeoOculto, setLembreteGeoOculto] = useState(() => {
-    try { return localStorage.getItem("diariaja_lembrete_geo_v1") === "1"; } catch { return false; }
+    try { return lembreteGeoSilenciado(Number(localStorage.getItem("diariaja_lembrete_geo_ts") || "") || null); }
+    catch { return false; }
   });
   const dispensarLembreteGeo = () => {
-    try { localStorage.setItem("diariaja_lembrete_geo_v1", "1"); } catch { /* modo privado */ }
+    try { localStorage.setItem("diariaja_lembrete_geo_ts", String(Date.now())); } catch { /* modo privado */ }
     setLembreteGeoOculto(true);
   };
 

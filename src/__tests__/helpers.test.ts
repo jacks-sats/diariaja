@@ -17,6 +17,7 @@ import {
   distanciaParaFiltroRaio,
   geoPrecisoParaSalvar,
   deveMostrarLembreteGeo,
+  lembreteGeoSilenciado,
   parseEnderecoReverso,
   protocoloContato,
   maskData,
@@ -1873,6 +1874,30 @@ describe("deveMostrarLembreteGeo", () => {
   it("dispensado → NÃO mostra (1x só)", () => {
     expect(deveMostrarLembreteGeo(null, true)).toBe(false);
     expect(deveMostrarLembreteGeo(false, true)).toBe(false);
+  });
+});
+
+// ── lembreteGeoSilenciado: dispensar silencia por N dias, depois volta ──
+describe("lembreteGeoSilenciado", () => {
+  const agora = 1_000_000_000_000;
+  const dia = 24 * 60 * 60 * 1000;
+  it("sem timestamp (nunca dispensou) → NÃO silenciado (mostra)", () => {
+    expect(lembreteGeoSilenciado(null, agora)).toBe(false);
+    expect(lembreteGeoSilenciado(undefined, agora)).toBe(false);
+    expect(lembreteGeoSilenciado(0, agora)).toBe(false);
+    expect(lembreteGeoSilenciado(NaN, agora)).toBe(false);
+  });
+  it("dispensou há menos de 7 dias → silenciado (não mostra)", () => {
+    expect(lembreteGeoSilenciado(agora - 1 * dia, agora)).toBe(true);
+    expect(lembreteGeoSilenciado(agora - 6.9 * dia, agora)).toBe(true);
+  });
+  it("dispensou há 7+ dias → volta a lembrar (não silenciado)", () => {
+    expect(lembreteGeoSilenciado(agora - 7 * dia, agora)).toBe(false);
+    expect(lembreteGeoSilenciado(agora - 30 * dia, agora)).toBe(false);
+  });
+  it("respeita janela custom de dias", () => {
+    expect(lembreteGeoSilenciado(agora - 2 * dia, agora, 1)).toBe(false);
+    expect(lembreteGeoSilenciado(agora - 2 * dia, agora, 3)).toBe(true);
   });
 });
 
