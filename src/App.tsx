@@ -1151,6 +1151,11 @@ export default function App() {
   const [adminSecao, setAdminSecao]                 = useState<AdminSecao>("dashboard");
   const [adminFunil, setAdminFunil]                 = useState<AdminFunilConversao | null>(null);
   const [adminFunilDias, setAdminFunilDias]         = useState(30);
+  // Aba Oportunidades: vagas abertas agora + interessados, e ranking por função
+  // (opcionais — degradam se a migração admin_oportunidades_insights não rodou).
+  type AdminVagaAtiva = { id: string; titulo: string; tipo_oferta: string | null; bairro: string | null; valor: number | null; interessados: number; criada_em: string };
+  const [adminVagasAtivas, setAdminVagasAtivas]     = useState<AdminVagaAtiva[] | null>(null);
+  const [adminRankingFuncao, setAdminRankingFuncao] = useState<{ funcao: string; total: number }[] | null>(null);
   const [adminRetencao, setAdminRetencao]           = useState<{
     ativos_hoje: number; ativos_7d: number; ativos_30d: number;
     retornantes_7d: number; recorrentes_14d: number; stickiness_pct: number;
@@ -5701,6 +5706,13 @@ export default function App() {
       if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
       // Mapa de demanda por região — opcional (degrada se a RPC não existe).
       void carregarAdminMapa(adminMapaDias, adminMapaAbertas);
+      // Insights da aba Oportunidades — opcionais (degradam sem a migração).
+      void supabase.rpc("admin_vagas_ativas_interessados", { p_limit: 60 }).then(({ data, error }) => {
+        if (!error && Array.isArray(data)) setAdminVagasAtivas(data as AdminVagaAtiva[]);
+      });
+      void supabase.rpc("admin_ranking_funcao", { p_dias: 30, p_somente_ativas: true }).then(({ data, error }) => {
+        if (!error && Array.isArray(data)) setAdminRankingFuncao(data as { funcao: string; total: number }[]);
+      });
     } finally {
       setCarregandoAdminStats(false);  // A4
     }
@@ -23547,6 +23559,81 @@ export default function App() {
               {adminFunil ? <CardFunilConversao dados={adminFunil} /> : (
                 <div style={{ background:"var(--bg-card,#fff)", border:DESIGN.cardBorder, borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:12.5 }}>
                   {carregandoAdminStats ? "Carregando o funil…" : "Funil indisponível. Verifique se a migração do painel foi aplicada."}
+                </div>
+              )}
+
+              {/* ── Ranking por função: composição da demanda (que perfil recrutar) ── */}
+              {adminRankingFuncao && adminRankingFuncao.length > 0 && (() => {
+                const totalGeral = adminRankingFuncao.reduce((s, r) => s + r.total, 0) || 1;
+                const maxTotal = Math.max(1, ...adminRankingFuncao.map(r => r.total));
+                return (
+                  <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft, marginTop:14 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:12 }}>
+                      <div style={{ fontSize:14, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Ranking por função</div>
+                      <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>vagas abertas · 30d</div>
+                    </div>
+                    {adminRankingFuncao.map((r, i) => {
+                      const pct = Math.round((r.total / totalGeral) * 100);
+                      return (
+                        <div key={r.funcao} style={{ marginBottom:9 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:8, fontSize:12.5, marginBottom:3 }}>
+                            <span style={{ color:"var(--text-1,#0f172a)", fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>
+                              <span style={{ color:"var(--text-3,#94a3b8)", fontWeight:800, marginRight:6 }}>{i + 1}º</span>{r.funcao}
+                            </span>
+                            <span style={{ color:"var(--text-2,#64748b)", fontWeight:700, flexShrink:0, fontSize:11.5 }}>
+                              <b style={{ color:"#0f172a" }}>{r.total}</b> · {pct}%
+                            </span>
+                          </div>
+                          <div style={{ background:"var(--bg-subtle,#f1f5f9)", borderRadius:4, height:6, overflow:"hidden" }}>
+                            <div style={{ background:"#8b5cf6", height:6, width:`${Math.round((r.total / maxTotal) * 100)}%`, borderRadius:4, transition:"width .4s" }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:6, lineHeight:1.5 }}>
+                      Proporção das funções entre as vagas abertas agora. Use pra saber qual perfil de profissional está em maior demanda.
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Vagas ativas + interessados: o que está no ar e a procura ── */}
+              {adminVagasAtivas && (
+                <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft, marginTop:14 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:12 }}>
+                    <div style={{ fontSize:14, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Vagas ativas e interessados</div>
+                    <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>{adminVagasAtivas.length} aberta{adminVagasAtivas.length === 1 ? "" : "s"}</div>
+                  </div>
+                  {adminVagasAtivas.length === 0 ? (
+                    <div style={{ fontSize:12.5, color:"var(--text-3,#94a3b8)", padding:"8px 0" }}>Nenhuma vaga aberta no momento.</div>
+                  ) : (
+                    <div style={{ display:"flex", flexDirection:"column" as const, gap:8 }}>
+                      {adminVagasAtivas.map(v => {
+                        const tipoRotulo = v.tipo_oferta === "emprego" ? "Emprego" : v.tipo_oferta === "servico" || v.tipo_oferta === "servico_empresa" ? "Serviço" : "Diária";
+                        const tipoCor = v.tipo_oferta === "emprego" ? "#8b5cf6" : v.tipo_oferta === "servico" || v.tipo_oferta === "servico_empresa" ? "#16a34a" : "#f59e0b";
+                        return (
+                          <div key={v.id} style={{ display:"flex", alignItems:"center", gap:10, background:"var(--bg-surface,#f8fafc)", border:"1px solid var(--border,#e2e8f0)", borderRadius:12, padding:"10px 12px" }}>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
+                                <span style={{ fontWeight:800, fontSize:13, color:"var(--text-1,#0f172a)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const, maxWidth:"100%" }}>{v.titulo}</span>
+                                <span style={{ background:tipoCor + "1e", color:tipoCor, fontSize:9.5, fontWeight:900, borderRadius:6, padding:"2px 7px", textTransform:"uppercase" as const, letterSpacing:0.3 }}>{tipoRotulo}</span>
+                              </div>
+                              <div style={{ fontSize:11.5, color:"var(--text-2,#64748b)", marginTop:2 }}>
+                                {v.bairro || "Sem bairro"}{v.valor && v.valor > 0 ? ` · R$ ${v.valor}` : ""}
+                              </div>
+                            </div>
+                            <div style={{ textAlign:"center" as const, flexShrink:0, minWidth:52 }}>
+                              <div style={{ fontSize:20, fontWeight:900, color: v.interessados > 0 ? "#3A86FF" : "#cbd5e1", lineHeight:1 }}>{v.interessados}</div>
+                              <div style={{ fontSize:9.5, color:"var(--text-3,#94a3b8)", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:0.3, marginTop:2 }}>interess.</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:8, lineHeight:1.5 }}>
+                    Só vagas abertas agora, ordenadas pela procura. "Interessados" = candidaturas não recusadas.
+                  </div>
                 </div>
               )}
             </>
