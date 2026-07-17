@@ -1156,6 +1156,10 @@ export default function App() {
   type AdminVagaAtiva = { id: string; titulo: string; tipo_oferta: string | null; bairro: string | null; valor: number | null; interessados: number; criada_em: string };
   const [adminVagasAtivas, setAdminVagasAtivas]     = useState<AdminVagaAtiva[] | null>(null);
   const [adminRankingFuncao, setAdminRankingFuncao] = useState<{ funcao: string; total: number }[] | null>(null);
+  // Correção de localização por CEP (Edge Function admin-regeocode).
+  type RegeoResultado = { dry_run: boolean; candidatos?: number; atualizados?: number; precisos: number; imprecisos: number; restam_mais?: boolean; itens: { nome: string; cep: string; de: string; para: string; preciso: boolean }[] };
+  const [regeoBusy, setRegeoBusy]         = useState(false);
+  const [regeoResultado, setRegeoResultado] = useState<RegeoResultado | null>(null);
   const [adminRetencao, setAdminRetencao]           = useState<{
     ativos_hoje: number; ativos_7d: number; ativos_30d: number;
     retornantes_7d: number; recorrentes_14d: number; stickiness_pct: number;
@@ -5757,6 +5761,30 @@ export default function App() {
       else if (data) setAdminDrillLista(data as AdminDrillItem[]);
     } finally {
       setCarregandoDrill(false);
+    }
+  };
+
+  // Correção de localização por CEP: chama a Edge Function admin-regeocode.
+  // dry_run=true só simula (mostra o que mudaria); false grava de verdade.
+  const rodarRegeocode = async (dryRun: boolean) => {
+    if (!profile?.is_admin || regeoBusy) return;
+    const { data: { session: sess } } = await supabase.auth.getSession();
+    if (!sess?.access_token) { setToastError("Sessão expirada. Entre novamente."); return; }
+    setRegeoBusy(true);
+    try {
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/admin-regeocode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${sess.access_token}`, "apikey": SUPABASE_ANON_KEY },
+        body: JSON.stringify({ dry_run: dryRun, limit: 20 }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) { setToastError(data?.error || `Falha (HTTP ${resp.status})`); return; }
+      setRegeoResultado(data as RegeoResultado);
+      if (!dryRun) setToastSuccess(`✅ ${data.atualizados ?? 0} perfil(s) reposicionado(s) pelo CEP.`);
+    } catch (err) {
+      setToastError(err instanceof Error ? err.message : "Erro de conexão.");
+    } finally {
+      setRegeoBusy(false);
     }
   };
 
@@ -23825,6 +23853,53 @@ export default function App() {
             <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(2, minmax(0,1fr))" : "1fr 1fr", gap:10 }}>
               {cardStat("Cursos concluídos", adminExtras.cursos_concluidos, "#FF6B35", <GraduationCap size={19} />)}
               {cardStat("Avaliação média", adminExtras.avaliacoes_medias_dia ? `${Number(adminExtras.avaliacoes_medias_dia).toFixed(1)}★` : "—", "#fbbf24", <Star size={19} />)}
+            </div>
+          </div>
+        )}
+
+        {/* ── Manutenção: reposicionar prestadores pelo CEP (corrige empilhados) ── */}
+        {adminSecao === "usuarios" && (
+          <div style={{ padding:"4px 16px 20px" }}>
+            <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Localização</div>
+            <div style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"14px 16px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                <MapPin size={20} style={{ color:"#FF6B35", flexShrink:0 }} />
+                <div style={{ fontSize:13.5, fontWeight:900, color:"var(--text-1,#0f172a)" }}>Corrigir localizações pelo CEP</div>
+              </div>
+              <div style={{ fontSize:11.5, color:"var(--text-2,#64748b)", lineHeight:1.5, marginBottom:12 }}>
+                Reposiciona prestadores sem localização precisa usando o CEP do cadastro (lotes de 20). Quem resolver pro bairro passa a mostrar distância; centroide de cidade fica "aproximado". Rode a <b>simulação</b> primeiro.
+              </div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" as const }}>
+                <button disabled={regeoBusy} onClick={() => void rodarRegeocode(true)}
+                  style={{ flex:1, minWidth:130, padding:"10px 12px", borderRadius:10, border:"1.5px solid var(--border,#e2e8f0)", background:"var(--bg-surface,#f8fafc)", color:"var(--text-1,#0f172a)", fontSize:12.5, fontWeight:850, cursor:regeoBusy ? "wait" : "pointer", opacity:regeoBusy ? 0.6 : 1, fontFamily:"Inter, system-ui, sans-serif" }}>
+                  {regeoBusy ? "Processando…" : "🔍 Simular (dry-run)"}
+                </button>
+                <button disabled={regeoBusy || !regeoResultado?.dry_run || (regeoResultado?.itens.length ?? 0) === 0}
+                  onClick={() => void rodarRegeocode(false)}
+                  style={{ flex:1, minWidth:130, padding:"10px 12px", borderRadius:10, border:"none", background: (!regeoResultado?.dry_run || (regeoResultado?.itens.length ?? 0) === 0) ? "#cbd5e1" : "#16a34a", color:"#fff", fontSize:12.5, fontWeight:850, cursor:(regeoBusy || !regeoResultado?.dry_run) ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+                  ✅ Aplicar
+                </button>
+              </div>
+              {regeoResultado && (
+                <div style={{ marginTop:12, background:"var(--bg-surface,#f8fafc)", border:"1px solid var(--border,#e2e8f0)", borderRadius:12, padding:"11px 12px" }}>
+                  <div style={{ fontSize:12, fontWeight:800, color:"var(--text-1,#0f172a)", marginBottom:6 }}>
+                    {regeoResultado.dry_run
+                      ? `Simulação: ${regeoResultado.itens.length} perfil(s) reposicionável(is)`
+                      : `Aplicado: ${regeoResultado.atualizados ?? 0} perfil(s) atualizado(s)`}
+                    {" · "}<span style={{ color:"#16a34a" }}>{regeoResultado.precisos} preciso(s)</span>
+                    {" · "}<span style={{ color:"#f59e0b" }}>{regeoResultado.imprecisos} aproximado(s)</span>
+                  </div>
+                  {regeoResultado.itens.slice(0, 8).map((it, i) => (
+                    <div key={i} style={{ fontSize:11, color:"var(--text-2,#64748b)", padding:"3px 0", borderTop: i === 0 ? "none" : "1px solid var(--border-sub,#f1f5f9)", display:"flex", justifyContent:"space-between", gap:8 }}>
+                      <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>{it.nome} · {it.cep}</span>
+                      <span style={{ flexShrink:0, color: it.preciso ? "#16a34a" : "#f59e0b", fontWeight:700 }}>{it.preciso ? "preciso" : "aprox."}</span>
+                    </div>
+                  ))}
+                  {regeoResultado.restam_mais && (
+                    <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:6 }}>Há mais perfis — rode de novo pra continuar os próximos lotes.</div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
