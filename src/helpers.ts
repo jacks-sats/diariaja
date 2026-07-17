@@ -728,6 +728,20 @@ export function deveMostrarLembreteGeo(geoPreciso: boolean | null | undefined, d
   return geoPreciso !== true && !dispensado;
 }
 
+// O "dispensar" do lembrete de localização não é mais pra sempre: silencia por
+// alguns dias e volta a lembrar quem CONTINUA sem localização precisa (assim a
+// base antiga, empilhada no centroide, é nudge sem virar spam). Recebe o
+// timestamp (ms) do último "fechar" — ausente/ inválido = mostrar.
+export const LEMBRETE_GEO_SILENCIO_DIAS = 7;
+export function lembreteGeoSilenciado(
+  dispensadoEmMs: number | null | undefined,
+  agoraMs: number = Date.now(),
+  dias: number = LEMBRETE_GEO_SILENCIO_DIAS,
+): boolean {
+  if (!dispensadoEmMs || !Number.isFinite(dispensadoEmMs)) return false;
+  return agoraMs - dispensadoEmMs < dias * 24 * 60 * 60 * 1000;
+}
+
 // ── Vaga de EMPREGO: chamar vários candidatos (Fase 1) ───────────────────────
 // Decisão de seleção/chamada por tipo de oferta. SÓ o emprego muda; diária/serviço
 // seguem idênticos. Emprego: chama vários, vaga segue ABERTA, NÃO rejeita ninguém,
