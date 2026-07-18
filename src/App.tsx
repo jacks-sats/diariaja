@@ -1161,6 +1161,12 @@ export default function App() {
   // migração admin_pulso_vivo não rodou (a seção mostra aviso, não quebra).
   type AdminPulso = {
     empresas_ativas_hoje: number; prestadores_ativos_hoje: number; vagas_abertas: number;
+    // Ativos únicos no período (via atividade_diaria) + período anterior p/ delta.
+    // null quando a migração de retenção ainda não rodou → front usa o "hoje".
+    empresas_ativas_periodo: number | null; empresas_ativas_periodo_ant: number | null;
+    prestadores_ativos_periodo: number | null; prestadores_ativos_periodo_ant: number | null;
+    // Gargalos acionáveis (snapshot agora).
+    vagas_sem_candidato: number; empresas_esperando_resposta: number; candidatos_aguardando_retorno: number;
     media_candidatos_vaga: number; tempo_1a_candidatura_h: number | null; tempo_contratacao_h: number | null;
     contratacoes: number; contratacoes_ant: number;
     diarias_concluidas: number; diarias_concluidas_ant: number;
@@ -23539,9 +23545,9 @@ export default function App() {
                     Se esses números crescem, o app está vivo. 💚
                   </div>
                   <div style={{ display:"flex", gap:5 }}>
-                    {[7,30,90].map(dd => (
+                    {[1,7,30,90].map(dd => (
                       <button key={dd} onClick={() => { setAdminPulsoDias(dd); void carregarAdminPulso(dd); }}
-                        style={{ border:"none", borderRadius:8, padding:"6px 10px", background: adminPulsoDias === dd ? "#0f172a" : "var(--bg-card,#fff)", color: adminPulsoDias === dd ? "#fff" : "#64748b", fontSize:11, fontWeight:850, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>{dd}d</button>
+                        style={{ border:"none", borderRadius:8, padding:"6px 10px", background: adminPulsoDias === dd ? "#0f172a" : "var(--bg-card,#fff)", color: adminPulsoDias === dd ? "#fff" : "#64748b", fontSize:11, fontWeight:850, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>{dd === 1 ? "Hoje" : `${dd}d`}</button>
                     ))}
                   </div>
                 </div>
@@ -23550,36 +23556,103 @@ export default function App() {
                   <div style={{ background:"var(--bg-card,#fff)", border:DESIGN.cardBorder, borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:12.5 }}>
                     {carregandoAdminStats ? "Lendo os sinais vitais…" : "Pulso indisponível. Rode a migração admin_pulso_vivo.sql no Supabase."}
                   </div>
-                ) : (
-                  <>
-                    {/* AGORA — snapshots dos dois lados + oferta no ar */}
-                    <div style={{ fontSize:10.5, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>🟢 Agora</div>
-                    <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:16 }}>
-                      {tilePulso("Empresas ativas hoje", p.empresas_ativas_hoje, "#3A86FF", "Anunciantes que abriram o app hoje")}
-                      {tilePulso("Prestadores ativos hoje", p.prestadores_ativos_hoje, "#FF6B35", "Profissionais que abriram o app hoje")}
-                      {tilePulso("Vagas abertas", p.vagas_abertas, "#16a34a", "Oportunidades no ar agora (não vencidas)")}
-                    </div>
+                ) : (() => {
+                  // Ativos: usa o período (com delta real) se o histórico existir; senão cai no snapshot de hoje.
+                  const empVal = p.empresas_ativas_periodo ?? p.empresas_ativas_hoje;
+                  const preVal = p.prestadores_ativos_periodo ?? p.prestadores_ativos_hoje;
+                  const empDelta = p.empresas_ativas_periodo != null ? delta(p.empresas_ativas_periodo, p.empresas_ativas_periodo_ant ?? 0) : null;
+                  const preDelta = p.prestadores_ativos_periodo != null ? delta(p.prestadores_ativos_periodo, p.prestadores_ativos_periodo_ant ?? 0) : null;
+                  const contDelta = delta(p.contratacoes, p.contratacoes_ant);
+                  const periodoLabel = p.periodo_dias === 1 ? "hoje" : `${p.periodo_dias}d`;
 
-                    {/* CRESCIMENTO — fluxo do período vs período anterior */}
-                    <div style={{ fontSize:10.5, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>📈 Crescimento · {p.periodo_dias}d vs {p.periodo_dias}d anteriores</div>
-                    <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:16 }}>
-                      {tilePulso("Contratações", p.contratacoes, "#8b5cf6", "Seleções efetivadas (a contratação aconteceu)", delta(p.contratacoes, p.contratacoes_ant))}
-                      {tilePulso("Diárias concluídas", p.diarias_concluidas, "#16a34a", "Trabalhos finalizados no período", delta(p.diarias_concluidas, p.diarias_concluidas_ant))}
-                      {tilePulso("Valor movimentado", fmtReal(p.valor_movimentado), "#0ea5e9", "Soma das diárias/serviços concluídos (GMV)", delta(p.valor_movimentado, p.valor_movimentado_ant))}
-                    </div>
+                  // Saúde do marketplace: leitura honesta a partir de sinais concretos (não é chute).
+                  const saude = (() => {
+                    if (empVal === 0 && preVal === 0) return { txt:"Sem atividade no período", cor:"#94a3b8", emoji:"⚪", dica:"Ninguém dos dois lados apareceu ainda." };
+                    if (p.vagas_abertas === 0 && preVal > 0) return { txt:"Faltam empresas/vagas", cor:"#ef4444", emoji:"🔴", dica:"Tem prestador ativo, mas nenhuma vaga no ar. Traga anunciantes." };
+                    if (preVal === 0 && p.vagas_abertas > 0) return { txt:"Faltam prestadores", cor:"#ef4444", emoji:"🔴", dica:"Tem vaga no ar, mas nenhum prestador ativo. Traga profissionais." };
+                    if (p.vagas_abertas > 0 && p.vagas_sem_candidato >= Math.ceil(p.vagas_abertas / 2))
+                      return { txt:"Faltam prestadores", cor:"#f59e0b", emoji:"🟡", dica:`${p.vagas_sem_candidato} de ${p.vagas_abertas} vagas sem candidato. Foque em atrair profissionais.` };
+                    return { txt:"Saudável", cor:"#16a34a", emoji:"🟢", dica:"Os dois lados estão ativos e as vagas recebem candidatos." };
+                  })();
 
-                    {/* LIQUIDEZ — a máquina de match está rápida? */}
-                    <div style={{ fontSize:10.5, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>⚡ Liquidez · quanto menor o tempo, melhor</div>
-                    <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:8 }}>
-                      {tilePulso("Candidatos por vaga", p.media_candidatos_vaga.toString().replace(".", ","), "#f59e0b", "Média de interessados por vaga do período")}
-                      {tilePulso("Até 1ª candidatura", fmtTempo(p.tempo_1a_candidatura_h), "#3A86FF", "Mediana: publicar → primeiro interessado")}
-                      {tilePulso("Até contratação", fmtTempo(p.tempo_contratacao_h), "#8b5cf6", "Mediana: publicar → seleção do profissional")}
-                    </div>
-                    <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:8, lineHeight:1.5 }}>
-                      Cada número tem uma definição única — nada se repete nas outras abas. "Contratações" = seleções efetivadas; "Diárias concluídas" = trabalho finalizado; "Valor movimentado" = o dinheiro que rodou entre as partes (a plataforma não intermedia).
-                    </div>
-                  </>
-                )}
+                  // Candidatos por vaga com meta — mede se o match está saudável.
+                  const cpv = p.media_candidatos_vaga;
+                  const cpvCor = cpv >= 5 ? "#16a34a" : cpv >= 3 ? "#22c55e" : cpv >= 1 ? "#f59e0b" : "#ef4444";
+                  const cpvMeta = cpv >= 5 ? "Excelente (acima de 5)" : cpv >= 3 ? "Saudável (acima de 3)" : "Meta: acima de 3";
+
+                  return (
+                    <>
+                      {/* HERO — saúde do marketplace + a métrica que mais importa */}
+                      <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "1.4fr 1fr" : "1fr", gap:10, marginBottom:16 }}>
+                        <div style={{ background:"var(--bg-card,#fff)", borderRadius:18, padding:"16px 17px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft, borderLeft:`5px solid ${saude.cor}` }}>
+                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:12 }}>
+                            <div style={{ fontSize:11.5, fontWeight:900, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.4 }}>Saúde do marketplace</div>
+                            <span style={{ fontSize:12, fontWeight:950, color:saude.cor, background:saude.cor+"1c", borderRadius:9, padding:"3px 10px", flexShrink:0 }}>{saude.emoji} {saude.txt}</span>
+                          </div>
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                            <div>
+                              <div style={{ fontSize:30, fontWeight:950, color:"#3A86FF", lineHeight:1 }}>{empVal}{empDelta && <span style={{ fontSize:12, fontWeight:900, color:empDelta.cor, marginLeft:6 }}>{empDelta.up?"▲":"▼"} {empDelta.txt}</span>}</div>
+                              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:800, marginTop:3 }}>Empresas ativas ({periodoLabel})</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize:30, fontWeight:950, color:"#FF6B35", lineHeight:1 }}>{preVal}{preDelta && <span style={{ fontSize:12, fontWeight:900, color:preDelta.cor, marginLeft:6 }}>{preDelta.up?"▲":"▼"} {preDelta.txt}</span>}</div>
+                              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:800, marginTop:3 }}>Prestadores ativos ({periodoLabel})</div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize:11, color:"var(--text-2,#64748b)", marginTop:12, lineHeight:1.5 }}>{saude.dica}</div>
+                        </div>
+
+                        <div style={{ background:"linear-gradient(135deg,#8b5cf6,#6d28d9)", borderRadius:18, padding:"16px 17px", boxShadow:DESIGN.cardShadowSoft, color:"#fff", display:"flex", flexDirection:"column" as const, justifyContent:"center" }}>
+                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+                            <div style={{ fontSize:11.5, fontWeight:900, textTransform:"uppercase" as const, letterSpacing:0.4, opacity:0.9 }}>Contratações · {periodoLabel}</div>
+                            {contDelta && <span style={{ fontSize:12, fontWeight:950, background:"rgba(255,255,255,0.22)", borderRadius:9, padding:"2px 9px", flexShrink:0 }}>{contDelta.up?"▲":"▼"} {contDelta.txt}</span>}
+                          </div>
+                          <div style={{ fontSize:46, fontWeight:950, lineHeight:1.05, marginTop:6 }}>{p.contratacoes}</div>
+                          <div style={{ fontSize:11.5, opacity:0.92, marginTop:4, lineHeight:1.4 }}>A métrica mais importante: seleções que viraram trabalho.</div>
+                        </div>
+                      </div>
+
+                      {/* ONDE AGIR — gargalos acionáveis agora */}
+                      <div style={{ fontSize:10.5, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>⚠️ Onde agir hoje</div>
+                      <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:16 }}>
+                        {tilePulso("Vagas sem candidato", p.vagas_sem_candidato, p.vagas_sem_candidato > 0 ? "#ef4444" : "#16a34a", "Abertas e ainda sem interessado — ligue para essas empresas")}
+                        {tilePulso("Empresas esperando resposta", p.empresas_esperando_resposta, p.empresas_esperando_resposta > 0 ? "#f59e0b" : "#16a34a", "Receberam candidato e ainda não responderam")}
+                        {tilePulso("Candidatos aguardando", p.candidatos_aguardando_retorno, p.candidatos_aguardando_retorno > 0 ? "#f59e0b" : "#16a34a", "Prestadores esperando a empresa responder")}
+                      </div>
+
+                      {/* AGORA — oferta no ar */}
+                      <div style={{ fontSize:10.5, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>🟢 Agora</div>
+                      <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:16 }}>
+                        {tilePulso("Vagas abertas", p.vagas_abertas, "#16a34a", "Oportunidades no ar agora (não vencidas)")}
+                        {tilePulso("Empresas ativas hoje", p.empresas_ativas_hoje, "#3A86FF", "Anunciantes que abriram o app hoje")}
+                        {tilePulso("Prestadores ativos hoje", p.prestadores_ativos_hoje, "#FF6B35", "Profissionais que abriram o app hoje")}
+                      </div>
+
+                      {/* CRESCIMENTO — fluxo do período vs período anterior */}
+                      <div style={{ fontSize:10.5, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>📈 Crescimento · {periodoLabel} vs período anterior</div>
+                      <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(2, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:16 }}>
+                        {tilePulso("Diárias concluídas", p.diarias_concluidas, "#16a34a", "Trabalhos finalizados no período", delta(p.diarias_concluidas, p.diarias_concluidas_ant))}
+                        {tilePulso("Valor movimentado", fmtReal(p.valor_movimentado), "#0ea5e9", "Soma das diárias/serviços concluídos (GMV)", delta(p.valor_movimentado, p.valor_movimentado_ant))}
+                      </div>
+
+                      {/* LIQUIDEZ — a máquina de match está rápida? */}
+                      <div style={{ fontSize:10.5, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>⚡ Liquidez · quanto menor o tempo, melhor</div>
+                      <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:8 }}>
+                        <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 15px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft }}>
+                          <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:800, textTransform:"uppercase" as const, letterSpacing:0.3 }}>Candidatos por vaga</div>
+                          <div style={{ fontSize:26, fontWeight:950, color:cpvCor, lineHeight:1.05, marginTop:6 }}>{cpv.toString().replace(".", ",")}</div>
+                          <div style={{ fontSize:10.5, fontWeight:850, color:cpvCor, marginTop:3 }}>{cpvMeta}</div>
+                          <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:2, lineHeight:1.4 }}>Média de interessados por vaga do período</div>
+                        </div>
+                        {tilePulso("Até 1ª candidatura", fmtTempo(p.tempo_1a_candidatura_h), "#3A86FF", "Mediana: publicar → primeiro interessado")}
+                        {tilePulso("Até contratação", fmtTempo(p.tempo_contratacao_h), "#8b5cf6", "Mediana: publicar → seleção do profissional")}
+                      </div>
+                      <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:8, lineHeight:1.5 }}>
+                        Cada número tem uma definição única — nada se repete nas outras abas. Ativos por período e seus deltas vêm do histórico de atividade diária (ficam redondos assim que houver ~2 períodos de dados). "Valor movimentado" = o dinheiro que rodou entre as partes (a plataforma não intermedia).
+                      </div>
+                    </>
+                  );
+                })()}
               </>
             );
           })()}
