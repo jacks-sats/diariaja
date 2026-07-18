@@ -10,7 +10,7 @@
 --   • tempo_1a_candidatura_h  = MEDIANA de horas entre publicar e a 1a candidatura.
 --   • tempo_contratacao_h     = MEDIANA de horas entre publicar e a selecao (contratacao).
 --   • contratacoes            = candidaturas com selecionado_em no periodo (a contratacao aconteceu).
---   • diarias_concluidas      = diarias status='concluida' finalizadas no periodo (updated_at).
+--   • diarias_concluidas      = diarias status='concluida' finalizadas no periodo (checkout_em).
 --   • valor_movimentado       = soma do valor das diarias/servicos CONCLUIDOS no periodo (GMV; emprego nao entra: salario nao e numerico).
 --
 -- Cada metrica de fluxo (contratacoes, diarias_concluidas, valor_movimentado)
@@ -83,26 +83,26 @@ BEGIN
 
     'diarias_concluidas', (
       SELECT COUNT(*)::INT FROM diarias d
-       WHERE d.status = 'concluida' AND COALESCE(d.updated_at, d.created_at) >= v_ini),
+       WHERE d.status = 'concluida' AND COALESCE(d.checkout_em, d.created_at) >= v_ini),
     'diarias_concluidas_ant', (
       SELECT COUNT(*)::INT FROM diarias d
        WHERE d.status = 'concluida'
-         AND COALESCE(d.updated_at, d.created_at) >= v_ini_ant
-         AND COALESCE(d.updated_at, d.created_at) < v_ini),
+         AND COALESCE(d.checkout_em, d.created_at) >= v_ini_ant
+         AND COALESCE(d.checkout_em, d.created_at) < v_ini),
 
     'valor_movimentado', COALESCE((
       SELECT SUM(d.valor)::numeric FROM diarias d
        WHERE d.status = 'concluida'
          AND d.tipo_oferta IN ('diaria','servico','servico_empresa')
          AND COALESCE(d.valor,0) > 0
-         AND COALESCE(d.updated_at, d.created_at) >= v_ini), 0),
+         AND COALESCE(d.checkout_em, d.created_at) >= v_ini), 0),
     'valor_movimentado_ant', COALESCE((
       SELECT SUM(d.valor)::numeric FROM diarias d
        WHERE d.status = 'concluida'
          AND d.tipo_oferta IN ('diaria','servico','servico_empresa')
          AND COALESCE(d.valor,0) > 0
-         AND COALESCE(d.updated_at, d.created_at) >= v_ini_ant
-         AND COALESCE(d.updated_at, d.created_at) < v_ini), 0),
+         AND COALESCE(d.checkout_em, d.created_at) >= v_ini_ant
+         AND COALESCE(d.checkout_em, d.created_at) < v_ini), 0),
 
     'periodo_dias', v_dias
   ) INTO v_out;
