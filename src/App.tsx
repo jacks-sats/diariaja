@@ -141,7 +141,7 @@ type AdminDocumentoVerificado = {
   documento_revisado_em: string;
 };
 
-type AdminSecao = "dashboard" | "usuarios" | "oportunidades" | "financeiro" | "suporte";
+type AdminSecao = "pulso" | "dashboard" | "usuarios" | "oportunidades" | "financeiro" | "suporte";
 
 type AdminFunilConversao = {
   periodo_dias: number;
@@ -1156,7 +1156,18 @@ export default function App() {
   const [adminSerieAtivos, setAdminSerieAtivos]     = useState<{ dia: string; valor: number }[]>([]);
   const [adminSerieConcluidas, setAdminSerieConcluidas] = useState<{ dia: string; valor: number }[]>([]);
   const [adminNovosLado, setAdminNovosLado]         = useState<{ diaristas_hoje: number; empregadores_hoje: number; diaristas_7d: number; empregadores_7d: number } | null>(null);
-  const [adminSecao, setAdminSecao]                 = useState<AdminSecao>("dashboard");
+  const [adminSecao, setAdminSecao]                 = useState<AdminSecao>("pulso");
+  // Pulso (home do fundador): sinais vitais reais. Opcional — degrada se a
+  // migração admin_pulso_vivo não rodou (a seção mostra aviso, não quebra).
+  type AdminPulso = {
+    empresas_ativas_hoje: number; prestadores_ativos_hoje: number; vagas_abertas: number;
+    media_candidatos_vaga: number; tempo_1a_candidatura_h: number | null; tempo_contratacao_h: number | null;
+    contratacoes: number; contratacoes_ant: number;
+    diarias_concluidas: number; diarias_concluidas_ant: number;
+    valor_movimentado: number; valor_movimentado_ant: number; periodo_dias: number;
+  };
+  const [adminPulso, setAdminPulso]     = useState<AdminPulso | null>(null);
+  const [adminPulsoDias, setAdminPulsoDias] = useState(30);
   const [adminFunil, setAdminFunil]                 = useState<AdminFunilConversao | null>(null);
   const [adminFunilDias, setAdminFunilDias]         = useState(30);
   // Aba Oportunidades: vagas abertas agora + interessados, e ranking por função
@@ -5721,6 +5732,8 @@ export default function App() {
       if (!fin.error && fin.data) setAdminFinanceiro(fin.data);
       // Mapa de demanda por região — opcional (degrada se a RPC não existe).
       void carregarAdminMapa(adminMapaDias, adminMapaAbertas);
+      // Pulso do fundador — opcional (degrada sem a migração).
+      void carregarAdminPulso(adminPulsoDias);
       // Insights da aba Oportunidades — opcionais (degradam sem a migração).
       void supabase.rpc("admin_vagas_ativas_interessados", { p_limit: 60 }).then(({ data, error }) => {
         if (!error && Array.isArray(data)) setAdminVagasAtivas(data as AdminVagaAtiva[]);
@@ -5773,6 +5786,13 @@ export default function App() {
     } finally {
       setCarregandoDrill(false);
     }
+  };
+
+  // Pulso do fundador: sinais vitais reais (RPC admin_pulso_vivo).
+  const carregarAdminPulso = async (dias: number) => {
+    if (!profile?.is_admin) return;
+    const { data, error } = await supabase.rpc("admin_pulso_vivo", { p_dias: dias });
+    if (!error && data && typeof data === "object") setAdminPulso(data as AdminPulso);
   };
 
   // Correção de localização por CEP: chama a Edge Function admin-regeocode.
@@ -23430,6 +23450,7 @@ export default function App() {
     const hojeV = (s: { dia: string; valor: number }[]) => (s && s.length ? s[s.length - 1].valor : 0);
     const fmtAdmin = (n: unknown) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits:2, maximumFractionDigits:2 });
     const adminNavegacao: { id: AdminSecao; label: string; icone: React.ReactNode }[] = [
+      { id:"pulso", label:"Pulso", icone:<HeartPulse size={17} /> },
       { id:"dashboard", label:"Dashboard", icone:<Activity size={17} /> },
       { id:"usuarios", label:"Usuários", icone:<Users size={17} /> },
       { id:"oportunidades", label:"Oportunidades", icone:<Briefcase size={17} /> },
@@ -23437,6 +23458,7 @@ export default function App() {
       { id:"suporte", label:"Suporte", icone:<Inbox size={17} /> },
     ];
     const adminMeta: Record<AdminSecao, { titulo: string; descricao: string }> = {
+      pulso: { titulo:"Pulso", descricao:"Os sinais vitais do app. Se esses números crescem, ele está vivo." },
       dashboard: { titulo:"Dashboard executivo", descricao:"O que está acontecendo e onde você precisa agir." },
       usuarios: { titulo:"Usuários", descricao:"Crescimento, composição, atividade e retenção da base." },
       oportunidades: { titulo:"Oportunidades", descricao:"Oferta, procura, conversão e distribuição regional." },
@@ -23485,6 +23507,85 @@ export default function App() {
         </div>
 
         <div style={{ padding:"18px 16px 4px" }}>
+          {adminSecao === "pulso" && (() => {
+            // Formatadores honestos: tempo em h→"Xh"/"X,Xd"; delta % vs anterior.
+            const fmtTempo = (h: number | null | undefined) => {
+              if (h == null) return "—";
+              if (h < 1) return `${Math.round(h * 60)} min`;
+              if (h < 48) return `${h.toString().replace(".", ",")}h`;
+              return `${(h / 24).toFixed(1).replace(".", ",")} dias`;
+            };
+            const fmtReal = (n: number) => `R$ ${Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+            const delta = (atual: number, ant: number) => {
+              if (!ant && !atual) return null;
+              if (!ant) return { txt: "novo", cor: "#16a34a", up: true };
+              const pct = Math.round(((atual - ant) / ant) * 100);
+              return { txt: `${pct >= 0 ? "+" : ""}${pct}%`, cor: pct >= 0 ? "#16a34a" : "#ef4444", up: pct >= 0 };
+            };
+            // Tile grande: valor + label + (opcional) delta vs período anterior.
+            const tilePulso = (label: string, valor: React.ReactNode, cor: string, dica: string, d?: { txt: string; cor: string; up: boolean } | null) => (
+              <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 15px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+                  <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:800, textTransform:"uppercase" as const, letterSpacing:0.3 }}>{label}</div>
+                  {d && <span style={{ fontSize:11, fontWeight:900, color:d.cor, background:d.cor+"18", borderRadius:8, padding:"2px 7px", flexShrink:0 }}>{d.up ? "▲" : "▼"} {d.txt}</span>}
+                </div>
+                <div style={{ fontSize:26, fontWeight:950, color:cor, lineHeight:1.05, marginTop:6 }}>{valor}</div>
+                <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:4, lineHeight:1.4 }}>{dica}</div>
+              </div>
+            );
+            const p = adminPulso;
+            return (
+              <>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginBottom:12, flexWrap:"wrap" as const }}>
+                  <div style={{ fontSize:13.5, fontWeight:900, color:"var(--text-1,#0f172a)", lineHeight:1.35, flex:1, minWidth:180 }}>
+                    Se esses números crescem, o app está vivo. 💚
+                  </div>
+                  <div style={{ display:"flex", gap:5 }}>
+                    {[7,30,90].map(dd => (
+                      <button key={dd} onClick={() => { setAdminPulsoDias(dd); void carregarAdminPulso(dd); }}
+                        style={{ border:"none", borderRadius:8, padding:"6px 10px", background: adminPulsoDias === dd ? "#0f172a" : "var(--bg-card,#fff)", color: adminPulsoDias === dd ? "#fff" : "#64748b", fontSize:11, fontWeight:850, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>{dd}d</button>
+                    ))}
+                  </div>
+                </div>
+
+                {!p ? (
+                  <div style={{ background:"var(--bg-card,#fff)", border:DESIGN.cardBorder, borderRadius:14, padding:"24px", textAlign:"center" as const, color:"var(--text-2,#64748b)", fontSize:12.5 }}>
+                    {carregandoAdminStats ? "Lendo os sinais vitais…" : "Pulso indisponível. Rode a migração admin_pulso_vivo.sql no Supabase."}
+                  </div>
+                ) : (
+                  <>
+                    {/* AGORA — snapshots dos dois lados + oferta no ar */}
+                    <div style={{ fontSize:10.5, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>🟢 Agora</div>
+                    <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:16 }}>
+                      {tilePulso("Empresas ativas hoje", p.empresas_ativas_hoje, "#3A86FF", "Anunciantes que abriram o app hoje")}
+                      {tilePulso("Prestadores ativos hoje", p.prestadores_ativos_hoje, "#FF6B35", "Profissionais que abriram o app hoje")}
+                      {tilePulso("Vagas abertas", p.vagas_abertas, "#16a34a", "Oportunidades no ar agora (não vencidas)")}
+                    </div>
+
+                    {/* CRESCIMENTO — fluxo do período vs período anterior */}
+                    <div style={{ fontSize:10.5, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>📈 Crescimento · {p.periodo_dias}d vs {p.periodo_dias}d anteriores</div>
+                    <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:16 }}>
+                      {tilePulso("Contratações", p.contratacoes, "#8b5cf6", "Seleções efetivadas (a contratação aconteceu)", delta(p.contratacoes, p.contratacoes_ant))}
+                      {tilePulso("Diárias concluídas", p.diarias_concluidas, "#16a34a", "Trabalhos finalizados no período", delta(p.diarias_concluidas, p.diarias_concluidas_ant))}
+                      {tilePulso("Valor movimentado", fmtReal(p.valor_movimentado), "#0ea5e9", "Soma das diárias/serviços concluídos (GMV)", delta(p.valor_movimentado, p.valor_movimentado_ant))}
+                    </div>
+
+                    {/* LIQUIDEZ — a máquina de match está rápida? */}
+                    <div style={{ fontSize:10.5, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>⚡ Liquidez · quanto menor o tempo, melhor</div>
+                    <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:8 }}>
+                      {tilePulso("Candidatos por vaga", p.media_candidatos_vaga.toString().replace(".", ","), "#f59e0b", "Média de interessados por vaga do período")}
+                      {tilePulso("Até 1ª candidatura", fmtTempo(p.tempo_1a_candidatura_h), "#3A86FF", "Mediana: publicar → primeiro interessado")}
+                      {tilePulso("Até contratação", fmtTempo(p.tempo_contratacao_h), "#8b5cf6", "Mediana: publicar → seleção do profissional")}
+                    </div>
+                    <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:8, lineHeight:1.5 }}>
+                      Cada número tem uma definição única — nada se repete nas outras abas. "Contratações" = seleções efetivadas; "Diárias concluídas" = trabalho finalizado; "Valor movimentado" = o dinheiro que rodou entre as partes (a plataforma não intermedia).
+                    </div>
+                  </>
+                )}
+              </>
+            );
+          })()}
+
           {adminSecao === "dashboard" && (() => {
             const u = adminFinanceiro?.unlocks || {};
             const pl = adminFinanceiro?.planos || {};
