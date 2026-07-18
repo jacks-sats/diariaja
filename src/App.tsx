@@ -6584,8 +6584,11 @@ export default function App() {
       await new Promise(r => setTimeout(r, 900));
     }
 
-    // 3. Remove candidaturas do banco (elimina dependência FK antes do delete)
+    // 3. Remove candidaturas E mensagens do banco (elimina dependências FK antes
+    //    do delete — a FK de `mensagens` barrava o delete e a vaga voltava no
+    //    rollback; no banco isso vira ON DELETE CASCADE, ver diarias_delete_cascade.sql)
     await supabase.from("candidaturas").delete().eq("diaria_id", dia.id);
+    await supabase.from("mensagens").delete().eq("diaria_id", dia.id);
 
     // 4. Deleta a diária do banco
     const { error } = await supabase.from("diarias").delete().eq("id", dia.id);
@@ -7382,7 +7385,12 @@ export default function App() {
   // barrar, NÃO some da tela falsamente — avisa o erro (senão reaparece no reload).
   const excluirDiariaExpirada = async (diaId: string) => {
     if (!session?.user) return;
+    // Apaga as filhas que barram o delete (chat + candidaturas) antes da diária.
+    // Sem isso, se a vaga tinha conversa, a FK de `mensagens` bloqueava o DELETE
+    // e a expirada "voltava" pra tela. (No banco isso vira ON DELETE CASCADE —
+    // ver migração diarias_delete_cascade.sql — aqui é o alívio imediato.)
     await supabase.from("candidaturas").delete().eq("diaria_id", diaId);
+    await supabase.from("mensagens").delete().eq("diaria_id", diaId);
     const { data, error } = await supabase.from("diarias").delete()
       .eq("id", diaId).eq("empregador_id", session.user.id).select("id");
     if (error || !data || data.length === 0) {
@@ -7407,6 +7415,7 @@ export default function App() {
     setDiarias(prev => prev.filter(d => d.id !== diaId));
     setConfirmExcluirDiariaCancelada(null);
     await supabase.from("candidaturas").delete().eq("diaria_id", diaId);
+    await supabase.from("mensagens").delete().eq("diaria_id", diaId);
     await supabase.from("diarias").delete().eq("id", diaId);
     setToastSuccess("🗑️ Diária cancelada removida permanentemente.");
   };
