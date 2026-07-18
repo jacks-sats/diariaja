@@ -141,7 +141,7 @@ type AdminDocumentoVerificado = {
   documento_revisado_em: string;
 };
 
-type AdminSecao = "pulso" | "dashboard" | "usuarios" | "oportunidades" | "financeiro" | "suporte";
+type AdminSecao = "pulso" | "usuarios" | "oportunidades" | "financeiro" | "suporte";
 
 type AdminFunilConversao = {
   periodo_dias: number;
@@ -23451,7 +23451,6 @@ export default function App() {
     const fmtAdmin = (n: unknown) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits:2, maximumFractionDigits:2 });
     const adminNavegacao: { id: AdminSecao; label: string; icone: React.ReactNode }[] = [
       { id:"pulso", label:"Pulso", icone:<HeartPulse size={17} /> },
-      { id:"dashboard", label:"Dashboard", icone:<Activity size={17} /> },
       { id:"usuarios", label:"Usuários", icone:<Users size={17} /> },
       { id:"oportunidades", label:"Oportunidades", icone:<Briefcase size={17} /> },
       { id:"financeiro", label:"Financeiro", icone:<Wallet size={17} /> },
@@ -23459,7 +23458,6 @@ export default function App() {
     ];
     const adminMeta: Record<AdminSecao, { titulo: string; descricao: string }> = {
       pulso: { titulo:"Pulso", descricao:"Os sinais vitais do app. Se esses números crescem, ele está vivo." },
-      dashboard: { titulo:"Dashboard executivo", descricao:"O que está acontecendo e onde você precisa agir." },
       usuarios: { titulo:"Usuários", descricao:"Crescimento, composição, atividade e retenção da base." },
       oportunidades: { titulo:"Oportunidades", descricao:"Oferta, procura, conversão e distribuição regional." },
       financeiro: { titulo:"Financeiro", descricao:"Receitas, assinaturas e desbloqueios de conversa." },
@@ -23581,52 +23579,6 @@ export default function App() {
                       Cada número tem uma definição única — nada se repete nas outras abas. "Contratações" = seleções efetivadas; "Diárias concluídas" = trabalho finalizado; "Valor movimentado" = o dinheiro que rodou entre as partes (a plataforma não intermedia).
                     </div>
                   </>
-                )}
-              </>
-            );
-          })()}
-
-          {adminSecao === "dashboard" && (() => {
-            const u = adminFinanceiro?.unlocks || {};
-            const pl = adminFinanceiro?.planos || {};
-            const receitaMes = Number(u.valor_mes || 0) + Number(pl.valor_estimado || 0);
-            const pendencias = [
-              { label:"Tickets aguardando", valor:adminStats?.tickets_abertos || 0, cor:"#ef4444", icone:<Inbox size={18} /> },
-              { label:"Documentos para revisar", valor:adminDocsPendentes.length, cor:"#f59e0b", icone:<FileText size={18} /> },
-              { label:"Antecedentes para revisar", valor:adminAntecedentesPendentes.length, cor:"#8b5cf6", icone:<ClipboardList size={18} /> },
-            ].filter(item => item.valor > 0);
-            return (
-              <>
-                <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, marginBottom:10 }}>Indicadores essenciais</div>
-                <div style={{ display:"grid", gridTemplateColumns:isDesktop ? "repeat(3, minmax(0, 1fr))" : "1fr 1fr", gap:10 }}>
-                  {cardStat("Usuários", adminContadoresOportunidades?.total_usuarios ?? adminStats?.total_usuarios ?? "—", "#3A86FF", <Users size={19} />, undefined, () => setAdminSecao("usuarios"))}
-                  {cardStat("Online agora", adminStats?.online_agora ?? "—", "#16a34a", <Activity size={19} />, undefined, () => setAdminSecao("usuarios"))}
-                  {cardStat("Oportunidades ativas", adminStats?.diarias_ativas ?? "—", "#f59e0b", <Briefcase size={19} />, undefined, () => setAdminSecao("oportunidades"))}
-                  {cardStat("Receita do mês", adminFinanceiro ? `R$ ${fmtAdmin(receitaMes)}` : "—", "#16a34a", <Wallet size={19} />, undefined, () => setAdminSecao("financeiro"))}
-                  {cardStat("Assinantes", adminFinanceiro ? (pl.ativos_total ?? 0) : (adminExtras?.assinaturas_ativas ?? "—"), "#8b5cf6", <Star size={19} />, undefined, () => setAdminSecao("financeiro"))}
-                  {cardStat("Tickets", adminStats?.tickets_abertos ?? "—", "#ef4444", <Inbox size={19} />, undefined, () => setAdminSecao("suporte"))}
-                </div>
-                <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:8, lineHeight:1.5 }}>Receita do mês soma desbloqueios confirmados e o valor mensal estimado dos planos ativos.</div>
-
-                <div style={{ marginTop:20, marginBottom:10, display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
-                  <div style={{ fontSize:11, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const }}>Precisa de atenção</div>
-                  <button onClick={() => setAdminSecao("suporte")} style={{ background:"none", border:"none", color:"#3A86FF", fontSize:11.5, fontWeight:850, cursor:"pointer" }}>Abrir suporte</button>
-                </div>
-                {pendencias.length === 0 ? (
-                  <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:12, padding:"14px 16px", color:"#166534", display:"flex", alignItems:"center", gap:10, fontSize:13, fontWeight:800 }}>
-                    <CheckCircle2 size={20} /> Nenhuma pendência operacional agora.
-                  </div>
-                ) : (
-                  <div style={{ display:"grid", gridTemplateColumns:isDesktop ? `repeat(${Math.min(3, pendencias.length)}, minmax(0, 1fr))` : "1fr", gap:10 }}>
-                    {pendencias.map(item => (
-                      <button key={item.label} onClick={() => setAdminSecao("suporte")}
-                        style={{ background:"var(--bg-card,#fff)", border:DESIGN.cardBorder, borderRadius:12, padding:"12px 14px", display:"flex", alignItems:"center", gap:10, textAlign:"left" as const, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", boxShadow:DESIGN.cardShadowSoft }}>
-                        <span style={{ width:36, height:36, borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", background:item.cor + "18", color:item.cor }}>{item.icone}</span>
-                        <span style={{ flex:1, color:"var(--text-1,#0f172a)", fontSize:12.5, fontWeight:800 }}>{item.label}</span>
-                        <strong style={{ color:item.cor, fontSize:18 }}>{item.valor}</strong>
-                      </button>
-                    ))}
-                  </div>
                 )}
               </>
             );
