@@ -1174,6 +1174,16 @@ export default function App() {
   };
   const [adminPulso, setAdminPulso]     = useState<AdminPulso | null>(null);
   const [adminPulsoDias, setAdminPulsoDias] = useState(30);
+  // Drill-down do bloco "Onde agir hoje" — QUAIS são + contato pra ligar.
+  type PulsoAcaoTipo = "vagas_sem_candidato" | "empresas_esperando" | "candidatos_aguardando";
+  type PulsoAcaoItem = {
+    id?: string; titulo?: string; vaga?: string; bairro?: string | null; valor?: number | null;
+    empresa?: string; prestador?: string; telefone?: string | null; aguardando?: number;
+    criada_em?: string; espera_desde?: string; desde?: string;
+  };
+  const [pulsoAcao, setPulsoAcao] = useState<{ tipo: PulsoAcaoTipo; titulo: string } | null>(null);
+  const [pulsoAcaoItens, setPulsoAcaoItens] = useState<PulsoAcaoItem[] | null>(null);
+  const [pulsoAcaoBusy, setPulsoAcaoBusy] = useState(false);
   const [adminFunil, setAdminFunil]                 = useState<AdminFunilConversao | null>(null);
   const [adminFunilDias, setAdminFunilDias]         = useState(30);
   // Aba Oportunidades: vagas abertas agora + interessados, e ranking por função
@@ -5799,6 +5809,20 @@ export default function App() {
     if (!profile?.is_admin) return;
     const { data, error } = await supabase.rpc("admin_pulso_vivo", { p_dias: dias });
     if (!error && data && typeof data === "object") setAdminPulso(data as AdminPulso);
+  };
+
+  // Abre o detalhe acionável de um gargalo do Pulso (quais + contato).
+  const abrirPulsoAcao = async (tipo: PulsoAcaoTipo, titulo: string) => {
+    if (!profile?.is_admin) return;
+    setPulsoAcao({ tipo, titulo });
+    setPulsoAcaoItens(null);
+    setPulsoAcaoBusy(true);
+    const rpc = tipo === "vagas_sem_candidato" ? "admin_pulso_vagas_sem_candidato"
+              : tipo === "empresas_esperando"  ? "admin_pulso_empresas_esperando"
+              : "admin_pulso_candidatos_aguardando";
+    const { data, error } = await supabase.rpc(rpc, { p_limit: 100 });
+    setPulsoAcaoBusy(false);
+    setPulsoAcaoItens(!error && Array.isArray(data) ? (data as PulsoAcaoItem[]) : []);
   };
 
   // Correção de localização por CEP: chama a Edge Function admin-regeocode.
@@ -23527,14 +23551,17 @@ export default function App() {
               return { txt: `${pct >= 0 ? "+" : ""}${pct}%`, cor: pct >= 0 ? "#16a34a" : "#ef4444", up: pct >= 0 };
             };
             // Tile grande: valor + label + (opcional) delta vs período anterior.
-            const tilePulso = (label: string, valor: React.ReactNode, cor: string, dica: string, d?: { txt: string; cor: string; up: boolean } | null) => (
-              <div style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 15px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft }}>
+            // Se `onClick` vier, o card vira clicável (abre o detalhe acionável).
+            const tilePulso = (label: string, valor: React.ReactNode, cor: string, dica: string, d?: { txt: string; cor: string; up: boolean } | null, onClick?: () => void) => (
+              <div onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined}
+                style={{ background:"var(--bg-card,#fff)", borderRadius:16, padding:"14px 15px", border:DESIGN.cardBorder, boxShadow:DESIGN.cardShadowSoft, cursor: onClick ? "pointer" : "default", position:"relative" as const }}>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
                   <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:800, textTransform:"uppercase" as const, letterSpacing:0.3 }}>{label}</div>
                   {d && <span style={{ fontSize:11, fontWeight:900, color:d.cor, background:d.cor+"18", borderRadius:8, padding:"2px 7px", flexShrink:0 }}>{d.up ? "▲" : "▼"} {d.txt}</span>}
                 </div>
                 <div style={{ fontSize:26, fontWeight:950, color:cor, lineHeight:1.05, marginTop:6 }}>{valor}</div>
                 <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:4, lineHeight:1.4 }}>{dica}</div>
+                {onClick && <div style={{ fontSize:10.5, fontWeight:900, color:cor, marginTop:7 }}>Ver quais ›</div>}
               </div>
             );
             const p = adminPulso;
@@ -23615,9 +23642,9 @@ export default function App() {
                       {/* ONDE AGIR — gargalos acionáveis agora */}
                       <div style={{ fontSize:10.5, fontWeight:850, color:"var(--text-3,#94a3b8)", textTransform:"uppercase" as const, letterSpacing:0.5, marginBottom:8 }}>⚠️ Onde agir hoje</div>
                       <div style={{ display:"grid", gridTemplateColumns: isDesktop ? "repeat(3, minmax(0,1fr))" : "1fr 1fr", gap:10, marginBottom:16 }}>
-                        {tilePulso("Vagas sem candidato", p.vagas_sem_candidato, p.vagas_sem_candidato > 0 ? "#ef4444" : "#16a34a", "Abertas e ainda sem interessado — ligue para essas empresas")}
-                        {tilePulso("Empresas esperando resposta", p.empresas_esperando_resposta, p.empresas_esperando_resposta > 0 ? "#f59e0b" : "#16a34a", "Receberam candidato e ainda não responderam")}
-                        {tilePulso("Candidatos aguardando", p.candidatos_aguardando_retorno, p.candidatos_aguardando_retorno > 0 ? "#f59e0b" : "#16a34a", "Prestadores esperando a empresa responder")}
+                        {tilePulso("Vagas sem candidato", p.vagas_sem_candidato, p.vagas_sem_candidato > 0 ? "#ef4444" : "#16a34a", "Abertas e ainda sem interessado — ligue para essas empresas", undefined, p.vagas_sem_candidato > 0 ? () => abrirPulsoAcao("vagas_sem_candidato", "Vagas sem candidato") : undefined)}
+                        {tilePulso("Empresas esperando resposta", p.empresas_esperando_resposta, p.empresas_esperando_resposta > 0 ? "#f59e0b" : "#16a34a", "Receberam candidato e ainda não responderam", undefined, p.empresas_esperando_resposta > 0 ? () => abrirPulsoAcao("empresas_esperando", "Empresas esperando resposta") : undefined)}
+                        {tilePulso("Candidatos aguardando", p.candidatos_aguardando_retorno, p.candidatos_aguardando_retorno > 0 ? "#f59e0b" : "#16a34a", "Prestadores esperando a empresa responder", undefined, p.candidatos_aguardando_retorno > 0 ? () => abrirPulsoAcao("candidatos_aguardando", "Candidatos aguardando retorno") : undefined)}
                       </div>
 
                       {/* AGORA — oferta no ar */}
@@ -23654,6 +23681,71 @@ export default function App() {
                   );
                 })()}
               </>
+            );
+          })()}
+
+          {/* Drill-down do "Onde agir hoje": lista quais são + contato pra agir. */}
+          {pulsoAcao && (() => {
+            const relTempo = (iso?: string) => {
+              if (!iso) return "";
+              const ms = Date.now() - new Date(iso).getTime();
+              if (ms < 0) return "agora";
+              const h = ms / 3600000;
+              if (h < 1) return `há ${Math.max(1, Math.round(h * 60))} min`;
+              if (h < 48) return `há ${Math.round(h)}h`;
+              return `há ${Math.round(h / 24)} dias`;
+            };
+            const waLink = (tel?: string | null) => {
+              const dd = (tel || "").replace(/\D/g, "");
+              if (!dd) return null;
+              return `https://wa.me/${dd.length <= 11 ? "55" + dd : dd}`;
+            };
+            const fmtR = (v?: number | null) => v != null ? `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : null;
+            const itens = pulsoAcaoItens;
+            return (
+              <div onClick={() => setPulsoAcao(null)} style={{ position:"fixed" as const, inset:0, background:"rgba(0,0,0,0.5)", zIndex:9000, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+                <div onClick={(e) => e.stopPropagation()} style={{ background:"var(--bg-app,#f0f2f5)", borderRadius:"20px 20px 0 0", width:"100%", maxWidth:520, maxHeight:"82vh", display:"flex", flexDirection:"column" as const, overflow:"hidden" }}>
+                  <div style={{ padding:"16px 18px 12px", borderBottom:DESIGN.cardBorder, display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontSize:14.5, fontWeight:950, color:"var(--text-1,#0f172a)" }}>{pulsoAcao.titulo}</div>
+                      <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, marginTop:2 }}>{itens ? `${itens.length} ${itens.length === 1 ? "item" : "itens"} · toque no WhatsApp pra agir` : "Carregando…"}</div>
+                    </div>
+                    <button onClick={() => setPulsoAcao(null)} style={{ border:"none", background:"var(--bg-card,#fff)", borderRadius:10, width:34, height:34, fontSize:18, fontWeight:900, color:"var(--text-2,#64748b)", cursor:"pointer", flexShrink:0 }}>×</button>
+                  </div>
+                  <div style={{ overflowY:"auto", padding:"12px 14px 20px", display:"grid", gap:9 }}>
+                    {pulsoAcaoBusy || !itens ? (
+                      <div style={{ textAlign:"center" as const, padding:"28px", color:"var(--text-3,#94a3b8)", fontSize:12.5 }}>Lendo…</div>
+                    ) : itens.length === 0 ? (
+                      <div style={{ textAlign:"center" as const, padding:"28px", color:"var(--text-3,#94a3b8)", fontSize:12.5 }}>Nada aqui agora — tudo em dia. 🎉</div>
+                    ) : itens.map((it, i) => {
+                      const wa = waLink(it.telefone);
+                      const quando = relTempo(it.criada_em || it.espera_desde || it.desde);
+                      const titulo = pulsoAcao.tipo === "candidatos_aguardando" ? it.prestador
+                                   : pulsoAcao.tipo === "empresas_esperando"    ? it.empresa
+                                   : it.titulo;
+                      const sub = pulsoAcao.tipo === "vagas_sem_candidato"
+                                    ? [it.empresa, it.bairro, fmtR(it.valor)].filter(Boolean).join(" · ")
+                                : pulsoAcao.tipo === "empresas_esperando"
+                                    ? `${it.aguardando} ${it.aguardando === 1 ? "candidato" : "candidatos"} esperando`
+                                    : `${it.vaga}${it.empresa ? " · " + it.empresa : ""}`;
+                      return (
+                        <div key={it.id || it.empresa || i} style={{ background:"var(--bg-card,#fff)", borderRadius:14, padding:"12px 13px", border:DESIGN.cardBorder, display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+                          <div style={{ minWidth:0, flex:1 }}>
+                            <div style={{ fontSize:13, fontWeight:900, color:"var(--text-1,#0f172a)", whiteSpace:"nowrap" as const, overflow:"hidden", textOverflow:"ellipsis" }}>{titulo}</div>
+                            <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", fontWeight:700, marginTop:2, whiteSpace:"nowrap" as const, overflow:"hidden", textOverflow:"ellipsis" }}>{sub}</div>
+                            {quando && <div style={{ fontSize:10.5, color:"var(--text-3,#94a3b8)", marginTop:2 }}>{pulsoAcao.tipo === "vagas_sem_candidato" ? "aberta " : "esperando "}{quando}</div>}
+                          </div>
+                          {wa ? (
+                            <a href={wa} target="_blank" rel="noreferrer" style={{ flexShrink:0, background:"#16a34a", color:"#fff", borderRadius:10, padding:"9px 12px", fontSize:12, fontWeight:900, textDecoration:"none" }}>WhatsApp</a>
+                          ) : (
+                            <span style={{ flexShrink:0, fontSize:10.5, color:"var(--text-3,#94a3b8)", fontWeight:700 }}>sem telefone</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             );
           })()}
 
