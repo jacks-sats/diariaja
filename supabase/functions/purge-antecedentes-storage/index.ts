@@ -81,39 +81,60 @@ Deno.serve(async (req) => {
       .not("antecedentes_url", "is", null);
     const setAtivos = new Set<string>((ativos ?? []).map((r: { antecedentes_url: string }) => r.antecedentes_url));
 
-    // 2. Lista pastas raiz do bucket (cada pasta = um user_id)
-    const { data: pastas, error: errPastas } = await supabase.storage
-      .from("antecedentes")
-      .list("", { limit: 1000 });
-    if (errPastas) throw errPastas;
-
-    for (const p of pastas ?? []) {
-      // Itens que aparecem na raiz como folders têm metadata.name = user_id
-      const userIdPrefix = p.name;
-      if (!userIdPrefix || userIdPrefix.startsWith(".")) continue;
-
-      const { data: arquivos, error: errArq } = await supabase.storage
+    // 2. Lista pastas raiz do bucket (cada pasta = um user_id).
+    // FIX 2026-07-24 (auditoria A-9): list() antes só pegava primeiros
+    // 1000 users e 100 arquivos por user. A partir do 1001º user ou 101º
+    // arquivo, NADA era purgado — LGPD silenciosamente descumprida.
+    // Agora pagina até esgotar.
+    const PAGE = 1000;
+    let offsetPastas = 0;
+    let ciclosPastas = 0;
+    while (ciclosPastas < 100) { // hard-stop defensivo (100 * 1000 = 100k users)
+      const { data: pastas, error: errPastas } = await supabase.storage
         .from("antecedentes")
-        .list(userIdPrefix, { limit: 100 });
-      if (errArq) continue;
+        .list("", { limit: PAGE, offset: offsetPastas });
+      if (errPastas) throw errPastas;
+      if (!pastas?.length) break;
 
-      const aDeletar: string[] = [];
-      for (const arq of arquivos ?? []) {
-        const path = `${userIdPrefix}/${arq.name}`;
-        // Não apaga arquivos referenciados como atuais no profile
-        if (setAtivos.has(path)) { ignorados++; continue; }
-        // Idade do arquivo
-        const created = arq.created_at ? new Date(arq.created_at).getTime() : 0;
-        if (created > 0 && created > cutoffMs) { ignorados++; continue; }
-        aDeletar.push(path);
+      for (const p of pastas) {
+        const userIdPrefix = p.name;
+        if (!userIdPrefix || userIdPrefix.startsWith(".")) continue;
+
+        // Pagina arquivos por user também.
+        let offsetArq = 0;
+        let ciclosArq = 0;
+        while (ciclosArq < 100) { // 100 * 1000 = 100k arquivos/user (impossível na prática)
+          const { data: arquivos, error: errArq } = await supabase.storage
+            .from("antecedentes")
+            .list(userIdPrefix, { limit: PAGE, offset: offsetArq });
+          if (errArq) break;
+          if (!arquivos?.length) break;
+
+          const aDeletar: string[] = [];
+          for (const arq of arquivos) {
+            const path = `${userIdPrefix}/${arq.name}`;
+            if (setAtivos.has(path)) { ignorados++; continue; }
+            const created = arq.created_at ? new Date(arq.created_at).getTime() : 0;
+            if (created > 0 && created > cutoffMs) { ignorados++; continue; }
+            aDeletar.push(path);
+          }
+
+          if (aDeletar.length > 0) {
+            const { error: errDel } = await supabase.storage
+              .from("antecedentes")
+              .remove(aDeletar);
+            if (!errDel) purgados += aDeletar.length;
+          }
+
+          if (arquivos.length < PAGE) break;
+          offsetArq += PAGE;
+          ciclosArq++;
+        }
       }
 
-      if (aDeletar.length > 0) {
-        const { error: errDel } = await supabase.storage
-          .from("antecedentes")
-          .remove(aDeletar);
-        if (!errDel) purgados += aDeletar.length;
-      }
+      if (pastas.length < PAGE) break;
+      offsetPastas += PAGE;
+      ciclosPastas++;
     }
 
     return new Response(
