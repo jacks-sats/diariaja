@@ -33,12 +33,12 @@ type Check = {
 
 async function checkSecret(nome: string, value: string | undefined): Promise<Check> {
   const ok = !!value && value.length > 10;
+  // FIX 2026-07-24 (auditoria A-7): antes vazava primeiros 8 chars do secret
+  // no detalhe. Basta contar caracteres pra saber se tá presente/OK.
   return {
     nome:    `secret_${nome}`,
     ok,
-    detalhe: ok
-      ? `presente (${value!.length} chars, prefixo ${value!.slice(0, 8)}...)`
-      : "ausente ou vazio",
+    detalhe: ok ? `presente (${value!.length} chars)` : "ausente ou vazio",
   };
 }
 
