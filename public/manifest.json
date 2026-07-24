@@ -1,8 +1,9 @@
 {
+  "id": "/?source=pwa",
   "name": "DiáriaJá",
   "short_name": "DiáriaJá",
   "description": "Plataforma de anúncios de oportunidades de serviços — conecte anunciantes e prestadores",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#FF6B35",
