@@ -284,7 +284,10 @@ async function sendFcm(
   accessToken: string,
   p: { title: string; body: string; url: string; tipo: string },
 ): Promise<Response> {
+  // FIX 2026-07-24 (auditoria A-2): timeout de 8s por envio.
+  // Sem isso, FCM lento pendurava a função inteira via Promise.all.
   return fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
+    signal: AbortSignal.timeout(8_000),
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -354,6 +357,16 @@ serve(async (req) => {
       return new Response(JSON.stringify({ sent: 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // FIX 2026-07-24 (auditoria edge-functions A-1): valida title/body.
+    // Antes: undefined era serializado como string "undefined" e o device
+    // mostrava "undefined" literal — bug reportado por vários users.
+    if (typeof title !== "string" || !title.trim() || typeof msgBody !== "string" || !msgBody.trim()) {
+      return new Response(JSON.stringify({ error: "title e body são obrigatórios" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const vapidPublic = Deno.env.get("VAPID_PUBLIC_KEY") ?? "";
     const vapidPrivate = Deno.env.get("VAPID_PRIVATE_KEY") ?? "";
     const vapidSubject = Deno.env.get("VAPID_SUBJECT") ?? "mailto:suporte@diariaja.com.br";
@@ -395,14 +408,20 @@ serve(async (req) => {
     let webSent = 0;
     let fcmSent = 0;
 
-    // ── Canal 1: Web Push (VAPID) — navegador / PWA (inalterado) ───────────
+    // ── Canal 1: Web Push (VAPID) — navegador / PWA ────────────────────────
+    // FIX 2026-07-24 (auditoria edge-functions A-2): AbortController com timeout
+    // de 8s por push. Sem isso, 1 FCM/APNS travado prendia a função inteira
+    // até Deno matar por ~30s, degradando todos os pushes do batch.
     if (subs?.length) {
       await Promise.all(subs.map(async (sub) => {
+        const ac = new AbortController();
+        const timeoutId = setTimeout(() => ac.abort(), 8_000);
         try {
           const auth = await buildVapidAuth(sub.endpoint, vapidPublic, vapidPrivate, vapidSubject);
           const { body: encBody } = await encrypt(payload, sub);
 
           const res = await fetch(sub.endpoint, {
+            signal: ac.signal,
             method: "POST",
             headers: {
               "Content-Type": "application/octet-stream",
@@ -422,7 +441,9 @@ serve(async (req) => {
             await supabaseAdmin.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
           }
         } catch {
-          // Falha individual não cancela as outras
+          // Falha individual (incl. AbortError de timeout) não cancela as outras
+        } finally {
+          clearTimeout(timeoutId);
         }
       }));
     }
