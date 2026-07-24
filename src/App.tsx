@@ -1699,6 +1699,10 @@ export default function App() {
   const [confirmDeleteConta, setConfirmDeleteConta] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false); // CRIT-5 auditoria
   const [deletandoConta, setDeletandoConta] = useState(false);
+  // FIX 2026-07-24: reautenticação obrigatória (audit A-4) — JWT roubado
+  // sozinho não pode mais apagar conta. Vira Cancelar/Confirmar em 2 etapas.
+  const [deleteSenha, setDeleteSenha] = useState("");
+  const [deleteConfirmEmail, setDeleteConfirmEmail] = useState("");
   const [telefoneVerificado, setTelefoneVerificado] = useState<boolean>(() => {
     try { return localStorage.getItem("diariaja_tel_verif") === "1"; } catch { return false; }
   });
@@ -10694,12 +10698,37 @@ export default function App() {
               <div style={{ width:40, height:4, background:"#e2e8f0", borderRadius:2, margin:"0 auto 20px" }} />
               <div style={{ fontSize:32, textAlign:"center", marginBottom:12 }}>🗑️</div>
               <div style={{ fontWeight:900, fontSize:18, color:"var(--text-1,#0f172a)", textAlign:"center", marginBottom:8 }}>Excluir conta</div>
-              <div style={{ fontSize:14, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:24, lineHeight:1.6 }}>
+              <div style={{ fontSize:14, color:"var(--text-2,#64748b)", textAlign:"center", marginBottom:16, lineHeight:1.6 }}>
                 Esta ação é <strong>permanente</strong> e não pode ser desfeita. Todos os seus dados, histórico e avaliações serão removidos.
+              </div>
+              {/* FIX 2026-07-24 (audit A-4): reautenticação obrigatória.
+                  Se usuário tem senha (email/senha): pede senha atual.
+                  Se OAuth (sem senha): pede pra digitar o email pra confirmar. */}
+              <label style={{ fontSize:12, fontWeight:700, color:"var(--text-2,#64748b)", display:"block", marginBottom:6 }}>
+                Confirme sua senha atual pra prosseguir
+              </label>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={deleteSenha}
+                onChange={e => setDeleteSenha(e.target.value)}
+                placeholder="Senha"
+                style={{ width:"100%", padding:"12px 14px", fontSize:14, border:"1.5px solid var(--border,#e2e8f0)", borderRadius:12, marginBottom:8, fontFamily:"Inter, system-ui, sans-serif", background:"var(--bg-input,#fff)", color:"var(--text-1,#0f172a)" }}
+              />
+              <div style={{ fontSize:11, color:"var(--text-3,#94a3b8)", marginBottom:16, lineHeight:1.5 }}>
+                Sem senha (login pelo Google)? Digite seu email no lugar:
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={deleteConfirmEmail}
+                  onChange={e => setDeleteConfirmEmail(e.target.value)}
+                  placeholder={session?.user?.email ?? "seu@email.com"}
+                  style={{ width:"100%", padding:"10px 12px", fontSize:13, border:"1.5px solid var(--border,#e2e8f0)", borderRadius:10, marginTop:6, fontFamily:"Inter, system-ui, sans-serif", background:"var(--bg-input,#fff)", color:"var(--text-1,#0f172a)" }}
+                />
               </div>
               <button
                 style={{ width:"100%", padding:"14px", background: deletandoConta ? "#e2e8f0" : "#dc2626", color:"#fff", border:"none", borderRadius:14, fontSize:15, fontWeight:800, cursor: deletandoConta ? "default" : "pointer", fontFamily:"Inter, system-ui, sans-serif", marginBottom:10 }}
-                disabled={deletandoConta}
+                disabled={deletandoConta || (!deleteSenha && !deleteConfirmEmail)}
                 onClick={async () => {
                   setDeletandoConta(true);
                   // A5: só declara "Conta excluída" se a exclusão REAL (Edge Function
@@ -10718,7 +10747,10 @@ export default function App() {
                         headers: {
                           "Authorization": `Bearer ${sess?.access_token ?? ""}`,
                           "Content-Type": "application/json",
+                          // Fallback OAuth: envia email digitado como confirmação.
+                          ...(deleteConfirmEmail ? { "x-confirm-delete": deleteConfirmEmail } : {}),
                         },
+                        body: JSON.stringify(deleteSenha ? { password: deleteSenha } : {}),
                       }
                     );
                     if (res.ok) {
@@ -10746,6 +10778,7 @@ export default function App() {
                   await supabase.auth.signOut();
                   setConfirmDeleteConta(false);
                   setDeletandoConta(false);
+                  setDeleteSenha(""); setDeleteConfirmEmail("");
                   if (sucesso) {
                     setToastSuccess("Conta excluída. Até logo!");
                   } else {
@@ -10760,7 +10793,7 @@ export default function App() {
               </button>
               <button
                 style={{ width:"100%", padding:"14px", background:"var(--bg-subtle,#f1f5f9)", color:"var(--text-1,#0f172a)", border:"none", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}
-                onClick={() => setConfirmDeleteConta(false)}>
+                onClick={() => { setConfirmDeleteConta(false); setDeleteSenha(""); setDeleteConfirmEmail(""); }}>
                 Cancelar
               </button>
             </div>

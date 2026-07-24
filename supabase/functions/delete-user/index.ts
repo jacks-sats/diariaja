@@ -46,6 +46,7 @@ serve(async (req) => {
     }
 
     const userId = user.id;
+    const userEmail = user.email ?? "";
 
     // Cliente admin com service_role para poder deletar auth.users
     const supabaseAdmin = createClient(
@@ -59,6 +60,41 @@ serve(async (req) => {
       supabaseAdmin,
     );
     if (limited) return limited;
+
+    // FIX 2026-07-24 (auditoria edge-functions A-4): reautenticação obrigatória.
+    // Antes: JWT roubado era suficiente pra apagar conta irreversível. Agora
+    // exige {password} no body — validado via signInWithPassword contra o
+    // email atual do user. Ataque de session-hijacking precisa ADICIONALMENTE
+    // saber a senha, o que reduz drasticamente o risco.
+    // Excepção: contas criadas via OAuth (Google) não têm senha — pra essas,
+    // aceita header `x-confirm-delete: <email do user>` como alternativa (o
+    // atacante precisaria conhecer o email; ainda melhor que JWT sozinho).
+    let bodyJson: Record<string, unknown> = {};
+    try { bodyJson = await req.json(); } catch { /* body vazio é OK pra OAuth flow */ }
+    const senhaFornecida = typeof bodyJson.password === "string" ? bodyJson.password : "";
+    const confirmEmailHeader = req.headers.get("x-confirm-delete") ?? "";
+
+    if (senhaFornecida) {
+      // Reautentica via password (fluxo padrão pra contas email/senha)
+      const { error: reAuthErr } = await supabaseUser.auth.signInWithPassword({
+        email: userEmail,
+        password: senhaFornecida,
+      });
+      if (reAuthErr) {
+        return new Response(
+          JSON.stringify({ error: "Senha incorreta. Digite sua senha atual pra confirmar a exclusão." }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    } else if (confirmEmailHeader && userEmail && confirmEmailHeader.toLowerCase() === userEmail.toLowerCase()) {
+      // Fallback pra contas OAuth (sem senha). Client precisa passar o email
+      // corretamente digitado como confirmação — reduz risco vs JWT sozinho.
+    } else {
+      return new Response(
+        JSON.stringify({ error: "Reautenticação obrigatória. Envie {password} no body OU header x-confirm-delete com seu email." }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // 1. Apaga dados do usuário em TODAS as tabelas do app (ordem importa para FK)
     // — anteriormente esquecia: convites, denuncias, nao_interesse, push_subscriptions,
