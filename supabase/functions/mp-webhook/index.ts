@@ -15,7 +15,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL     = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const MP_TOKEN         = Deno.env.get("MP_ACCESS_TOKEN")!;
+const MP_TOKEN              = Deno.env.get("MP_ACCESS_TOKEN")!;
+// FIX 2026-07-24 (auditoria pagamentos M-4): assinaturas foram criadas pelo
+// create-subscription usando MP_SUBSCRIPTION_TOKEN (app Assinaturas do MP).
+// Consultá-las via MP_ACCESS_TOKEN (app pagamentos avulsos) retorna 404 ou
+// preapproval de outro merchant → status nunca vira 'ativo'. Fallback ambos.
+const MP_SUBSCRIPTION_TOKEN = Deno.env.get("MP_SUBSCRIPTION_TOKEN") ?? MP_TOKEN;
 // IMPORTANTE: trim() pra remover whitespace/newline acidental que vem do paste
 // no dashboard. Foi causa real de 401s persistentes em 2026-05-28.
 const WEBHOOK_SECRET   = (Deno.env.get("MP_WEBHOOK_SECRET") ?? "").trim();
@@ -165,7 +170,10 @@ async function validarAssinatura(req: Request, body: string): Promise<boolean> {
     return false;
   }
   const agora = Math.floor(Date.now() / 1000);
-  if (Math.abs(agora - tsNum) > 300) {
+  // FIX 2026-07-24 (auditoria pagamentos A-3): janela era ±5min. MP retenta
+  // webhooks até 24h após falha, e pagamentos legítimos batiam fora da janela
+  // → rejeitados. Ampliar pra ±24h absorve retentativas e clock skew agressivo.
+  if (Math.abs(agora - tsNum) > 86400) {
     console.warn("[mp-webhook][SIG] ts fora da janela ±5min", { diff_seconds: agora - tsNum });
     return false;
   }
@@ -284,8 +292,10 @@ Deno.serve(async (req) => {
     if (topic === "preapproval" || topic === "subscription_preapproval") {
       const subId = String(body.data.id);
 
+      // Usa MP_SUBSCRIPTION_TOKEN (app Assinaturas) — não MP_ACCESS_TOKEN
+      // (que é da app de pagamentos avulsos). Ver comentário no topo do arquivo.
       const mpResp = await fetch(`https://api.mercadopago.com/preapproval/${subId}`, {
-        headers: { "Authorization": `Bearer ${MP_TOKEN}` },
+        headers: { "Authorization": `Bearer ${MP_SUBSCRIPTION_TOKEN}` },
       });
       if (!mpResp.ok) {
         // MP indisponível/erro transitório (401/429/5xx): não marca como processado
