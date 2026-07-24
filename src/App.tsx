@@ -707,6 +707,30 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toastError]);
 
+  // FIX 2026-05-29: Toast global via portal imperativo em document.body.
+  // Antes só 4 de 34 telas renderizavam <div>{toastError}</div>, então em 30
+  // telas qualquer setToastError caía no vazio (KYC, criar ticket, upload
+  // documento, convite, etc. falhavam silenciosamente).
+  // Portal imperativo funciona regardless de qual tela está renderizando.
+  useEffect(() => {
+    const containerId = "diariaja-global-toast";
+    let container = document.getElementById(containerId);
+    if (!container) {
+      container = document.createElement("div");
+      container.id = containerId;
+      document.body.appendChild(container);
+    }
+    const msg = toastError || toastSuccess;
+    if (!msg) { container.innerHTML = ""; return; }
+    const isErr = !!toastError;
+    const bg = isErr ? "#dc2626" : "#0f172a";
+    // Escape HTML pra evitar XSS em mensagens de erro que embutem input.
+    const escaped = String(msg).replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c] || c));
+    container.innerHTML = `<div style="position:fixed;top:20px;left:50%;transform:translateX(-50%);background:${bg};color:#fff;border-radius:24px;padding:10px 22px;font-size:14px;font-weight:700;z-index:99999;font-family:Inter,system-ui,sans-serif;max-width:calc(100vw - 40px);text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.25);">${escaped}</div>`;
+  }, [toastError, toastSuccess]);
+
   // FIX 2: ref para capturar o tipo atual dentro do closure do onAuthStateChange
   const tipoRef = useRef<string | null>(null);
   const notifHojeEnviadaRef = useRef(false); // evita reenviar notif de "diária hoje" na mesma sessão
