@@ -362,7 +362,17 @@ export function verificarDiscriminacao(texto: string): string | null {
 
 
 export function detectarContatoExterno(msg: string): boolean {
-  return /\b\d{8,11}\b/.test(msg) ||
+  // FIX 2026-07-24 (auditoria produto): antes /\b\d{8,11}\b/ pegava valores
+  // (R$ 12345), datas (28072026), CEPs, IDs. User não conseguia mandar
+  // mensagem legítima com número. Agora limpa valores/horários/CEP conhecidos
+  // ANTES de procurar telefone. Range apertado pra 9-11 dígitos (celular BR
+  // com/sem DDD). Também detecta disfarce por espaçamento (ex: "6 7 9 9 9").
+  const semValores = msg
+    .replace(/R\$\s*[\d.,]+/g, "")           // R$ 150 / R$ 1.500,00
+    .replace(/\b\d{1,2}[:h]\d{2}\b/gi, "")   // 8:00 / 18h30
+    .replace(/\b\d{5}-?\d{3}\b/g, "");       // CEPs
+  return /\b\d{9,11}\b/.test(semValores) ||           // telefone junto (celular BR)
+    /(?:\d[\s.-]+){7,}\d/.test(semValores) ||          // 8+ dígitos disfarçados com espaços/pontos
     /whatsapp|wpp|zap|telegram|meu.n[uú]mero|me.liga|me.chama|fora.do.app/i.test(msg);
 }
 

@@ -96,6 +96,17 @@ serve(async (req) => {
       );
     }
 
+    // FIX 2026-07-24 (audit MED-5): valida user.id como UUID antes de usar
+    // em filtros .or(). Supabase-js não faz escaping em templates de string
+    // com PostgREST — user.id vem do JWT já validado, mas defense-in-depth
+    // vale a pena caso o JWT parsing algum dia mude.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      return new Response(
+        JSON.stringify({ error: "user_id inválido" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // 1. Apaga dados do usuário em TODAS as tabelas do app (ordem importa para FK)
     // — anteriormente esquecia: convites, denuncias, nao_interesse, push_subscriptions,
     //   topicos, comentarios_comunidade, analytics_eventos, assinaturas,
