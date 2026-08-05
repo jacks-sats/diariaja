@@ -378,7 +378,19 @@ Deno.serve(async (req) => {
     );
     if (blocked) return blocked;
 
-    const { messages } = await req.json() as { messages: UserMessage[] };
+    // FIX 2026-07-24 (audit MED-2): JSON.parse sem catch dedicado. Se cliente
+    // manda body inválido, req.json() throw genérico caía no catch geral (500).
+    // Agora responde 400 específico.
+    let payload: { messages?: UserMessage[] };
+    try {
+      payload = await req.json();
+    } catch {
+      return new Response(JSON.stringify({ error: "Body JSON inválido." }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...CORS },
+      });
+    }
+    const messages = payload.messages;
 
     if (!messages || !Array.isArray(messages)) {
       return new Response(JSON.stringify({ error: "messages array required" }), {
@@ -409,7 +421,11 @@ Deno.serve(async (req) => {
     // Groq usa o mesmo formato da OpenAI.
     // A7 auditoria: temperature baixado de 0.7 pra 0.3 (suporte FAQ precisa
     // consistência, não criatividade).
+    // FIX 2026-07-24 (audit MED-1): timeout no fetch pro Groq. Sem AbortController,
+    // API travada segurava a função até Deno matar em ~30-60s. User via
+    // "Jájá pensando" para sempre.
     const response = await fetch(GROQ_URL, {
+      signal: AbortSignal.timeout(20_000),
       method: "POST",
       headers: {
         "Content-Type": "application/json",
