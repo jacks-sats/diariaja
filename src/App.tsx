@@ -1876,6 +1876,14 @@ export default function App() {
   // (Antes só existia um item escondido em Configurações — daí "não pede".)
   // Dispara o requestPermission só após o usuário tocar "Ativar" no nosso banner
   // (gesto do usuário) — pedir direto no load é bloqueado/ignorado pelo Chrome.
+  //
+  // FIX 2026-08-05 (audit produto #4): antes disparava 1200ms depois da home
+  // sem contexto — Chrome penaliza permissões pedidas assim, gera "denied"
+  // permanente. Agora só pede DEPOIS que o user demonstrou intenção real:
+  //   - diarista: tem candidatura OU convite recebido (algo que vale ser
+  //     notificado sobre)
+  //   - anunciante: tem diária publicada OU candidato recebido
+  // Se ninguém disso rolou ainda, silencia o prompt.
   useEffect(() => {
     if (!session?.user || !profile) return;
     if (tela !== "home-diarista" && tela !== "home-empregador") return;
@@ -1883,10 +1891,19 @@ export default function App() {
     let dispensado = false;
     try { dispensado = localStorage.getItem("diariaja_push_prompt_dispensado") === "1"; } catch { /* ignore */ }
     if (dispensado) return;
-    // Pequeno atraso pra não competir com o render inicial da home.
-    const t = setTimeout(() => setPromptNotif(true), 1200);
+
+    // Contexto de intenção — só pede permissão depois da 1ª ação relevante.
+    const temContextoDiarista = tela === "home-diarista" &&
+      (candidaturas.length > 0 || convitesRecebidos.length > 0);
+    const temContextoAnunciante = tela === "home-empregador" &&
+      (diarias.length > 0 || candidaturas.length > 0);
+    if (!temContextoDiarista && !temContextoAnunciante) return;
+
+    // Delay curto pra o prompt aparecer visualmente separado da ação.
+    const t = setTimeout(() => setPromptNotif(true), 800);
     return () => clearTimeout(t);
-  }, [tela, session?.user?.id, profile?.id, pushEstado.suportado, pushEstado.inscrito, pushEstado.permissao]);
+  }, [tela, session?.user?.id, profile?.id, pushEstado.suportado, pushEstado.inscrito, pushEstado.permissao,
+      candidaturas.length, convitesRecebidos.length, diarias.length]);
 
   // Persiste o CHAT aberto (id da diária) — assim ao atualizar a página o usuário
   // volta pra conversa em vez de cair na tela inicial (reclamação real).
@@ -14250,6 +14267,36 @@ export default function App() {
                                 title="Editar diária"
                                 onClick={e => { e.stopPropagation(); setModalEditarDiaria(dia); setFormEditarDiaria({ funcao:dia.funcao, descricao:dia.descricao, data:dia.data, horario_inicio:dia.horario_inicio, horario_fim:dia.horario_fim, valor:String(dia.valor) }); setAuthError(""); }}>
                                 ✏️
+                              </button>
+                            )}
+                            {/* FIX 2026-08-05 (audit produto #6): Republicar 1 clique pra vagas expiradas
+                                — reduz atrito de retenção. Duplica via INSERT direto (RLS já autoriza
+                                empregador a inserir suas próprias diárias) com data = amanhã. Sem
+                                passar pelo form (que exigiria re-preencher endereço). Depois de criar,
+                                o empregador ajusta se precisar via Editar. */}
+                            {dia.status === "expirada" && (
+                              <button
+                                style={{ background:"#fff7ed", color:"#ea580c", border:"none", borderRadius:8, padding:"4px 10px", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif", lineHeight:1 }}
+                                title="Republicar vaga com mesmos dados"
+                                onClick={async e => {
+                                  e.stopPropagation();
+                                  const amanha = new Date();
+                                  amanha.setDate(amanha.getDate() + 1);
+                                  const dataAmanha = amanha.toISOString().split("T")[0];
+                                  // Copia campos relevantes e refresh o status/data.
+                                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                  const { id: _id, created_at, status, motivo_cancelamento, pagamento_status, pagamento_mp_id, taxa_plataforma, diarista_aceite_id, ...campos } = dia as any;
+                                  const nova = { ...campos, data: dataAmanha, status: "aberta" };
+                                  const { data: created, error } = await supabase.from("diarias").insert(nova).select().single();
+                                  if (error) {
+                                    setToastError("Falha ao republicar: " + (error.message || "tente de novo"));
+                                    return;
+                                  }
+                                  if (created) setDiarias(prev => [created as Diaria, ...prev]);
+                                  setFiltroDiarias("ativas");
+                                  setToastSuccess(`✅ Vaga republicada pra ${amanha.toLocaleDateString("pt-BR")}. Confira e ajuste se precisar.`);
+                                }}>
+                                ♻️ Republicar
                               </button>
                             )}
                             {/* Botão recibo + PIX — só para concluídas */}
