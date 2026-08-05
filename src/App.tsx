@@ -1102,18 +1102,42 @@ export default function App() {
     );
   }, []);
 
-  // ── Banner de contagem regressiva do lançamento oficial ──────────────────
-  // Alvo: 1º/07/2026 00:00 em Campo Grande-MS (UTC−4). Some sozinho depois.
-  // Dismissível e persistido (diariaja_banner_lancamento_fechado).
-  const ALVO_LANCAMENTO = new Date("2026-07-01T00:00:00-04:00").getTime();
+  // Lançamento oficial (1º/07/2026) já ocorreu — contagem regressiva e banners
+  // vinculados foram removidos. `agoraBanner` fica porque outros pontos (rótulos
+  // de "última atualização") ainda dependem dele.
   const [agoraBanner, setAgoraBanner] = useState(() => Date.now());
-  const [bannerLancFechado, setBannerLancFechado] = useState(
-    () => { try { return localStorage.getItem("diariaja_banner_lancamento_fechado") === "1"; } catch { return false; } }
-  );
   // Dispensa do banner "baixe o app na Play" (só web). Persistido em localStorage.
   const [bannerBaixarFechado, setBannerBaixarFechado] = useState(
     () => { try { return localStorage.getItem("diariaja_baixar_app_v1") === "1"; } catch { return false; } }
   );
+  // FIX 2026-08-05 (auditoria): PWA install prompt. O navegador dispara
+  // `beforeinstallprompt` quando o site é elegível pra instalação como PWA
+  // (Android Chrome, Desktop Chrome/Edge). Guardamos o evento pra chamar
+  // `prompt()` num CTA visível — instalação nativa via PWA sem passar pela Play,
+  // ganho grande de retenção (ícone na home, push nativo, sem chrome do browser).
+  // Dispensa persistida separada da Play (`diariaja_pwa_install_fechado`).
+  const [pwaPromptEvent, setPwaPromptEvent] = useState<null | { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> }>(null);
+  const [bannerPwaFechado, setBannerPwaFechado] = useState(
+    () => { try { return localStorage.getItem("diariaja_pwa_install_fechado") === "1"; } catch { return false; } }
+  );
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) return;
+    const handler = (e: Event) => {
+      e.preventDefault(); // impede o mini-infobar padrão — mostramos nosso próprio CTA
+      setPwaPromptEvent(e as unknown as { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> });
+    };
+    const installedHandler = () => {
+      setPwaPromptEvent(null);
+      try { localStorage.setItem("diariaja_pwa_install_fechado", "1"); } catch {}
+      setBannerPwaFechado(true);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    window.addEventListener("appinstalled", installedHandler);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handler);
+      window.removeEventListener("appinstalled", installedHandler);
+    };
+  }, []);
   useEffect(() => {
     const id = setInterval(() => setAgoraBanner(Date.now()), 60000); // 1x/min — banner não mostra segundos
     return () => clearInterval(id);
@@ -4704,10 +4728,17 @@ export default function App() {
     if (fotoGoogle) setFotoUrl(fotoGoogle);
     try { await supabase.rpc("aceitar_termos", { p_versao: TERMOS_VERSAO }); } catch { /* RPC tenta de novo no próximo login */ }
     trackEvento("cadastro_express", session.user.id, tipoEscolhido === "diarista" ? "diarista" : "empregador", { via: "google" });
-    // C2 (auditoria): prestador SEM função/valor não aparece pros anunciantes —
-    // o express agora passa pelo setup obrigatório (1 tela) antes da home.
+    // FIX 2026-08-05 (auditoria): antes o Express de diarista pulava direto pro
+    // `setup-diarista` (só função/valor/bio) — CPF/sexo/data_nasc/telefone FICAVAM
+    // vazios pra sempre, deixando o perfil eternamente Nível Básico e sem chance
+    // de subir pra Verificado (destrava candidatura, chat, KYC). Agora manda pro
+    // wizard completo `cadastro-diarista` com nome pré-preenchido do Google.
     // Anunciante segue direto (o segmento é cobrado em escolha-negocio).
-    if (tipoEscolhido === "diarista") { setForm(f => ({ ...f, funcao: "", valor: "" })); setTela("setup-diarista"); }
+    if (tipoEscolhido === "diarista") {
+      setForm(f => ({ ...f, nome: nomeGoogle || f.nome, funcao: "", valor: "" }));
+      setPassoDiarista(1);
+      setTela("cadastro-diarista");
+    }
     else if (tipoEscolhido === "empregador") setTela("home-empregador");
     else setTela("cadastro-tipo");
   };
@@ -9011,49 +9042,56 @@ export default function App() {
   // clicar em "Sair" nas homes mudava state mas modal nunca aparecia.
   // Banner do Modo Beta — mostrado no topo das homes pra quem está gated.
   const betaBloqueado = modoBeta && !profile?.acesso_total && !profile?.is_admin;
-  // "1º de julho" vira contagem ao vivo: "em X dias (1º de julho)".
-  // ceil → conta o dia corrente como 1; sempre >= 1 dia até o lançamento.
-  const restanteLanc = ALVO_LANCAMENTO - agoraBanner;
-  const diasLanc = Math.ceil(restanteLanc / 86400000);
-  const prazoLanc = restanteLanc <= 0
-    ? "1º de julho"
-    : `${diasLanc} ${diasLanc === 1 ? "dia" : "dias"} (1º de julho)`;
+  // Banner "modo beta" — mostrado no topo das homes quando `app_config.modo_beta`
+  // trava as conexões pra quem não é admin/acesso_total. O lançamento oficial
+  // (1º/jul/2026) já ocorreu; mantido só como kill-switch caso precise regatear
+  // features novamente. Copy sem data — vazio genérico.
   const bannerBeta = betaBloqueado ? (
     <div style={{ background:"linear-gradient(135deg,#FF6B35,#fb923c)", color:"#fff", padding:"11px 16px", fontSize:13, fontWeight:600, lineHeight:1.5, textAlign:"center" as const }}>
-      🚀 <strong>Versão beta</strong> — as conexões (selecionar candidato e convites) abrem em <strong>{prazoLanc}</strong>. Crie vagas, candidate-se e complete seu perfil pra largar na frente!
+      🚀 <strong>Modo beta</strong> — as conexões (selecionar candidato e convites) estão temporariamente pausadas. Crie vagas, candidate-se e complete seu perfil pra largar na frente!
     </div>
   ) : null;
-
-  // Banner fino de countdown — mesmo padrão do bannerBeta (const + {injeção}).
-  // (restanteLanc já declarado acima, junto do bannerBeta — reusa a mesma contagem.)
-  const bannerLancamento = (restanteLanc <= 0 || bannerLancFechado) ? null : (() => {
-    // ceil → conta o dia corrente como 1; sempre >= 1 dia até o lançamento.
-    const dias = Math.ceil(restanteLanc / 86400000);
-    const texto = `Lançamento oficial em ${dias} ${dias === 1 ? "dia" : "dias"}`;
-    const fechar = () => {
-      setBannerLancFechado(true);
-      try { localStorage.setItem("diariaja_banner_lancamento_fechado", "1"); } catch {}
-    };
-    return (
-      <div style={{ display:"flex", alignItems:"center", gap:10, background:"#0A1733", color:"#FBF6EF", padding:"10px 14px", fontSize:14, fontWeight:700, borderBottom:"2px solid #FF6B35" }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden style={{ flexShrink:0 }}>
-          <path d="M12 1.5C7.5 1.5 4 5 4 9.3c0 5.6 8 13.2 8 13.2s8-7.6 8-13.2C20 5 16.5 1.5 12 1.5z" fill="#FF6B35"/>
-          <circle cx="12" cy="9.2" r="5" fill="#0A1733"/>
-        </svg>
-        <span style={{ flex:1 }}>
-          {texto} <span style={{ color:"#FF6B35" }}>· DiáriaJá chega em Campo Grande</span>
-        </span>
-        <button onClick={fechar} aria-label="Fechar aviso"
-          style={{ background:"transparent", border:0, color:"#8595BE", fontSize:18, lineHeight:1, cursor:"pointer", padding:4 }}>×</button>
-      </div>
-    );
-  })();
 
   // ── Banner "baixe o app na Play Store" ──────────────────────────────────────
   // Só na WEB (dentro do app nativo não faz sentido — o usuário já está no app)
   // e dispensável (localStorage diariaja_baixar_app_v1). Converte quem usa a
   // versão web/PWA em instalação oficial da Play. Reusado na landing e no splash.
-  const bannerBaixarApp = (Capacitor.isNativePlatform() || bannerBaixarFechado) ? null : (
+  // FIX 2026-08-05: quando o navegador expõe `beforeinstallprompt`, oferecer
+  // instalação nativa via PWA (Android Chrome/Desktop/Edge). Prevalece sobre o
+  // banner Play (que é só link externo — o PWA instala AGORA no dispositivo).
+  const bannerInstalarPwa = (Capacitor.isNativePlatform() || bannerPwaFechado || !pwaPromptEvent) ? null : (
+    <div style={{ display:"flex", alignItems:"center", gap:10, background:"#0A1733", color:"#FBF6EF", padding:"10px 14px", fontSize:14, fontWeight:700, borderBottom:"2px solid #FF6B35" }}>
+      <Smartphone size={18} style={{ color:"#FF6B35", flexShrink:0 }} />
+      <span style={{ flex:1, lineHeight:1.3 }}>
+        Instale o app <span style={{ color:"#FF6B35" }}>direto do navegador</span> — mais rápido, sem browser.
+      </span>
+      <button
+        onClick={async () => {
+          if (!pwaPromptEvent) return;
+          try { trackEvento("clique_instalar_pwa", session?.user?.id, modoAtual); } catch { /* analytics best-effort */ }
+          try {
+            await pwaPromptEvent.prompt();
+            const escolha = await pwaPromptEvent.userChoice;
+            try { trackEvento("resultado_instalar_pwa", session?.user?.id, modoAtual, { outcome: escolha.outcome }); } catch {}
+            setPwaPromptEvent(null); // beforeinstallprompt só pode ser chamado uma vez
+            if (escolha.outcome === "accepted") {
+              try { localStorage.setItem("diariaja_pwa_install_fechado", "1"); } catch {}
+              setBannerPwaFechado(true);
+            }
+          } catch (e) {
+            console.warn("[pwa] prompt falhou:", e);
+          }
+        }}
+        style={{ background:"#FF6B35", color:"#fff", border:"none", borderRadius:10, padding:"7px 14px", fontSize:13, fontWeight:800, whiteSpace:"nowrap", cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" }}>
+        Instalar
+      </button>
+      <button onClick={() => { setBannerPwaFechado(true); try { localStorage.setItem("diariaja_pwa_install_fechado", "1"); } catch {} }}
+        aria-label="Fechar aviso"
+        style={{ background:"transparent", border:0, color:"#8595BE", lineHeight:1, cursor:"pointer", padding:4, display:"inline-flex", alignItems:"center", justifyContent:"center" }}><X size={16} /></button>
+    </div>
+  );
+
+  const bannerBaixarApp = (Capacitor.isNativePlatform() || bannerBaixarFechado || bannerInstalarPwa) ? null : (
     <div style={{ display:"flex", alignItems:"center", gap:10, background:"#0A1733", color:"#FBF6EF", padding:"10px 14px", fontSize:14, fontWeight:700, borderBottom:"2px solid #FF6B35" }}>
       <Smartphone size={18} style={{ color:"#FF6B35", flexShrink:0 }} />
       <span style={{ flex:1, lineHeight:1.3 }}>
@@ -9069,31 +9107,6 @@ export default function App() {
         style={{ background:"transparent", border:0, color:"#8595BE", lineHeight:1, cursor:"pointer", padding:4, display:"inline-flex", alignItems:"center", justifyContent:"center" }}><X size={16} /></button>
     </div>
   );
-
-  // Variante do countdown pro topo do cadastro de prestador (tela com padding,
-  // por isso arredondada estilo banner MEI). Reusa a MESMA contagem/alvo e o
-  // MESMO dismiss (diariaja_banner_lancamento_fechado) do banner da landing.
-  const bannerLancamentoCadastro = (restanteLanc <= 0 || bannerLancFechado) ? null : (() => {
-    const dias = Math.ceil(restanteLanc / 86400000); // ceil → "10 dias" hoje, não "9"
-    const fechar = () => {
-      setBannerLancFechado(true);
-      try { localStorage.setItem("diariaja_banner_lancamento_fechado", "1"); } catch {}
-    };
-    return (
-      <div style={{ margin:"12px 0 0", background:"#0A1733", borderRadius:16, padding:"12px 14px", display:"flex", alignItems:"center", gap:10, color:"#FBF6EF", boxShadow:"0 4px 16px rgba(10,23,51,.28)" }}>
-        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden style={{ flexShrink:0 }}>
-          <path d="M12 1.5C7.5 1.5 4 5 4 9.3c0 5.6 8 13.2 8 13.2s8-7.6 8-13.2C20 5 16.5 1.5 12 1.5z" fill="#FF6B35"/>
-          <circle cx="12" cy="9.2" r="5" fill="#0A1733"/>
-        </svg>
-        <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontSize:13, fontWeight:900, lineHeight:1.3 }}>Lançamento oficial em {dias} {dias === 1 ? "dia" : "dias"}</div>
-          <div style={{ fontSize:12, color:"rgba(255,255,255,.8)", marginTop:2 }}>DiáriaJá chega em Campo Grande · garanta seu lugar</div>
-        </div>
-        <button aria-label="Fechar aviso" onClick={fechar}
-          style={{ background:"rgba(255,255,255,.18)", border:"none", color:"#fff", borderRadius:8, width:26, height:26, fontSize:14, fontWeight:900, cursor:"pointer", flexShrink:0, fontFamily:"Inter, system-ui, sans-serif" }}>✕</button>
-      </div>
-    );
-  })();
 
   const modalConfirmLogout = confirmLogout ? (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:9000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setConfirmLogout(false)}>
@@ -9302,7 +9315,7 @@ export default function App() {
     const btnGhost: React.CSSProperties = { padding:"14px 26px", background:"#fff", color:"#64748b", border:"1.5px solid #e2e8f0", borderRadius:14, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"Inter, system-ui, sans-serif" };
     return (
       <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", color:"#0f172a" }}>
-        {bannerLancamento}
+        {bannerInstalarPwa}
         {bannerBaixarApp}
         {/* Top nav */}
         <header style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"22px 48px", maxWidth:1180, margin:"0 auto" }}>
@@ -9403,7 +9416,7 @@ export default function App() {
   // SPLASH
   if (tela === "splash") return (
     <div style={{ minHeight:"100vh", background:"#f8fafc", fontFamily:"Inter, system-ui, sans-serif", display:"flex", flexDirection:"column" as const, maxWidth:LARGURA_APP_MOVEL, margin:"0 auto", position:"relative" as const, paddingBottom:150 }}>
-      {bannerLancamento}
+      {bannerInstalarPwa}
       {bannerBaixarApp}
       {/* Convite de vaga compartilhada: quem chegou por um link ?vaga=ID ainda
           sem conta vê um aviso de que precisa criar conta pra ver a vaga. O id
@@ -12463,7 +12476,6 @@ export default function App() {
 
     return (
       <div style={S.page}>
-        {bannerLancamentoCadastro}
         <button style={S.back} onClick={() => {
           if (passoDiarista === 1) { setAuthError(""); setTela("cadastro-tipo"); }
           else { setAuthError(""); setPassoDiarista(p => (Math.max(1, p - 1) as 1 | 2 | 3 | 4)); window.scrollTo({ top: 0, behavior: "smooth" }); }
@@ -13575,6 +13587,7 @@ export default function App() {
     return (
       <div style={employerShellStyle}>
         {employerDesktopSidebar}
+        {!employerDesktopMode && bannerInstalarPwa}
         {!employerDesktopMode && bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
@@ -17328,6 +17341,7 @@ export default function App() {
     return (
       <div style={diaristaShellStyle}>
         {diaristaDesktopSidebar}
+        {!diaristaDesktopMode && bannerInstalarPwa}
         {!diaristaDesktopMode && bannerBaixarApp}
 
         {/* Top nav do desktop — substitui a bottom nav em telas largas */}
