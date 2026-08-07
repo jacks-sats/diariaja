@@ -1569,14 +1569,15 @@ describe("montarTextoVaga", () => {
     expect(t2.length).toBeLessThan(longa.length + 100);
   });
 
-  it("deep link: com id, o texto termina com /vaga/ID (rota Open Graph)", () => {
+  it("deep link: com id, o URL vai no INÍCIO do texto (dispara preview no WhatsApp)", () => {
     const t = montarTextoVaga({ id: "v-99", tipo_oferta: "servico", funcao: "Pintor" });
-    expect(t.trim().endsWith(`${URL_APP}/vaga/v-99`)).toBe(true);
+    // Fix 2026-08-05: URL passou pra 1ª linha pra o robô do WhatsApp gerar preview.
+    expect(t.startsWith(`${URL_APP}/vaga/v-99`)).toBe(true);
   });
 
   it("deep link com ref: o link do texto carrega o ?ref= do canal", () => {
     const t = montarTextoVaga({ id: "v-99", tipo_oferta: "servico", funcao: "Pintor" }, "share");
-    expect(t.trim().endsWith(`${URL_APP}/vaga/v-99?ref=share`)).toBe(true);
+    expect(t.startsWith(`${URL_APP}/vaga/v-99?ref=share`)).toBe(true);
   });
 
   it("compartilhamento nativo: permite enviar o link separado sem duplicar no texto", () => {
@@ -1592,7 +1593,9 @@ describe("montarTextoVaga", () => {
     });
     // bairro entra, mas nada de "Rua"/número (endereço só após aceitar no app)
     expect(t).not.toMatch(/Rua |Avenida |nº/i);
-    expect(t.trim().endsWith(URL_APP)).toBe(true);
+    // Fix 2026-08-05: link agora abre o texto (1ª linha), não fecha — WhatsApp
+    // é muito mais confiável pra gerar preview de URLs no início.
+    expect(t.startsWith(URL_APP)).toBe(true);
   });
 });
 
