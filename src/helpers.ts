@@ -1453,7 +1453,13 @@ export function linkVaga(id?: string | null, ref?: RefCompartilhamento): string 
 
 // Monta o texto "chamariz" que o diarista compartilha fora do app. Trata os três
 // tipos de oferta (diária, serviço pontual e vaga de emprego), com layout limpo.
-// No compartilhamento nativo, o link vai separado para evitar duplicidade.
+// No compartilhamento nativo (Web Share API), o link vai separado (opts.incluirLink=false)
+// e o app do destino faz a prévia a partir do URL.
+//
+// FIX 2026-08-05: quando o link vai NO CORPO (wa.me), colocamos o URL LOGO NO
+// TOPO do texto — WhatsApp gera preview de forma muito mais confiável pra
+// URLs no início da mensagem. Antes ficava no fim de 12+ linhas e o robô da
+// prévia frequentemente pulava, fazendo o compartilhamento sair "só texto".
 export function montarTextoVaga(
   v: VagaCompartilhavel,
   refOrOpts: RefCompartilhamento | { ref?: RefCompartilhamento; incluirLink?: boolean } = {},
@@ -1493,6 +1499,13 @@ export function montarTextoVaga(
   }
 
   const linhas: string[] = [];
+  // URL PRIMEIRO quando vai no corpo — dispara o preview do WhatsApp com muito
+  // mais confiabilidade. Segue com título/detalhes abaixo pra dar contexto
+  // caso o preview demore ou falhe (o texto fica sempre útil por si só).
+  if (incluirLink) {
+    linhas.push(linkVaga(v.id, ref));
+    linhas.push("");
+  }
   linhas.push(`${emoji} *${titulo} no DiáriaJá!*`);
   linhas.push(div);
   if (funcao) linhas.push(`👷 ${funcao}`);
@@ -1508,8 +1521,7 @@ export function montarTextoVaga(
     linhas.push(`📋 ${descCurta}`);
   }
   linhas.push(div);
-  linhas.push(incluirLink ? "👉 Veja os detalhes e candidate-se no app:" : "👉 Veja os detalhes e candidate-se pelo link:");
-  if (incluirLink) linhas.push(linkVaga(v.id, ref));
+  linhas.push(incluirLink ? "👉 Toque no link acima pra abrir no DiáriaJá." : "👉 Veja os detalhes e candidate-se pelo link:");
   return linhas.join("\n");
 }
 
